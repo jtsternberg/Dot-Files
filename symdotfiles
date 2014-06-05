@@ -1,0 +1,15 @@
+#!/bin/bash
+
+THIS_SCRIPT=`basename $0`
+WORKING_DIR=`pwd`
+shopt -s dotglob
+DOTFILES=*
+
+echo "Making those symlinks"
+for file in $DOTFILES; do
+	if [ $THIS_SCRIPT != $file ]
+		then
+			echo "Processing $file file..."
+			ln -s $WORKING_DIR/$file ../$file
+	fi
+done

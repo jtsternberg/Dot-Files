@@ -1,0 +1,127 @@
+[include]
+    path = ~/.dotfiles/private/additional_config ;
+
+; Custom
+[alias]
+	; List all aliases
+	la = "!git config -l | grep alias | cut -c 7-"
+
+	; basic shortcuts
+	a = add -p
+	aa = add
+	aaa = add .
+	cp = cherry-pick
+	cher = cherry -v --abbrev master
+	incoming = !(git fetch --quiet && git log --pretty=format:'%C(yellow)%h %C(white)- %C(red)%an %C(white)- %C(cyan)%d%Creset %s %C(white)- %ar%Creset' ..@{u})
+	outgoing = !(git fetch --quiet && git log --pretty=format:'%C(yellow)%h %C(white)- %C(red)%an %C(white)- %C(cyan)%d%Creset %s %C(white)- %ar%Creset' @{u}..)
+	st = status
+	s = status --short -b
+	cl = clone
+	; Gets all submodules
+	clr = clone --recursive
+	c = commit
+	p = push
+	pr = pull --rebase
+	co = checkout
+	br = branch
+	diff = diff --word-diff
+	dc = diff --cached
+	mote = remote -v
+	zip = git archive --format zip --output
+
+	; reset
+	r = reset
+	r1 = reset HEAD^
+	r2 = reset HEAD^^
+	rh = reset --hard
+	rh1 = reset HEAD^ --hard
+	rh2 = reset HEAD^^ --hard
+
+	; log stuff
+	ls = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate
+	ll = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --numstat
+	lnc = log --pretty=format:"%h\\ %s\\ [%cn]"
+	lds = log --pretty=format:"%C(yellow)%h\\ %ad%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=short
+	ld = log --pretty=format:"%C(yellow)%h\\ %ad%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=relative
+	le = log --oneline --decorate
+	lol = log --graph --decorate --pretty=oneline --abbrev-commit
+	lola = log --graph --decorate --pretty=oneline --abbrev-commit --all
+
+	; history
+	filelog = log -u
+	fl = log -u
+	dl = "!git ll -1"
+	dlc = diff --cached HEAD^
+	dr  = "!f() { git diff "$1"^.."$1"; }; f"
+	lc  = "!f() { git ll "$1"^.."$1"; }; f"
+	diffr  = "!f() { git diff "$1"^.."$1"; }; f"
+
+	; search
+	f = "!git ls-files | grep -i"
+	grep = grep -Ii
+	gr = grep -Ii
+	gra = "!f() { A=$(pwd) && TOPLEVEL=$(git rev-parse --show-toplevel) && cd $TOPLEVEL && git grep --full-name -In $1 | xargs -I{} echo $TOPLEVEL/{} && cd $A; }; f"
+
+	; assume
+	assume = update-index --assume-unchanged
+	unassume = update-index --no-assume-unchanged
+	assumed = "!git ls-files -v | grep ^h | cut -c 3-"
+	unassumeall = "!git assumed | xargs git update-index --no-assume-unchanged"
+	assumeall = "!git st -s | awk {'print $2'} | xargs git assume"
+
+	; tags
+	lasttag = describe --tags --abbrev=0
+	lt = describe --tags --abbrev=0
+
+	; stash
+	sl = stash list
+	sa = stash apply
+	ss = stash save
+
+	;git-svn
+	svnr = svn rebase
+	svnd = svn dcommit
+	svnl = svn log --oneline --show-commit
+
+; Environment
+[core]
+	editor = /Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl -n -w
+	;symlinks = false
+	excludesfile = /Users/jt/.gitignore_global
+	;autocrlf = true
+
+[push]
+	default = simple
+
+[color]
+	ui = auto
+	branch = auto
+	diff = auto
+	interactive = auto
+	status = auto
+
+; diff and merge
+[diff]
+	guitool = kaleidoscope
+	tool = Kaleidoscope
+[difftool]
+[merge]
+	tool = kaleidoscope
+[difftool "kaleidoscope"]
+	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
+[mergetool "kaleidoscope"]
+	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+	trustExitCode = true
+[credential]
+	helper = osxkeychain
+[mergetool "sourcetree"]
+	cmd = /Applications/SourceTree.app/Contents/Resources/opendiff-w.sh \"$LOCAL\" \"$REMOTE\" -ancestor \"$BASE\" -merge \"$MERGED\"
+	trustExitCode = true
+[difftool "sourcetree"]
+	cmd = /usr/local/bin/ksdiff -w \"$LOCAL\" \"$REMOTE\"
+	path =
+[difftool "Kaleidoscope"]
+[difftool "Kaleidoscope"]
+	cmd = ksdiff-wrapper git \"$LOCAL\" \"$REMOTE\"
+[difftool]
+	prompt = false
