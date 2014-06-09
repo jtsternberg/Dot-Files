@@ -7,7 +7,7 @@ DOTFILES=*
 
 echo "Making those symlinks"
 for file in $DOTFILES; do
-	if [ $THIS_SCRIPT != $file ]
+	if [ $THIS_SCRIPT != $file ] && [ '.git' != $file ]
 		then
 			echo "Processing $file file..."
 			ln -s $WORKING_DIR/$file ../$file
