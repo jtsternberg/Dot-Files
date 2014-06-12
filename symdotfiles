@@ -1,12 +1,27 @@
 #!/bin/bash
 
+# =============================================================================
+# Symlink files
+# By Brad Parbs <brad@bradparbs.com> and Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/symdotfiles
+#
+# Version 1.0.0
+#
+# Creates symlinks to all files in the current directory
+# to the directory above it.
+#
+# Usage:
+# cd to this script's directory and..
+# sh symdotfiles
+# =============================================================================
+
 THIS_SCRIPT=`basename $0`
 WORKING_DIR=`pwd`
 shopt -s dotglob
-DOTFILES=*
+ALLFILES=*
 
 echo "Making those symlinks"
-for file in $DOTFILES; do
+for file in $ALLFILES; do
 	if [ $THIS_SCRIPT != $file ] && [ '.git' != $file ]
 		then
 			echo "Processing $file file..."
