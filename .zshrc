@@ -29,6 +29,7 @@ alias copysshkey='pbcopy < ~/.ssh/id_rsa.pub'
 alias myip='curl ifconfig.me -v | pbcopy'
 alias ql='qlmanage -p'
 alias gifs='~/Sites/wpengine/gifs'
+alias mergeall='git mergetool -t opendiff'
 
 # Random commit message
 alias yolo="git commit -am '`curl -s http://whatthecommit.com/index.txt`'"
@@ -62,7 +63,7 @@ remove-untracked() { rm -rf `git ls-files --other --exclude-standard` }
 # DISABLE_CORRECTION="true"
 
 # Uncomment following line if you want red dots to be displayed while waiting for completion
-# COMPLETION_WAITING_DOTS="true"
+COMPLETION_WAITING_DOTS="true"
 
 # Uncomment following line if you want to disable marking untracked files under
 # VCS as dirty. This makes repository status check for large repositories much,
@@ -84,9 +85,6 @@ source $ZSH/oh-my-zsh.sh
 # Will remove from prompt if matches current user
 # DEFAULT_USER="JT"
 
-# plugins=(zsh-syntax-highlighting)
-# ZSH syntax highlighting
-# source ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl http://www.gitignore.io/api/$@ ;}
