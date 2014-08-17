@@ -88,7 +88,7 @@
 	editor = /Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl -n -w
 	;symlinks = false
 	excludesfile = /Users/jt/.gitignore_global
-	;autocrlf = true
+	autocrlf = false
 
 [push]
 	default = simple
