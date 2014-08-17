@@ -42,10 +42,12 @@ source "$HOME/.dotfiles/private/additonal_aliases.sh"
 ls-mod-dir() { git ls-files -m -- "$*" }
 ## Git: reset modified files in a directory
 reset-mod-dir() { git checkout -- `git ls-files -m -- "$*"` }
+dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topath="$2" $3 }
 ## Git: Gets all submodule
 ## Git: Remove untracked files (use caution)
 remove-untracked() { rm -rf `git ls-files --other --exclude-standard` }
 
+base64-svg() { echo -n `cat "$*"` | base64 | pbcopy }
 # Set to this to use case-sensitive completion
 # CASE_SENSITIVE="true"
 
@@ -89,4 +91,4 @@ source $ZSH/oh-my-zsh.sh
 
 ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
-function gi() { curl http://www.gitignore.io/api/$@ ;}
+function gi() { curl http://www.gitignore.io/api/$@  >> .gitignore;}
