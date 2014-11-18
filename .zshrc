@@ -8,10 +8,11 @@ ZSH=$HOME/.oh-my-zsh
 ZSH_THEME="jt"
 
 # Example aliases
+source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
 alias ohmyzsh="subl ~/.dotfiles/.oh-my-zsh"
-alias cmb="cd ~/Sites/dsgnwrks.pro/wp-content/themes/elevation-worship/lib/cmb/"
+alias cmb="cd ~/Sites/dsgnwrks.pro/wp-content/mu-plugins/cmb2/"
 alias dw="cd ~/Sites/dsgnwrks.pro/"
 alias dwplugins="cd ~/Sites/dsgnwrks.pro/wp-content/plugins"
 alias dwthemes="cd ~/Sites/dsgnwrks.pro/wp-content/themes"
@@ -35,19 +36,42 @@ alias hidedotfiles='defaults write com.apple.finder AppleShowAllFiles -bool fals
 alias showdotfiles='defaults write com.apple.finder AppleShowAllFiles -bool true &amp;&amp; killall Finder'
 # Random commit message
 alias yolo="git commit -am '`curl -s http://whatthecommit.com/index.txt`'"
-
-source "$HOME/.dotfiles/private/additonal_aliases.sh"
-
-## Git: view modified files in a directory
-ls-mod-dir() { git ls-files -m -- "$*" }
-## Git: reset modified files in a directory
-reset-mod-dir() { git checkout -- `git ls-files -m -- "$*"` }
+alias mysqlstart="sudo /usr/local/mysql/support-files/mysql.server start"
+alias mysqlstop="sudo /usr/local/mysql/support-files/mysql.server stop"
+alias groot='cd `git rev-parse --show-cdup`'
+# alias macdown=`open -a MacDown
+# Open in MacDown
+macdown() { open -a MacDown $1 }
+# Create symlinks for entire directory
 dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topath="$2" $3 }
-## Git: Gets all submodule
-## Git: Remove untracked files (use caution)
-remove-untracked() { rm -rf `git ls-files --other --exclude-standard` }
-
+# tail a debug log in any w
+debuglog() { tail -f $1/wp-content/debug.log }
 base64-svg() { echo -n `cat "$*"` | base64 | pbcopy }
+
+dandeploy() {
+	PREFIX=$*
+	if [ -z "$PREFIX" ];
+		then
+			echo "Using dandelion.yml to deploy"
+			dandelion deploy
+		else
+			echo "Using $PREFIX-dandelion.yml to deploy"
+			dandelion --config=$PREFIX-dandelion.yml deploy
+	fi
+}
+
+
+## Git functions
+
+# view modified files in a directory
+ls-mod-dir() { git ls-files -m -- "$*" }
+# reset modified files in a directory
+reset-mod-dir() { git checkout -- `git ls-files -m -- "$*"` }
+# Remove untracked files (use caution)
+remove-untracked() { rm -rf `git ls-files --other --exclude-standard` }
+# Get all files changed b/w commits
+gdifflog() { git log --name-only --pretty=oneline --full-index $*..HEAD | grep -vE '^[0-9a-f]{40} ' | sort | uniq }
+
 # Set to this to use case-sensitive completion
 # CASE_SENSITIVE="true"
 
@@ -91,4 +115,4 @@ source $ZSH/oh-my-zsh.sh
 
 ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
-function gi() { curl http://www.gitignore.io/api/$@  >> .gitignore;}
+function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}

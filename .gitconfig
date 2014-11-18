@@ -23,11 +23,15 @@
 	p = push
 	pr = pull --rebase
 	co = checkout
+	cob = checkout -b
 	br = branch
+	brv = branch -vv
 	diff = diff --word-diff
+	cdiff = diff --color-words
 	dc = diff --cached
 	mote = remote -v
-	zip = git archive --format zip --output
+	zip = archive --format zip --output
+	m = merge --log
 
 	; reset
 	r = reset
@@ -46,6 +50,7 @@
 	le = log --oneline --decorate
 	lol = log --graph --decorate --pretty=oneline --abbrev-commit
 	lola = log --graph --decorate --pretty=oneline --abbrev-commit --all
+	ldiff = diff --name-status
 
 	; history
 	filelog = log -u
@@ -86,9 +91,10 @@
 ; Environment
 [core]
 	editor = /Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl -n -w
-	;symlinks = false
+	symlinks = false
 	excludesfile = /Users/jt/.gitignore_global
 	autocrlf = false
+	whitespace = cr-at-eol
 
 [push]
 	default = simple
@@ -104,24 +110,33 @@
 [diff]
 	guitool = kaleidoscope
 	tool = Kaleidoscope
+	noprefix = true
+
 [difftool]
 [merge]
 	tool = kaleidoscope
+
 [difftool "kaleidoscope"]
 	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
+
 [mergetool "kaleidoscope"]
 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
 	trustExitCode = true
+
 [credential]
 	helper = osxkeychain
+
 [mergetool "sourcetree"]
 	cmd = /usr/local/bin/ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
 	trustExitCode = true
+
 [difftool "sourcetree"]
 	cmd = /usr/local/bin/ksdiff -w \"$LOCAL\" \"$REMOTE\"
 	path = 
+
 [difftool "Kaleidoscope"]
 [difftool "Kaleidoscope"]
 	cmd = ksdiff-wrapper git \"$LOCAL\" \"$REMOTE\"
+
 [difftool]
 	prompt = false
