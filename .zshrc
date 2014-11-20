@@ -39,6 +39,8 @@ alias yolo="git commit -am '`curl -s http://whatthecommit.com/index.txt`'"
 alias mysqlstart="sudo /usr/local/mysql/support-files/mysql.server start"
 alias mysqlstop="sudo /usr/local/mysql/support-files/mysql.server stop"
 alias groot='cd `git rev-parse --show-cdup`'
+alias bell='echo "\a"'
+
 # alias macdown=`open -a MacDown
 # Open in MacDown
 macdown() { open -a MacDown $1 }
