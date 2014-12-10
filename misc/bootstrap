@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap | bash
 
 git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles
 
-if [ "$OSTYPE" =~ ^linux ]
+if [ "$OSTYPE" == *"linux"* ]
 	then
 		sudo apt-get -y install zsh tree tig wget
 
@@ -13,3 +13,4 @@ if [ "$OSTYPE" =~ ^linux ]
 
 		chsh -s $(which zsh)
 fi
+
