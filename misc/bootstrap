@@ -8,7 +8,7 @@ if [ "${OSTYPE#*'linux'}" != "$OSTYPE" ]
 	then
 		sudo apt-get -y install zsh tree tig wget
 
-		cd ~/.dotfiles && chmod +x symdotfiles && sh symdotfiles
+		cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles
 		curl -L http://install.ohmyz.sh | sh
 
 		chsh -s $(which zsh)
