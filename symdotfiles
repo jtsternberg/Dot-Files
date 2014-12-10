@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # =============================================================================
 # Symlink files
@@ -12,7 +12,7 @@
 #
 # Usage:
 # cd to this script's directory and..
-# sh symdotfiles
+# bash symdotfiles
 # =============================================================================
 
 THIS_SCRIPT=`basename $0`
