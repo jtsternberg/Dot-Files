@@ -8,8 +8,7 @@ ZSH_CUSTOM=$HOME/.dotfiles/zsh-custom
 # time that oh-my-zsh is loaded.
 ZSH_THEME="jt"
 
-# Example aliases
-source "$HOME/.dotfiles/private/additonal_aliases.sh"
+test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up"
 alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
