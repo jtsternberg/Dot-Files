@@ -5,8 +5,9 @@
 git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles
 sudo apt-get -y install zsh tree tig wget
 
-cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles
 curl -L http://install.ohmyz.sh | sh
+rm -rf ~/.zshrc
+cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles
 
 chsh -s $(which zsh)
 
