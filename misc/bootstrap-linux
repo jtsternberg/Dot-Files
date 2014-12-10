@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+# curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap-linux | bash
+
+git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles
+sudo apt-get -y install zsh tree tig wget
+
+cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles
+curl -L http://install.ohmyz.sh | sh
+
+chsh -s $(which zsh)
+
