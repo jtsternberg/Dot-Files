@@ -4,7 +4,7 @@
 
 git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles
 
-if [ "$OSTYPE" == *"linux"* ]
+if [ "$OSTYPE" == "linux-gnu" ]
 	then
 		sudo apt-get -y install zsh tree tig wget
 
