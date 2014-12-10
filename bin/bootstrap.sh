@@ -10,5 +10,5 @@ if [[ "$OSTYPE" =~ ^linux ]]; then
 	curl -L http://install.ohmyz.sh | sh
 	chsh -s $(which zsh)
 
-	cd ~/.dotfiles && chmod +x symdotfiles && symdotfiles
+	cd ~/.dotfiles && chmod +x symdotfiles && sh symdotfiles
 fi
