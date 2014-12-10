@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap.sh | sh
 
