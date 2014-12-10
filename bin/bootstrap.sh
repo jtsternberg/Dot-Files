@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap.sh | sh
+
 git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles
 
 if [[ "$OSTYPE" =~ ^linux ]]; then
