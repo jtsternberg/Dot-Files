@@ -167,7 +167,7 @@ prompt_status() {
 }
 
 function battery_charge {
-  echo `~/.dotfiles/bin/batcharge.py`
+  test -f `~/bin/batcharge.py` && echo `~/bin/batcharge.py`
 }
 
 function prompt_online() {
