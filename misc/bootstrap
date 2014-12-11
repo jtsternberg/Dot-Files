@@ -3,7 +3,7 @@
 
 <?php
 $os_type = isset( $argv[1] ) ? $argv[1] . "\n" : `echo \$OSTYPE`;
-echo '\n>> $OSTYPE: ' . $os_type . "\n";
+echo "\n>> $OSTYPE: " . $os_type . "\n";
 
 echo "\n>> Clone Dot-Files\n";
 echo `git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles`;
