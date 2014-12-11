@@ -171,15 +171,13 @@ function battery_charge {
 }
 
 function prompt_online() {
-  if [[ -f ~/.offline ]]; then
-    echo $OFFLINE
-  else
-    echo $ONLINE
-  fi
+  OFFLINE="Offline"
+  ONLINE="Online"
+  ping -c 1 -q google.com >/dev/null 2>&1 && echo %{$fg[green]%}$ONLINE%{$reset_color%} || echo %{$fg[red]%}$OFFLINE%{$reset_color%}
 }
 
 function prompt_local_host_name() {
-  echo %{$fg[magenta]%}%n%{$reset_color%}@%{$fg[green]%}%m%{$reset_color%}
+  echo %{$fg[blue]%}%n%{$reset_color%}%{$fg[red]%}@%{$reset_color%}%{$fg[blue]%}%m%{$reset_color%}
 }
 
 
@@ -189,7 +187,7 @@ viewdiff () {
   for i; do vimdiff -R <(svn cat "$1") "$1"; done
 }
 
-RPROMPT='$(prompt_online)  $(prompt_local_host_name) $(battery_charge)'
+RPROMPT='$(prompt_local_host_name) $(prompt_online) $(battery_charge)'
 
 ## Main prompt
 build_prompt() {
