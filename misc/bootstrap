@@ -20,7 +20,7 @@ if ( false !== stripos( $os_type, 'linux' ) ) {
 	echo `rm -rf ~/.zshrc`;
 
 	do_notice( 'Symlink dotfiles' );
-	echo `cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles`;
+	echo `cd ~/.dotfiles && chmod +x symdotfiles && php symdotfiles`;
 
 	# echo "\n>> Switch shell\n\n";
 	echo `chsh -s $(which zsh)`;

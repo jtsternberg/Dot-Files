@@ -1,30 +1,117 @@
-#!/bin/bash
+#!/usr/bin/env php
 
 # =============================================================================
 # Symlink files
-# By Brad Parbs <brad@bradparbs.com> and Justin Sternberg <me@jtsternberg.com>
+# By Justin Sternberg <me@jtsternberg.com>
 # https://github.com/jtsternberg/Dot-Files/blob/master/symdotfiles
 #
-# Version 1.0.0
+# Version 2.0.0
 #
 # Creates symlinks to all files in the current directory
 # to the directory above it.
 #
 # Usage:
 # cd to this script's directory and..
-# bash symdotfiles
+# php symdotfiles [testrun] [hard]
 # =============================================================================
 
-THIS_SCRIPT=`basename $0`
-WORKING_DIR=`pwd`
-shopt -s dotglob
-ALLFILES=*
+<?php
 
-echo "Making those symlinks"
-for file in $ALLFILES; do
-	if [ $THIS_SCRIPT != $file ] && [ '.git' != $file ]
-		then
-			echo "Processing $file file..."
-			ln -s $WORKING_DIR/$file ../$file
-	fi
-done
+$hard = false;
+$testrun = false;
+
+foreach ( (array) $argv as $arg ) {
+	if ( ! $testrun ) {
+		$testrun = 'testrun' == $arg;
+	}
+	if ( ! $hard ) {
+		$hard = 'hard' == $arg;
+	}
+}
+
+$working_dir = dirname( __FILE__ );
+$files = array_merge(
+	glob( $working_dir . '/.*' ),
+	glob( $working_dir . '/*' )
+);
+
+$is_test = $testrun ? ' (test run)' : '';
+$is_hard = $hard ? ' (hard -- overwrite existing)' : '';
+do_notice( "Making those symlinks$is_test$is_hard", true, "\n" );
+
+$moved = '';
+$ignore = array(
+	'.DS_Store',
+	'.',
+	'..',
+	'.git',
+	'.gitmodules',
+	'.gitignore',
+	'zsh-custom',
+	'private',
+	'symdotfiles',
+	'zsh-custom',
+	'online-check.sh',
+	'misc',
+	'.zshrc.pre-oh-my-zsh',
+);
+
+$count = 0;
+foreach( $files as $index => $file ) {
+	$filename = basename( $file );
+
+	if ( in_array( $filename, $ignore ) ) {
+		continue;
+	}
+
+	$from = str_replace( $filename, '', $file );
+	$to = $_SERVER['HOME'] . '/';
+	do_notice( ( ++$count ) .' File: ' . $filename, false, false );
+
+	$newfile = str_ireplace( $from, $to, $file );
+	$exists  = file_exists( $newfile );
+
+	if ( ! $hard ) {
+		if ( $exists ) {
+			do_notice( '    : Exists and will not be created.', false, false );
+			continue;
+		}
+	}
+
+	if ( ! $testrun ) {
+
+		if ( $exists && $hard ) {
+			$removed = is_dir( $newfile ) ? @rmdir( $newfile ) : @unlink( $newfile );
+
+			if ( ! $removed ) {
+				do_notice( '    : Could not be replaced.', false, false );
+				continue;
+			}
+		}
+
+		// do_notice( print_r( array( $file, $newfile ), true ) );
+		$linked = symlink( $file, $newfile );
+
+		if ( ! $linked ) {
+			$moved = 'Was NOT moved to:';
+		} else {
+			$success = true;
+		}
+	}
+
+	do_notice( '    '. $moved .' ' . $newfile . '.', false, false );
+}
+
+function do_notice( $text, $before = true, $after = true ) {
+	$text = html_entity_decode( $text );
+	$stuff = `echo '>>>'`;
+	if ( is_string( $before ) ) {
+		echo $before;
+	}
+	echo $before ? "\n" . $stuff : '';
+	echo `echo '\033[0;34m>> $text\033[0m'`;
+	echo $after ? $stuff : '';
+	if ( is_string( $after ) ) {
+		echo $after . "\n\n";
+	}
+}
