@@ -1,0 +1,25 @@
+#!/usr/bin/env php
+# curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap | php
+
+<?php
+$os_type = `echo \$OSTYPE`;
+echo "\n\$OSTYPE: $os_type\n";
+
+echo "Clone Dot-Files\n";
+`git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotfiles`;
+
+if ( false !== stripos( $os_type, 'linux' ) ) {
+
+	echo "Get OS packages\n";
+	`sudo apt-get -y install zsh tree tig wget`;
+
+	echo "Symlink dotfiles\n";
+	`cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles`;
+
+	echo "install oh-my-zsh\n";
+	`curl -L http://install.ohmyz.sh | sh`;
+
+	echo "switch shell\n";
+	`chsh -s $(which zsh)`;
+
+}
