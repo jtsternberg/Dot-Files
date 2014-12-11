@@ -20,6 +20,6 @@ if ( false !== stripos( $os_type, 'linux' ) ) {
 	echo `curl -L http://install.ohmyz.sh | sh`;
 
 	echo ">> switch shell\n\n";
+	echo ">> Don't forget to change your shell! `chsh -s $(which zsh)`\n\n";
 	echo `chsh -s $(which zsh)`;
-
 }
