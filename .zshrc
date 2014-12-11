@@ -10,6 +10,7 @@ ZSH_THEME="jt"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up"
+alias vssh="cd ~/vagrant && vagrant ssh"
 alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
 alias ohmyzsh="subl ~/.dotfiles/.oh-my-zsh"
