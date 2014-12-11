@@ -1,8 +1,8 @@
 #!/usr/bin/env php
-# curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap | php
-echo $OSTYPE
+# curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/misc/bootstrap | sudo php -- $OSTYPE
+
 <?php
-$os_type = `echo \$OSTYPE`;
+$os_type = isset( $argv[1] ) ? $argv[1] . "\n" : `echo \$OSTYPE`;
 echo '$OSTYPE:' . $os_type . "\n";
 
 echo "Clone Dot-Files\n";
