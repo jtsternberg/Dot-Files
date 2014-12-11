@@ -2,3 +2,6 @@
 [submodule "zsh-custom/plugins/zsh-syntax-highlighting"]
 	path = zsh-custom/plugins/zsh-syntax-highlighting
 	url = https://github.com/zsh-users/zsh-syntax-highlighting.git
+[submodule "bin/vv"]
+	path = bin/vv
+	url = https://github.com/bradp/vv.git
