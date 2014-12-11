@@ -45,6 +45,7 @@ alias grep='grep -in'
 alias bell='echo "\a"'
 alias alldone='say "all done"'
 alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
+alias rmbrokensymlinks='find -L . -type l -delete'
 
 # alias macdown=`open -a MacDown
 # Open in MacDown
