@@ -10,16 +10,16 @@ echo `git clone --recursive https://github.com/jtsternberg/Dot-Files.git ~/.dotf
 
 if ( false !== stripos( $os_type, 'linux' ) ) {
 
-	echo "Get OS packages\n";
+	echo ">> Get OS packages\n\n";
 	echo `sudo apt-get -y install zsh tree tig wget`;
 
-	echo "Symlink dotfiles\n";
+	echo ">> Symlink dotfiles\n\n";
 	echo `cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles`;
 
-	echo "install oh-my-zsh\n";
+	echo ">> install oh-my-zsh\n\n";
 	echo `curl -L http://install.ohmyz.sh | sh`;
 
-	echo "switch shell\n";
+	echo ">> switch shell\n\n";
 	echo `chsh -s $(which zsh)`;
 
 }
