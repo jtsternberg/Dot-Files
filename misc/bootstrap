@@ -14,7 +14,10 @@ if ( false !== stripos( $os_type, 'linux' ) ) {
 	echo `sudo apt-get -y install zsh tree tig wget`;
 
 	echo "\n>> install oh-my-zsh\n\n";
-	echo `curl -L http://install.ohmyz.sh | sh && rm -rf ~/.zshrc`;
+	echo `curl -L http://install.ohmyz.sh | sh`;
+
+	echo "\n>> remove oh-my-zsh .zshrc to be replaced with ours\n\n";
+	echo `rm -rf ~/.zshrc`;
 
 	echo "\n>> Symlink dotfiles\n\n";
 	echo `cd ~/.dotfiles && chmod +x symdotfiles && bash symdotfiles`;
