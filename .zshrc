@@ -46,6 +46,7 @@ alias bell='echo "\a"'
 alias alldone='say "all done"'
 alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
 alias rmbrokensymlinks='find -L . -type l -delete'
+# alias svn='/usr/local/bin/svn'
 
 # alias macdown=`open -a MacDown
 # Open in MacDown
@@ -79,6 +80,9 @@ reset-mod-dir() { git checkout -- `git ls-files -m -- "$*"` }
 remove-untracked() { rm -rf `git ls-files --other --exclude-standard` }
 # Get all files changed b/w commits
 gdifflog() { git log --name-only --pretty=oneline --full-index $*..HEAD | grep -vE '^[0-9a-f]{40} ' | sort | uniq }
+deleteremote() { git push $1 :$2 }
+searchcommits() { git log -G "$*" --oneline }
+
 
 # Set to this to use case-sensitive completion
 # CASE_SENSITIVE="true"
@@ -99,7 +103,7 @@ gdifflog() { git log --name-only --pretty=oneline --full-index $*..HEAD | grep -
 # DISABLE_CORRECTION="true"
 
 # Uncomment the following line to enable command auto-correction.
-ENABLE_CORRECTION="true"
+# ENABLE_CORRECTION="true"
 
 # Uncomment following line if you want red dots to be displayed while waiting for completion
 COMPLETION_WAITING_DOTS="true"
