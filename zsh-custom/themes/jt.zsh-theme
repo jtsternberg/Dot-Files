@@ -81,13 +81,15 @@ prompt_git() {
       prompt_segment green black
     fi
 
-    if [[ -e "${repo_path}/BISECT_LOG" ]]; then
-      mode=" <B>"
-    elif [[ -e "${repo_path}/MERGE_HEAD" ]]; then
-      mode=" >M<"
-    elif [[ -e "${repo_path}/rebase" || -e "${repo_path}/rebase-apply" || -e "${repo_path}/rebase-merge" || -e "${repo_path}/../.dotest" ]]; then
-      mode=" >R>"
-    fi
+    # I don't find this stuff helpful.
+    # if [[ -e "${repo_path}/BISECT_LOG" ]]; then
+    #   mode=" <B>"
+    # elif [[ -e "${repo_path}/MERGE_HEAD" ]]; then
+    #   mode=" >M<"
+    # elif [[ -e "${repo_path}/rebase" || -e "${repo_path}/rebase-apply" || -e "${repo_path}/rebase-merge" || -e "${repo_path}/../.dotest" ]]; then
+    #   mode=" >R>"
+    # fi
+    mode=""
 
     setopt promptsubst
     autoload -Uz vcs_info
@@ -179,7 +181,6 @@ function prompt_online() {
 function prompt_local_host_name() {
   echo %{$fg[blue]%}%n%{$reset_color%}%{$fg[red]%}@%{$reset_color%}%{$fg[blue]%}%m%{$reset_color%}
 }
-
 
 viewdiff () {
   if (( $# == 0 ))
