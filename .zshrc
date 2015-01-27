@@ -46,6 +46,7 @@ alias bell='echo "\a"'
 alias alldone='say "all done"'
 alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
 alias rmbrokensymlinks='find -L . -type l -delete'
+alias lsn='ls -latr'
 # alias svn='/usr/local/bin/svn'
 
 # alias macdown=`open -a MacDown
