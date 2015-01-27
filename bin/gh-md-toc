@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 #
+# Source: https://github.com/ekalinin/github-markdown-toc
+#
 # Steps:
 #
 #  1. Download coresponding html file for some README.md:
