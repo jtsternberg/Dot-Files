@@ -58,6 +58,9 @@ dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topa
 debuglog() { tail -f $1/wp-content/debug.log }
 base64-svg() { echo -n `cat "$*"` | base64 | pbcopy }
 
+# Find in current directory
+f() { find . -name "$1" }
+
 dandeploy() {
 	PREFIX=$*
 	if [ -z "$PREFIX" ];
@@ -133,6 +136,8 @@ COMPLETION_WAITING_DOTS="true"
 # The optional three formats: "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
 # HIST_STAMPS="mm/dd/yyyy"
 
+#  This will add a 10 second wait before you can confirm a wildcard deletion.
+setopt RM_STAR_WAIT
 
 # Path is in .zshenv
 
@@ -140,7 +145,7 @@ COMPLETION_WAITING_DOTS="true"
 # Which plugins would you like to load? (plugins can be found in ~/.oh-my-zsh/plugins/*)
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
-plugins=(git git-extras npm zsh-syntax-highlighting brew colorize vagrant osx)
+plugins=(git git-extras npm zsh-syntax-highlighting brew colorize vagrant osx z)
 # Git plugin docs: https://github.com/robbyrussell/oh-my-zsh/wiki/Plugin:git
 
 source $ZSH/oh-my-zsh.sh
