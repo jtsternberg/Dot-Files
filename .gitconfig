@@ -31,7 +31,9 @@
 	dc = diff --cached
 	mote = remote -v
 	zip = archive --format zip --output
-	m = merge --log
+	m = merge
+	ms = merge --squash
+	squerge = merge --squash ; http://wordpress.tv/2013/11/13/zack-tollman-enhancing-developer-creativity-with-git/
 
 	; reset
 	r = reset
