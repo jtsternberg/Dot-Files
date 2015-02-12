@@ -46,20 +46,19 @@ if [ -z "$1" ]
 		exit 1
 fi
 
-file_path=$1
-# Default to 500 lines to keep
-lines_to_keep=${2:-500}
-# Get number of lines in file (w/o filename)
-lines_of_code="$((wc -l < $file_path) 2>&1)"
-
-# If the output is not numeric, probably means file doesn't exist
-if ! [ $lines_of_code -eq $lines_of_code 2> /dev/null ]
+# If the file doesn't exist
+if [ ! -f $1 ]
 	then
-		# so throw a message
+		# throw a message
 		msg 'There was an error with the file path provided. Does the file exist?' 'red'
 		exit 1
 fi
 
+file_path=$1
+# Default to 500 lines to keep
+lines_to_keep=${2:-500}
+# Get number of lines in file (w/o filename)
+lines_of_code=$(wc -l < $file_path)
 # Calculate lines that will be trimmed from front
 to_trim=$(($lines_of_code-$lines_to_keep))
 
