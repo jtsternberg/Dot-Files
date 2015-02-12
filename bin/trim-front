@@ -55,10 +55,13 @@ if [ ! -f $1 ]
 fi
 
 file_path=$1
+
 # Default to 500 lines to keep
 lines_to_keep=${2:-500}
+
 # Get number of lines in file (w/o filename)
 lines_of_code=$(wc -l < $file_path)
+
 # Calculate lines that will be trimmed from front
 to_trim=$(($lines_of_code-$lines_to_keep))
 
