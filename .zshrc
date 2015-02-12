@@ -23,7 +23,6 @@ alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
 alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
 alias dwdebug="tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log"
-alias dwdebugtrim='trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log 800 && echo "\n\033[0;32mNow tailing...\033[0m\n" && dwdebug'
 #alias mmv() { vimdiff -R <(svn cat "$1") "$1";  }
 autoload -U zmv
 alias mmv='noglob zmv -W'
@@ -58,6 +57,10 @@ dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topa
 # tail a debug log in any w
 debuglog() { tail -f $1/wp-content/debug.log }
 base64-svg() { echo -n `cat "$*"` | base64 | pbcopy }
+
+dwdebugtrim() {
+  trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && dwdebug
+}
 
 # Find in current directory
 f() { find . -name "$1" }
