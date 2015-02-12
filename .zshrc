@@ -23,6 +23,7 @@ alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
 alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
 alias dwdebug="tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log"
+alias dwdebugtrim='trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log 800 && echo "\n\033[0;32mNow tailing...\033[0m\n" && dwdebug'
 #alias mmv() { vimdiff -R <(svn cat "$1") "$1";  }
 autoload -U zmv
 alias mmv='noglob zmv -W'
