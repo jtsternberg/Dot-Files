@@ -1,37 +1,65 @@
 #!/usr/bin/env bash
 
+# =============================================================================
+# Trim front of file
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/trim-front
+#
+# Version 0.1.0
+#
+# Takes a file path as the first parameter,
+# and (optionally) a second parameter to
+# specify the number of lines to keep.
+#
+# If file has more lines than the number to keep,
+# this script will trim the front of the file.
+#
+# Useful for purging old data in a log file.
+#
+# Usage:
+# trim-front debug.log 1000
+# =============================================================================
+
+
+# Handy message function for outputting a red or green message
 msg() {
 	local red='\033[0;31m'
 	local green='\033[0;32m'
-	local nc='\033[0m' # No Color
+	local no_color='\033[0m'
 
-	local msg=$1
-	local color=${2:-green}
-
-	if [[ $color == "red" ]]
+	# If second variable exists, and it's red (defaults to green)
+	if [[ ${2:-green} == "red" ]]
 		then
-			echo -e "\n${red}$msg${nc}\n"
+			# Then output a red message
+			echo -e "\n${red}$1${no_color}\n"
 		else
-			echo -e "\n${green}$msg${nc}\n"
+			# Default, output a green message
+			echo -e "\n${green}$1${no_color}\n"
 	fi
 }
 
+# If no first argument (a file path),
 if [ -z "$1" ]
 	then
+		# then throw a message
 		msg 'Please specify a file to trim, and optionally, number of lines to keep. (Also, be sure to backup)' 'red'
 		exit 1
 fi
 
-file=$1
+file_path=$1
+# Default to 500 lines to keep
 lines_to_keep=${2:-500}
-lines_of_code="$(wc -l < $file)"
+# Get number of lines in file (w/o filename)
+lines_of_code="$(wc -l < $file_path)"
+# Calculate lines that will be trimmed from front
 to_trim=$(($lines_of_code-$lines_to_keep))
 
-if [ "$to_trim" -gt 0 ] && [ "$choice1" != 'y' ];
+# If the lines to trim is greater than 0
+if [ "$to_trim" -gt 0 ]
 	then
-		$(sed -i "" "1,${to_trim}d" $file)
+		# the magic command.. edits file in-place, and trim X lines from front
+		$(sed -i "" "1,${to_trim}d" $file_path)
 		msg "$lines_of_code total lines, $to_trim lines trimmed, and $lines_to_keep lines left."
 	else
 		msg "$lines_of_code total lines, not enough to trim." 'red'
 fi
-
