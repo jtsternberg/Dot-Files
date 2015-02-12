@@ -15,6 +15,7 @@ Thumbs.db
 .idea
 .sass-cache/
 debug.log
+custom-debug-log-path.php
 node_modules/
 *.swp
 dandelion.yml
