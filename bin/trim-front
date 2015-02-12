@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+msg() {
+	local red='\033[0;31m'
+	local green='\033[0;32m'
+	local nc='\033[0m' # No Color
+
+	local msg=$1
+	local color=${2:-green}
+
+	if [[ $color == "red" ]]
+		then
+			echo -e "\n${red}$msg${nc}\n"
+		else
+			echo -e "\n${green}$msg${nc}\n"
+	fi
+}
+
+if [ -z "$1" ]
+	then
+		msg 'Please specify a file to trim, and optionally, number of lines to keep. (Also, be sure to backup)' 'red'
+		exit 1
+fi
+
+file=$1
+lines_to_keep=${2:-500}
+lines_of_code="$(wc -l < $file)"
+to_trim=$(($lines_of_code-$lines_to_keep))
+
+if [ "$to_trim" -gt 0 ] && [ "$choice1" != 'y' ];
+	then
+		$(sed -i "" "1,${to_trim}d" $file)
+		msg "$lines_of_code total lines, $to_trim lines trimmed, and $lines_to_keep lines left."
+	else
+		msg "$lines_of_code total lines, not enough to trim." 'red'
+fi
+
