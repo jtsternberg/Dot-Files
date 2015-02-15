@@ -1,0 +1,50 @@
+# tail a debug log in any WordPress directory
+debuglog() { tail -f $1/wp-content/debug.log }
+
+# trims and tails my global debug log
+dwdebugtrim() {
+	trim-front vdebuglog ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f vdebuglog
+}
+
+# Open in MacDown
+macdown() { open -a MacDown $1 }
+
+# Find in current directory
+f() { find . -name "$1" }
+
+# Get base64 string for file (works for svg)
+base64-file() {
+	cat $1 | openssl base64 | tr -d '\n' | pbcopy
+}
+
+# Helper to deploy to different servers using dandelion and different config files
+dandeploy() {
+	PREFIX=$*
+	if [ -z "$PREFIX" ];
+		then
+			echo "Using dandelion.yml to deploy"
+			dandelion deploy
+		else
+			echo "Using $PREFIX-dandelion.yml to deploy"
+			dandelion --config=$PREFIX-dandelion.yml deploy
+	fi
+}
+
+# Greate a gif from a movie file
+gifify() {
+	if [[ -n "$1" ]]; then
+		GIF="${1%.*}.gif"
+		if [[ $2 == '--good' ]]; then
+			ffmpeg -i $1 -r 10 -vcodec png out-static-%05d.png
+			time convert -verbose +dither -layers Optimize -resize 600x600\> out-static*.png  GIF:- | gifsicle --colors 128 --delay=5 --loop --optimize=3 --multifile - > $GIF
+			rm out-static*.png
+		else
+			ffmpeg -i $1 -s 600x400 -pix_fmt rgb24 -r 10 -f gif - | gifsicle --optimize=3 --delay=3 > $GIF
+		fi
+	else
+		echo "proper usage: gifify <input_movie.mov>. You DO need to include extension."
+	fi
+}
+
+# Create symlinks for entire directory. Uses wp-cli.. needs to be rewritten
+dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topath="$2" $3 }

@@ -22,8 +22,10 @@ alias dwsites="cd ~/Sites"
 alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
 alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
-alias dwdebug="tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log"
-#alias mmv() { vimdiff -R <(svn cat "$1") "$1";  }
+alias vdebuglog="~/vagrant/log/debug.log"
+alias dwdebug="tail -f vdebuglog"
+alias cmbdebug="tail -f /tmp/wordpress/wp-content/debug.log"
+#alias mmv() { vimdiff -R <(svn cat "$1") "$1"; }
 autoload -U zmv
 alias mmv='noglob zmv -W'
 alias mmvn='noglob zmv -W -n'
@@ -47,64 +49,14 @@ alias alldone='say "all done"'
 alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
 alias rmbrokensymlinks='find -L . -type l -delete'
 alias lsn='ls -latr'
+alias structure='tree -I "node_modules" -L 3'
 # alias svn='/usr/local/bin/svn'
 
-# alias macdown=`open -a MacDown
-# Open in MacDown
-macdown() { open -a MacDown $1 }
-# Create symlinks for entire directory
-dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topath="$2" $3 }
-# tail a debug log in any w
-debuglog() { tail -f $1/wp-content/debug.log }
-base64-svg() { echo -n `cat "$*"` | base64 | pbcopy }
-
-dwdebugtrim() {
-  trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && dwdebug
-}
-
-# Find in current directory
-f() { find . -name "$1" }
-
-dandeploy() {
-	PREFIX=$*
-	if [ -z "$PREFIX" ];
-		then
-			echo "Using dandelion.yml to deploy"
-			dandelion deploy
-		else
-			echo "Using $PREFIX-dandelion.yml to deploy"
-			dandelion --config=$PREFIX-dandelion.yml deploy
-	fi
-}
-
-
 ## Git functions
+source ~/.dotfiles/.git-functions
 
-# view modified files in a directory
-ls-mod-dir() { git ls-files -m -- "$*" }
-# reset modified files in a directory
-reset-mod-dir() { git checkout -- `git ls-files -m -- "$*"` }
-# Remove untracked files (use caution)
-remove-untracked() { rm -rf `git ls-files --other --exclude-standard` }
-# Get all files changed b/w commits
-gdifflog() { git log --name-only --pretty=oneline --full-index $*..HEAD | grep -vE '^[0-9a-f]{40} ' | sort | uniq }
-deleteremote() { git push $1 :$2 }
-searchcommits() { git log -G "$*" --oneline }
-
-gifify() {
-  if [[ -n "$1" ]]; then
-  	 GIF="${1%.*}.gif"
-    if [[ $2 == '--good' ]]; then
-      ffmpeg -i $1 -r 10 -vcodec png out-static-%05d.png
-      time convert -verbose +dither -layers Optimize -resize 600x600\> out-static*.png  GIF:- | gifsicle --colors 128 --delay=5 --loop --optimize=3 --multifile - > $GIF
-      rm out-static*.png
-    else
-      ffmpeg -i $1 -s 600x400 -pix_fmt rgb24 -r 10 -f gif - | gifsicle --optimize=3 --delay=3 > $GIF
-    fi
-  else
-    echo "proper usage: gifify <input_movie.mov>. You DO need to include extension."
-  fi
-}
+## Misc functions
+source ~/.dotfiles/.misc-functions
 
 # Set to this to use case-sensitive completion
 # CASE_SENSITIVE="true"
@@ -140,7 +92,7 @@ COMPLETION_WAITING_DOTS="true"
 # The optional three formats: "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
 # HIST_STAMPS="mm/dd/yyyy"
 
-#  This will add a 10 second wait before you can confirm a wildcard deletion.
+# This will add a 10 second wait before you can confirm a wildcard deletion.
 setopt RM_STAR_WAIT
 
 # Path is in .zshenv
