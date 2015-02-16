@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+# =============================================================================
+# Outputs green or red message. Used by other scripts
+#
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/trim-front
+#
+# Version 0.1.0
+#
+# Usage:
+# errmsg 'Oh nos!' 'red'
+# =============================================================================
+
+
+red='\033[0;31m'
+green='\033[0;32m'
+no_color='\033[0m'
+
+# If second variable exists, and it's red (defaults to green)
+if [[ ${2:-green} == "red" ]]
+	then
+		# Then output a red message
+		echo -e "\n${red}$1${no_color}\n"
+	else
+		# Default, output a green message
+		echo -e "\n${green}$1${no_color}\n"
+fi
