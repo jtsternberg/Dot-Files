@@ -7,6 +7,7 @@ ZSH_CUSTOM=$HOME/.dotfiles/zsh-custom
 # Optionally, if you set this to "random", it'll load a random theme each
 # time that oh-my-zsh is loaded.
 ZSH_THEME="jt"
+vdebuglog="/Users/JT/vagrant/log/debug.log"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up"
@@ -22,8 +23,7 @@ alias dwsites="cd ~/Sites"
 alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
 alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
-alias vdebuglog="~/vagrant/log/debug.log"
-alias dwdebug="tail -f vdebuglog"
+alias dwdebug="tail -f $vdebuglog"
 alias cmbdebug="tail -f /tmp/wordpress/wp-content/debug.log"
 #alias mmv() { vimdiff -R <(svn cat "$1") "$1"; }
 autoload -U zmv
