@@ -14,4 +14,4 @@ gdifflog() { git log --name-only --pretty=oneline --full-index $*..HEAD | grep -
 deleteremote() { git push $1 :$2 }
 
 # Search commits for a string or code
-searchcommits() { git log -G "$*" --oneline }
+searchcommits() { git log -G "$*" --pretty=format:"%C(yellow)%h %Creset%s %Cgreen(%cr) %Cblue[%cn - %ce]" --decorate }
