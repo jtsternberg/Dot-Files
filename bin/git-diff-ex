@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+# =============================================================================
+# Git difftool and exclude folders
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/trim-front
+#
+# Version 0.1.0
+#
+# Takes a file path as the first parameter,
+# and unlimited number of directories to exclude
+#
+# Opens difftool viewing all files excluding specified directories
+#
+# Usage:
+# trim-front debug.log 1000
+# =============================================================================
+
+
+if [ -z "$1" ] || [ -z "$2" ]
+	then
+		# then throw a message
+		echo 'Please specify a branch and a folder to exclude'
+		exit 1
+fi
+
+branch=$1
+shift
+
+directories=""
+
+for var in "$@"
+	do
+		directories+="$var|" # Delimeter
+done
+
+filelist=$(git diff $branch -C --name-only | grep -vE "^(${directories%?})/" | tr "\n" " ")
+eval "git difftool -C $branch -- $filelist"
