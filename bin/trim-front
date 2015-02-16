@@ -21,28 +21,11 @@
 # =============================================================================
 
 
-# Handy message function for outputting a red or green message
-msg() {
-	local red='\033[0;31m'
-	local green='\033[0;32m'
-	local no_color='\033[0m'
-
-	# If second variable exists, and it's red (defaults to green)
-	if [[ ${2:-green} == "red" ]]
-		then
-			# Then output a red message
-			echo -e "\n${red}$1${no_color}\n"
-		else
-			# Default, output a green message
-			echo -e "\n${green}$1${no_color}\n"
-	fi
-}
-
 # If no first argument (a file path),
 if [ -z "$1" ]
 	then
 		# then throw a message
-		msg 'Please specify a file to trim, and optionally, number of lines to keep. (Also, be sure to backup)' 'red'
+		errmsg 'Please specify a file to trim, and optionally, number of lines to keep. (Also, be sure to backup)' 'red'
 		exit 1
 fi
 
@@ -50,7 +33,7 @@ fi
 if [ ! -f "$1" ]
 	then
 		# throw a message
-		msg 'There was an error with the file path provided. Does the file exist?' 'red'
+		errmsg 'There was an error with the file path provided. Does the file exist?' 'red'
 		exit 1
 fi
 
@@ -70,7 +53,7 @@ if [ "$to_trim" -gt 0 ]
 	then
 		# the magic command.. edits file in-place, and trim X lines from front
 		sed -i "" "1,${to_trim}d" "$file_path"
-		msg "$lines_of_code total lines, $to_trim lines trimmed, and $lines_to_keep lines left."
+		errmsg "$lines_of_code total lines, $to_trim lines trimmed, and $lines_to_keep lines left."
 	else
-		msg "$lines_of_code total lines, not enough to trim." 'red'
+		errmsg "$lines_of_code total lines, not enough to trim." 'red'
 fi
