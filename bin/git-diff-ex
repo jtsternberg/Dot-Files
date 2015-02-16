@@ -17,10 +17,17 @@
 # =============================================================================
 
 
-if [ -z "$1" ] || [ -z "$2" ]
+if [ -z "$1" ]
 	then
 		# then throw a message
-		echo 'Please specify a branch and a folder to exclude'
+		errmsg 'Please specify a branch and folder(s) to exclude' 'red'
+		exit 1
+fi
+
+if [ -z "$2" ]
+	then
+		# then throw a message
+		errmsg 'Please specify a folder or folders to exclude' 'red'
 		exit 1
 fi
 
