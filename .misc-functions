@@ -3,6 +3,10 @@ debuglog() { tail -f $1/wp-content/debug.log }
 
 # trims and tails my global debug log
 dwdebugtrim() {
+	trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log
+}
+
+vdebugtrim() {
 	trim-front ${vdebuglog} ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f $vdebuglog
 }
 

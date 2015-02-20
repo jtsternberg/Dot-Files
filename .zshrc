@@ -23,7 +23,8 @@ alias dwsites="cd ~/Sites"
 alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
 alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
-alias dwdebug="tail -f $vdebuglog"
+alias vdebug="tail -f $vdebuglog"
+alias dwdebug="tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log"
 alias cmbdebug="tail -f /tmp/wordpress/wp-content/debug.log"
 #alias mmv() { vimdiff -R <(svn cat "$1") "$1"; }
 autoload -U zmv
