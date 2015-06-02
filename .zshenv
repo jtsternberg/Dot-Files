@@ -21,6 +21,7 @@ PATH=$PATH:/Users/JT/android/sdk/tools
 PATH=$PATH:/Users/JT/phpcs/scripts
 PATH=$PATH:/Users/JT/.dotfiles/bin
 PATH=$PATH:/Users/JT/.dotfiles/bin/vv
+PATH=$PATH:/Users/JT/.composer/vendor/bin/
 
 export PATH=$PATH
 
