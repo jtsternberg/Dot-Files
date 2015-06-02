@@ -95,9 +95,12 @@
 	svnd = svn dcommit
 	svnl = svn log --oneline --show-commit
 
+	changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'* %s'; }; _"
+
 ; Environment
 [core]
-	editor = /Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl -n -w
+	; editor = /Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl -n -w
+	editor = 'vim'
 	symlinks = false
 	excludesfile = /Users/jt/.gitignore_global
 	autocrlf = false
@@ -139,7 +142,7 @@
 
 [difftool "sourcetree"]
 	cmd = /usr/local/bin/ksdiff -w \"$LOCAL\" \"$REMOTE\"
-	path =
+	path = 
 
 [difftool "Kaleidoscope"]
 [difftool "Kaleidoscope"]
