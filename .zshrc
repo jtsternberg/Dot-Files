@@ -51,6 +51,9 @@ alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
 alias rmbrokensymlinks='find -L . -type l -delete'
 alias lsn='ls -latr'
 alias structure='tree -I "node_modules" -L 3'
+alias pls='sudo $(fc -ln -1)'
+alias wptests='bash tests/bin/install-wp-tests.sh wordpress_test root '' localhost latest'
+
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
