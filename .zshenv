@@ -22,6 +22,7 @@ PATH=$PATH:/Users/JT/phpcs/scripts
 PATH=$PATH:/Users/JT/.dotfiles/bin
 PATH=$PATH:/Users/JT/.dotfiles/bin/vv
 PATH=$PATH:/Users/JT/.composer/vendor/bin/
+PATH=$PATH:/home/vagrant/bin
 
 export PATH=$PATH
 
