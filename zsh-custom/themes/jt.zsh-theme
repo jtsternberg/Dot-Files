@@ -188,7 +188,7 @@ viewdiff () {
   for i; do vimdiff -R <(svn cat "$1") "$1"; done
 }
 
-RPROMPT='$(prompt_local_host_name) $(prompt_online) $(battery_charge)'
+RPROMPT='$(prompt_local_host_name) $(battery_charge)'
 
 ## Main prompt
 build_prompt() {
