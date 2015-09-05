@@ -1,0 +1,79 @@
+#!/usr/bin/env php
+
+<?php
+if ( ! isset( $argv[1], $argv[2] ) ) {
+	echo 'Please pass the source and destination directories.';
+	return;
+}
+
+function is_js_file( $file ) {
+	return '.js' === substr( $file, -3 );
+}
+
+function make_bookmarklet( $js_file ) {
+	global $destination_dir, $working_dir, $argv;
+
+	if ( is_js_file( $argv[2] ) ) {
+
+		$new_file = $argv[2];
+
+	} else {
+
+		if ( is_js_file( $working_dir ) && ! is_js_file( $destination_dir ) ) {
+			$basename = basename( $working_dir );
+			$new_file = $destination_dir . $basename;
+		} else {
+			$new_file = str_replace( $working_dir, $destination_dir, $js_file );
+		}
+
+		$ext = isset( $argv[3] ) ? $argv[3] : 'bookmarklet.js';
+
+		$new_file = str_replace(
+			array( '.js', '//' ),
+			array( '.' . $ext, '/' ),
+			$new_file
+		);
+	}
+
+	$home = $_SERVER['HOME'];
+
+	echo `perl $home/.dotfiles/bookmarklet.pl $js_file > $new_file`;
+
+	$filesize = filesize( $new_file );
+
+	if ( ! $filesize ) {
+		echo 'Failed to create: ' . $argv[2] . '/' . str_replace( $destination_dir, '', $new_file ) . '.';
+		echo "\n";
+	} else {
+		$filesize = number_format( floatval( $filesize ) / 1024, 2 );
+		echo $argv[2] . '/' . str_replace( $destination_dir, '', $new_file ) . ' created: ' . $filesize . ' kB';
+		echo "\n";
+	}
+}
+
+$destination_dir = $_SERVER['PWD'] . ( isset( $argv[2] ) ? '/' . $argv[2] : '' );
+$destination_dir .= isset( $argv[2] ) && ! is_js_file( $argv[2] ) ? '/' : '';
+$working_dir     = $_SERVER['PWD'] . ( isset( $argv[1] ) ? '/' . $argv[1] : '' );
+
+// print_r( $working_dir );
+// echo "\n";
+
+// print_r( $destination_dir );
+// echo "\n";
+
+if ( is_js_file( $argv[1] ) ) {
+	return make_bookmarklet( $argv[1] );
+}
+
+$files = glob( $working_dir . '/*.js' );
+
+if ( empty( $files ) ) {
+	echo 'Sorry, no .js files found.';
+}
+
+$home = $_SERVER['HOME'];
+
+foreach ( $files as $file ) {
+	make_bookmarklet( $file );
+}
+
