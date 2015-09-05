@@ -1,34 +1,47 @@
 #!/usr/bin/env perl
 #
 # http://daringfireball.net/2007/03/javascript_bookmarklet_builder
-# Licence: http://www.opensource.org/licenses/mit-license.php
 
 use strict;
 use warnings;
 use URI::Escape qw(uri_escape_utf8);
-use open  IO  => ":utf8",       # UTF8 by default
-          ":std";               # Apply to STDIN/STDOUT/STDERR
+use open  IO  => ":utf8", # UTF8 by default
+		           ":std";  # Apply to STDIN/STDOUT/STDERR
 
-my $src = do { local $/; <> };
+my $source_code = do { local $/; <> };
 
 # Zap the first line if there's already a bookmarklet comment:
-$src =~ s{^// ?javascript:.+\n}{};
-my $bookmarklet = $src;
+$source_code =~ s{^// ?javascript:.+\n}{};
 
+my $bookmarklet = $source_code;
 for ($bookmarklet) {
-    s{^\s*//.+\n}{}gm;  # Kill comments.
-    s{\t}{ }gm;         # Tabs to spaces
-    s{[ ]{2,}}{ }gm;    # Space runs to one space
-    s{^\s+}{}gm;        # Kill line-leading whitespace
-    s{\s+$}{}gm;        # Kill line-ending whitespace
-    s{\n}{}gm;          # Kill newlines
+	s{(^\s*//.+\n)}{}gm;      # Kill commented lines
+	s{^\s*/\*.+?\*/\n?}{}gms; # Kill block comments
+	s{\t}{ }gm;               # Tabs to spaces
+	s{[ ]{2,}}{ }gm;          # Space runs to one space
+	s{^\s+}{}gm;              # Kill line-leading whitespace
+	s{\s+$}{}gm;              # Kill line-ending whitespace
+	s{\n}{}gm;                # Kill newlines
 }
 
 # Escape single- and double-quotes, spaces, control chars, unicode:
 $bookmarklet = "javascript:" .
-    uri_escape_utf8($bookmarklet, qq('" \x00-\x1f\x7f-\xff));
+	uri_escape_utf8($bookmarklet, qq(%'" \x00-\x1f\x7f-\xff));
 
-print "// $bookmarklet\n" . $src;
+print $bookmarklet;
 
 # Put bookmarklet on clipboard:
-`/bin/echo -n '$bookmarklet' | /usr/bin/pbcopy`;
+my $fh;
+open($fh, '|-', '/usr/bin/pbcopy')
+	or die "Failed to open pipe to /usr/bin/pbcopy - $!";
+print $fh $bookmarklet
+	or die "Failed to write to pbcopy pipe - $!";
+close($fh)
+	or die "Failed to close pipe to pbcopy - $!";
+
+
+__END__
+
+27 Jan 2014
+- Switched from backticks to open() for the pipe to pbcopy. Thanks to John Siracusa.
+- Added '%' to the list of characters to encode.
