@@ -23,6 +23,7 @@ PATH=$PATH:/Users/JT/.dotfiles/bin
 PATH=$PATH:/Users/JT/.dotfiles/bin/vv
 PATH=$PATH:/Users/JT/.composer/vendor/bin/
 PATH=$PATH:/home/vagrant/bin
+PATH=$PATH:/Users/JT/.node/bin
 
 export PATH=$PATH
 
