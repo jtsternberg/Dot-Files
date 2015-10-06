@@ -119,3 +119,9 @@ source $ZSH/oh-my-zsh.sh
 ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
+
+export NVM_DIR="/Users/JT/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+
+# VV completions, woot!
+source $( echo $(which vv)-completions )
