@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# vv shortcut for generating wdslab locals
+#
+
+domain="$1"
+repo="$2"
+db="$3"
+
+if [[ ! $domain ]]; then
+	# then throw a message
+	errmsg 'Oops! usage: vvlabsite <domain> <repo> <db>' 'red'
+	exit 1
+fi
+
+vvcommand="vv create --images --username jt --password jt --debug --defaults --remove-defaults --name $domain --domain dev.$domain --live-url $domain.wdslab.com"
+
+if [ "$repo" ]; then
+	vvcommand="$vvcommand --git-repo $repo"
+fi
+
+if [ "$db" ]; then
+	vvcommand="$vvcommand --database $db"
+fi
+
+# output what the command is
+errmsg "running: $vvcommand" 'green'
+
+# and wait for feedback
+read -r
+
+# run vv command
+eval "$vvcommand"
