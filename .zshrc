@@ -10,7 +10,7 @@ ZSH_THEME="jt"
 vdebuglog="/Users/JT/vagrant/log/debug.log"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
-alias vup="cd ~/vagrant && vagrant up"
+alias vup="cd ~/vagrant && vagrant up && say 'vagrant is up'"
 alias vssh="cd ~/vagrant && vagrant ssh"
 alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
@@ -55,6 +55,7 @@ alias pls='sudo $(fc -ln -1)'
 alias wptests='bash tests/bin/install-wp-tests.sh wordpress_test root '' localhost latest'
 alias xdebuglog='sudo chmod 666 /tmp/xdebug-remote.log'
 alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask cleanup && npm update -g && gem update"
+alias gpushdynamics="git push && git push origin prod"
 
 # alias svn='/usr/local/bin/svn'
 
