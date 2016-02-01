@@ -20,3 +20,11 @@ searchcommits() { git log -G "$*" --pretty=format:"%C(yellow)%h %Creset%s %Cgree
 checkout-reset() {
 	git checkout $1 && remove-untracked && git submodule update --init --recursive
 }
+
+#### Now, in your shell you can do
+#### git cr <TAB>
+#### and get an autocomplete of available branches, just like "git checkout <TAB>"
+_git_cr () {
+	# you can return anything here for the autocompletion for example all the branches
+	__gitcomp_nl "$(__git_refs)"
+}

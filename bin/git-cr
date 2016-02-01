@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+git checkout "$1" && rm -rfv `git ls-files --other --exclude-standard` && git submodule update --init --recursive
