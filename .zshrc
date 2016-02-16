@@ -116,6 +116,7 @@ plugins=(
 	zsh-syntax-highlighting
 	brew
 	colorize
+	composer
 	vagrant
 	osx
 	z
@@ -136,4 +137,6 @@ export NVM_DIR="/Users/JT/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
 
 # VV completions, woot!
-source $( echo $(which vv)-completions )
+if [[ ! -z $(which vv) ]]; then
+	source $( echo $(which vv)-completions )
+fi
