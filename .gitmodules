@@ -5,3 +5,6 @@
 [submodule "bin/vv"]
 	path = bin/vv
 	url = https://github.com/bradp/vv.git
+[submodule "t"]
+	path = t
+	url = git@github.com:sjl/t.git

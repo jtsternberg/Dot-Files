@@ -178,6 +178,20 @@ function prompt_online() {
   ping -c 1 -q google.com >/dev/null 2>&1 && echo %{$fg[green]%}$ONLINE%{$reset_color%} || echo %{$fg[red]%}$OFFLINE%{$reset_color%}
 }
 
+# Output list of t tasks:
+# https://github.com/sjl/t#put-your-task-count-in-your-bash-prompt
+function prompt_tasks() {
+  COUNT=$(t | wc -l | sed -e's/ *//')
+
+  if [[ $COUNT -gt 5 ]]; then
+    prompt_segment red white [$COUNT]
+  elif [[ $COUNT -lt 3 ]]; then
+    prompt_segment green black [$COUNT]
+  else
+    prompt_segment yellow black [$COUNT]
+  fi
+}
+
 function prompt_local_host_name() {
   echo %{$fg[blue]%}%n%{$reset_color%}%{$fg[red]%}@%{$reset_color%}%{$fg[blue]%}%m%{$reset_color%}
 }
@@ -193,6 +207,7 @@ RPROMPT='$(prompt_local_host_name) $(battery_charge)'
 ## Main prompt
 build_prompt() {
   RETVAL=$?
+  prompt_tasks
   prompt_status
   prompt_virtualenv
   prompt_context

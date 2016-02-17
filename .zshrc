@@ -57,6 +57,13 @@ alias xdebuglog='sudo chmod 666 /tmp/xdebug-remote.log'
 alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask cleanup && npm update -g && gem update"
 alias gpushdynamics="git push && git push origin prod"
 
+# t tasks https://github.com/sjl/t
+alias t='python /Users/JT/.dotfiles/t/t.py --task-dir /Users/JT/Dropbox/t-tasks --list tasks'
+alias tedit='open /Users/JT/Dropbox/t-tasks/tasks'
+
+# Show your basic terminal text colors for terminal preferences change.
+alias showcolors="printf \"\e[%dm%d dark\e[0m  \e[%d;1m%d bold\e[0m\n\" {30..37}{,,,}"
+
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
