@@ -30,7 +30,6 @@ alias cmbdebug="tail -f /tmp/wordpress/wp-content/debug.log"
 autoload -U zmv
 alias mmv='noglob zmv -W'
 alias mmvn='noglob zmv -W -n'
-alias bookmarklet='perl ~/.dotfiles/bookmarklet.pl > b'
 alias copysshkey='pbcopy < ~/.ssh/id_rsa.pub'
 alias myip='curl ifconfig.me -v | pbcopy'
 alias ql='qlmanage -p'

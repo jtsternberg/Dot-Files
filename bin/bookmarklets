@@ -1,6 +1,26 @@
 #!/usr/bin/env php
-
 <?php
+# =============================================================================
+# Make bookmarklet from Javascript file
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/symdotfiles
+#
+# Version 1.0.0
+#
+# Creates a bookmarklet file from an existing Javascript file.
+# Handy for adding to your browser.
+# Example bookmarklets: https://github.com/jtsternberg/Basecamp-UI-Improvements-Bookmarklets
+#
+# Uses daringfireball's bookmarklet.pl
+# http://daringfireball.net/2007/03/javascript_bookmarklet_builder
+#
+# Usage:
+# bookmarklets path/to/source.js path/to/bookmarklet.js
+#
+# OR to bookmarklet-icize a directory of JS files:
+# bookmarklets path/source/files/ path/to/bookmarklets/destination/
+# =============================================================================
+
 if ( ! isset( $argv[1], $argv[2] ) ) {
 	echo 'Please pass the source and destination directories.';
 	return;
@@ -54,6 +74,9 @@ function make_bookmarklet( $js_file ) {
 $destination_dir = $_SERVER['PWD'] . ( isset( $argv[2] ) ? '/' . $argv[2] : '' );
 $destination_dir .= isset( $argv[2] ) && ! is_js_file( $argv[2] ) ? '/' : '';
 $working_dir     = $_SERVER['PWD'] . ( isset( $argv[1] ) ? '/' . $argv[1] : '' );
+if ( ! is_dir( $destination_dir ) ) {
+	mkdir( $destination_dir );
+}
 
 // print_r( $working_dir );
 // echo "\n";
