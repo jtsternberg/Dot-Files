@@ -55,6 +55,9 @@ alias wptests='bash tests/bin/install-wp-tests.sh wordpress_test root '' localho
 alias xdebuglog='sudo chmod 666 /tmp/xdebug-remote.log'
 alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask cleanup && npm update -g && gem update"
 alias gpushdynamics="git push && git push origin prod"
+# https://github.com/vdemedes/gifi
+alias npm=gifi
+alias dockerstart="bash '/Applications/Docker/Docker Quickstart Terminal.app/Contents/Resources/Scripts/start.sh'"
 
 # t tasks https://github.com/sjl/t
 alias t='python /Users/JT/.dotfiles/t/t.py --task-dir /Users/JT/Dropbox/t-tasks --list tasks'
