@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+# Get a diff for only modified files
+git difftool -C $1 $2 --diff-filter=CMRTUXB
