@@ -9,5 +9,5 @@
 	path = t
 	url = git@github.com:sjl/t.git
 [submodule "bin/phploy"]
-	path = bin/phploy
+	path = bin/phploy-source
 	url = git@github.com:banago/PHPloy.git
