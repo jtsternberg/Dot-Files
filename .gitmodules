@@ -8,3 +8,6 @@
 [submodule "t"]
 	path = t
 	url = git@github.com:sjl/t.git
+[submodule "bin/phploy"]
+	path = bin/phploy
+	url = git@github.com:banago/PHPloy.git
