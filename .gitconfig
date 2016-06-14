@@ -108,12 +108,12 @@
 
 ; Environment
 [core]
-	; editor = /Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl -n -w
 	editor = 'vim'
 	symlinks = false
 	excludesfile = /Users/jt/.gitignore_global
 	autocrlf = false
 	whitespace = cr-at-eol
+	pager = diff-highlight | less -r
 
 [submodule]
 	fetchJobs = 4
