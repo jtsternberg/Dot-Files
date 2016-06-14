@@ -1,12 +1,17 @@
 # Set path as only allowing unique values
 typeset -U path
 
+# Set architecture flags
+export ARCHFLAGS="-arch x86_64"
+# Ensure user-installed binaries take precedence
+export PATH=/usr/local/bin:$PATH
+
 # Set the path
 # export PATH=$PATH:/usr/local/bin
 # PATH=$PATH
-PATH=/usr/local/bin
+PATH=$(brew --prefix coreutils)/libexec/gnubin
+PATH=$PATH:/usr/local/bin
 PATH=$PATH:/usr/bin
-# PATH=$PATH:/usr/local/bin
 PATH=$PATH:/bin
 PATH=$PATH:/usr/sbin
 PATH=$PATH:/sbin
@@ -27,6 +32,8 @@ PATH=$PATH:/Users/JT/.node/bin
 PATH=$PATH:/usr/local/sbin
 
 export PATH=$PATH
+export PATH="$(brew --prefix coreutils)/libexec/gnubin:/usr/local/bin:$PATH"
+
 
 export EDITOR=“subl”
 
