@@ -58,15 +58,21 @@
 	lol = log --graph --decorate --pretty=oneline --abbrev-commit
 	lola = log --graph --decorate --pretty=oneline --abbrev-commit --all
 	ldiff = diff --name-status
+	diffname = diff --name-only
 
 	; history
 	filelog = log -u
 	fl = log -u
 	dl = "!git ll -1"
 	dlc = diff --cached HEAD^
-	dr  = "!f() { git diff "$1"^.."$1"; }; f"
-	lc  = "!f() { git ll "$1"^.."$1"; }; f"
-	diffr  = "!f() { git diff "$1"^.."$1"; }; f"
+	dr = "!f() { git diff "$1"^.."$1"; }; f"
+	lc = "!f() { git ll "$1"^.."$1"; }; f"
+	; Diff with highlight.
+	d = "!f() { git diff "$1" --color | diff-highlight | less -r; }; f"
+	; Diff last commit to previous
+	diffl = "!f() { git diff HEAD^..HEAD --color | diff-highlight | less -r; }; f"
+	; Diff a commit to its previous
+	diffr = "!f() { git diff "$1"^.."$1" --color | diff-highlight | less -r; }; f"
 
 	; search
 	f = "!git ls-files | grep -i"
@@ -109,6 +115,9 @@
 	autocrlf = false
 	whitespace = cr-at-eol
 
+[submodule]
+	fetchJobs = 4
+
 [push]
 	default = simple
 
@@ -124,10 +133,12 @@
 	guitool = kaleidoscope
 	tool = Kaleidoscope
 	noprefix = true
+	compactionHeuristic = true
 
 [difftool]
+	prompt = false
 [merge]
-	tool = kaleidoscope
+	tool = Kaleidoscope
 
 [difftool "kaleidoscope"]
 	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
@@ -152,4 +163,9 @@
 	cmd = ksdiff-wrapper git \"$LOCAL\" \"$REMOTE\"
 
 [difftool]
+	prompt = false
+[mergetool "Kaleidoscope"]
+	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+	trustexitcode = true
+[mergetool]
 	prompt = false
