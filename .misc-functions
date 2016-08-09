@@ -56,36 +56,51 @@ gifify() {
 # Create symlinks for entire directory. Uses wp-cli.. needs to be rewritten
 dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topath="$2" $3 }
 
+# Word-count all files of type X in current directory.
+wc_all() {
+	if [ -z "$1" ]
+		then
+			# then throw a message
+			errmsg 'Please specify file extension (e.g. ".csv")' 'red'
+	else
+		start='*'
+		string=$start$1
+		find . -name $string -maxdepth 1 | xargs wc -l
+	fi
+}
+
 # Cleans CSV files for proper import to sequal pro, and creates a *-clean version.
 # Settings: http://b.ustin.co/1cfT5
 # Get middle matches
 # | Get end matches
 # | Get beginning matches
 # | Add a NULL value in front w/ comma to start off lines (for null unique key)
-clean_csv() {
-	FILE=$1
-	NEWFILE=${FILE/\./-clean\.}
-	perl -pe 's/(?<=,)FALSE(?=,)/0/egim' $FILE |
-	perl -pe 's/(?<=,)FALSE(?=$)/0/egim' |
-	perl -pe 's/(?<=,)FALSE(?=\n)/0/egim' |
-	perl -pe 's/(?<=,)FALSE(?=\r)/0/egim' |
-	perl -pe 's/(?<=^)FALSE(?=,)/0/egim' |
-	perl -pe 's/(?<=,)TRUE(?=,)/1/egim' |
-	perl -pe 's/(?<=,)TRUE(?=$)/1/egim' |
-	perl -pe 's/(?<=,)TRUE(?=\n)/1/egim' |
-	perl -pe 's/(?<=,)TRUE(?=\r)/1/egim' |
-	perl -pe 's/(?<=^)TRUE(?=,)/1/egim' |
-	perl -pe 's/(?<=,)<NULL>(?=,)/NULL/egim' |
-	perl -pe 's/(?<=,)<NULL>(?=$)/NULL/egim' |
-	perl -pe 's/(?<=,)<NULL>(?=\n)/NULL/egim' |
-	perl -pe 's/(?<=,)<NULL>(?=\r)/NULL/egim' |
-	perl -pe 's/(?<=^)<NULL>(?=,)/NULL/egim' |
-	perl -pe 's/^(?=.)/NULL,/gim' > $NEWFILE && echo "Finished cleaning. New file: $NEWFILE"
-}
+# clean_csv() {
+# 	FILE=$1
+# 	mkdir -p "clean"
+# 	# NEWFILE=${FILE/\./-clean\.}
+# 	NEWFILE="clean/$FILE"
+# 	perl -pe 's/(?<=,)FALSE(?=,)/0/egim' $FILE |
+# 	perl -pe 's/(?<=,)FALSE(?=$)/0/egim' |
+# 	perl -pe 's/(?<=,)FALSE(?=\n)/0/egim' |
+# 	perl -pe 's/(?<=,)FALSE(?=\r)/0/egim' |
+# 	perl -pe 's/(?<=^)FALSE(?=,)/0/egim' |
+# 	perl -pe 's/(?<=,)TRUE(?=,)/1/egim' |
+# 	perl -pe 's/(?<=,)TRUE(?=$)/1/egim' |
+# 	perl -pe 's/(?<=,)TRUE(?=\n)/1/egim' |
+# 	perl -pe 's/(?<=,)TRUE(?=\r)/1/egim' |
+# 	perl -pe 's/(?<=^)TRUE(?=,)/1/egim' |
+# 	perl -pe 's/(?<=,)<NULL>(?=,)/NULL/egim' |
+# 	perl -pe 's/(?<=,)<NULL>(?=$)/NULL/egim' |
+# 	perl -pe 's/(?<=,)<NULL>(?=\n)/NULL/egim' |
+# 	perl -pe 's/(?<=,)<NULL>(?=\r)/NULL/egim' |
+# 	perl -pe 's/(?<=^)<NULL>(?=,)/NULL/egim' |
+# 	perl -pe 's/^(?=.)/NULL,/gim' > $NEWFILE && echo "Finished cleaning. New file: $NEWFILE"
+# }
 
-clean_these_csvs() {
-	for f in $(find *.csv ! '(' -name '*-clean.csv' ')')
-	do
-		clean_csv $f
-	done
-}
+# clean_these_csvs() {
+# 	for f in $(find *.csv ! '(' -name '*-clean.csv' ')')
+# 	do
+# 		clean_csv $f
+# 	done
+# }
