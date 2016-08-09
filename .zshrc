@@ -65,6 +65,7 @@ alias tedit='open /Users/JT/Dropbox/t-tasks/tasks'
 # Show your basic terminal text colors for terminal preferences change.
 alias showcolors="printf \"\e[%dm%d dark\e[0m  \e[%d;1m%d bold\e[0m\n\" {30..37}{,,,}"
 alias wpbackup='date="`date +%m%d%Y`" && wp db export backup-"$date".sql'
+alias gethooks='/Users/JT/.dotfiles/bin/gethooks/gethooks'
 
 # alias svn='/usr/local/bin/svn'
 

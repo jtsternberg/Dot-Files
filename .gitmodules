@@ -11,3 +11,9 @@
 [submodule "bin/phploy"]
 	path = bin/phploy-source
 	url = git@github.com:banago/PHPloy.git
+[submodule "bin/gethooks"]
+	path = bin/gethooks
+	url = git@gist.github.com:e8356e00130351ddcbe2c62125e6c52a.git
+[submodule "bin/sphp-osx"]
+	path = bin/sphp-osx
+	url = git@github.com:sgotre/sphp-osx.git
