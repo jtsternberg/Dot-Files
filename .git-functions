@@ -21,6 +21,10 @@ checkout-reset() {
 	git checkout $1 && remove-untracked && git submodule update --init --recursive
 }
 
+diffcommit() {
+	git difftool $1~1 $1
+}
+
 #### Now, in your shell you can do
 #### git cr <TAB>
 #### and get an autocomplete of available branches, just like "git checkout <TAB>"
