@@ -52,7 +52,8 @@ to_trim=$((lines_of_code-lines_to_keep))
 if [ "$to_trim" -gt 0 ]
 	then
 		# the magic command.. edits file in-place, and trim X lines from front
-		sed -i "" "1,${to_trim}d" "$file_path"
+		sed -i -e "1,${to_trim}d" "$file_path"
+
 		errmsg "$lines_of_code total lines, $to_trim lines trimmed, and $lines_to_keep lines left."
 	else
 		errmsg "$lines_of_code total lines, not enough to trim." 'red'
