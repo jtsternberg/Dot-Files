@@ -56,6 +56,7 @@ alias xdebuglog='sudo chmod 666 /tmp/xdebug-remote.log'
 alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask cleanup && npm update -g && gem update"
 # https://github.com/vdemedes/gifi
 alias npm=gifi
+alias git=hub
 alias dockerstart="bash '/Applications/Docker/Docker Quickstart Terminal.app/Contents/Resources/Scripts/start.sh'"
 
 # t tasks https://github.com/sjl/t
