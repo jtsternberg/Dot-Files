@@ -56,6 +56,10 @@ gifify() {
 # Create symlinks for entire directory. Uses wp-cli.. needs to be rewritten
 dwsymlink() { cd ~/Sites/dsgnwrks.pro/ && wp dwsymlink go --frompath="$1" --topath="$2" $3 }
 
+chromewin(){
+	open -n -a 'Google Chrome' --args "--app=$1"
+}
+
 # Word-count all files of type X in current directory.
 wc_all() {
 	if [ -z "$1" ]
