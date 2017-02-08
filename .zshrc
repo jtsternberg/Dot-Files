@@ -131,14 +131,16 @@ plugins=(
 	vagrant
 	osx
 	z
+	zsh-autosuggestions
+	colored-man-pages
 )
 # Git plugin docs: https://github.com/robbyrussell/oh-my-zsh/wiki/Plugin:git
 
 source $ZSH/oh-my-zsh.sh
 
-# Set default user.
-# Will remove from prompt if matches current user
-# DEFAULT_USER="JT"
+# https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
+ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black'
 
 ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
