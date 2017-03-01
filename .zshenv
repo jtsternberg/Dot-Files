@@ -20,15 +20,15 @@ PATH=$PATH:/usr/local/MacGPG2/bin
 PATH=$PATH:/usr/local/lib
 PATH=$PATH:/usr/local/git/bin
 PATH=$PATH:/usr/local/mysql/bin
-PATH=$PATH:/Users/JT/.rvm/bin
-PATH=$PATH:/Users/JT/android/sdk/platform-tools
-PATH=$PATH:/Users/JT/android/sdk/tools
-PATH=$PATH:/Users/JT/phpcs/scripts
-PATH=$PATH:/Users/JT/.dotfiles/bin
-PATH=$PATH:/Users/JT/.dotfiles/bin/vv
-PATH=$PATH:/Users/JT/.composer/vendor/bin
+PATH=$PATH:~/.rvm/bin
+PATH=$PATH:~/android/sdk/platform-tools
+PATH=$PATH:~/android/sdk/tools
+PATH=$PATH:~/phpcs/scripts
+PATH=$PATH:~/.dotfiles/bin
+PATH=$PATH:~/.dotfiles/bin/vv
+PATH=$PATH:~/.composer/vendor/bin
 PATH=$PATH:/home/vagrant/bin
-PATH=$PATH:/Users/JT/.node/bin
+PATH=$PATH:~/.node/bin
 PATH=$PATH:/usr/local/sbin
 
 export PATH=$PATH
@@ -41,7 +41,7 @@ export WP_TESTS_DIR=/tmp/wordpress/tests
 
 export DOCKER_TLS_VERIFY="1"
 export DOCKER_HOST="tcp://192.168.99.100:2376"
-export DOCKER_CERT_PATH="/Users/JT/.docker/machine/machines/default"
+export DOCKER_CERT_PATH="$HOME/.docker/machine/machines/default"
 export DOCKER_MACHINE_NAME="default"
 # Run this command to configure your shell:
 # eval $(docker-machine env)

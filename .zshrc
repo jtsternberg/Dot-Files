@@ -7,7 +7,7 @@ ZSH_CUSTOM=$HOME/.dotfiles/zsh-custom
 # Optionally, if you set this to "random", it'll load a random theme each
 # time that oh-my-zsh is loaded.
 ZSH_THEME="jt"
-vdebuglog="/Users/JT/vagrant/log/debug.log"
+vdebuglog="$HOME/vagrant/log/debug.log"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up && say 'vagrant is up'"
@@ -60,13 +60,13 @@ alias git=hub
 alias dockerstart="bash '/Applications/Docker/Docker Quickstart Terminal.app/Contents/Resources/Scripts/start.sh'"
 
 # t tasks https://github.com/sjl/t
-alias t='python /Users/JT/.dotfiles/t/t.py --task-dir /Users/JT/Dropbox/t-tasks --list tasks'
-alias tedit='open /Users/JT/Dropbox/t-tasks/tasks'
+alias t="python $HOME/.dotfiles/t/t.py --task-dir $HOME/Dropbox/t-tasks --list tasks"
+alias tedit="open $HOME/Dropbox/t-tasks/tasks"
 
 # Show your basic terminal text colors for terminal preferences change.
 alias showcolors="printf \"\e[%dm%d dark\e[0m  \e[%d;1m%d bold\e[0m\n\" {30..37}{,,,}"
 alias wpbackup='date="`date +%m%d%Y`" && wp db export backup-"$date".sql'
-alias gethooks='/Users/JT/.dotfiles/bin/gethooks/gethooks'
+alias gethooks="$HOME/.dotfiles/bin/gethooks/gethooks"
 
 # alias svn='/usr/local/bin/svn'
 
@@ -146,7 +146,7 @@ ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
 
-export NVM_DIR="/Users/JT/.nvm"
+export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
 
 # VV completions, woot!
