@@ -7,16 +7,16 @@
 	url = https://github.com/bradp/vv.git
 [submodule "t"]
 	path = t
-	url = git@github.com:sjl/t.git
+	url = https://github.com/sjl/t.git
 [submodule "bin/phploy"]
 	path = bin/phploy-source
-	url = git@github.com:banago/PHPloy.git
+	url = https://github.com/banago/PHPloy.git
 [submodule "bin/gethooks"]
 	path = bin/gethooks
-	url = git@gist.github.com:e8356e00130351ddcbe2c62125e6c52a.git
+	url = https://gist.github.com/e8356e00130351ddcbe2c62125e6c52a.git
 [submodule "bin/sphp-osx"]
 	path = bin/sphp-osx
-	url = git@github.com:sgotre/sphp-osx.git
+	url = https://github.com/sgotre/sphp-osx.git
 [submodule "zsh-custom/plugins/zsh-autosuggestions"]
 	path = zsh-custom/plugins/zsh-autosuggestions
-	url = git@github.com:zsh-users/zsh-autosuggestions.git
+	url = https://github.com/zsh-users/zsh-autosuggestions.git
