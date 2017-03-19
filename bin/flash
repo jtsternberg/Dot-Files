@@ -1,0 +1,18 @@
+#!/usr/bin/osascript
+
+# =============================================================================
+# Screen Flash
+# http://apple.stackexchange.com/questions/127255/how-to-flash-screen-from-command-line
+#
+# In order to work, the Accessibility keyboard shortcut needs to be enabled:
+# http://b.ustin.co/DSDF
+#
+# Version 0.1.0
+#
+# Use in place of an audio notification (or in combination)
+# =============================================================================
+
+tell application "System Events" to repeat 2 times
+key code 28 using {command down, control down, option down}
+delay 0.1
+end repeat
