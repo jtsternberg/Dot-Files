@@ -10,7 +10,7 @@ ZSH_THEME="jt"
 vdebuglog="$HOME/vagrant/log/debug.log"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
-alias vup="cd ~/vagrant && vagrant up && say 'vagrant is up'"
+alias vup="cd ~/vagrant && vagrant up && flash && say 'vagrant is up'"
 alias vssh="cd ~/vagrant && vagrant ssh"
 alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
@@ -45,7 +45,7 @@ alias mysqlstop="sudo /usr/local/mysql/support-files/mysql.server stop"
 alias groot='cd `git rev-parse --show-cdup`'
 alias grep='grep -in'
 alias bell='echo "\a"'
-alias alldone='say "all done"'
+alias alldone='flash && say "all done"'
 alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
 alias rmbrokensymlinks='find -L . -type l -delete'
 alias lsn='ls -latr'
