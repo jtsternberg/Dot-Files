@@ -11,6 +11,7 @@ vdebuglog="$HOME/vagrant/log/debug.log"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up && flash && say 'vagrant is up'"
+alias valt="cd ~/vagrant && vagrant halt && flash && say 'vagrant is halted'"
 alias vssh="cd ~/vagrant && vagrant ssh"
 alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
