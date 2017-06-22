@@ -46,6 +46,7 @@
 	rh2 = reset HEAD^^ --hard
 
 	; log stuff
+	log = log --graph --decorate --stat --date=iso
 	ls = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate
 	ll = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --numstat
 	lnc = log --pretty=format:"%h\\ %s\\ [%cn]"
@@ -57,6 +58,11 @@
 	ldiff = diff --name-status
 	diffname = diff --name-only
 	listfiles = show --name-only
+	stats = shortlog -sn
+	topten = for-each-ref --count=10 --sort=-committerdate refs/heads/ --format="%(refname:short)"
+	recap = log --all --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --no-merges --author=justin@dsgnwrks.pro
+	today = log --since=00:00:00 --all --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --no-merges --author=justin@dsgnwrks.pro
+
 
 	; history
 	filelog = log -u
@@ -107,7 +113,10 @@
 	svnd = svn dcommit
 	svnl = svn log --oneline --show-commit
 
-	changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'* %s'; }; _"
+	; changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'* %s'; }; _"
+	; changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'%C(yellow)*%Cred%d %Creset%s%Cblue [%cn]'; }; _"
+	changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'%C(yellow)%h %Creset%s%Cblue [%cN - %ad]'; }; _"
+
 
 ; Environment
 [core]
