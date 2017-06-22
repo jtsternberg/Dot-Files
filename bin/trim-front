@@ -20,7 +20,6 @@
 # trim-front debug.log 1000
 # =============================================================================
 
-
 # If no first argument (a file path),
 if [ -z "$1" ]
 	then

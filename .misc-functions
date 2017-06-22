@@ -6,6 +6,10 @@ dwdebugtrim() {
 	trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log
 }
 
+trim_and_tail() {
+	trim-front ${1} ${2:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f ${1}
+}
+
 vdebugtrim() {
 	trim-front ${vdebuglog} ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f $vdebuglog
 }
