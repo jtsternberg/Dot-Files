@@ -32,6 +32,13 @@ _git_cr () {
 	# you can return anything here for the autocompletion for example all the branches
 	__gitcomp_nl "$(__git_refs)"
 }
+
+## Add tab completion for git diffmod <refs>.
 _git_diffmod () {
 	__gitcomp_nl "$(__git_refs)"
+}
+
+## Add tab completion for git move <branch>.
+_git_move() {
+  _git_branch
 }
