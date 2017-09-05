@@ -44,6 +44,10 @@
 	rh = reset --hard
 	rh1 = reset HEAD^ --hard
 	rh2 = reset HEAD^^ --hard
+	moveexisting = "!f() { MESSAGE=$(git log -1 HEAD --pretty=format:%s) && git reset HEAD~ --soft && git stash && git checkout $1 && git stash apply && git add . && git commit -m \"$MESSAGE\"; }; f"
+	movenew = "!f() { git branch $1; git reset HEAD~1 --soft; git checkout $1; }; f"
+	move = "!sh -c 'if [ `git rev-parse --verify "'$1'"` ]; then git moveexisting "'$1'"; else git movenew "'$1'"; fi'"
+
 
 	; log stuff
 	log = log --graph --decorate --stat --date=iso
