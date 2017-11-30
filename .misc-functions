@@ -64,8 +64,8 @@ chromewin(){
 	open -n -a 'Google Chrome' --args "--app=$1"
 }
 
-# Word-count all files of type X in current directory.
-wc_all() {
+# Line-count all files of type X in current directory.
+linecount_all() {
 	if [ -z "$1" ]
 		then
 			# then throw a message
@@ -77,6 +77,10 @@ wc_all() {
 	fi
 }
 
+# Count files with extension:
+count_files_ending_with() {
+	ls -lR $2/*$1 | wc -l
+}
 # Cleans CSV files for proper import to sequal pro, and creates a *-clean version.
 # Settings: http://b.ustin.co/1cfT5
 # Get middle matches

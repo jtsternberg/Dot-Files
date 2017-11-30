@@ -37,6 +37,7 @@ alias ql='qlmanage -p'
 alias gifs='~/Sites/wpengine/gifs'
 alias mergeall='git mergetool -t opendiff'
 alias pubkey='more ~/.ssh/id_rsa.pub | pbcopy | printf '\''=> Public key copied to pasteboard.\n'\'
+alias pubkeyzao='more ~/.ssh/id_rsa_zaobot.pub | pbcopy | printf '\''=> Public key copied to pasteboard.\n'\'
 alias hidedotfiles='defaults write com.apple.finder AppleShowAllFiles -bool false &amp;&amp; killall Finder'
 alias showdotfiles='defaults write com.apple.finder AppleShowAllFiles -bool true &amp;&amp; killall Finder'
 # Random commit message
