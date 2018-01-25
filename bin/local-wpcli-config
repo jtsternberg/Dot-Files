@@ -16,7 +16,7 @@
 # Once complete, try `wp core version --extra` to test.
 #
 # Usage:
-# local-wpcli-config
+# local-wpcli-config [--debug]
 # (Then answer prompts)
 # =============================================================================
 
