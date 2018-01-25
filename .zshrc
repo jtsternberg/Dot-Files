@@ -68,6 +68,10 @@ alias showcolors="printf \"\e[%dm%d dark\e[0m  \e[%d;1m%d bold\e[0m\n\" {30..37}
 alias wpbackup='date="`date +%m%d%Y`" && wp db export backup-"$date".sql'
 alias gethooks="$HOME/.dotfiles/bin/gethooks/gethooks"
 
+# For when the sidebar items disappear.
+# https://apple.stackexchange.com/a/210469
+alias restoreFinderSidebar="cd ~/Library/Preferences && sudo find com.apple.finder.plist* -exec rm {} \; && killall Finder"
+
 # This alias because the HOWDOI_COLORIZE env variable isn't working.
 # https://github.com/gleitz/howdoi/#notes
 alias howdoi="howdoi -c"
