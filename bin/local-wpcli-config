@@ -9,7 +9,11 @@
 #
 # Generates config files to allow running wp-cli commands from within your
 # active project without having to SSH into the machine first.
-# Try `wp core version --extra` to test.
+#
+# Run remotely via:
+# sudo curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/bin/local-wpcli-config --output local-wp-cli-config.php && php local-wp-cli-config.php
+#
+# Once complete, try `wp core version --extra` to test.
 #
 # Usage:
 # local-wpcli-config
