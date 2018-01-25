@@ -136,6 +136,10 @@
 	; tags
 	lasttag = describe --tags --abbrev=0
 	lt = describe --tags --abbrev=0
+	pushtag = "!f() {               \
+		git tag -a $1 -m '${2:-$1}'; \
+		git push --tags;             \
+	}; f"
 
 	; stash
 	sl = stash list
