@@ -22,7 +22,7 @@ checkout-reset() {
 }
 
 diffcommit() {
-	git difftool $1~1 $1
+	git difftool $1~1 $1 ${2:-}
 }
 
 #### Now, in your shell you can do
