@@ -76,6 +76,12 @@ alias restoreFinderSidebar="cd ~/Library/Preferences && sudo find com.apple.find
 # https://github.com/gleitz/howdoi/#notes
 alias howdoi="howdoi -c"
 
+# Find largest directories
+alias top10="du -a | sort -n -r | head -n 10"
+
+# Find largest files
+alias top10files="find . -type f -exec du -Sh {} + | sort -rh | head -n 5"
+
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
