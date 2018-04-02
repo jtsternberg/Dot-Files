@@ -24,6 +24,7 @@ PATH=$PATH:~/.rvm/bin
 PATH=$PATH:~/android/sdk/platform-tools
 PATH=$PATH:~/android/sdk/tools
 PATH=$PATH:~/phpcs/scripts
+PATH=$PATH:~/wpcs/vendor/bin
 PATH=$PATH:~/.dotfiles/bin
 PATH=$PATH:~/.dotfiles/bin/vv
 PATH=$PATH:~/.composer/vendor/bin
