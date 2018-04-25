@@ -1,4 +1,5 @@
 #!/usr/bin/env php
+<?php
 
 # =============================================================================
 # WP-CLI Config for Local sites.
@@ -20,8 +21,6 @@
 # (Then answer prompts)
 # =============================================================================
 
-<?php
-
 class Local_WP_CLI_Config_Generator {
 
 	protected $files = array(
@@ -31,7 +30,7 @@ class Local_WP_CLI_Config_Generator {
 
 	protected $config = array(
 		'path' => 'app/public',
-		'url' => 'https://dev.<project-url>',
+		'url' => 'https://<project-url>',
 		'user' => 'admin',
 	);
 
@@ -41,16 +40,10 @@ class Local_WP_CLI_Config_Generator {
 		'DB_PASSWORD' => 'root',
 	);
 
-	protected $wd = '';
-	protected $curr_dir = '';
-	protected $args = array();
+	protected $helpers;
 
 	public function __construct( $argv ) {
-		$this->wd = getcwd();
-		$this->args = $argv;
-
-		$path_parts = explode( '/', $this->wd );
-		$this->curr_dir = end( $path_parts );
+		$this->helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
 
 		if ( $curr_user = get_current_user() ) {
 			$this->config['user'] = $curr_user;
@@ -58,7 +51,7 @@ class Local_WP_CLI_Config_Generator {
 	}
 
 	public function start() {
-		$this->msg( "\nStarting the WP-CLI config for your Local site.", 'green' );
+		$this->helpers->msg( "\nStarting the WP-CLI config for your Local site.", 'green' );
 
 		if ( $this->check_file_exists() ) {
 			$this->maybe_set_wp_user();
@@ -79,8 +72,8 @@ class Local_WP_CLI_Config_Generator {
 
 		$this->try_running();
 
-		if ( in_array( '--debug', $this->args ) ) {
-			$this->msg( "\nYour config is now:", 'green' );
+		if ( in_array( '--debug', $this->helpers->args ) ) {
+			$this->helpers->msg( "\nYour config is now:", 'green' );
 			echo "\n-----------------------------------------\n";
 			print_r( array( $this->config, $this->php_config, $this->files ) );
 			echo "-----------------------------------------\n";
@@ -90,7 +83,7 @@ class Local_WP_CLI_Config_Generator {
 	public function check_file_exists() {
 		$exists = false;
 		foreach ( $this->files as $key => $file ) {
-			$this->files[ $key ] = $this->wd . '/' . $file;
+			$this->files[ $key ] = $this->helpers->wd . '/' . $file;
 			if ( file_exists( $this->files[ $key ] ) ) {
 				$this->overwrite_request( $this->files[ $key ] );
 				$exists = true;
@@ -105,15 +98,15 @@ class Local_WP_CLI_Config_Generator {
 	public function overwrite_request( $file ) {
 		$parts = explode( '.', $file );
 		$ext = array_pop( $parts );
-		echo "\nThe ", $this->msg( implode( '.', $parts ) . '.', 'yellow', false ), $this->msg( $ext, 'purple', false ), " file already exists.\n";
-		$this->msg( '> Do you want to replace it? ', 'red', false );
-		$this->msg( "'y'", 'green', false );
+		echo "\nThe ", $this->helpers->msg( implode( '.', $parts ) . '.', 'yellow', false ), $this->helpers->msg( $ext, 'purple', false ), " file already exists.\n";
+		$this->helpers->msg( '> Do you want to replace it? ', 'red', false );
+		$this->helpers->msg( "'y'", 'green', false );
 		echo " to continue\n";
 		// echo " or ";
-		// $this->msg( 'no', 'red' );
+		// $this->helpers->msg( 'no', 'red' );
 
-		if ( 'y' !== $this->get_answer() ) {
-			$this->msg( 'ABORTING', 'red' );
+		if ( 'y' !== $this->helpers->getAnswer() ) {
+			$this->helpers->msg( 'ABORTING', 'red' );
 			exit( 1 );
 		}
 
@@ -125,91 +118,91 @@ class Local_WP_CLI_Config_Generator {
 		$user = trim( `wp user get $(wp option get admin_email) --field=user_login` );
 		if ( ! empty( $user ) && false === strpos( $user, 'Error:' ) && false === strpos( $user, "\n" ) ) {
 			$this->config['user'] = $user;
-			$this->msg( sprintf( "\nFOUND (%s).\n", $user ), 'green' );
+			$this->helpers->msg( sprintf( "\nFOUND (%s).\n", $user ), 'green' );
 		} else {
-			$this->msg( "\nNot found. Let's continue.\n", 'red' );
+			$this->helpers->msg( "\nNot found. Let's continue.\n", 'red' );
 		}
 	}
 
 	public function ask_path() {
 		echo "\nIs your Local site path ";
-		$this->msg( $this->config['path'], 'blue', false );
+		$this->helpers->msg( $this->config['path'], 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your path.\n";
 
-		$this->config['path'] = $this->get_answer( $this->config['path'] );
+		$this->config['path'] = $this->helpers->getAnswer( $this->config['path'] );
 	}
 
 	public function ask_url() {
-		$suggestion = str_replace( '<project-url>', $this->curr_dir, $this->config['url'] );
+		$suggestion = str_replace( '<project-url>', $this->guessURL(), $this->config['url'] );
 
 		echo "\nIs your Local site url ";
-		$this->msg( $suggestion, 'blue', false );
+		$this->helpers->msg( $suggestion, 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your url.\n";
 
-		$this->config['url'] = $this->get_answer( $suggestion );
+		$this->config['url'] = $this->helpers->getAnswer( $suggestion );
 	}
 
 	public function ask_user() {
 		echo "\nIs your Local WordPress admin username ";
-		$this->msg( $this->config['user'], 'blue', false );
+		$this->helpers->msg( $this->config['user'], 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your admin username.\n";
 
-		$this->config['user'] = $this->get_answer( $this->config['user'] );
+		$this->config['user'] = $this->helpers->getAnswer( $this->config['user'] );
 	}
 
 	public function ask_host() {
 		$parts = explode( ':', $this->php_config['DB_HOST'] );
 		echo "\nIs your Local Remote Host ";
-		$this->msg( $parts[0], 'blue', false );
+		$this->helpers->msg( $parts[0], 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your Remote Host.\n";
-		$this->msg( '(hint: to find the following values, you can look under your Local Sites > <Your Site> > DATABASE settings in Local)', 'yellow' );
+		$this->helpers->msg( '(hint: to find the following values, you can look under your Local Sites > <Your Site> > DATABASE settings in Local)', 'yellow' );
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$parts[0] = $this->get_answer( $parts[0] );
+		$parts[0] = $this->helpers->getAnswer( $parts[0] );
 		$this->php_config['DB_HOST'] = implode( ':', $parts );
 	}
 
 	public function ask_port() {
 		$parts = explode( ':', $this->php_config['DB_HOST'] );
 		echo "\nIs your Local Remote Port ";
-		$this->msg( $parts[1], 'blue', false );
+		$this->helpers->msg( $parts[1], 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your Remote Port.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$parts[1] = $this->get_answer( $parts[1] );
+		$parts[1] = $this->helpers->getAnswer( $parts[1] );
 		$this->php_config['DB_HOST'] = implode( ':', $parts );
 	}
 
 	public function ask_db_user() {
 		echo "\nIs your Local Database User (DB_USER) ";
-		$this->msg( $this->php_config['DB_USER'], 'blue', false );
+		$this->helpers->msg( $this->php_config['DB_USER'], 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your Database User.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$this->php_config['DB_USER'] = $this->get_answer( $this->php_config['DB_USER'] );
+		$this->php_config['DB_USER'] = $this->helpers->getAnswer( $this->php_config['DB_USER'] );
 	}
 
 	public function ask_db_password() {
 		echo "\nIs your Local Database Password (DB_PASSWORD) ";
-		$this->msg( $this->php_config['DB_PASSWORD'], 'blue', false );
+		$this->helpers->msg( $this->php_config['DB_PASSWORD'], 'blue', false );
 		echo "?\n> hit ";
-		$this->msg( 'enter', 'green', false );
+		$this->helpers->msg( 'enter', 'green', false );
 		echo " if yes, otherwise type your Database Password.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$this->php_config['DB_PASSWORD'] = $this->get_answer( $this->php_config['DB_PASSWORD'] );
+		$this->php_config['DB_PASSWORD'] = $this->helpers->getAnswer( $this->php_config['DB_PASSWORD'] );
 	}
 
 	public function save_yml() {
@@ -222,7 +215,7 @@ apache_modules:
   - mod_rewrite
 ';
 
-		$this->try_write_file( $this->files['yml'], $yml_contents );
+		$this->helpers->writeFile( $this->files['yml'], $yml_contents, [ 'relative' => false ] );
 	}
 
 	public function save_php() {
@@ -236,11 +229,11 @@ error_reporting(0);
 define( 'WP_DEBUG', false );
 ";
 
-		$this->try_write_file( $this->files['php'], $php_contents );
+		$this->helpers->writeFile( $this->files['php'], $php_contents, [ 'relative' => false ] );
 	}
 
 	public function try_running() {
-		$this->msg( "\nConfig files created! Testing with: ", 'green', false );
+		$this->helpers->msg( "\nConfig files created! Testing with: ", 'green', false );
 		echo "`wp core version --extra`\n";
 
 		$connected = $this->check_connected();
@@ -252,9 +245,9 @@ define( 'WP_DEBUG', false );
 			echo "-----------------------------------------\n";
 		}
 		if ( $connected['connected'] ) {
-			$this->msg( "\nSUCCESS! You can now run wp-cli commands from within your active project without having to SSH into the machine first.", 'green' );
+			$this->helpers->msg( "\nSUCCESS! You can now run wp-cli commands from within your active project without having to SSH into the machine first.", 'green' );
 		} else {
-			$this->msg( "\nThe command appears to not have worked. Maybe try re-running this script?", 'red' );
+			$this->helpers->msg( "\nThe command appears to not have worked. Maybe try re-running this script?", 'red' );
 		}
 	}
 
@@ -266,69 +259,24 @@ define( 'WP_DEBUG', false );
 		);
 	}
 
-	// protected function ask() {
-	// 	echo "Enter your Local site url (`" . $suggestion . "`): \n";
+	protected function guessURL() {
+		$parts = array();
+		$potentialURL = 'dev.' . $this->helpers->currDir;
 
-	// 	$url = $this->get_answer();
-
-	// 	if ( empty( $url ) ) {
-	// 		echo "Pretty please enter your Local site url (`" . $this->config['url'] . "`): \n";
-	// 		$url = $this->get_answer();
-	// 	}
-	// 	if ( empty( $url ) ) {
-	// 		$this->msg( 'Ok, I give up.', 'red' );
-	// 		exit( 1 );
-	// 	}
-
-	// 	$this->config['url'] = $url;
-	// }
-
-	public function try_write_file( $file, $contents ) {
-		echo $file .' $contents: ';
-		print_r( $contents );
-		echo "\n--------------------\n\n";
-		$results = file_put_contents( $file, $contents );
-		echo $file .' $results: ';
-		print_r( $results );
-		echo "\n--------------------\n\n";
-
-		if ( empty( $results ) ) {
-			$this->msg( sprintf( 'Failed to write to file (%s). ABORTING', $file ), 'red' );
-			exit( 1 );
+		if ( false !== strpos( $this->helpers->wd, 'app/public') ) {
+			$parts = explode( 'app/public', $this->helpers->wd );
 		}
-	}
 
-	protected function get_answer( $default = null ) {
-		$handle = fopen ( 'php://stdin', 'r' );
-		$answer = trim( fgets( $handle ) );
-		// echo '<xmp>'. __LINE__ .') empty( $answer ): '. print_r( empty( $answer ) ? 1 : $answer, true ) .'</xmp>';
-		// die( 'blah test' );
-		return empty( $answer ) ? $default : $answer;
-	}
+		if ( empty( $parts ) && false !== strpos( $this->helpers->wd, 'wp-content' ) ) {
+			$parts = explode( 'wp-content', $this->helpers->wd );
+		}
 
-	protected function color( $color ) {
-		$colors = array(
-			'red_bg' => "\e[1;37;41m",
-			'black' => "\033[30m",
-			'blue' => "\033[34m",
-			'green' => "\033[32m",
-			'cyan' => "\033[36m",
-			'red' => "\033[31m",
-			'purple' => "\033[35m",
-			'yellow' => "\033[33m",
-			'none' => "\033[0m",
-		);
+		if ( ! empty( $parts[0] ) ) {
+			$parts = explode( '/', rtrim( $parts[0], '/' ) );
+			$potentialURL = end( $parts );
+		}
 
-		return $color && isset( $colors[ $color ] )
-			? $colors[ $color ]
-			: '';
-	}
-
-	protected function get_msg( $text, $color, $line_break = true ) {
-		return $this->color( $color ) . $text . $this->color( 'none' ) . ( $line_break ? PHP_EOL : '' );
-	}
-	protected function msg( $text, $color = '', $line_break = true ) {
-		echo $this->get_msg( $text, $color, $line_break );
+		return $potentialURL;
 	}
 
 }
