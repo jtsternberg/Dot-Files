@@ -37,6 +37,10 @@ $keys = array(
 );
 
 $type = $helpers->getArg();
+$type = str_replace( '"', '', $type );
+$type = str_replace( "'", '', $type );
+$type = trim( $type );
+
 if ( empty( $type ) ) {
 	$type = 'patch';
 }
