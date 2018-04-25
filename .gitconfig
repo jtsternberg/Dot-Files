@@ -29,6 +29,10 @@
 	br = branch -a
 	brv = branch -vva
 	mote = remote -v
+	deleteremote = "!f() {  \
+		git push $1 :$2;     \
+	}; f"
+
 	zip = archive --format zip --output
 	m = merge
 	ms = merge --squash
@@ -133,12 +137,21 @@
 	assumeall = "!git st -s | awk {'print $2'} | xargs git assume"
 
 	; tags
-	lasttag = describe --tags --abbrev=0
 	lt = describe --tags --abbrev=0
-	pushtag = "!f() {               \
-		git tag -a $1 -m '${2:-$1}'; \
-		git push --tags;             \
+	lasttag = lt
+	dlt = "!f() { git tag -d `git lt`; }; f"
+	deletelasttag = dlt
+	nt = "!f() {                                    \
+		NEXTTAG=${1:-`git-nexttag`};                 \
+		git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG"}\"; \
+		git tag;                                     \
 	}; f"
+	newtag = nt
+	nexttag = "!f() { git-nexttag; }; f"
+	pt = "!f() { git push && git push --tags; }; f"
+	pushtags = pt
+	remotetags = ls-remote --tags
+	drt = deleteremote
 
 	; stash
 	sl = stash list

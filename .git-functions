@@ -25,6 +25,24 @@ diffcommit() {
 	git difftool $1~1 $1 ${2:-}
 }
 
+glasttag() {
+	git describe --tags --abbrev=0;
+}
+
+gdeletelasttag() {
+	git tag -d `glasttag`;
+}
+
+gnexttag() {
+	git-nexttag;
+}
+
+gnewtag() {
+	NEXTTAG=${1:-`git-nexttag`};
+	git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG"}\";
+	git tag;
+}
+
 #### Now, in your shell you can do
 #### git cr <TAB>
 #### and get an autocomplete of available branches, just like "git checkout <TAB>"
