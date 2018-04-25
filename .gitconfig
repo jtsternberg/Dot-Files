@@ -141,10 +141,17 @@
 	lasttag = lt
 	dlt = "!f() { git tag -d `git lt`; }; f"
 	deletelasttag = dlt
-	nt = "!f() {                                    \
-		NEXTTAG=${1:-`git-nexttag`};                 \
-		git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG"}\"; \
-		git tag;                                     \
+	nt = "!f() {\
+		list='major minor patch subpatch';\
+		if [[ $list =~ (^|[[:space:]])${1-patch}($|[[:space:]]) ]];\
+		then\
+			NEXTTAG=`git-nexttag \"$1\"`;\
+		else\
+			NEXTTAG=$1;\
+		fi;\
+		NOW=`date`;\
+		git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG, $NOW"}\";\
+		git tag --sort=creatordate -n;\
 	}; f"
 	newtag = nt
 	nexttag = "!f() { git-nexttag; }; f"
