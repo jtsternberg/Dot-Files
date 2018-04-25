@@ -1,0 +1,66 @@
+#!/usr/bin/env php
+<?php
+
+# =============================================================================
+# Get the last git tag and increment.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/git-nexttag
+#
+# Version 0.1.0
+#
+# Looks up the last git tag and increment it using Semver keys.
+#
+# Examples:
+# `$ git-nexttag major` // v4.17.25 => v5.0.0
+# `$ git-nexttag minor` // v4.17.25 => v4.18.0
+# `$ git-nexttag patch` // v4.17.25 => v4.17.26 (Default if argument is left off)
+# `$ git-nexttag subpatch` // v4.17.25.1 => v4.17.25.2 // Probably shouldn't use, but who am I to judge. ¯\_(ツ)_/¯
+#
+# Usage:
+# git-nexttag [key]
+# =============================================================================
+
+$helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+
+$lasttag = trim( `git describe --tags --abbrev=0` );
+// print_r( $lasttag );
+// echo "\n";
+
+$parts = explode( '.', $lasttag );
+$keys = array_keys( $parts );
+
+$keys = array(
+	'major'    => 0,
+	'minor'    => 1,
+	'patch'    => 2,
+	'subpatch' => 3,
+);
+
+$type = $helpers->getArg();
+if ( empty( $type ) ) {
+	$type = 'patch';
+}
+
+if ( ! isset( $keys[ $type ] ) ) {
+	$types = implode( ', ', array_keys( $keys ) ) ;
+	return $helpers->msg( "$type is not recognized. You can use one of the following: $types.", 'red' );
+}
+
+if ( ! isset( $parts[ $keys[ $type ] ] ) ) {
+	return $helpers->msg( "The last tag ($lasttag) is missing the $type section.", 'red' );
+}
+
+$index = $keys[ $type ];
+// Increase the requested version.
+$parts[ $index ]++;
+// Then loop through the rest of the version parts and zero them out.
+while ( isset( $parts[ ++$index ] ) ) {
+	$parts[ $index ] = 0;
+}
+
+$nexttag = implode( '.', $parts );
+echo $nexttag;
+
+function errmsg( $text, $line_break = true ) {
+	echo "\033[31m" . $text . "\033[0m" . ( $line_break ? PHP_EOL : '' );
+}
