@@ -41,9 +41,11 @@ class Local_WP_CLI_Config_Generator {
 	);
 
 	protected $helpers;
+	public $wd = '';
 
 	public function __construct( $argv ) {
 		$this->helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+		$this->wd = $this->guessWorkingDirectory();
 
 		if ( $curr_user = get_current_user() ) {
 			$this->config['user'] = $curr_user;
@@ -83,7 +85,7 @@ class Local_WP_CLI_Config_Generator {
 	public function check_file_exists() {
 		$exists = false;
 		foreach ( $this->files as $key => $file ) {
-			$this->files[ $key ] = $this->helpers->wd . '/' . $file;
+			$this->files[ $key ] = $this->wd . '/' . $file;
 			if ( file_exists( $this->files[ $key ] ) ) {
 				$this->overwrite_request( $this->files[ $key ] );
 				$exists = true;
@@ -232,7 +234,7 @@ apache_modules:
   - mod_rewrite
 ';
 
-		$this->helpers->writeFile( $this->files['yml'], $yml_contents, [ 'relative' => false ] );
+		$this->helpers->writeToFile( $this->files['yml'], $yml_contents, [ 'relative' => false ] );
 	}
 
 	public function save_php() {
@@ -246,7 +248,7 @@ error_reporting(0);
 define( 'WP_DEBUG', false );
 ";
 
-		$this->helpers->writeFile( $this->files['php'], $php_contents, [ 'relative' => false ] );
+		$this->helpers->writeToFile( $this->files['php'], $php_contents, [ 'relative' => false ] );
 	}
 
 	public function try_running() {
@@ -294,6 +296,18 @@ define( 'WP_DEBUG', false );
 		}
 
 		return $potentialURL;
+	}
+
+	protected function guessWorkingDirectory() {
+		$dir = $this->helpers->wd;
+		if ( false !== strpos( $this->helpers->wd, 'app/') ) {
+			$parts = explode( 'app/', $this->helpers->wd );
+			if ( ! empty( $parts[0] ) ) {
+				$dir = rtrim( $parts[0], '/' );
+			}
+		}
+
+		return $dir;
 	}
 
 }
