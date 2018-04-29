@@ -27,6 +27,7 @@
 	co = checkout
 	cob = checkout -b
 	br = branch -a
+	brd = branch -d
 	brv = branch -vva
 	mote = remote -v
 	deleteremote = "!f() {  \
