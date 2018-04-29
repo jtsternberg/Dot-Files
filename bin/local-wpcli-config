@@ -225,10 +225,14 @@ class Local_WP_CLI_Config_Generator {
 	}
 
 	public function save_yml() {
-		$yml_contents = 'path: '. $this->config['path'] .'
+		$yml_contents = '# Should be the path to the WordPress root.
+path: '. $this->config['path'] .'
+# Should be the local site url (You can find in the Local by Flywheel)
 url: '. $this->config['url'] .'
+# This should be a WordPress admin-level user and is needed to do admin-level commands, like `wp user get ...`.
 user: '. $this->config['user'] .'
 require:
+  # We need to include this so we can override the DB_HOST/DB_USER/DB_PASSWORD values.
   - wp-cli.local.php
 apache_modules:
   - mod_rewrite
@@ -239,7 +243,16 @@ apache_modules:
 
 	public function save_php() {
 		$php_contents = "<?php
+/*
+ * To find the following values, you can look under your
+ * Local Sites > <Your Site> > DATABASE settings
+ * in Local
+ *
+ * Remote Host is the part in front of the colon, and Remote Port is the part after it.
+ * `define('DB_HOST', '<Remote Host>:<Remote Port>');`
+ */
 define('DB_HOST', '" . $this->php_config['DB_HOST'] . "');
+
 define('DB_USER', '" . $this->php_config['DB_USER'] . "');
 define('DB_PASSWORD', '" . $this->php_config['DB_PASSWORD'] . "');
 
