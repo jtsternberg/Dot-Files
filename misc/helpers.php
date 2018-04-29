@@ -55,6 +55,8 @@ class JT_CLI_Helpers {
 	public function getAnswer( $default = null ) {
 		$handle = fopen ( 'php://stdin', 'r' );
 		$answer = trim( fgets( $handle ) );
+		// Allow user to type "y/Y" or hit enter.
+		$answer = 'y' === strtolower( $answer ) ? '' : $answer;
 		return empty( $answer ) ? $default : $answer;
 	}
 

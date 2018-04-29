@@ -98,14 +98,17 @@ class Local_WP_CLI_Config_Generator {
 	public function overwrite_request( $file ) {
 		$parts = explode( '.', $file );
 		$ext = array_pop( $parts );
-		echo "\nThe ", $this->helpers->msg( implode( '.', $parts ) . '.', 'yellow', false ), $this->helpers->msg( $ext, 'purple', false ), " file already exists.\n";
+		echo "\nThe ", $this->helpers->getMsg( implode( '.', $parts ) . '.', 'yellow', false ), $this->helpers->getMsg( $ext, 'purple', false ), " file already exists.\n";
 		$this->helpers->msg( '> Do you want to replace it? ', 'red', false );
-		$this->helpers->msg( "'y'", 'green', false );
-		echo " to continue\n";
+		echo "?\n> hit ";
+		$this->helpers->msg( 'enter', 'green', false );
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' to continue\n";
 		// echo " or ";
 		// $this->helpers->msg( 'no', 'red' );
 
-		if ( 'y' !== $this->helpers->getAnswer() ) {
+		if ( $this->helpers->getAnswer() ) {
 			$this->helpers->msg( 'ABORTING', 'red' );
 			exit( 1 );
 		}
@@ -120,16 +123,18 @@ class Local_WP_CLI_Config_Generator {
 			$this->config['user'] = $user;
 			$this->helpers->msg( sprintf( "\nFOUND (%s).\n", $user ), 'green' );
 		} else {
-			$this->helpers->msg( "\nNot found. Let's continue.\n", 'red' );
+			$this->helpers->msg( "\nNot found. That's ok, let's continue.\n", 'yellow' );
 		}
 	}
 
 	public function ask_path() {
-		echo "\nIs your Local site path ";
-		$this->helpers->msg( $this->config['path'], 'blue', false );
+		echo "\nIs the path to your Local WordPress ";
+		$this->helpers->msg( $this->wd . '/' . $this->config['path'], 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your path.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your path.\n";
 
 		$this->config['path'] = $this->helpers->getAnswer( $this->config['path'] );
 	}
@@ -141,7 +146,9 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( $suggestion, 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your url.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your url.\n";
 
 		$this->config['url'] = $this->helpers->getAnswer( $suggestion );
 	}
@@ -151,7 +158,9 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( $this->config['user'], 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your admin username.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your admin username.\n";
 
 		$this->config['user'] = $this->helpers->getAnswer( $this->config['user'] );
 	}
@@ -162,7 +171,9 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( $parts[0], 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your Remote Host.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your Remote Host.\n";
 		$this->helpers->msg( '(hint: to find the following values, you can look under your Local Sites > <Your Site> > DATABASE settings in Local)', 'yellow' );
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
@@ -176,7 +187,9 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( $parts[1], 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your Remote Port.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your Remote Port.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
 		$parts[1] = $this->helpers->getAnswer( $parts[1] );
@@ -188,7 +201,9 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( $this->php_config['DB_USER'], 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your Database User.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your Database User.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
 		$this->php_config['DB_USER'] = $this->helpers->getAnswer( $this->php_config['DB_USER'] );
@@ -199,7 +214,9 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( $this->php_config['DB_PASSWORD'], 'blue', false );
 		echo "?\n> hit ";
 		$this->helpers->msg( 'enter', 'green', false );
-		echo " if yes, otherwise type your Database Password.\n";
+		echo " or type '";
+		$this->helpers->msg( "y", 'green', false );
+		echo "' if yes, otherwise type your Database Password.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
 		$this->php_config['DB_PASSWORD'] = $this->helpers->getAnswer( $this->php_config['DB_PASSWORD'] );
