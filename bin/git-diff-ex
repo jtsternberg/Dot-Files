@@ -13,7 +13,7 @@
 # Opens difftool viewing all files excluding specified directories
 #
 # Usage:
-# trim-front debug.log 1000
+# git-diff-ex master languages
 # =============================================================================
 
 
