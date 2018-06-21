@@ -87,6 +87,7 @@
 		fi'";
 
 	; log stuff
+	deflog = log
 	log = log --graph --decorate --stat --date=iso
 	ls = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate
 	ll = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --numstat
@@ -150,8 +151,8 @@
 		else\
 			NEXTTAG=$1;\
 		fi;\
-		NOW=`date`;\
-		git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG, $NOW"}\";\
+		MSG=`git deflog --pretty=format:'%s [%h, %cN, %ad]' -1`;\
+		git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG $MSG"}\";\
 		git tag --sort=creatordate -n;\
 	}; f"
 	newtag = nt
