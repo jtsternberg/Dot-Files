@@ -36,7 +36,6 @@ PATH=$PATH:/usr/local/sbin
 export PATH=$PATH
 export PATH="$(brew --prefix coreutils)/libexec/gnubin:/usr/local/bin:$PATH"
 
-
 export EDITOR=“subl”
 
 export WP_TESTS_DIR=/tmp/wordpress/tests

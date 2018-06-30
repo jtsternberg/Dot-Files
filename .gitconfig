@@ -216,7 +216,8 @@
 ; diff and merge
 [diff]
 	guitool = kaleidoscope
-	tool = Kaleidoscope
+	; tool = Kaleidoscope
+	tool = delta
 	noprefix = true
 	compactionHeuristic = true
 	renameLimit = 6000
@@ -225,9 +226,13 @@
 	prompt = false
 [merge]
 	tool = Kaleidoscope
+	; delta https://github.com/octavore/delta#options
 
 [difftool "kaleidoscope"]
 	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
+
+[difftool "delta"]
+	cmd = delta --output=browser --format=html \"$LOCAL\" \"$REMOTE\"
 
 [mergetool "kaleidoscope"]
 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
