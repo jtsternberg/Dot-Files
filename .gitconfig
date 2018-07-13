@@ -216,8 +216,8 @@
 ; diff and merge
 [diff]
 	guitool = kaleidoscope
-	; tool = Kaleidoscope
-	tool = delta
+	tool = Kaleidoscope
+	; tool = delta
 	noprefix = true
 	compactionHeuristic = true
 	renameLimit = 6000
