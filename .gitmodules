@@ -20,3 +20,6 @@
 [submodule "zsh-custom/plugins/zsh-autosuggestions"]
 	path = zsh-custom/plugins/zsh-autosuggestions
 	url = https://github.com/zsh-users/zsh-autosuggestions.git
+[submodule "bin/git-number"]
+	path = bin/git-number-repo
+	url = git@github.com:holygeek/git-number.git

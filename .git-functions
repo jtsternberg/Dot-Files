@@ -37,6 +37,12 @@ gnexttag() {
 	git-nexttag;
 }
 
+# Git number aliases, status
+gn() {
+	# If doing anything besides status, then output git-number status when we're done.
+	git number -s "$@" && if (( $# > 1 )); then echo "" && git number -s; fi;
+}
+
 gnewtag() {
 	NEXTTAG=${1:-`git-nexttag`};
 	git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG"}\";
