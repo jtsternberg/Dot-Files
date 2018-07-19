@@ -1,17 +1,63 @@
+# Finds a debug log by current path or passed-in path
+finddebuglog() {
+	CURRDIR=$PWD;
+	FILE=${1:-$PWD}
+
+	# Convet dot-based paths.
+	if [[ "$FILE" == '.' ]]; then
+		FILE="$PWD";
+	elif [[ $FILE == *..* ]]; then
+		FILE=`cd $FILE && pwd && cd $CURRDIR`;
+	fi
+
+	# If specifying a particular debug.log file, don't do any magic.
+	if [[ "$FILE" == *debug.log ]]; then
+
+	# If we're in a sub-directory of wp-content (or in wp-content)
+	elif [[ "$FILE" =~ wp-content ]]; then
+		# Then create the path to the debug log file.
+		FILE=`echo "$FILE" | sed "s/wp\-content.*/wp\-content\/debug.log/"`;
+
+	# If we're one directory above wp-content
+	elif [[ -d "$FILE/wp-content" ]]; then
+		# Then create the path to the debug log file.
+		FILE="$FILE/wp-content/debug.log";
+	else
+		# Whoops, nothing found.
+		FILE='';
+	fi
+
+	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
+}
+
 # tail a debug log in any WordPress directory
-debuglog() { tail -f $1/wp-content/debug.log }
+debuglog() {
+	FILE=`finddebuglog ${1:-$PWD}`
+	if [[ -z "$FILE" ]]; then
+		echo "Can't find a debug.log file!"
+	else
+		clear && echo "\033[0;32mPath: $FILE\nNow tailing...\033[0m\n" && tail -f $FILE;
+	fi
+}
+
+# trims and tails a debug log in any WordPress directory
+tailtrim() {
+	FILE=`finddebuglog ${1:-$PWD}`;
+	if [[ -z "$FILE" ]]; then
+		echo "Can't find a debug.log file!"
+	else
+		clear && trim-front $FILE ${2:-800} && echo "\033[0;32mPath: $FILE\nNow tailing...\033[0m\n" && tail -f $FILE;
+	fi
+}
 
 # trims and tails my global debug log
-dwdebugtrim() {
-	trim-front ~/Sites/dsgnwrks.pro/wp-content/debug.log ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log
+dwtailtrim() {
+	tailtrim ${dwlog}
 }
 
-trim_and_tail() {
-	trim-front ${1} ${2:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f ${1}
-}
-
+# trims and tails my global vagrant debug log
 vdebugtrim() {
-	trim-front ${vdebuglog} ${1:-800} && echo "\n\033[0;32mNow tailing...\033[0m\n" && tail -f $vdebuglog
+	tailtrim ${vdebuglog}
 }
 
 wptests() {
