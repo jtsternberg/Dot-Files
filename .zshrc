@@ -8,6 +8,7 @@ ZSH_CUSTOM=$HOME/.dotfiles/zsh-custom
 # time that oh-my-zsh is loaded.
 ZSH_THEME="jt"
 vdebuglog="$HOME/vagrant/log/debug.log"
+dwlog="$HOME/Sites/dsgnwrks.pro/wp-content/debug.log"
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up && flash && say 'vagrant is up'"
@@ -25,8 +26,8 @@ alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
 alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
 alias vdebug="tail -f $vdebuglog"
-alias dwdebug="tail -f ~/Sites/dsgnwrks.pro/wp-content/debug.log"
-alias cmbdebug="tail -f /tmp/wordpress/wp-content/debug.log"
+alias dwdebug="tail -f $dwlog"
+alias cmbdebug="echo 'hello :)' > /tmp/wordpress/wp-content/debug.log && clear && tail -f /tmp/wordpress/wp-content/debug.log"
 #alias mmv() { vimdiff -R <(svn cat "$1") "$1"; }
 autoload -U zmv
 alias mmv='noglob zmv -W'
