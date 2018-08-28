@@ -34,6 +34,7 @@
 	ms = merge --squash
 	squerge = merge --squash ; http://wordpress.tv/2013/11/13/zack-tollman-enhancing-developer-creativity-with-git/
 	amend = commit --amend --no-edit
+	ca = commit --amend
 	recommit = commit --amend
 	dt = difftool
 
