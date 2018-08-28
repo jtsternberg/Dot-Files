@@ -168,5 +168,8 @@ if [[ ! -z $(which vv) ]]; then
 	source $( echo $(which vv)-completions )
 fi
 
+# Git Extras!
+source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
+
 # added by travis gem
 [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
