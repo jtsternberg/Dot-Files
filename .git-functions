@@ -49,6 +49,10 @@ gnewtag() {
 	git tag;
 }
 
+gupdatebranch() {
+	git checkout "$1" && git merge master && echo "\n\n\033[0;32mDiff from master:\033[0m\n\n$(git diff --name-only master)"
+}
+
 #### Now, in your shell you can do
 #### git cr <TAB>
 #### and get an autocomplete of available branches, just like "git checkout <TAB>"
@@ -64,5 +68,9 @@ _git_diffmod () {
 
 ## Add tab completion for git move <branch>.
 _git_move() {
+  _git_branch
+}
+
+_git_dbr() {
   _git_branch
 }
