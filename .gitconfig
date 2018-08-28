@@ -191,7 +191,24 @@
 
 	; changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'* %s'; }; _"
 	; changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'%C(yellow)*%Cred%d %Creset%s%Cblue [%cn]'; }; _"
-	changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'%C(yellow)%h %Creset%s%Cblue [%cN - %ad]'; }; _"
+	; changed = "!_f() {\
+	; 	t=${1:-$(git describe --abbrev=0 --tags)};\
+	; 	git log ${t}..HEAD --no-merges --pretty=format:'%C(yellow)%h %Creset%s%Cblue [%cN - %ad]';\
+	; }; f"
+	changed = "!_() { t=${1-$(git describe --abbrev=0 --tags)}; git log ${t}..${2-HEAD} --no-merges --pretty=format:'%C(yellow)%h %Creset%s%Cblue [%cN - %ad]'; }; _"
+
+	; nt = "!f() {\
+	; 	list='major minor patch subpatch';\
+	; 	if [[ $list =~ (^|[[:space:]])${1-patch}($|[[:space:]]) ]];\
+	; 	then\
+	; 		NEXTTAG=`git-nexttag \"$1\"`;\
+	; 	else\
+	; 		NEXTTAG=$1;\
+	; 	fi;\
+	; 	MSG=`git deflog --pretty=format:'%s [%h, %cN, %ad]' -1`;\
+	; 	git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG $MSG"}\";\
+	; 	git tag --sort=creatordate -n;\
+	; }; f"
 
 
 ; Environment
