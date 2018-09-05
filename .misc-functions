@@ -30,6 +30,29 @@ finddebuglog() {
 	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
 }
 
+# Finds a log file by current path or passed-in path
+findlogfile() {
+	CURRDIR=$PWD;
+	FILE=${1:-$PWD}
+
+	# Convet dot-based paths.
+	if [[ "$FILE" == '.' ]]; then
+		FILE="$PWD";
+	elif [[ $FILE == *..* ]]; then
+		FILE=`cd $FILE && pwd && cd $CURRDIR`;
+	fi
+
+	# If specifying a particular .log file, don't do any magic.
+	if [[ "$FILE" == *.log ]]; then
+
+	else
+		# Whoops, nothing found.
+		FILE='';
+	fi
+
+	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
+}
+
 # tail a debug log in any WordPress directory
 debuglog() {
 	FILE=`finddebuglog ${1:-$PWD}`
@@ -44,7 +67,10 @@ debuglog() {
 tailtrim() {
 	FILE=`finddebuglog ${1:-$PWD}`;
 	if [[ -z "$FILE" ]]; then
-		echo "Can't find a debug.log file!"
+		FILE=`findlogfile ${1:-$PWD}`
+	fi
+	if [[ -z "$FILE" ]]; then
+		echo "Can't find a *.log file!"
 	else
 		clear && trim-front $FILE ${2:-800} && echo "\033[0;32mPath: $FILE\nNow tailing...\033[0m\n" && tail -f $FILE;
 	fi
