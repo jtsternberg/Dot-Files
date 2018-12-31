@@ -50,7 +50,8 @@ gnewtag() {
 }
 
 gupdatebranch() {
-	git checkout "$1" && git merge master && echo "\n\n\033[0;32mDiff from master:\033[0m\n\n$(git diff --name-only master)"
+	COMPARE=${2:-'master'};
+	git checkout "$1" && git merge $COMPARE && echo "\n\n\033[0;32mDiff from $COMPARE:\033[0m\n\n$(git diff --name-only $COMPARE)"
 }
 
 #### Now, in your shell you can do
