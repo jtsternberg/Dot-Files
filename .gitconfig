@@ -21,6 +21,8 @@
 	clr = clone --recursive
 	c = commit
 	p = push
+	plz = push --force-with-lease
+	please = plz
 	prb = pull --rebase
 	rbc = rebase --continue
 	rba = rebase --abort
