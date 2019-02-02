@@ -20,51 +20,14 @@
 # git-nexttag [key]
 # =============================================================================
 
-$helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
 
-$lasttag = trim( `git describe --tags --abbrev=0` );
-// print_r( $lasttag );
-// echo "\n";
-
-$parts = explode( '.', $lasttag );
-$keys = array_keys( $parts );
-
-$keys = array(
-	'major'    => 0,
-	'minor'    => 1,
-	'patch'    => 2,
-	'subpatch' => 3,
-);
-
-$type = $helpers->getArg();
-$type = str_replace( '"', '', $type );
-$type = str_replace( "'", '', $type );
-$type = trim( $type );
-
-if ( empty( $type ) ) {
-	$type = 'patch';
+try {
+	$nextTag = $cli->git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 1 ) ) );
+	echo ! $cli->isVerbose() ? $nextTag : $cli->getMsg( "Next Tag = {$nextTag}", 'green' );
+} catch ( \Exception $e ) {
+	echo ! $cli->isVerbose() ? $e->getMessage() : $cli->getErr( $e->getMessage() );
+	exit(1);
 }
 
-if ( ! isset( $keys[ $type ] ) ) {
-	$types = implode( ', ', array_keys( $keys ) ) ;
-	return $helpers->msg( "$type is not recognized. You can use one of the following: $types.", 'red' );
-}
-
-if ( ! isset( $parts[ $keys[ $type ] ] ) ) {
-	return $helpers->msg( "The last tag ($lasttag) is missing the $type section.", 'red' );
-}
-
-$index = $keys[ $type ];
-// Increase the requested version.
-$parts[ $index ]++;
-// Then loop through the rest of the version parts and zero them out.
-while ( isset( $parts[ ++$index ] ) ) {
-	$parts[ $index ] = 0;
-}
-
-$nexttag = implode( '.', $parts );
-echo $nexttag;
-
-function errmsg( $text, $line_break = true ) {
-	echo "\033[31m" . $text . "\033[0m" . ( $line_break ? PHP_EOL : '' );
-}
+exit(0);
