@@ -17,8 +17,20 @@ use JT\CLI\Helpers;
  */
 class Git {
 
+	/**
+	 * Helpers object
+	 *
+	 * @var Helpers
+	 */
 	protected $helpers;
 
+	/**
+	 * Constructor
+	 *
+	 * @since 1.0.1
+	 *
+	 * @param Helpers $h
+	 */
 	public function __construct( Helpers $h ) {
 		$this->helpers = $h;
 	}
@@ -154,6 +166,15 @@ class Git {
 		return ! $invalid;
 	}
 
+	/**
+	 * Pre-push helper to push to an alternate repo.
+	 *
+	 * @since  1.0.1
+	 *
+	 * @param  string  $altRemote The alternate repo url.
+	 *
+	 * @return bool
+	 */
 	public function pushAlternate( $altRemote ) {
 
 		// Check if we're pushing to the alternate repo...
@@ -172,7 +193,6 @@ class Git {
 			if ( ! $remote ) {
 				return false;
 			}
-
 
 			$branch = trim( exec( "git rev-parse --abbrev-ref HEAD" ) );
 			$this->helpers->msg( "> ALSO pushing to this alternate repo: {$remote} ({$altRemote})", 'yellow' );
