@@ -25,7 +25,12 @@ class Exception extends \Exception {
  */
 class Helpers {
 
-	protected static $single_instance = null;
+	/**
+	 * Single instance of this object.
+	 *
+	 * @var Helpers
+	 */
+	protected static $singleInstance = null;
 
 	/**
 	 * JT\CLI\Helpers\Git object.
@@ -96,11 +101,11 @@ class Helpers {
 	 * @return Helpers A single instance of this class.
 	 */
 	public static function getInstance() {
-		if ( null === self::$single_instance ) {
-			self::$single_instance = new self();
+		if ( null === self::$singleInstance ) {
+			self::$singleInstance = new self();
 		}
 
-		return self::$single_instance;
+		return self::$singleInstance;
 	}
 
 	/**
@@ -109,11 +114,12 @@ class Helpers {
 	 * @since 1.0.0
 	 */
 	protected function __construct() {
-		$this->wd = getcwd();
-		$path_parts = explode( '/', $this->wd );
-		$this->currDir = end( $path_parts );
+		$this->wd       = getcwd();
+		$path_parts     = explode( '/', $this->wd );
+		$this->currDir  = end( $path_parts );
 		$this->currUser = get_current_user();
-		$this->git = require_once __DIR__ . '/helpers/git.php';
+		require_once __DIR__ . '/helpers/git.php';
+		$this->git      = new Helpers\Git( $this );
 	}
 
 	/**
@@ -248,15 +254,7 @@ class Helpers {
 	 * @return boolean
 	 */
 	public function isSilent() {
-		$found = ! empty( $this->flags ) ? array_intersect(
-			array_keys( $this->flags ),
-			[
-				'silent',
-				'porcelain',
-				'shh',
-			]
-		) : false;
-		return ! empty( $found );
+		return $this->hasFlags( [ 'silent', 'porcelain' ], 'shh' );
 	}
 
 	/**
@@ -271,24 +269,55 @@ class Helpers {
 	}
 
 	/**
-	 * CLI prompt which optionally requires a response.
+	 * If "--yes" is set, auto-confirms all prompts.
 	 *
-	 * @since  1.0.0
+	 * @since  1.0.1
 	 *
-	 * @param  string $toAsk      Question for prompt.
+	 * @return boolean
+	 */
+	public function isAutoconfirm() {
+		return $this->hasFlags( 'yes', 'y' );
+	}
+
+	/**
+	 * CLI prompt to confirm. (e.g. "Are you sure you want to...")
+	 * If the "yes" flag is set, will auto-confirm.
+	 *
+	 * @since  1.0.1
+	 *
+	 * @param  string $question   Optional question to ask.
 	 * @param  string $emptyError What to prompt if answer is not provided.
 	 *
 	 * @return string             The given answer.
 	 */
-	public function ask( $toAsk, $emptyError = '' ) {
-		$this->msg( $toAsk, 'yellow' );
+	function confirm( $question ) {
+		$this->msg( $question, 'yellow' );
 
-		$answer = $this->getAnswer();
+		if ( $this->isAutoconfirm() ) {
+			$this->msg( 'Y', 'green' );
+			return true;
+		}
+
+		return $this->requestYesAnswer();
+	}
+
+	/**
+	 * CLI prompt which optionally requires a response.
+	 *
+	 * @since  1.0.0
+	 *
+	 * @param  string $question   Optional question to ask.
+	 * @param  string $emptyError What to prompt if answer is not provided.
+	 *
+	 * @return string             The given answer.
+	 */
+	public function ask( $question = '', $emptyError = '' ) {
+		$answer = $this->requestAnswer( $question );
 
 		if ( $emptyError ) {
 			while ( empty( $answer ) ) {
 				$this->err( $emptyError, 'red' );
-				$answer = $this->getAnswer();
+				$answer = $this->requestAnswer();
 			}
 		}
 
@@ -300,12 +329,13 @@ class Helpers {
 	 *
 	 * @since  1.0.1
 	 *
+	 * @param  string $question Optional question to ask.
 	 * @param  boolean|string $fallback Optional fallback value.
 	 *
 	 * @return boolean
 	 */
-	public function isYesAnswer( $fallback = false ) {
-		return $this->isYes( $this->getAnswer( $fallback ) );
+	public function requestYesAnswer( $question = '', $fallback = false ) {
+		return $this->isYes( $this->requestAnswer( $fallback, $question ) );
 	}
 
 	/**
@@ -313,12 +343,13 @@ class Helpers {
 	 *
 	 * @since  1.0.1
 	 *
+	 * @param  string $question Optional question to ask.
 	 * @param  boolean|string $fallback Optional fallback value.
 	 *
 	 * @return boolean
 	 */
-	public function isNoAnswer( $fallback = false ) {
-		return $this->isNo( $this->getAnswer( $fallback ) );
+	public function requestNoAnswer( $question = '', $fallback = false ) {
+		return $this->isNo( $this->requestAnswer( $fallback, $question ) );
 	}
 
 	/**
@@ -326,11 +357,15 @@ class Helpers {
 	 *
 	 * @since  1.0.0
 	 *
+	 * @param  string $question Optional question to ask.
 	 * @param  boolean $fallback Fallback response if none given (ENTER is pushed).
 	 *
 	 * @return string|boolean    Answer or fallback or false.
 	 */
-	public function getAnswer( $fallback = false ) {
+	public function requestAnswer( $question = '', $fallback = false ) {
+		if ( $question ) {
+			$this->msg( $question, 'yellow' );
+		}
 		$handle = fopen ( 'php://stdin', 'r' );
 		$answer = trim( fgets( $handle ) );
 		return ! empty( $answer ) ? $answer : $fallback;
@@ -428,7 +463,7 @@ class Helpers {
 	 *
 	 * @return string
 	 */
-	public function getMsg( $text, $color, $lineBreak = true ) {
+	public function getMsg( $text, $color = '', $lineBreak = true ) {
 		return $this->color( $color ) . $text . $this->color( 'none' ) . ( $lineBreak ? PHP_EOL : '' );
 	}
 
@@ -502,6 +537,21 @@ class Helpers {
 		}
 
 		return $results;
+	}
+
+	/**
+	 * Get help object for a command.
+	 *
+	 * @since  1.0.1
+	 *
+	 * @param  string  $scriptName The name of the script command to provide help for.
+	 * @param  array   $commands   Array of sub-commands and related docs.
+	 *
+	 * @return Help
+	 */
+	public function getHelp( string $scriptName = '', array $commands = [] ) {
+		require_once __DIR__ . '/helpers/help.php';
+		return new Help( $this, $scriptName, $commands );
 	}
 }
 

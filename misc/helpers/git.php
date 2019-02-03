@@ -6,7 +6,9 @@
  */
 
 namespace JT\CLI\Helpers;
-use JT\CLI\Exception as Exception;
+use JT\CLI\Exception;
+use JT\CLI\Helpers;
+
 
 /**
  * My CLI Git helpers.
@@ -14,6 +16,12 @@ use JT\CLI\Exception as Exception;
  * @since 1.0.1
  */
 class Git {
+
+	protected $helpers;
+
+	public function __construct( Helpers $h ) {
+		$this->helpers = $h;
+	}
 
 	/**
 	 * Fetch the last commit message.
@@ -31,10 +39,29 @@ class Git {
 	 *
 	 * @since  1.0.1
 	 *
+	 * @param  boolean $reverse Whether to reverse the output (oldest at bottom).
+	 * @param  boolean $number  Number of rows to get. Defaults to all.
+	 *
 	 * @return string
 	 */
-	public function allTags() {
-		return `git tag --sort=creatordate -n`;
+	public function listTags( $reverse = false, $number = false ) {
+		$sort = $reverse ? '-creatordate' : 'creatordate';
+		$all = `git tag --sort={$sort} -n`;
+		if ( ! $number ) {
+			return $all;
+		}
+
+		$rows = explode( "\n", $all );
+		$count = count( $rows );
+		if ( $count <= $number ) {
+			return $all;
+		}
+
+		$some = array_splice( $rows, $count - intval( $number ) - 1 );
+		array_unshift( $some, "...\n" );
+		$some = implode( "\n", $some );
+
+		return $some;
 	}
 
 	/**
@@ -103,6 +130,59 @@ class Git {
 		$nextTag = implode( '.', $parts );
 		return $nextTag;
 	}
-}
 
-return new Git;
+	/**
+	 * Whether given tagname is valid SEMVER.
+	 *
+	 * @since  1.0.1
+	 *
+	 * @param  strgin  $tag Tag to check.
+	 *
+	 * @return boolean
+	 */
+	public function validTag( $tag ) {
+		$invalid = (
+			// No "v"
+			0 !== strpos( $tag, 'v' )
+			// Not enough decimals
+			|| 2 !== substr_count( $tag, '.' )
+			// Decimal at end?
+			|| '.' === substr( $tag, -1 )
+			// Adjacent decimals?
+			|| false !== strpos( $tag, '..' )
+		);
+		return ! $invalid;
+	}
+
+	public function pushAlternate( $altRemote ) {
+
+		// Check if we're pushing to the alternate repo...
+		if ( ! $this->helpers->getArg( 2 ) || $altRemote !== $this->helpers->getArg( 2 ) ) {
+			// If not, let's push to that repo as well.
+
+			$remotes = explode( "\n", `git remote -v` );
+			$remote = '';
+			foreach ( $remotes as $line ) {
+				if ( false !== strpos( $line, $altRemote ) ) {
+					$parts = explode( $altRemote, $line );
+					$remote = trim( $parts[0] );
+					break;
+				}
+			}
+			if ( ! $remote ) {
+				return false;
+			}
+
+
+			$branch = trim( exec( "git rev-parse --abbrev-ref HEAD" ) );
+			$this->helpers->msg( "> ALSO pushing to this alternate repo: {$remote} ({$altRemote})", 'yellow' );
+
+			// Get the branch being pushed, then push to the alternate repo.
+			$this->helpers->msg( "$ git push {$remote} {$branch}", 'green' );
+			echo exec( "git push {$remote} {$branch}" );
+		}
+
+		return true;
+	}
+
+}
