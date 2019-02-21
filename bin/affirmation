@@ -1,0 +1,182 @@
+#!/usr/bin/env php
+<?php
+
+# =============================================================================
+# Sometimes you need a lil' love.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/affirmation
+#
+# Version 0.1.0
+#
+# Outputs an affirmation. Because I love you.
+#
+# Examples:
+# `$ affirmation`
+#
+# Outputs a random affirmation in random ascii art, e.g.:
+#
+#
+# 	... I am a brilliant, creative original! ...
+#
+# ----------------------------------------------------------------------------------
+#  ~|~   _  _ _    _   |_  _.||. _  _ _|_    _ _ _  _ _|_.   _    _  _. _ . _  _ ||
+#  _|_  (_|| | |  (_|  |_)| ||||(_|| | | ,  (_| (/_(_| | |\/(/_  (_)| |(_||| |(_||.
+#                                                                       _|
+# font:threepoint ------------------------------------------------------------------
+#
+# Usage:
+# affirmation
+# =============================================================================
+
+$affirmation = 'You are the best.';
+
+$excludeFonts = [
+	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_',
+];
+
+function fontWordsAllowed( $font ) {
+	switch ( $font ) {
+		case 'straight':
+		case 'threepoint':
+			return 9;
+		case 'ticksslant':
+		case 'block':
+		case 'smisome1':
+		case 'trek':
+		case 'isometric3':
+		case 'future_2':
+		case 'stellar':
+			return 4;
+		case 'rev':
+		case 'doh':
+			return 5;
+		case 'isometric3':
+			return 3;
+		case 'doom':
+			return 7;
+	}
+
+	return 6;
+}
+
+// Fetch an affirmation.
+if ( $html = curlGet( 'http://bmindful.com/random' ) ) {
+	foreach ( (array) getDomLinks( $html ) as $link => $text ) {
+		if ( false !== strpos( $link, '/affirmations/' ) ) {
+			// Fix weird encoding.
+			$affirmation = urldecode( str_replace( '%C2%A0', '+', urlencode( $text ) ) );
+			break;
+		}
+	}
+}
+
+$params = [ 'text' => $affirmation ];
+$font = $leftover = '';
+
+// Let's grab list of fonts, and output using a random one.
+if ( $fonts = curlGet( 'http://artii.herokuapp.com/fonts_list' ) ) {
+	$fonts = explode( "\n", $fonts );
+	if ( ! empty( $fonts ) ) {
+		while ( ! $font || in_array( $font, $excludeFonts, true ) ) {
+			$font = $fonts[ array_rand( $fonts ) ];
+		}
+		$params['font'] = $font;
+	}
+	$params['font'] = $font = 'doom';
+	$trimmed = trimWords( $affirmation, fontWordsAllowed( $font ) );
+	$params['text'] = $trimmed;
+	$leftover = strlen( $affirmation ) !== strlen( $trimmed ) ? substr( $affirmation, strlen( $trimmed ) - 2 ) : '';
+}
+
+$length = 200;
+if ( $ascii = curlGet( 'http://artii.herokuapp.com/make', $params ) ) {
+	$rows = explode( "\n", $ascii );
+	$ascii = '';
+	$length = 0;
+	foreach ( $rows as $row ) {
+		$chars = strlen( " $row " );
+		$length = $length >= $chars ? $length : $chars;
+		$ascii .= " $row\n";
+	}
+
+}
+
+// Now output our lovely affirmation.
+
+if ( ! $leftover ) {
+	echo "\n";
+	echo "\t... $affirmation" . ( 0 === strpos( strrev( $affirmation ), '.' ) ? '' : ' ...' );
+	echo "\n";
+}
+
+if ( $ascii ) {
+	echo "\n\033[36m";
+	echo str_repeat( '-', $length );
+	echo "\n";
+	echo $ascii;
+	if ( $font ) {
+		$fontOutput = "font:$font ";
+		echo $fontOutput . str_repeat( '-', $length - strlen( $fontOutput ) );
+	} else {
+		echo str_repeat( '-', $length );
+	}
+	echo "\033[0m\n";
+}
+
+if ( $leftover ) {
+	echo "\n";
+	echo "\t... $affirmation" . ( 0 === strpos( strrev( $affirmation ), '.' ) ? '' : ' ...' );
+	echo "\n";
+}
+
+echo "\n";
+echo "\n ";
+
+exit(0);
+
+function curlGet( $url, $get = [] ) {
+	if ( ! empty( $get ) ) {
+		$url .= ( false === strpos( $url, '?' ) ? '?' : '' ) . http_build_query( $get );
+		$url = str_replace( '%C2%A0', '+', $url );
+	}
+
+	$ch = curl_init();
+	curl_setopt($ch, CURLOPT_URL, $url );
+	curl_setopt($ch, CURLOPT_HEADER, 0);
+	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+	curl_setopt($ch, CURLOPT_TIMEOUT, 1);
+	ob_start();
+	$result = curl_exec($ch);
+	curl_close($ch);
+
+	return $result;
+}
+
+function trimWords( $text, $numWords = 7 ) {
+	$words = preg_split( "/[\n\r\t ]+/", $text, $numWords + 1, PREG_SPLIT_NO_EMPTY );
+	$sep         = ' ';
+
+	if ( count( $words ) > $numWords ) {
+		array_pop( $words );
+		$text = implode( $sep, $words );
+		$text = $text . '...';
+	} else {
+		$text = implode( $sep, $words );
+	}
+
+	return $text;
+}
+
+function getDomLinks( $html ) {
+	$dom = new DOMDocument;
+
+	// http://stackoverflow.com/a/8218649/1883421
+	@$dom->loadHTML( '<?xml encoding="UTF-8">' . $html );
+
+	$links = [];
+	foreach ( $dom->getElementsByTagName( 'a' ) as $link ) {
+		$links[ $link->getAttributeNode( 'href' )->nodeValue ] = $link->textContent;
+	}
+
+	return $links;
+}
