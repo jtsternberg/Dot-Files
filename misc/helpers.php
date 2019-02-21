@@ -26,7 +26,7 @@ class Exception extends \Exception {
 class Helpers {
 
 	/**
-	 * Single instance of this object.
+	 * Single instance of this Helpers object.
 	 *
 	 * @var Helpers
 	 */
@@ -247,7 +247,7 @@ class Helpers {
 	}
 
 	/**
-	 * Whether the various "silenct" flags were passed.
+	 * Whether the various "silent" flags were passed.
 	 *
 	 * @since  1.0.1
 	 *

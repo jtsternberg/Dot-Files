@@ -31,7 +31,18 @@ class Git {
 	 *
 	 * @param Helpers $h
 	 */
-	public function __construct( Helpers $h ) {
+	public function __construct( Helpers $h = null ) {
+		$this->setHelpers( $h );
+	}
+
+	/**
+	 * Set Helpers obj.
+	 *
+	 * @since 1.0.1
+	 *
+	 * @param Helpers $h
+	 */
+	public function setHelpers( Helpers $h ) {
 		$this->helpers = $h;
 	}
 
@@ -43,7 +54,7 @@ class Git {
 	 * @return string
 	 */
 	public function lastCommitMessage() {
-		return trim( `git deflog --pretty=format:'%s [%h, %cN, %ad]' -1` );
+		return trim( `git reflog --pretty=format:'%s [%h, %cN, %ad]' -1` );
 	}
 
 	/**
@@ -77,6 +88,53 @@ class Git {
 	}
 
 	/**
+	 * Get the current branch.
+	 *
+	 * @since  1.0.1
+	 *
+	 * @return string
+	 */
+	public function currentBranch() {
+		return trim( `git rev-parse --abbrev-ref HEAD` );
+	}
+
+	/**
+	 * Get the current tracking remote.
+	 *
+	 * @since  1.0.2
+	 *
+	 * @return string
+	 */
+	public function currentRemote() {
+		$info = trim( (string) `git branch -vv --color=never` );
+
+		// First, split the output into individual lines.
+		$lines = explode( "\n", $info );
+
+		// Loop through the lines and find the one that starts with a '*'.
+		$remote = null;
+		foreach ( $lines as $line ) {
+			if ( strpos( $line, '*' ) === 0 ) {
+				$remote = $line;
+			}
+		}
+
+		// If we can't find the remote branch, return early.
+		if ( ! $remote ) {
+			return '';
+		}
+
+		$parts = explode( ' [', $remote );
+
+		if ( empty( $parts[1] ) ) {
+			return '';
+		}
+
+		$parts = explode( ']', $parts[1] );
+		return $parts[0];
+	}
+
+	/**
 	 * Get the last/current tag.
 	 *
 	 * @since  1.0.1
@@ -84,7 +142,11 @@ class Git {
 	 * @return string
 	 */
 	public function currentTag() {
-		return trim( `git describe --tags --abbrev=0` );
+		$rows = explode( "\n", `git tag --sort=creatordate` );
+		$rows = array_filter( $rows, 'trim' );
+		$last = end( $rows );
+
+		return $last;
 	}
 
 	/**
@@ -148,7 +210,7 @@ class Git {
 	 *
 	 * @since  1.0.1
 	 *
-	 * @param  strgin  $tag Tag to check.
+	 * @param  string  $tag Tag to check.
 	 *
 	 * @return boolean
 	 */
@@ -194,7 +256,7 @@ class Git {
 				return false;
 			}
 
-			$branch = trim( exec( "git rev-parse --abbrev-ref HEAD" ) );
+			$branch = $this->currentBranch();
 			$this->helpers->msg( "> ALSO pushing to this alternate repo: {$remote} ({$altRemote})", 'yellow' );
 
 			// Get the branch being pushed, then push to the alternate repo.

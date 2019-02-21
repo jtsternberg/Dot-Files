@@ -80,6 +80,7 @@ class Help {
 		}
 		$this->options .= "\n   {$this->scriptName} " . implode( "\n   or: {$this->scriptName} ", $output );
 		$this->options .= "\n\n   or: {$this->scriptName} {$this->helpFlag}\n";
+		$this->options .= "   or: {$this->scriptName} <command> [-h|--help] to display sub-command help.\n";
 
 		$this->output .= $this->options;
 		$this->invalid .= $this->options;
