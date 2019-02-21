@@ -148,7 +148,7 @@
 		else\
 			NEXTTAG=$1;\
 		fi;\
-		MSG=`git deflog --pretty=format:'%s [%h, %cN, %ad]' -1`;\
+		MSG=`git reflog --pretty=format:'%s [%h, %cN, %ad]' -1`;\
 		git tag -a $NEXTTAG -m \"${2:-"$NEXTTAG $MSG"}\";\
 		git tag --sort=creatordate -n;\
 	}; f"
