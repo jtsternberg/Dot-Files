@@ -12,6 +12,9 @@
 # Try it before you buy it:
 # $ curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/bin/affirmation -s | php
 #
+# Make your git-pushes more... affirming:
+# curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/bin/affirmation -o "$(git rev-parse --git-dir)/hooks/pre-push" && chmod +x "$(git rev-parse --git-dir)/hooks/pre-push"
+#
 # Examples:
 # `$ affirmation`
 #
@@ -39,7 +42,7 @@ if ( 'random' === $font ) {
 $affirmation = getArg( '--text' );
 
 $excludeFonts = [
-	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_', 'decimal', 'hills___', 'rot13', 'future_1', 'future_2', 'future_3', 'future_4', 'future_5', 'future_6', 'future_7', 'future_8', 'tsm_____', 'dcs_bfmo', 'skate_ro', 'magic_ma', 'relief', 'fp1_____', 'moscow', 'convoy__', 'eftifont', 'joust___', 'catwalk', 'kgames_i', 'subteran', 'term', 'fbr1____', 'tec1____', 'p_skateb', 'funky_dr', 'atc_____', 'mayhem_d', 'heavy_me', 'heavy_me', 'top_duck', 'panther_', 'mshebrew210', 'stencil2', 'ok_beer_', 'char1___', 'char4___', 'master_o', 'house_of', 'darwin18', 'darwin18.0', 'pawn_ins',
+	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_', 'decimal', 'hills___', 'rot13', 'future_1', 'future_2', 'future_3', 'future_4', 'future_5', 'future_6', 'future_7', 'future_8', 'tsm_____', 'dcs_bfmo', 'skate_ro', 'magic_ma', 'relief', 'fp1_____', 'moscow', 'convoy__', 'eftifont', 'joust___', 'catwalk', 'kgames_i', 'subteran', 'term', 'fbr1____', 'tec1____', 'p_skateb', 'funky_dr', 'atc_____', 'mayhem_d', 'heavy_me', 'heavy_me', 'top_duck', 'panther_', 'mshebrew210', 'stencil2', 'ok_beer_', 'char1___', 'char4___', 'master_o', 'house_of', 'darwin18', 'darwin18.0', 'pawn_ins', 'atc_gran',
 ];
 
 function fontWordsAllowed( $font ) {
@@ -103,6 +106,7 @@ function fontWordsAllowed( $font ) {
 		case 'xhelvbi':
 		case 'ebbs_1__':
 		case 'demo_m__':
+		case 'xcourb':
 			return 5;
 		case 'doom':
 		case 'cybersmall':
