@@ -1,4 +1,5 @@
 # Path to your oh-my-zsh configuration.
+# ZSH_DISABLE_COMPFIX=true
 ZSH=$HOME/.oh-my-zsh
 ZSH_CUSTOM=$HOME/.dotfiles/zsh-custom
 
@@ -83,6 +84,14 @@ alias top10="du -a | sort -n -r | head -n 10"
 # Find largest files
 alias top10files="find . -type f -exec du -Sh {} + | sort -rh | head -n 5"
 
+# Speed up ZSH by not loading rvm/nvm by default.
+# https://bennycwong.github.io/post/speeding-up-oh-my-zsh/
+alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
+# NVM_DIR defined in .zshenv
+# Potentially to try in the future:
+# https://github.com/creationix/nvm/issues/539#issuecomment-245791291
+alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
+
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
@@ -151,6 +160,20 @@ plugins=(
 )
 # Git plugin docs: https://github.com/robbyrussell/oh-my-zsh/wiki/Plugin:git
 
+### Fix slowness of pastes with zsh-syntax-highlighting.zsh
+# https://gist.github.com/magicdude4eva/2d4748f8ef3e6bf7b1591964c201c1ab
+pasteinit() {
+  OLD_SELF_INSERT=${${(s.:.)widgets[self-insert]}[2,3]}
+  zle -N self-insert url-quote-magic # I wonder if you'd need `.url-quote-magic`?
+}
+pastefinish() {
+  zle -N self-insert $OLD_SELF_INSERT
+}
+zstyle :bracketed-paste-magic paste-init pasteinit
+zstyle :bracketed-paste-magic paste-finish pastefinish
+### Fix slowness of pastes
+source ~/.dotfiles/zsh-custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
 source $ZSH/oh-my-zsh.sh
 
 # https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
@@ -161,16 +184,14 @@ ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
 
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
-
+ZSH_DISABLE_COMPFIX=true
 # VV completions, woot!
-if [[ ! -z $(which vv) ]]; then
-	source $( echo $(which vv)-completions )
-fi
+# if [[ ! -z $(which vv) ]]; then
+# 	source $( echo $(which vv)-completions )
+# fi
 
 # Git Extras!
 source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
 
 # added by travis gem
-[ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
+# [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
