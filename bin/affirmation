@@ -9,6 +9,8 @@
 # Version 0.1.0
 #
 # Outputs an affirmation. Because I love you.
+# Try it before you buy it:
+# $ curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/bin/affirmation | php -- $OSTYPE
 #
 # Examples:
 # `$ affirmation`
@@ -30,30 +32,64 @@
 
 $affirmation = 'You are the best.';
 
+$font = ! empty( $argv[1] ) ? $argv[1] : '';
+
 $excludeFonts = [
-	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_',
+	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_', 'decimal', 'hills___', 'rot13', 'future_1', 'future_2', 'future_3', 'future_4', 'future_5', 'future_6', 'future_7', 'future_8', 'tsm_____', 'dcs_bfmo', 'skate_ro', 'magic_ma', 'relief', 'fp1_____', 'moscow', 'convoy__', 'eftifont', 'joust___', 'catwalk', 'kgames_i', 'subteran', 'term', 'fbr1____', 'tec1____', 'p_skateb', 'funky_dr', 'atc_____', 'mayhem_d', 'heavy_me', 'heavy_me', 'top_duck', 'panther_',
 ];
 
 function fontWordsAllowed( $font ) {
 	switch ( $font ) {
-		case 'straight':
-		case 'threepoint':
-			return 9;
+		case 'broadway':
+			return 2;
+		case 'isometric3':
+		case 'caligraphy':
+		case 'timesofl':
+		case 'dotmatrix':
+		case 'lean':
+		case 'calgphy2':
+		case 'clb8x8':
+			return 3;
 		case 'ticksslant':
 		case 'block':
 		case 'smisome1':
 		case 'trek':
 		case 'isometric3':
-		case 'future_2':
 		case 'stellar':
+		case 'nancyj':
+		case 'nancyj-fancy':
+		case 'cosmike':
+		case 'clr8x10':
+		case 'char2___':
+		case 'rowancap':
+		case 'charact3':
+		case 'colossal':
+		case 'home_pak':
+		case 'banner3-D':
+		case '5lineoblique':
+		case '6x10':
+		case 'banner4':
+		case 'barbwire':
+		case 'epic':
+		case 'contrast':
+		case 'twin_cob':
+		case 'pawp':
 			return 4;
 		case 'rev':
 		case 'doh':
+		case 'clr5x8':
+		case 'smkeyboard':
 			return 5;
-		case 'isometric3':
-			return 3;
 		case 'doom':
+		case 'cybersmall':
+		case 'helvb':
+		case 'digital':
+		case 'tombstone':
 			return 7;
+		case 'straight':
+		case 'threepoint':
+		case 'short':
+			return 9;
 	}
 
 	return 6;
@@ -71,18 +107,20 @@ if ( $html = curlGet( 'http://bmindful.com/random' ) ) {
 }
 
 $params = [ 'text' => $affirmation ];
-$font = $leftover = '';
+$leftover = '';
 
 // Let's grab list of fonts, and output using a random one.
-if ( $fonts = curlGet( 'http://artii.herokuapp.com/fonts_list' ) ) {
+if ( ! $font && ( $fonts = curlGet( 'http://artii.herokuapp.com/fonts_list' ) ) ) {
 	$fonts = explode( "\n", $fonts );
 	if ( ! empty( $fonts ) ) {
 		while ( ! $font || in_array( $font, $excludeFonts, true ) ) {
 			$font = $fonts[ array_rand( $fonts ) ];
 		}
-		$params['font'] = $font;
 	}
-	$params['font'] = $font = 'doom';
+}
+
+if ( $font ) {
+	$params['font'] = $font;
 	$trimmed = trimWords( $affirmation, fontWordsAllowed( $font ) );
 	$params['text'] = $trimmed;
 	$leftover = strlen( $affirmation ) !== strlen( $trimmed ) ? substr( $affirmation, strlen( $trimmed ) - 2 ) : '';
