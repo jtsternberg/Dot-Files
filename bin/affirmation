@@ -10,7 +10,7 @@
 #
 # Outputs an affirmation. Because I love you.
 # Try it before you buy it:
-# $ curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/bin/affirmation | php -- $OSTYPE
+# $ curl https://raw.githubusercontent.com/jtsternberg/Dot-Files/master/bin/affirmation -s | php
 #
 # Examples:
 # `$ affirmation`
@@ -27,15 +27,14 @@
 # font:threepoint ------------------------------------------------------------------
 #
 # Usage:
-# affirmation
+# affirmation <font> <affirmation text>
 # =============================================================================
 
-$affirmation = 'You are the best.';
-
-$font = ! empty( $argv[1] ) ? $argv[1] : '';
+$font = ! empty( $argv[1] ) && 'random' !== $argv[1] ? $argv[1] : '';
+$affirmation = ! empty( $argv[2] ) ? $argv[2] : '';
 
 $excludeFonts = [
-	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_', 'decimal', 'hills___', 'rot13', 'future_1', 'future_2', 'future_3', 'future_4', 'future_5', 'future_6', 'future_7', 'future_8', 'tsm_____', 'dcs_bfmo', 'skate_ro', 'magic_ma', 'relief', 'fp1_____', 'moscow', 'convoy__', 'eftifont', 'joust___', 'catwalk', 'kgames_i', 'subteran', 'term', 'fbr1____', 'tec1____', 'p_skateb', 'funky_dr', 'atc_____', 'mayhem_d', 'heavy_me', 'heavy_me', 'top_duck', 'panther_',
+	'baz__bil', 'green_be', 'bubble_b', '1943____', 'fp2_____', 'ripper!_', 'hyper___', 'c1______', 'fairligh', 'rockbox_', 'future_5', 'heroboti', 'devilish', 'c_consen', 'beer_pub', 'platoon2', 'coil_cop', 'whimsy', 'rally_sp', 'basic', 'future_3', 'crawford', 'letter_w', '5x8', 'sm______', 'vortron_', 'phonix__', 'stencil1', '4x4_offr', 'tengwar', 'usa_pq__', 'super_te', 'nfi1____', 'skateroc', 'finalass', 'grand_pr', 'fireing_', 'mcg_____', 'tsalagi', 'fbr12___', 'usa_____', 'druid___', 'fbr_tilt', 'tec_7000', 'katakana', 'tsn_base', 'rad_phan', 'raw_recu', 'c2______', 'advenger', 'street_s', 'avatar', 'gauntlet', 'triad_st', 'deep_str', 'pyramid', 'star_war', 'fantasy_', 'bell', 'puffy', 'aquaplan', 'bell', 'etcrvs__', 'yie_ar_k', 'mad_nurs', 'morse', 'lazy_jon', 'rainbow_', 'ticksslant', 'tomahawk', 'os2', 'battlesh', 'runyc', 'skateord', 'krak_out', 'tav1____', 'bell', 'star_war', 'aquaplan', 'bell', 'battlesh', 'etcrvs__', 'yie_ar_k', 'morse', 'lazy_jon', 'rainbow_', 'tomahawk', 'os2', 'script__', 'puffy', 'skateord', 'krak_out', 'tav1____', 'fair_mea', 'rampage_', 'mike', 'ugalympi', 'unarmed_', 'future_6', 'hypa_bal', 'chunky', 'rok_____', 'c_ascii_', 'decimal', 'hills___', 'rot13', 'future_1', 'future_2', 'future_3', 'future_4', 'future_5', 'future_6', 'future_7', 'future_8', 'tsm_____', 'dcs_bfmo', 'skate_ro', 'magic_ma', 'relief', 'fp1_____', 'moscow', 'convoy__', 'eftifont', 'joust___', 'catwalk', 'kgames_i', 'subteran', 'term', 'fbr1____', 'tec1____', 'p_skateb', 'funky_dr', 'atc_____', 'mayhem_d', 'heavy_me', 'heavy_me', 'top_duck', 'panther_', 'mshebrew210', 'stencil2', 'ok_beer_', 'char1___', 'char4___', 'master_o', 'house_of', 'darwin18', 'darwin18.0'
 ];
 
 function fontWordsAllowed( $font ) {
@@ -49,6 +48,9 @@ function fontWordsAllowed( $font ) {
 		case 'lean':
 		case 'calgphy2':
 		case 'clb8x8':
+		case 'stencil2':
+		case 'npn_____':
+		case 'alligator':
 			return 3;
 		case 'ticksslant':
 		case 'block':
@@ -74,11 +76,22 @@ function fontWordsAllowed( $font ) {
 		case 'contrast':
 		case 'twin_cob':
 		case 'pawp':
+		case 'charact6':
+		case 'cyberlarge':
+		case 'roman':
+		case 'goofy':
+		case 'char3___':
+		case 'clr7x8':
+		case 'gothic__':
+		case 'lcd':
+		case 'coinstak':
 			return 4;
 		case 'rev':
 		case 'doh':
 		case 'clr5x8':
 		case 'smkeyboard':
+		case 'sblood':
+		case 'xhelvbi':
 			return 5;
 		case 'doom':
 		case 'cybersmall':
@@ -96,7 +109,7 @@ function fontWordsAllowed( $font ) {
 }
 
 // Fetch an affirmation.
-if ( $html = curlGet( 'http://bmindful.com/random' ) ) {
+if ( ! $affirmation && ( $html = curlGet( 'http://bmindful.com/random' ) ) ) {
 	foreach ( (array) getDomLinks( $html ) as $link => $text ) {
 		if ( false !== strpos( $link, '/affirmations/' ) ) {
 			// Fix weird encoding.
@@ -104,6 +117,10 @@ if ( $html = curlGet( 'http://bmindful.com/random' ) ) {
 			break;
 		}
 	}
+}
+
+if ( empty( $affirmation ) ) {
+	$affirmation = 'You are the best.';
 }
 
 $params = [ 'text' => $affirmation ];
