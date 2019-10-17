@@ -36,7 +36,8 @@ PATH=$PATH:/usr/local/sbin
 export PATH=$PATH
 export PATH="$(brew --prefix coreutils)/libexec/gnubin:/usr/local/bin:$PATH"
 
-export EDITOR=“subl”
+export EDITOR='subl -w'
+export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl -w'
 
 export WP_TESTS_DIR=/tmp/wordpress/tests
 

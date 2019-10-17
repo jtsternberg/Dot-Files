@@ -21,6 +21,7 @@ alias ohmyzsh="subl ~/.dotfiles/.oh-my-zsh"
 alias cmb="cd ~/Sites/dsgnwrks.pro/wp-content/mu-plugins/cmb2/"
 alias dw="cd ~/Sites/dsgnwrks.pro/"
 alias dwplugins="cd ~/Sites/dsgnwrks.pro/wp-content/plugins"
+alias om="cd ~/Sites/app.optinmonster.test/app/public/wp-content"
 alias dwthemes="cd ~/Sites/dsgnwrks.pro/wp-content/themes"
 alias dwsites="cd ~/Sites"
 alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
@@ -43,7 +44,7 @@ alias pubkeyzao='more ~/.ssh/id_rsa_zaobot.pub | pbcopy | printf '\''=> Public k
 alias hidedotfiles='defaults write com.apple.finder AppleShowAllFiles -bool false &amp;&amp; killall Finder'
 alias showdotfiles='defaults write com.apple.finder AppleShowAllFiles -bool true &amp;&amp; killall Finder'
 # Random commit message
-alias yolo="git commit -am '`curl -s http://whatthecommit.com/index.txt`'"
+alias yolo='git commit -am "$(curl -s https://whatthecommit.com/index.txt)"'
 alias mysqlstart="sudo /usr/local/mysql/support-files/mysql.server start"
 alias mysqlstop="sudo /usr/local/mysql/support-files/mysql.server stop"
 alias groot='cd `git rev-parse --show-cdup`'
@@ -60,6 +61,7 @@ alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask clean
 alias git=hub
 alias dockerstart="bash '/Applications/Docker/Docker Quickstart Terminal.app/Contents/Resources/Scripts/start.sh'"
 alias vlc="/Applications/VLC.app/Contents/MacOS/VLC"
+alias listenstripe="stripe listen --forward-to https://app.optinmonster.test/index.php\?edd-listener\=stripe"
 
 # t tasks https://github.com/sjl/t
 alias t="python $HOME/.dotfiles/t/t.py --task-dir $HOME/Dropbox/t-tasks --list tasks"
@@ -69,6 +71,8 @@ alias tedit="open $HOME/Dropbox/t-tasks/tasks"
 alias showcolors="printf \"\e[%dm%d dark\e[0m  \e[%d;1m%d bold\e[0m\n\" {30..37}{,,,}"
 alias wpbackup='date="`date +%m%d%Y`" && wp db export backup-"$date".sql'
 alias gethooks="$HOME/.dotfiles/bin/gethooks/gethooks"
+alias newtab="open -a iTerm ."
+alias nt="open -a iTerm ."
 
 # For when the sidebar items disappear.
 # https://apple.stackexchange.com/a/210469
@@ -195,3 +199,10 @@ source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
 
 # added by travis gem
 # [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
+
+# tabtab source for serverless package
+# uninstall by removing these lines or running `tabtab uninstall serverless`
+[[ -f /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/serverless.zsh ]] && . /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/serverless.zsh
+# tabtab source for sls package
+# uninstall by removing these lines or running `tabtab uninstall sls`
+[[ -f /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/sls.zsh ]] && . /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/sls.zsh

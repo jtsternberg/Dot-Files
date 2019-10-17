@@ -15,11 +15,12 @@ Thumbs.db
 .idea
 .sass-cache/
 debug.log
+debug.log-e
+*.log-e
 custom-debug-log-path.php
 node_modules/
 *.swp
 dandelion.yml
-settings.php.orig
 .svn/all-wcprops
 .svn/entries
 .svn/text-base/bg.png.svn-base
@@ -31,7 +32,6 @@ settings.php.orig
 .svn/text-base/register-bg.js.svn-base
 .svn/text-base/screenshot-1.png.svn-base
 .svn/prop-base/screenshot-1.png.svn-base
-# .gitignore
 .svn/dir-props
 .svn/lock
 .svn/props/screenshot-1.png.svn-work

@@ -120,6 +120,9 @@
 	diffl = "!f() { git diff HEAD^..HEAD | diff-so-fancy | less -r; }; f"
 	; Diff a commit to its previous
 	diffr = "!f() { git diff "$1"^.."$1" | diff-so-fancy | less -r; }; f"
+	dst = difftool --staged
+	dtst = difftool --staged
+	diffst = difftool --staged
 	patch = "!f() { git --no-pager diff --color=never ${1%.} > patch.patch; }; f"
 
 	; search
@@ -244,52 +247,66 @@
 	newHighlight = 22 bold green
 
 [interactive]
-	diffFilter = diff-so-fancy | less -r
+# Use same diff highlighting for interactive staging
+; https://github.com/so-fancy/diff-so-fancy/issues/296
+; 	diffFilter = diff-so-fancy | less -r
+; 	diffFilter = "diff-highlight | less -FRX --tabs=4"
 
 ; diff and merge
-[diff]
-	guitool = kaleidoscope
-	tool = Kaleidoscope
-	; tool = delta
-	noprefix = true
-	compactionHeuristic = true
-	renameLimit = 6000
+; [diff]
+; 	guitool = kaleidoscope
+; 	tool = Kaleidoscope
+; 	; tool = delta
+; 	noprefix = true
+; 	compactionHeuristic = true
+; 	renameLimit = 6000
+; 	colorMoved = dimmed_zebra
 
-[difftool]
-	prompt = false
-[merge]
-	tool = Kaleidoscope
+; [difftool]
+; 	prompt = false
+; [merge]
+; 	tool = Kaleidoscope
 	; delta https://github.com/octavore/delta#options
 
-[difftool "kaleidoscope"]
-	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
+; [difftool "kaleidoscope"]
+; 	cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
 
 [difftool "delta"]
 	cmd = delta --output=browser --format=html \"$LOCAL\" \"$REMOTE\"
 
-[mergetool "kaleidoscope"]
-	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
-	trustExitCode = true
+; [mergetool "kaleidoscope"]
+; 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+; 	trustExitCode = true
 
 [credential]
 	helper = osxkeychain
 
-[mergetool "sourcetree"]
-	cmd = /usr/local/bin/ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
-	trustExitCode = true
+; [mergetool "sourcetree"]
+; 	cmd = /usr/local/bin/ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+; 	trustExitCode = true
 
 [difftool "sourcetree"]
 	cmd = /usr/local/bin/ksdiff -w \"$LOCAL\" \"$REMOTE\"
 	path =
 
-[difftool "Kaleidoscope"]
-[difftool "Kaleidoscope"]
-	cmd = ksdiff-wrapper git \"$LOCAL\" \"$REMOTE\"
+; [difftool "Kaleidoscope"]
+; [difftool "Kaleidoscope"]
+; 	cmd = ksdiff-wrapper git \"$LOCAL\" \"$REMOTE\"
 
 [difftool]
 	prompt = false
-[mergetool "Kaleidoscope"]
-	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
-	trustexitcode = true
+; [mergetool "Kaleidoscope"]
+; 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+; 	trustexitcode = true
 [mergetool]
 	prompt = false
+
+[diff]
+    tool = Kaleidoscope
+[difftool "Kaleidoscope"]
+  cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
+[merge]
+    tool = Kaleidoscope
+[mergetool "Kaleidoscope"]
+  cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
+  trustExitCode = true
