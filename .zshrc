@@ -94,7 +94,11 @@ alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
 # NVM_DIR defined in .zshenv
 # Potentially to try in the future:
 # https://github.com/creationix/nvm/issues/539#issuecomment-245791291
-alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
+# alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
+alias loadnvm='[ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh" && [ -s "/usr/local/opt/nvm/etc/bash_completion" ] && . "/usr/local/opt/nvm/etc/bash_completion"  # This loads nvm and nvm bash_completion'
+
+# Make sure composer uses the Brew version of PHP.
+alias composer="/usr/local/Cellar/php@7.2/7.2.23/bin/php  /usr/local/bin/composer"
 
 # alias svn='/usr/local/bin/svn'
 
