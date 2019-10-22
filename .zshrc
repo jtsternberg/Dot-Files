@@ -155,6 +155,7 @@ plugins=(
 	jt-sites
 	git
 	git-extras
+	gitfast
 	npm
 	zsh-syntax-highlighting
 	brew
@@ -204,9 +205,6 @@ source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
 # added by travis gem
 # [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
 
-# tabtab source for serverless package
-# uninstall by removing these lines or running `tabtab uninstall serverless`
-[[ -f /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/serverless.zsh ]] && . /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/serverless.zsh
-# tabtab source for sls package
-# uninstall by removing these lines or running `tabtab uninstall sls`
-[[ -f /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/sls.zsh ]] && . /Users/JT/Sites/app.optinmonster.test/app/public/wp-content/optinmonster-render-campaign/node_modules/tabtab/.completions/sls.zsh
+zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
+# fpath=(~/.dotfilesg/it $fpath)
+autoload -Uz compinit && compinit
