@@ -184,6 +184,8 @@
 	dbr = "!f() { git checkout master && git branch -d $1; }; f"
 	Dbr = "!f() { git checkout master && git branch -D $1; }; f"
 	deletebranch = dbr
+	update = "!COMPARE=${2:-'master'};git checkout \"$1\" && git merge $COMPARE && git difflist $COMPARE"
+	difflist = "!COMPARE=${1:-'master'};printf \"\\n\\n\\033[0;32mDiff from $COMPARE:\\033[0m\\n\\n$(git diff --name-only $COMPARE)\\n\\n\""
 
 	; stash
 	sl = stash list
