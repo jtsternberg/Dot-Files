@@ -200,6 +200,11 @@
 	svnd = svn dcommit
 	svnl = svn log --oneline --show-commit
 
+	;utilities
+	# run `git quote-string` then paste the contents of a bash function
+	# https://stackoverflow.com/a/39616600
+	quote-string = "!read -r l; printf \\\"!; printf %s \"$l\" | sed 's/\\([\\\"]\\)/\\\\\\1/g'; printf \" #\\\"\\n\" #"
+	quote-string-undo = "!read -r l; printf %s \"$l\" | sed 's/\\\\\\([\\\"]\\)/\\1/g'; printf \"\\n\" #"
 	; changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'* %s'; }; _"
 	; changelog = "!_() { t=$(git describe --abbrev=0 --tags); git log ${t}..HEAD --no-merges --pretty=format:'%C(yellow)*%Cred%d %Creset%s%Cblue [%cn]'; }; _"
 	; changed = "!_f() {\
