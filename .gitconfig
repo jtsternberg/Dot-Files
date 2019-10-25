@@ -129,6 +129,7 @@
 	patch = "!f() { git --no-pager diff --color=never ${1%.} > patch.patch; }; f"
 
 	; search
+	search = "!f() { git log -G \"$*\" --decorate; }; f"
 	f = "!git ls-files | grep -i"
 	grep = grep -Ii
 	gr = grep -Ii
