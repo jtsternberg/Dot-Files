@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+# =============================================================================
+# Opening all OMU dev tabs in Iterm
+# https://github.com/noopkat/twitch-scripts/blob/8d1057a4972241ca600ffabb54df7b832a08a39d/setup-twitch.applescript#L25-L37
+#
+# Version 0.1.0
+#
+# .....
+# =============================================================================
+
+osascript -e 'on run argv' -e 'tell application "System Events"' -e 'tell application "System Events" to tell process "iTerm2"' -e 'click menu bar item 1 of menu bar 2' -e 'end tell' -e' ' -e 'tell process "iTerm2"' -e 'click menu item item 1 of argv of menu of menu item "Restore Window Arrangement As Tabs" of menu "Window" of menu bar 1' -e 'end tell' -e 'end tell' -e 'end run' $1
