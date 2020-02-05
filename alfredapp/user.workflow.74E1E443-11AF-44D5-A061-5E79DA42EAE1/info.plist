@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>bundleid</key>
+	<string></string>
+	<key>category</key>
+	<string>Tools</string>
+	<key>connections</key>
+	<dict>
+		<key>03A55DFA-0DF6-40D0-A2C3-4F6B1BED0208</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>968152F3-7590-4EB7-A1E1-9ED5A3CDCDF7</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>49D483DF-A3F1-41E7-A055-21A93C5B85C9</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>590876FC-CE4A-4BAF-B014-64F80387DC1B</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>BD0BBE17-F0CB-4EF4-9D10-DA39431E9073</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>D9AFB4D8-6ED3-4244-8F21-32DA27312542</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>CE1EBBF4-7C64-45B8-86C6-D30176C0ECB1</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A0B52BCE-83F8-4D58-AC35-7344300F3EF2</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+	</dict>
+	<key>createdby</key>
+	<string>Justin Sternberg</string>
+	<key>description</key>
+	<string>From http://caiogondim.com</string>
+	<key>disabled</key>
+	<false/>
+	<key>name</key>
+	<string>iTerm2</string>
+	<key>objects</key>
+	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>applescript</key>
+				<string>on alfred_script(q)
+	if application "iTerm2" is running or application "iTerm" is running then
+		run script "
+			on run
+				tell application \"iTerm\"
+					activate
+					try
+						select first window
+						set onlywindow to true
+					on error
+						create window with default profile
+						select first window
+						set onlywindow to true
+					end try
+					tell the first window
+						create tab with default profile
+						tell current session to write text \"cd ~/Downloads &amp;&amp; clear\"
+					end tell
+				end tell
+			end run
+		"
+	else
+		run script "
+			on run
+				tell application \"iTerm\"
+					activate
+					try
+						select first window
+					on error
+						create window with default profile
+						select first window
+					end try
+					tell the first window
+						tell current session to write text \"cd ~/Downloads &amp;&amp; clear\"
+					end tell
+				end tell
+			end run
+		"
+	end if
+end alfred_script</string>
+				<key>cachescript</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.applescript</string>
+			<key>uid</key>
+			<string>A0B52BCE-83F8-4D58-AC35-7344300F3EF2</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>keyword</key>
+				<string>term new</string>
+				<key>subtext</key>
+				<string></string>
+				<key>text</key>
+				<string>New iTerm window</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>CE1EBBF4-7C64-45B8-86C6-D30176C0ECB1</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>keyword</key>
+				<string>term dirmap</string>
+				<key>subtext</key>
+				<string>Run `dirmap list` for all options.</string>
+				<key>text</key>
+				<string>Open Directory via map</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>03A55DFA-0DF6-40D0-A2C3-4F6B1BED0208</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab {query}</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>968152F3-7590-4EB7-A1E1-9ED5A3CDCDF7</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>term clear</string>
+				<key>subtext</key>
+				<string></string>
+				<key>text</key>
+				<string>Clear current session</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>BD0BBE17-F0CB-4EF4-9D10-DA39431E9073</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>applescript</key>
+				<string>on alfred_script(q)
+
+tell application "System Events"
+  tell process "iTerm2"
+    click menu item "Clear Buffer" of menu 1 of menu bar item "Edit" of menu bar 1
+  end tell
+end tell
+
+end alfred_script</string>
+				<key>cachescript</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.applescript</string>
+			<key>uid</key>
+			<string>D9AFB4D8-6ED3-4244-8F21-32DA27312542</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab list</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>590876FC-CE4A-4BAF-B014-64F80387DC1B</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>term listdirmap</string>
+				<key>subtext</key>
+				<string>Runs `dirmap list` for all options.</string>
+				<key>text</key>
+				<string>Open Directory Map</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>49D483DF-A3F1-41E7-A055-21A93C5B85C9</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>readme</key>
+	<string></string>
+	<key>uidata</key>
+	<dict>
+		<key>03A55DFA-0DF6-40D0-A2C3-4F6B1BED0208</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<real>120</real>
+		</dict>
+		<key>49D483DF-A3F1-41E7-A055-21A93C5B85C9</key>
+		<dict>
+			<key>xpos</key>
+			<integer>295</integer>
+			<key>ypos</key>
+			<integer>490</integer>
+		</dict>
+		<key>590876FC-CE4A-4BAF-B014-64F80387DC1B</key>
+		<dict>
+			<key>xpos</key>
+			<integer>515</integer>
+			<key>ypos</key>
+			<integer>490</integer>
+		</dict>
+		<key>968152F3-7590-4EB7-A1E1-9ED5A3CDCDF7</key>
+		<dict>
+			<key>xpos</key>
+			<integer>500</integer>
+			<key>ypos</key>
+			<integer>120</integer>
+		</dict>
+		<key>A0B52BCE-83F8-4D58-AC35-7344300F3EF2</key>
+		<dict>
+			<key>xpos</key>
+			<integer>500</integer>
+			<key>ypos</key>
+			<real>10</real>
+		</dict>
+		<key>BD0BBE17-F0CB-4EF4-9D10-DA39431E9073</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<real>350</real>
+		</dict>
+		<key>CE1EBBF4-7C64-45B8-86C6-D30176C0ECB1</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<real>10</real>
+		</dict>
+		<key>D9AFB4D8-6ED3-4244-8F21-32DA27312542</key>
+		<dict>
+			<key>xpos</key>
+			<integer>500</integer>
+			<key>ypos</key>
+			<real>350</real>
+		</dict>
+	</dict>
+	<key>webaddress</key>
+	<string>http://caiogondim.com</string>
+</dict>
+</plist>
