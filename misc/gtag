@@ -1,0 +1,262 @@
+#!/usr/bin/env php
+<?php
+/* Phinx
+ *
+ * (The MIT license)
+ * Copyright (c) 2014 Rob Morgan
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated * documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ */
+
+namespace JT\CLI;
+// Get the cli helpers
+
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$git = $cli->git;
+
+$helpyHelperton = $cli
+	->getHelp( 'tag', [
+
+		'all' => [
+'[--reverse]',
+'Outputs all tags in chronological order.',
+'-r, --reverse Optionally output in reverse chronological order.'
+		],
+
+		'some' => [
+'[<number-rows>]',
+'Outputs a limited number (25 by default) of tag rows, in chronological order.',
+'<number-rows> Optionally define the maximum number of rows to display.'
+		],
+
+		'current' => [
+'[--silent]',
+'Outputs the current (last-created) tag.',
+'[--silent] Used to return clean output (no prompts/messaging)
+           to other scripts. Similar to Git\'s --porcelain flag.',
+		],
+
+		'next'    => [
+'[<type>|--type=<type>] [--silent]',
+'Outputs what the next tag would be.',
+'<type>, --type=<type>  Can be one of: \'major\', \'minor\', \'patch\', \'subpatch\'.
+
+[--silent]             Used to return clean output (no prompts/messaging)
+                       to other scripts. Similar to Git\'s --porcelain flag.',
+		],
+
+		'new'     => [
+'[<type>|--type=<type>] [<description>|--desc=<description>] [--yes|-y] [--silent]',
+'Creates the next tag, optionally based on the type requested.',
+'<type>, --type[=<major|minor|patch|subpatch|<vX.X.X>>]
+                      Can be one of: \'major\', \'minor\', \'patch\', \'subpatch\'
+                      or specified tag version greater than the
+                      current/last-created tag and in the \'vX.X.X\' format.
+
+<description>, --desc=<desc>
+                      Optionally define the tag description.
+                      by default, the last commit message will be used.
+
+-y, --yes             Will autoconfirm all prompts. Use to generate the
+                      the next tag using the defaults.
+
+-shh, --silent        Used to return clean output (no prompts/messaging)
+                      to other scripts. Similar to Git\'s --porcelain flag.',
+		],
+
+		'delete'  => [
+'[--yes|-y] [--silent]',
+'Deletes the last tag or given tag.',
+'-y, --yes       Will autoconfirm all prompts. Use to generate the
+                the next tag using the defaults.
+
+-shh, --silent  Used to return clean output (no prompts/messaging)
+                to other scripts. Similar to Git\'s --porcelain flag.',
+		],
+		'push'  => [
+'[--yes|-y] [--silent]',
+'Pushes local branch and local tags to the remote branch.',
+'-y, --yes       Will autoconfirm all prompts, and push without delay.
+
+-shh, --silent  Used to return clean output (no prompts/messaging)
+                to other scripts.',
+		],
+	] );
+
+$silent  = $cli->isSilent();
+$command = $cli->getArg( 1 );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp( $command ) );
+	exit(0);
+}
+
+if ( empty( $command ) ) {
+	$cli->err( $helpyHelperton->getHelp() );
+	exit(1);
+}
+
+switch ( $command ) {
+	case 'all':
+		echo $git->listTags( $cli->hasFlags( [ 'reverse' ], 'r' ) );
+		break;
+	case 'some':
+		echo $git->listTags( false, intval( $cli->getArg( 2, 25 ) ) );
+		break;
+	case 'last':
+	case 'current':
+		echo $silent
+			? $git->currentTag()
+			: $cli->getMsg( "Be sure to `git pull` to ensure you have the latest updates/tags.", 'yellow' )
+			. $cli->getMsg( "Current Tag = {$git->currentTag()}", 'green' );
+		break;
+	case 'next':
+		try {
+			$nextTag = $git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 2 ) ) );
+			echo $silent ? $nextTag : $cli->getMsg( "Next Tag = {$nextTag}", 'green' );
+		} catch ( \Exception $e ) {
+			echo $silent ? $e->getMessage() : $cli->getErr( $e->getMessage() );
+			exit(1);
+		}
+		break;
+	case 'new':
+		newTag();
+		break;
+
+	case 'delete':
+
+		$currentTag = $git->currentTag();
+		if ( ! $cli->confirm( "Are you sure you want to delete the tag: {$currentTag}? [y/n]" ) ) {
+			exit(1);
+		}
+
+		$result = exec( "git tag -d {$currentTag}" );
+		echo "\n" . $git->listTags( false, 25 );
+		$cli->msg( "\n{$result}", 'green' );
+		break;
+
+	case 'push':
+		if ( ! $cli->confirm( "Are you sure you want to push your changes to the remote repo [{$git->currentRemote()}], including the local tags? [y/n]" ) ) {
+			exit(1);
+		}
+
+		echo "\n";
+		`git push && git push --tags`;
+		break;
+
+	default:
+		$cli->err( $helpyHelperton->invalid, 'red' );
+		exit(1);
+}
+
+exit(0);
+
+function newTag() {
+	global $cli, $git;
+
+	$nextTag = false;
+	$silent  = $cli->isSilent();
+
+	try {
+
+		$nextTag = $git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 2 ) ) );
+
+		if ( ! $cli->confirm( "Are you sure you want to create the tag: {$nextTag}? [y/n]" ) ) {
+			exit(1);
+		}
+
+	} catch ( \Exception $e ) {
+		// Something wrong, let's send it back.
+		if ( ! isset( $e->cli, $e->data ) || 1 !== $e->getCode() ) {
+			echo $silent ? $e->getMessage() : $cli->getErr( $e->getMessage() );
+			exit(1);
+		}
+
+		// Ok, check if this is a valid tag we can use.
+		if ( ! $git->validTag( $e->data ) ) {
+			$cli->err( "Tags require the 'vXX.XX.XX' format." );
+			exit(1);
+		}
+
+		$currentTag = $git->currentTag();
+
+		// Ok, check if this tag is higher than the existing tags.
+		if ( version_compare( $e->data, $git->currentTag(), '<=' ) ) {
+			$cli->err( "Given tag ({$e->data}) should be higher than the last-found tag: {$currentTag}" );
+			exit(1);
+		}
+
+		if ( ! $cli->confirm( "Are you sure you want to create the tag: {$e->data}? [y/n]" ) ) {
+			exit(1);
+		}
+
+		$nextTag = $e->data;
+	}
+
+	if ( ! $nextTag ) {
+		if ( ! $silent ) {
+			$cli->err( 'Something went wrong ¯\_(ツ)_/¯' );
+		}
+		exit(1);
+	}
+
+	$tagDesc = getTagDescription( $nextTag );
+	$result = exec( 'git tag -a '. $nextTag .' -m "'. $tagDesc .'"' );
+
+	echo "\n" . $git->listTags( false, 25 );
+
+	$cli->msg( "\n ^ Created new tag, '{$nextTag}'", 'green' );
+}
+
+function getTagDescription( $nextTag ) {
+	global $cli, $git;
+
+	// Get defined description
+	$tagDesc = $cli->getFlag( 'description', $cli->getFlag( 'desc', $cli->getArg( 3 ) ) );
+	if ( ! $tagDesc ) {
+
+		// Generate the tag message from the last commit message.
+		$tagDesc = $nextTag . ' ' . $git->lastCommitMessage();
+
+		// Confirm the new tag description...
+		$cli->msg( "\nUse the following tag description? [y/n/<custom description>]", 'yellow' );
+		$cli->msg( $tagDesc, 'green' );
+
+		if ( ! $cli->isAutoconfirm() ) {
+			$answer = $cli->requestAnswer( '', 'y' );
+			if ( empty( $answer ) || $cli->isNo( $answer ) ) {
+				// ¯\_(ツ)_/¯
+				exit(1);
+			}
+			if ( ! $cli->isYes( $answer ) ) {
+				$tagDesc = $answer;
+			}
+		} else {
+			$result = true;
+			$cli->msg( 'Y', 'green' );
+		}
+	}
+
+	// Let's be sure the new tag is prepended to the description.
+	if ( 0 !== strpos( $tagDesc, $nextTag ) ) {
+		$tagDesc = $nextTag . ' ' . $tagDesc;
+	}
+
+	return $tagDesc;
+}
