@@ -7,6 +7,8 @@
 
 namespace JT\CLI\Helpers;
 
+use JT\CLI\Helpers;
+
 /**
  * CLI Help handler.
  *

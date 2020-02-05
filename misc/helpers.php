@@ -137,7 +137,7 @@ class Helpers {
 
 				if ( 0 === strpos( $flag, '--' ) ) {
 					$parts = explode( '=', $flag );
-					$this->flags[ substr( $parts[0], 2 ) ] = $parts[1];
+					$this->flags[ substr( $parts[0], 2 ) ] = ! empty( $parts[1] ) ? $parts[1] : '';
 				} else {
 					$short = substr( $flag, 1 );
 					$this->shortFlags[ $short ] = $short;
@@ -551,7 +551,7 @@ class Helpers {
 	 */
 	public function getHelp( string $scriptName = '', array $commands = [] ) {
 		require_once __DIR__ . '/helpers/help.php';
-		return new Help( $this, $scriptName, $commands );
+		return new Helpers\Help( $this, $scriptName, $commands );
 	}
 }
 

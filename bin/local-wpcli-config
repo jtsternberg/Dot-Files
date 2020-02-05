@@ -110,7 +110,7 @@ class Local_WP_CLI_Config_Generator {
 		// echo " or ";
 		// $this->helpers->msg( 'no', 'red' );
 
-		if ( $this->helpers->getAnswer() ) {
+		if ( $this->helpers->requestAnswer() ) {
 			$this->helpers->msg( 'ABORTING', 'red' );
 			exit( 1 );
 		}
@@ -138,7 +138,7 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( "y", 'green', false );
 		echo "' if yes, otherwise type your path.\n";
 
-		$this->config['path'] = $this->helpers->getAnswer( $this->config['path'] );
+		$this->config['path'] = $this->helpers->requestAnswer( $this->config['path'] );
 	}
 
 	public function ask_url() {
@@ -152,7 +152,7 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( "y", 'green', false );
 		echo "' if yes, otherwise type your url.\n";
 
-		$this->config['url'] = $this->helpers->getAnswer( $suggestion );
+		$this->config['url'] = $this->helpers->requestAnswer( $suggestion );
 	}
 
 	public function ask_user() {
@@ -164,7 +164,7 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( "y", 'green', false );
 		echo "' if yes, otherwise type your admin username.\n";
 
-		$this->config['user'] = $this->helpers->getAnswer( $this->config['user'] );
+		$this->config['user'] = $this->helpers->requestAnswer( $this->config['user'] );
 	}
 
 	public function ask_host() {
@@ -179,7 +179,7 @@ class Local_WP_CLI_Config_Generator {
 		$this->helpers->msg( '(hint: to find the following values, you can look under your Local Sites > <Your Site> > DATABASE settings in Local)', 'yellow' );
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$parts[0] = $this->helpers->getAnswer( $parts[0] );
+		$parts[0] = $this->helpers->requestAnswer( $parts[0] );
 		$this->php_config['DB_HOST'] = implode( ':', $parts );
 	}
 
@@ -194,7 +194,7 @@ class Local_WP_CLI_Config_Generator {
 		echo "' if yes, otherwise type your Remote Port.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$parts[1] = $this->helpers->getAnswer( $parts[1] );
+		$parts[1] = $this->helpers->requestAnswer( $parts[1] );
 		$this->php_config['DB_HOST'] = implode( ':', $parts );
 	}
 
@@ -208,7 +208,7 @@ class Local_WP_CLI_Config_Generator {
 		echo "' if yes, otherwise type your Database User.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$this->php_config['DB_USER'] = $this->helpers->getAnswer( $this->php_config['DB_USER'] );
+		$this->php_config['DB_USER'] = $this->helpers->requestAnswer( $this->php_config['DB_USER'] );
 	}
 
 	public function ask_db_password() {
@@ -221,7 +221,7 @@ class Local_WP_CLI_Config_Generator {
 		echo "' if yes, otherwise type your Database Password.\n";
 		// echo "(hint: you can look under your Site > DATABASE settings in Local)";
 
-		$this->php_config['DB_PASSWORD'] = $this->helpers->getAnswer( $this->php_config['DB_PASSWORD'] );
+		$this->php_config['DB_PASSWORD'] = $this->helpers->requestAnswer( $this->php_config['DB_PASSWORD'] );
 	}
 
 	public function save_yml() {
