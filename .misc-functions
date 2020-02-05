@@ -89,9 +89,9 @@ vdebugtrim() {
 wptests() {
 	CURRDIR=`pwd`
 	if [ -d "$CURRDIR/bin" ]; then
-		bash "$CURRDIR/bin/install-wp-tests.sh" wordpress_test root '' localhost latest && mysqlstart
+		bash "$CURRDIR/bin/install-wp-tests.sh" wordpress_test root 'pizzaizGr8' 127.0.0.1 latest && mysqlstart
 	else
-		bash "$CURRDIR//tests/bin/install-wp-tests.sh" wordpress_test root '' localhost latest && mysqlstart
+		bash "$CURRDIR//tests/bin/install-wp-tests.sh" wordpress_test root 'pizzaizGr8' 127.0.0.1 latest && mysqlstart
 	fi
 }
 
