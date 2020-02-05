@@ -1,0 +1,173 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Utility for storing directory maps, making it easier to bookmark and navigate
+# to directories on the drive.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/dirmap
+#
+# Version 0.1.0
+#
+# Stores shortcuts for directories (a map) to a json file in the user dir.
+#
+# Usage:
+# dirmap help
+# dirmap add <key> <path>
+# dirmap remove <key>
+# dirmap <key>
+# =============================================================================
+
+class DirMap {
+
+	protected $dirs = [
+		'' => '~/',
+	];
+
+	protected $addHelp = "Two argumens are required, the directory map key (alias) and the actual path. E.g.\n   dirmap add sites ~/Sites\n";
+	protected $removeHelp = "The directory map key (alias) argumen is required. E.g.\n   dirmap remove sites\n";
+
+	protected $helpers;
+	public $hd = '';
+
+	public function __construct( CLI\Helpers $helpers ) {
+		$this->helpers = $helpers;
+		$this->hd = dirname( dirname( __DIR__ ) );
+		$this->source = $this->hd . '/.dirmap.json';
+		if ( ! file_exists( $this->source ) ) {
+			`echo '[]' >> $this->hd/.dirmap.json`;
+		}
+
+		$this->dirs = json_decode( file_get_contents( $this->hd . '/.dirmap.json' ), true );
+		$this->dirs[''] = '~/';
+	}
+
+	public function get() {
+		if ( $this->helpers->hasFlags( [ 'help' ], [ 'h' ] ) ) {
+			return $this->help();
+		}
+
+		$key = $this->helpers->getArg( 1, '' );
+
+		if ( ! empty( $key ) && ! isset( $this->dirs[ $key ] ) ) {
+			$this->helpers->err( sprintf( "\nThere is no directory associated with the given key: '%s'", $key ), false );
+			$this->helpers->msg( "Try `dirmap list` to see available keys\n" );
+
+			exit( 1 );
+		}
+
+		if ( empty( $key ) ) {
+			$key = '';
+		}
+
+		$dir = $this->dirs[ $key ];
+		$dir = str_replace( '~', $this->hd, $dir );
+
+		exit( $dir );
+	}
+
+	public function add( $args ) {
+		if ( empty( $args[2] ) || empty( $args[3] ) ) {
+			$this->helpers->err( "\n" . $this->addHelp );
+			exit(1);
+		}
+
+		array_shift( $args );
+		array_shift( $args );
+		$key = array_shift( $args );
+		$path = implode( ' ', $args );
+
+		$dirs = $this->dirs;
+		unset( $dirs[''] );
+		$dirs[ $key ] = $path;
+		$this->dirs[ $key ] = $path;
+
+		$this
+			->updateFile( $dirs )
+			->outputMap( $dirs );
+	}
+
+	public function remove( $args ) {
+		if ( empty( $args[2] ) ) {
+			$this->helpers->err( "\n" . $this->removeHelp );
+			exit(1);
+		}
+
+		array_shift( $args );
+		array_shift( $args );
+		$key = array_shift( $args );
+
+		$dirs = $this->dirs;
+		unset( $dirs[''] );
+		unset( $dirs[ $key ] );
+		unset( $this->dirs[ $key ] );
+
+		$this->updateFile( $dirs );
+		$this->outputMap( $dirs );
+	}
+
+	public function list() {
+		$this->outputMap( $this->dirs, 'Current Map' );
+	}
+
+	protected function updateFile( $dirs ) {
+		$json = json_encode( $dirs );
+		`echo '$json' > $this->hd/.dirmap.json`;
+
+		return $this;
+	}
+
+	protected function outputMap( $dirs, $msg = 'Directory map updated' ) {
+		$map = [];
+		foreach ( $dirs as $key => $dir ) {
+			if ( '' === $key ) {
+				$key = '(default)';
+			}
+			$map[] = "$key\n--->| $dir";
+		}
+
+		$map[] = "(default)\n--->| ~/";
+
+		$this->helpers->msg( sprintf( "\n$msg (%d):", count( $map ) ), 'green' );
+		$this->helpers->msg( "\n" . implode( "\n\n", $map ) . "\n\n" );
+
+		return $this;
+	}
+
+	public function help( $key = null ) {
+		$this->helpers->msg( "\n`dirmap` help:\n", 'green' );
+		$indent = '   ';
+		$doubleIndent = str_repeat( $indent, 2 );
+		$this->helpers->msg( "\n{$indent}(get):", 'green' );
+		$this->helpers->msg( $doubleIndent . "- Simply pass the directory map key (alias) as the first argument. E.g.\n{$doubleIndent}dirmap sites\n{$doubleIndent}- Or, to use in another script:\n{$doubleIndent}cd \"`dirmap sites`\"\n", 'green' );
+
+		// echo "\n";
+
+		$this->helpers->msg( "\n{$indent}add:", 'green' );
+		$this->helpers->msg( $doubleIndent . '- ' .str_replace( '   ', $doubleIndent, $this->addHelp ), 'green' );
+
+		$this->helpers->msg( "\n{$indent}remove:", 'green' );
+		$this->helpers->msg( $doubleIndent . '- ' .str_replace( '   ', $doubleIndent, $this->removeHelp ), 'green' );
+
+
+		$this->helpers->msg( "\n{$indent}list:", 'green' );
+		$this->helpers->msg( $doubleIndent . "- Outputs the stored directory map for reference.\n", 'green' );
+
+		$this->helpers->msg( "\n{$indent}help:", 'green' );
+		$this->helpers->msg( $doubleIndent . "- This help text.\n", 'green' );
+
+		echo "\n";
+
+		$this->list();
+	}
+
+}
+$helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$dirmap  = new DirMap( $helpers );
+$command = $helpers->getArg( 1, '' );
+
+if ( is_callable( [ $dirmap, $command ] ) ) {
+	return $dirmap->{$command}( $helpers->args );
+}
+
+$dirmap->get();

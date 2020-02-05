@@ -97,6 +97,9 @@ alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
 # alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
 alias loadnvm='[ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh" && [ -s "/usr/local/opt/nvm/etc/bash_completion" ] && . "/usr/local/opt/nvm/etc/bash_completion"  # This loads nvm and nvm bash_completion'
 
+alias itermScripRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.7.5/bin/python'
+alias itermDirTab='itermScripRun ~/.dotfiles/iterm-python/dirmaptab.py'
+
 # Make sure composer uses the Brew version of PHP.
 alias composer="/usr/local/Cellar/php@7.2/7.2.23/bin/php  /usr/local/bin/composer"
 
