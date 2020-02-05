@@ -67,6 +67,11 @@ _git_diffmod () {
 	__gitcomp_nl "$(__git_refs)"
 }
 
+## Add tab completion for git update <refs>.
+_git_update () {
+	__gitcomp_nl "$(__git_refs)"
+}
+
 ## Add tab completion for git move <branch>.
 _git_move() {
   _git_branch
