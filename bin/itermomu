@@ -23,7 +23,7 @@ tell application "System Events"
 	end tell
 
 	tell process "iTerm2"
-		click menu item "OMU" of menu of menu item "Restore Window Arrangement As Tabs" of menu "Window" of menu bar 1
+		click menu item "OM" of menu of menu item "Restore Window Arrangement As Tabs" of menu "Window" of menu bar 1
 	end tell
 
 	-- tell application "System Events" to tell process "iTerm2"
