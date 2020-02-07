@@ -155,7 +155,7 @@ setopt RM_STAR_WAIT
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 plugins=(
-	jt-sites
+	goto-sites
 	git
 	git-extras
 	gitfast
@@ -210,4 +210,6 @@ source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
 
 zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
 # fpath=(~/.dotfilesg/it $fpath)
-autoload -Uz compinit && compinit
+
+# I guess I don't need this?
+# autoload -Uz compinit && compinit
