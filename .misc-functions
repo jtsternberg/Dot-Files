@@ -197,3 +197,29 @@ count_files_ending_with() {
 # 		clean_csv $f
 # 	done
 # }
+
+# A bash in_array.
+# array=(one two three); contains one $array && echo 'yes' || echo 'no'
+# Outputs 'yes'
+contains () {
+	param=$1;
+	shift;
+	for elem in "$@";
+	do
+		[[ "$param" = "$elem" ]] && return 0;
+	done;
+	return 1
+}
+
+# Loads... nvm.
+loadnvm() {
+	if [ -s "/usr/local/opt/nvm/nvm.sh" ]
+	then
+		. "/usr/local/opt/nvm/nvm.sh"
+	fi
+
+	if [ -s "/usr/local/opt/nvm/etc/bash_completion" ]
+	then
+		. "/usr/local/opt/nvm/etc/bash_completion"
+	fi
+}

@@ -60,6 +60,19 @@
 				<false/>
 			</dict>
 		</array>
+		<key>E450C748-8918-4DE5-91FE-628FAE644A28</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>C0AB9552-7E99-4EB8-B1D6-55787A7179D7</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 	</dict>
 	<key>createdby</key>
 	<string>Justin Sternberg</string>
@@ -71,6 +84,27 @@
 	<string>iTerm2</string>
 	<key>objects</key>
 	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>keyword</key>
+				<string>term new</string>
+				<key>subtext</key>
+				<string></string>
+				<key>text</key>
+				<string>New iTerm window</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>CE1EBBF4-7C64-45B8-86C6-D30176C0ECB1</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
 		<dict>
 			<key>config</key>
 			<dict>
@@ -131,27 +165,6 @@ end alfred_script</string>
 				<key>argumenttype</key>
 				<integer>1</integer>
 				<key>keyword</key>
-				<string>term new</string>
-				<key>subtext</key>
-				<string></string>
-				<key>text</key>
-				<string>New iTerm window</string>
-				<key>withspace</key>
-				<true/>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.input.keyword</string>
-			<key>uid</key>
-			<string>CE1EBBF4-7C64-45B8-86C6-D30176C0ECB1</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>argumenttype</key>
-				<integer>1</integer>
-				<key>keyword</key>
 				<string>term dirmap</string>
 				<key>subtext</key>
 				<string>Run `dirmap list` for all options.</string>
@@ -179,6 +192,42 @@ end alfred_script</string>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
 			<string>968152F3-7590-4EB7-A1E1-9ED5A3CDCDF7</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>keyword</key>
+				<string>term dirtail</string>
+				<key>subtext</key>
+				<string>Run `dirmap list` for all options.</string>
+				<key>text</key>
+				<string>Tail debug.log in directory via map</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>E450C748-8918-4DE5-91FE-628FAE644A28</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermScripRun ~/.dotfiles/iterm-python/dirmaptail.py {query}</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>C0AB9552-7E99-4EB8-B1D6-55787A7179D7</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -229,21 +278,6 @@ end alfred_script</string>
 		<dict>
 			<key>config</key>
 			<dict>
-				<key>escaping</key>
-				<integer>0</integer>
-				<key>script</key>
-				<string>itermDirTab list</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.action.terminalcommand</string>
-			<key>uid</key>
-			<string>590876FC-CE4A-4BAF-B014-64F80387DC1B</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
 				<key>argumenttype</key>
 				<integer>2</integer>
 				<key>keyword</key>
@@ -259,6 +293,21 @@ end alfred_script</string>
 			<string>alfred.workflow.input.keyword</string>
 			<key>uid</key>
 			<string>49D483DF-A3F1-41E7-A055-21A93C5B85C9</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab list</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>590876FC-CE4A-4BAF-B014-64F80387DC1B</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -309,6 +358,13 @@ end alfred_script</string>
 			<key>ypos</key>
 			<real>350</real>
 		</dict>
+		<key>C0AB9552-7E99-4EB8-B1D6-55787A7179D7</key>
+		<dict>
+			<key>xpos</key>
+			<integer>495</integer>
+			<key>ypos</key>
+			<integer>230</integer>
+		</dict>
 		<key>CE1EBBF4-7C64-45B8-86C6-D30176C0ECB1</key>
 		<dict>
 			<key>xpos</key>
@@ -322,6 +378,13 @@ end alfred_script</string>
 			<integer>500</integer>
 			<key>ypos</key>
 			<real>350</real>
+		</dict>
+		<key>E450C748-8918-4DE5-91FE-628FAE644A28</key>
+		<dict>
+			<key>xpos</key>
+			<integer>305</integer>
+			<key>ypos</key>
+			<integer>230</integer>
 		</dict>
 	</dict>
 	<key>webaddress</key>
