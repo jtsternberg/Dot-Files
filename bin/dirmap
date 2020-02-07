@@ -24,11 +24,12 @@ class DirMap {
 		'' => '~/',
 	];
 
-	protected $addHelp = "Two argumens are required, the directory map key (alias) and the actual path. E.g.\n   dirmap add sites ~/Sites\n";
-	protected $removeHelp = "The directory map key (alias) argumen is required. E.g.\n   dirmap remove sites\n";
+	protected $addHelp = "Two argumens are accepted, the directory map key (alias), which is required, and the actual path (will default to the current directory if empty). E.g.\n   dirmap add mysites ~/Sites\n";
+	protected $removeHelp = "The directory map key (alias) argumen is required. E.g.\n   dirmap remove mysites\n";
 
 	protected $helpers;
 	public $hd = '';
+	public static $instance = null;
 
 	public function __construct( CLI\Helpers $helpers ) {
 		$this->helpers = $helpers;
@@ -40,6 +41,7 @@ class DirMap {
 
 		$this->dirs = json_decode( file_get_contents( $this->hd . '/.dirmap.json' ), true );
 		$this->dirs[''] = '~/';
+		self::$instance = $this;
 	}
 
 	public function get() {
@@ -67,7 +69,7 @@ class DirMap {
 	}
 
 	public function add( $args ) {
-		if ( empty( $args[2] ) || empty( $args[3] ) ) {
+		if ( empty( $args[2] ) ) {
 			$this->helpers->err( "\n" . $this->addHelp );
 			exit(1);
 		}
@@ -76,6 +78,10 @@ class DirMap {
 		array_shift( $args );
 		$key = array_shift( $args );
 		$path = implode( ' ', $args );
+
+		if ( empty( $path ) || '.' === $path ) {
+			$path = $this->helpers->wd;
+		}
 
 		$dirs = $this->dirs;
 		unset( $dirs[''] );
@@ -107,6 +113,10 @@ class DirMap {
 	}
 
 	public function list() {
+		if ( $this->helpers->hasFlags( [ 'keys' ], [ 'k' ] ) ) {
+			exit( implode("\n", array_keys( $this->dirs ) ) );
+		}
+
 		$this->outputMap( $this->dirs, 'Current Map' );
 	}
 
@@ -139,7 +149,7 @@ class DirMap {
 		$indent = '   ';
 		$doubleIndent = str_repeat( $indent, 2 );
 		$this->helpers->msg( "\n{$indent}(get):", 'green' );
-		$this->helpers->msg( $doubleIndent . "- Simply pass the directory map key (alias) as the first argument. E.g.\n{$doubleIndent}dirmap sites\n{$doubleIndent}- Or, to use in another script:\n{$doubleIndent}cd \"`dirmap sites`\"\n", 'green' );
+		$this->helpers->msg( $doubleIndent . "- Simply pass the directory map key (alias) as the first argument. E.g.\n{$doubleIndent}dirmap mysites\n{$doubleIndent}- Or, to use in another script:\n{$doubleIndent}cd \"`dirmap mysites`\"\n", 'green' );
 
 		// echo "\n";
 
@@ -151,7 +161,7 @@ class DirMap {
 
 
 		$this->helpers->msg( "\n{$indent}list:", 'green' );
-		$this->helpers->msg( $doubleIndent . "- Outputs the stored directory map for reference.\n", 'green' );
+		$this->helpers->msg( $doubleIndent . "- Outputs the stored directory map for reference. Use --keys (-k) flag to output only the map keys.\n", 'green' );
 
 		$this->helpers->msg( "\n{$indent}help:", 'green' );
 		$this->helpers->msg( $doubleIndent . "- This help text.\n", 'green' );
@@ -160,11 +170,24 @@ class DirMap {
 
 		$this->list();
 	}
-
 }
+
+function commands( DirMap $dirmap ) {
+	$methods = get_class_methods( $dirmap );
+	$key     = array_search( '__construct', $methods );
+
+	unset( $methods[ $key ] );
+
+	return $methods;
+}
+
 $helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
 $dirmap  = new DirMap( $helpers );
 $command = $helpers->getArg( 1, '' );
+
+if ( 'commands' === $command ) {
+	exit( implode("\n", commands( $dirmap ) ) );
+}
 
 if ( is_callable( [ $dirmap, $command ] ) ) {
 	return $dirmap->{$command}( $helpers->args );
