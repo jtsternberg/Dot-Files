@@ -156,6 +156,8 @@ setopt RM_STAR_WAIT
 # Example format: plugins=(rails git textmate ruby lighthouse)
 plugins=(
 	goto-sites
+	dirmap-completions
+	goto-dirmap
 	git
 	git-extras
 	gitfast
@@ -164,7 +166,7 @@ plugins=(
 	brew
 	colorize
 	composer
-	vagrant
+	# vagrant
 	osx
 	z
 	zsh-autosuggestions
