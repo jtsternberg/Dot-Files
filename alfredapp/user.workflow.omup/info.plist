@@ -84,6 +84,45 @@
 				<false/>
 			</dict>
 		</array>
+		<key>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>891774B0-A6F4-4FDC-8959-787C17F251BC</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>78C077C7-5786-4A74-85B8-CC4D99AD6466</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>F40053F3-40FC-4822-908C-71B279784B87</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>891774B0-A6F4-4FDC-8959-787C17F251BC</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>78C077C7-5786-4A74-85B8-CC4D99AD6466</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</key>
 		<array>
 			<dict>
@@ -537,6 +576,70 @@
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand renderer "loadnvm &amp;&amp; npm start"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>891774B0-A6F4-4FDC-8959-787C17F251BC</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>omup renderer</string>
+				<key>subtext</key>
+				<string>Setup OM renderer iTerm tabs</string>
+				<key>text</key>
+				<string>OM Up the renderer</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab renderer</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>F40053F3-40FC-4822-908C-71B279784B87</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>4</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>78C077C7-5786-4A74-85B8-CC4D99AD6466</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
 	</array>
 	<key>readme</key>
 	<string></string>
@@ -595,6 +698,13 @@
 			<key>ypos</key>
 			<integer>10</integer>
 		</dict>
+		<key>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</key>
+		<dict>
+			<key>xpos</key>
+			<integer>25</integer>
+			<key>ypos</key>
+			<integer>505</integer>
+		</dict>
 		<key>6C8C96B3-3333-4DA2-8960-9A3777409FC6</key>
 		<dict>
 			<key>note</key>
@@ -603,6 +713,22 @@
 			<integer>620</integer>
 			<key>ypos</key>
 			<integer>10</integer>
+		</dict>
+		<key>78C077C7-5786-4A74-85B8-CC4D99AD6466</key>
+		<dict>
+			<key>xpos</key>
+			<integer>330</integer>
+			<key>ypos</key>
+			<integer>530</integer>
+		</dict>
+		<key>891774B0-A6F4-4FDC-8959-787C17F251BC</key>
+		<dict>
+			<key>note</key>
+			<string>build the renderer</string>
+			<key>xpos</key>
+			<integer>175</integer>
+			<key>ypos</key>
+			<integer>500</integer>
 		</dict>
 		<key>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</key>
 		<dict>
@@ -701,6 +827,15 @@
 			<integer>320</integer>
 			<key>ypos</key>
 			<integer>235</integer>
+		</dict>
+		<key>F40053F3-40FC-4822-908C-71B279784B87</key>
+		<dict>
+			<key>note</key>
+			<string>OM Renderer</string>
+			<key>xpos</key>
+			<integer>395</integer>
+			<key>ypos</key>
+			<integer>510</integer>
 		</dict>
 	</dict>
 	<key>webaddress</key>
