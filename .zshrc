@@ -104,6 +104,10 @@ alias itermDirCommand='itermScriptRun ~/.dotfiles/iterm-python/dirmapcommand.py'
 # Make sure composer uses the Brew version of PHP.
 alias composer="/usr/local/Cellar/php@7.2/7.2.23/bin/php  /usr/local/bin/composer"
 
+# Git help
+alias phpcschanged='bin/phpcs --colors -s `git diff --name-only | grep .php`'
+alias phpcbfchanged='bin/phpcbf --colors `git diff --name-only | grep .php`'
+
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
