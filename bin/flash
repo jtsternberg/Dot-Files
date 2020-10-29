@@ -3,6 +3,7 @@
 # =============================================================================
 # Screen Flash
 # http://apple.stackexchange.com/questions/127255/how-to-flash-screen-from-command-line
+# https://apple.stackexchange.com/a/222626
 #
 # In order to work, the Accessibility keyboard shortcut needs to be enabled:
 # http://b.ustin.co/DSDF
@@ -14,5 +15,7 @@
 
 tell application "System Events" to repeat 2 times
 key code 28 using {command down, control down, option down}
-delay 0.1
 end repeat
+
+
+-- IF NOT WORKING, READ DESCRIPTION ABOVE ^
