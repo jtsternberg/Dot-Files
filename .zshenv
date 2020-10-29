@@ -35,6 +35,7 @@ PATH=$PATH:./node_modules/.bin
 PATH=$PATH:/usr/local/sbin
 PATH=$PATH:/usr/local/Cellar/php@7.2/7.2.23/bin/
 PATH=$PATH:~/.dotfiles/git
+PATH=$PATH:$(brew --prefix)/share/zsh/site-functions
 
 export PATH=$PATH
 export PATH="$(brew --prefix coreutils)/libexec/gnubin:/usr/local/bin:$PATH"
