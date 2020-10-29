@@ -162,6 +162,7 @@ setopt RM_STAR_WAIT
 plugins=(
 	goto-sites
 	dirmap-completions
+	gh-completions
 	goto-dirmap
 	git
 	git-extras
