@@ -219,5 +219,6 @@ source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
 zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
 # fpath=(~/.dotfilesg/it $fpath)
 
-# I guess I don't need this?
-# autoload -Uz compinit && compinit
+# To refresh: rm -f ~/.zcompdump; compinit
+autoload -Uz compinit
+compinit
