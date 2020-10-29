@@ -4,8 +4,23 @@
 <dict>
 	<key>bundleid</key>
 	<string></string>
+	<key>category</key>
+	<string>Tools</string>
 	<key>connections</key>
 	<dict>
+		<key>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>DB5C2B96-21DE-4968-BBE3-31A381CCD4F5</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>0C6CCA48-7120-4A0C-AF9A-CF762DF64EB0</key>
 		<array>
 			<dict>
@@ -123,6 +138,19 @@
 				<false/>
 			</dict>
 		</array>
+		<key>8BAF75B1-1741-4226-BDD4-E75B60518F8B</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</key>
 		<array>
 			<dict>
@@ -149,6 +177,8 @@
 				<false/>
 			</dict>
 		</array>
+		<key>985E6FB8-112C-4378-BBB1-41E5514D7B4D</key>
+		<array/>
 		<key>A4FFFF65-510C-488F-AF13-2EFF565528F7</key>
 		<array>
 			<dict>
@@ -167,6 +197,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>9125F622-F950-4E5B-959A-2ADB203A796A</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -201,6 +244,19 @@
 				<false/>
 			</dict>
 		</array>
+		<key>BF5EDE24-5A8D-439A-BC14-89D27B8013AB</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>D74D95C4-EF0A-4557-8565-D12B5763CB11</key>
 		<array>
 			<dict>
@@ -218,7 +274,7 @@
 		<array>
 			<dict>
 				<key>destinationuid</key>
-				<string>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</string>
+				<string>985E6FB8-112C-4378-BBB1-41E5514D7B4D</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -231,7 +287,7 @@
 		<array>
 			<dict>
 				<key>destinationuid</key>
-				<string>DB5C2B96-21DE-4968-BBE3-31A381CCD4F5</string>
+				<string>BF5EDE24-5A8D-439A-BC14-89D27B8013AB</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -253,11 +309,24 @@
 				<false/>
 			</dict>
 		</array>
+		<key>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 	</dict>
 	<key>createdby</key>
 	<string>Justin Sternberg</string>
 	<key>description</key>
-	<string>Open iTerm tabs to OM dirs</string>
+	<string>Open iTerm tabs to OM dirs &amp; run scripts</string>
 	<key>disabled</key>
 	<false/>
 	<key>name</key>
@@ -285,7 +354,7 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omhn "loadnvm &amp;&amp; npm run start:https"</string>
+				<string>itermDirCommand omhn "loadnvm &amp;&amp; npm start"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
@@ -348,45 +417,6 @@
 		<dict>
 			<key>config</key>
 			<dict>
-				<key>seconds</key>
-				<string>4</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.utility.delay</string>
-			<key>uid</key>
-			<string>17E3938C-EDAE-4AD7-A883-277BB26E3134</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>seconds</key>
-				<string>4</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.utility.delay</string>
-			<key>uid</key>
-			<string>9125F622-F950-4E5B-959A-2ADB203A796A</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>seconds</key>
-				<string>4</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.utility.delay</string>
-			<key>uid</key>
-			<string>1D928E0E-49D5-4EEB-93EC-114C7F307C49</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
@@ -396,21 +426,6 @@
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
 			<string>EF4A6003-5955-4860-97EF-1BE73309C869</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>escaping</key>
-				<integer>0</integer>
-				<key>script</key>
-				<string>itermDirTab omwp</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.action.terminalcommand</string>
-			<key>uid</key>
-			<string>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -439,12 +454,38 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
-			<string>DB5C2B96-21DE-4968-BBE3-31A381CCD4F5</string>
+			<string>17E3938C-EDAE-4AD7-A883-277BB26E3134</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>3</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>9125F622-F950-4E5B-959A-2ADB203A796A</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>3</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>1D928E0E-49D5-4EEB-93EC-114C7F307C49</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -454,12 +495,25 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omapptheme "loadnvm &amp;&amp; npm start"</string>
+				<string>itermDirCommand omwp "loadnvm &amp;&amp; npm run build:plugin"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</string>
+			<string>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>3</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>BF5EDE24-5A8D-439A-BC14-89D27B8013AB</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -475,6 +529,21 @@
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
 			<string>9746B411-C6A4-4F8B-B9D4-66A9710856DD</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand omapptheme "loadnvm &amp;&amp; npm start"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -503,12 +572,42 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
 			<string>EF736134-C614-4622-8ACA-CFC635C1FC30</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand omwpvue "loadnvm &amp;&amp; npm start"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>985E6FB8-112C-4378-BBB1-41E5514D7B4D</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab omdashboard</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>E7632854-C574-45EE-A08A-914BCA3BDCE4</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -530,15 +629,13 @@
 		<dict>
 			<key>config</key>
 			<dict>
-				<key>escaping</key>
-				<integer>0</integer>
-				<key>script</key>
-				<string>itermDirTab omdashboard</string>
+				<key>seconds</key>
+				<string>3</string>
 			</dict>
 			<key>type</key>
-			<string>alfred.workflow.action.terminalcommand</string>
+			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
-			<string>E7632854-C574-45EE-A08A-914BCA3BDCE4</string>
+			<string>DB5C2B96-21DE-4968-BBE3-31A381CCD4F5</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -567,7 +664,7 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
@@ -631,12 +728,76 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
 			<string>78C077C7-5786-4A74-85B8-CC4D99AD6466</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand omapi "loadnvm &amp;&amp; npm start"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab omapi</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>omup api.js</string>
+				<key>subtext</key>
+				<string>OM Up api.js iTerm tabs</string>
+				<key>text</key>
+				<string>OM Up api.js</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>8BAF75B1-1741-4226-BDD4-E75B60518F8B</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>3</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -647,12 +808,14 @@
 	<dict>
 		<key>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>7</integer>
 			<key>note</key>
-			<string>WP plugin</string>
+			<string>Goto WP plugin &amp; build</string>
 			<key>xpos</key>
-			<integer>920</integer>
+			<integer>975</integer>
 			<key>ypos</key>
-			<integer>175</integer>
+			<integer>160</integer>
 		</dict>
 		<key>0C6CCA48-7120-4A0C-AF9A-CF762DF64EB0</key>
 		<dict>
@@ -691,6 +854,8 @@
 		</dict>
 		<key>3973DA90-712A-4C3E-9C02-FEECA09462A8</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
 			<key>note</key>
 			<string>tail debug.log for OM App</string>
 			<key>xpos</key>
@@ -701,14 +866,14 @@
 		<key>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</key>
 		<dict>
 			<key>xpos</key>
-			<integer>25</integer>
+			<integer>15</integer>
 			<key>ypos</key>
 			<integer>505</integer>
 		</dict>
 		<key>6C8C96B3-3333-4DA2-8960-9A3777409FC6</key>
 		<dict>
 			<key>note</key>
-			<string>Hot-now</string>
+			<string>Goto Hot-now</string>
 			<key>xpos</key>
 			<integer>620</integer>
 			<key>ypos</key>
@@ -717,27 +882,38 @@
 		<key>78C077C7-5786-4A74-85B8-CC4D99AD6466</key>
 		<dict>
 			<key>xpos</key>
-			<integer>330</integer>
+			<integer>320</integer>
 			<key>ypos</key>
 			<integer>530</integer>
 		</dict>
 		<key>891774B0-A6F4-4FDC-8959-787C17F251BC</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
 			<key>note</key>
-			<string>build the renderer</string>
+			<string>Start renderer</string>
 			<key>xpos</key>
-			<integer>175</integer>
+			<integer>170</integer>
 			<key>ypos</key>
-			<integer>500</integer>
+			<integer>505</integer>
+		</dict>
+		<key>8BAF75B1-1741-4226-BDD4-E75B60518F8B</key>
+		<dict>
+			<key>xpos</key>
+			<integer>15</integer>
+			<key>ypos</key>
+			<integer>670</integer>
 		</dict>
 		<key>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
 			<key>note</key>
-			<string>build the theme</string>
+			<string>Start watcher</string>
 			<key>xpos</key>
-			<integer>160</integer>
+			<integer>170</integer>
 			<key>ypos</key>
-			<integer>200</integer>
+			<integer>205</integer>
 		</dict>
 		<key>9125F622-F950-4E5B-959A-2ADB203A796A</key>
 		<dict>
@@ -749,29 +925,60 @@
 		<key>9746B411-C6A4-4F8B-B9D4-66A9710856DD</key>
 		<dict>
 			<key>note</key>
-			<string>OM App</string>
+			<string>Goto OM App Theme</string>
 			<key>xpos</key>
-			<integer>395</integer>
+			<integer>390</integer>
 			<key>ypos</key>
 			<integer>205</integer>
 		</dict>
+		<key>985E6FB8-112C-4378-BBB1-41E5514D7B4D</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
+			<key>note</key>
+			<string>Start Vue App</string>
+			<key>xpos</key>
+			<integer>975</integer>
+			<key>ypos</key>
+			<integer>290</integer>
+		</dict>
 		<key>A4FFFF65-510C-488F-AF13-2EFF565528F7</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
 			<key>note</key>
-			<string>build the theme</string>
+			<string>Start Vue App</string>
 			<key>xpos</key>
-			<integer>175</integer>
+			<integer>170</integer>
 			<key>ypos</key>
 			<integer>355</integer>
 		</dict>
 		<key>A6F588F6-9334-4A9E-8488-068D7E07388A</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
 			<key>note</key>
 			<string>Start hot-now</string>
 			<key>xpos</key>
 			<integer>465</integer>
 			<key>ypos</key>
 			<integer>10</integer>
+		</dict>
+		<key>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</key>
+		<dict>
+			<key>note</key>
+			<string>Goto api.js</string>
+			<key>xpos</key>
+			<integer>385</integer>
+			<key>ypos</key>
+			<integer>665</integer>
+		</dict>
+		<key>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</key>
+		<dict>
+			<key>xpos</key>
+			<integer>320</integer>
+			<key>ypos</key>
+			<integer>695</integer>
 		</dict>
 		<key>B36D724D-012F-48DC-8E0E-432FB13093D7</key>
 		<dict>
@@ -783,14 +990,21 @@
 		<key>BD540B8B-31DF-4807-A34E-5E8E775E4D12</key>
 		<dict>
 			<key>xpos</key>
-			<integer>570</integer>
+			<integer>825</integer>
+			<key>ypos</key>
+			<integer>15</integer>
+		</dict>
+		<key>BF5EDE24-5A8D-439A-BC14-89D27B8013AB</key>
+		<dict>
+			<key>xpos</key>
+			<integer>920</integer>
 			<key>ypos</key>
 			<integer>190</integer>
 		</dict>
 		<key>D74D95C4-EF0A-4557-8565-D12B5763CB11</key>
 		<dict>
 			<key>note</key>
-			<string>OM App</string>
+			<string>Goto OM App</string>
 			<key>xpos</key>
 			<integer>310</integer>
 			<key>ypos</key>
@@ -799,27 +1013,29 @@
 		<key>DB5C2B96-21DE-4968-BBE3-31A381CCD4F5</key>
 		<dict>
 			<key>xpos</key>
-			<integer>855</integer>
+			<integer>920</integer>
 			<key>ypos</key>
-			<integer>200</integer>
+			<integer>365</integer>
 		</dict>
 		<key>E7632854-C574-45EE-A08A-914BCA3BDCE4</key>
 		<dict>
 			<key>note</key>
-			<string>OM App</string>
+			<string>Goto OM Dash</string>
 			<key>xpos</key>
-			<integer>395</integer>
+			<integer>390</integer>
 			<key>ypos</key>
-			<integer>355</integer>
+			<integer>350</integer>
 		</dict>
 		<key>EF4A6003-5955-4860-97EF-1BE73309C869</key>
 		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
 			<key>note</key>
 			<string>tail debug.log for WP plugin</string>
 			<key>xpos</key>
-			<integer>715</integer>
+			<integer>975</integer>
 			<key>ypos</key>
-			<integer>165</integer>
+			<integer>15</integer>
 		</dict>
 		<key>EF736134-C614-4622-8ACA-CFC635C1FC30</key>
 		<dict>
@@ -831,11 +1047,22 @@
 		<key>F40053F3-40FC-4822-908C-71B279784B87</key>
 		<dict>
 			<key>note</key>
-			<string>OM Renderer</string>
+			<string>Goto OM Renderer</string>
 			<key>xpos</key>
-			<integer>395</integer>
+			<integer>385</integer>
 			<key>ypos</key>
 			<integer>510</integer>
+		</dict>
+		<key>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
+			<key>note</key>
+			<string>Start watcher</string>
+			<key>xpos</key>
+			<integer>170</integer>
+			<key>ypos</key>
+			<integer>665</integer>
 		</dict>
 	</dict>
 	<key>webaddress</key>
