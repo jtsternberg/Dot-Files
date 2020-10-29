@@ -1,0 +1,11 @@
+#!/usr/bin/osascript
+
+# =============================================================================
+# Reload Chrome (my browser of choice)
+# https://unix.stackexchange.com/a/174526
+#
+# Version 0.1.0
+# =============================================================================
+
+activate application "Chrome"
+tell application "System Events" to keystroke "r" using command down
