@@ -109,7 +109,10 @@
 	dl = "!git ll -1"
 	dlc = diff --cached HEAD^
 	dr = "!f() { git diff "$1"^.."$1"; }; f"
-	lc = "!f() { git ll "$1"^.."$1"; }; f"
+	# lc = "!f() { git ll "$1"^.."$1"; }; f"
+	lcm = "!f() { git log --pretty=format:"%s" --decorate | head -n ${1-1}; }; f"
+	lastcommits = "!f() { clear && git ls | head -n ${1-20}; }; f"
+	lc = "!f() { clear && git ls | head -n ${1-20} | cowsay -f moose -n; }; f"
 	diff = diff --word-diff
 	; cdiff = diff --color-words
 	cdiff = "!f() { git diff --color-words | diff-so-fancy; }; f"
