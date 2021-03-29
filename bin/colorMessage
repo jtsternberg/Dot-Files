@@ -1,0 +1,76 @@
+#!/usr/bin/env php
+<?php
+
+# =============================================================================
+# Output a message in color.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/colors
+#
+# Version 0.1.0
+#
+# Outputs a message in color.
+#
+# Examples:
+# `$ colors red "error!"`
+# `$ colors demo` // Demos all colors.
+#
+# Usage:
+# colors [color] [message]
+# =============================================================================
+
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+
+if ( 'demo' === $cli->getArg( 1 ) ) {
+	$colors = [
+		'red_bg',
+		'none',
+		'default',
+		'black',
+		'red',
+		'green',
+		'yellow',
+		'blue',
+		'magenta',
+		'cyan',
+		'light_gray',
+		'dark_gray',
+		'light_red',
+		'light_green',
+		'light_yellow',
+		'light_blue',
+		'light_magenta',
+		'light_cyan',
+		'white',
+	];
+	$length = 0;
+	foreach ( $colors as $color ) {
+		$length = strlen( $color ) > $length ? strlen( $color ) : $length;
+	}
+	foreach ( $colors as $color ) {
+		$pad = $length - strlen( $color );
+		$pad = str_repeat( ' ', $pad );
+		echo $cli->getMsg( '■■■■', $color, false )
+			. $cli->getMsg( '  '. $color .' ' . $pad, 'transparent', false )
+			. $cli->getMsg( 'The quick brown fox jumps over the lazy dog', $color, false )
+			// . $cli->getMsg( $pad, $color, false )
+			. $cli->getMsg( '  ', 'transparent', false )
+			. $cli->getMsg( '■■■■', $color );
+	}
+	exit(0);
+}
+
+echo $cli->getMsg( $cli->getArg( 2 ), $cli->getArg( 1 ), false );
+exit(0);
+
+
+// $cli->color
+
+// try {
+// 	$nextTag = $cli->git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 1 ) ) );
+// 	echo ! $cli->isVerbose() ? $nextTag : $cli->getMsg( "Next Tag = {$nextTag}", 'green' );
+// } catch ( \Exception $e ) {
+// 	echo ! $cli->isVerbose() ? $e->getMessage() : $cli->getErr( $e->getMessage() );
+// 	exit(1);
+// }
+
+// exit(0);
