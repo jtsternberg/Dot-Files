@@ -478,15 +478,25 @@ class Helpers {
 	 */
 	public function color( $color ) {
 		$colors = array(
-			'red_bg' => "\e[1;37;41m",
-			'black' => "\033[30m",
-			'blue' => "\033[34m",
-			'green' => "\033[32m",
-			'cyan' => "\033[36m",
-			'red' => "\033[31m",
-			'purple' => "\033[35m",
-			'yellow' => "\033[33m",
-			'none' => "\033[0m",
+			'red_bg'        => "\e[1;37;41m",
+			'none'          => "\033[0m",
+			'default'       => "\033[39m",
+			'black'         => "\033[30m",
+			'red'           => "\033[31m",
+			'green'         => "\033[32m",
+			'yellow'        => "\033[33m",
+			'blue'          => "\033[34m",
+			'magenta'       => "\033[35m",
+			'cyan'          => "\033[36m",
+			'light_gray'    => "\033[37m",
+			'dark_gray'     => "\033[90m",
+			'light_red'     => "\033[91m",
+			'light_green'   => "\033[92m",
+			'light_yellow'  => "\033[93m",
+			'light_blue'    => "\033[94m",
+			'light_magenta' => "\033[95m",
+			'light_cyan'    => "\033[96m",
+			'white'         => "\033[97m",
 		);
 
 		return $color && isset( $colors[ $color ] )
