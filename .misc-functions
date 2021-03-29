@@ -222,4 +222,6 @@ loadnvm() {
 	then
 		. "/usr/local/opt/nvm/etc/bash_completion"
 	fi
+
+	nvm use v10.15.1
 }
