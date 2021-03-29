@@ -96,7 +96,7 @@ alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
 # https://github.com/creationix/nvm/issues/539#issuecomment-245791291
 # alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
 
-alias itermScriptRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.7.5/bin/python'
+alias itermScriptRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.8.6/bin/python'
 alias itermScripRun='itermScriptRun'
 alias itermDirTab='itermScriptRun ~/.dotfiles/iterm-python/dirmaptab.py'
 alias itermDirCommand='itermScriptRun ~/.dotfiles/iterm-python/dirmapcommand.py'
