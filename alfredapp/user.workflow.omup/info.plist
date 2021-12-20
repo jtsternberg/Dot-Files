@@ -112,6 +112,19 @@
 				<false/>
 			</dict>
 		</array>
+		<key>680E383B-4C61-4972-9B72-853C64B0EBEA</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>EBA2A51C-6C93-4A8F-BAD5-9A6280780BE2</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>78C077C7-5786-4A74-85B8-CC4D99AD6466</key>
 		<array>
 			<dict>
@@ -156,6 +169,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>EF736134-C614-4622-8ACA-CFC635C1FC30</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>8EACC32B-85B8-419C-B3C2-4722D9A2A736</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>680E383B-4C61-4972-9B72-853C64B0EBEA</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -283,6 +309,19 @@
 				<false/>
 			</dict>
 		</array>
+		<key>EBA2A51C-6C93-4A8F-BAD5-9A6280780BE2</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>C3B76076-189C-498B-810D-C02FCD566FF8</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>EF4A6003-5955-4860-97EF-1BE73309C869</key>
 		<array>
 			<dict>
@@ -339,12 +378,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirTab omhn</string>
+				<string>itermDirTab omapp</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>6C8C96B3-3333-4DA2-8960-9A3777409FC6</string>
+			<string>D74D95C4-EF0A-4557-8565-D12B5763CB11</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -354,12 +393,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omhn "loadnvm &amp;&amp; npm start"</string>
+				<string>itermDirCommand omhn "tailtrim"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>A6F588F6-9334-4A9E-8488-068D7E07388A</string>
+			<string>3973DA90-712A-4C3E-9C02-FEECA09462A8</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -390,12 +429,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirTab omapp</string>
+				<string>itermDirCommand omhn "loadnvm &amp;&amp; npm start"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>D74D95C4-EF0A-4557-8565-D12B5763CB11</string>
+			<string>A6F588F6-9334-4A9E-8488-068D7E07388A</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -405,27 +444,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omhn "tailtrim"</string>
+				<string>itermDirTab omhn</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>3973DA90-712A-4C3E-9C02-FEECA09462A8</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>escaping</key>
-				<integer>0</integer>
-				<key>script</key>
-				<string>itermDirCommand omwp "tailtrim"</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.action.terminalcommand</string>
-			<key>uid</key>
-			<string>EF4A6003-5955-4860-97EF-1BE73309C869</string>
+			<string>6C8C96B3-3333-4DA2-8960-9A3777409FC6</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -453,6 +477,21 @@
 		<dict>
 			<key>config</key>
 			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand omwp "tailtrim"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>EF4A6003-5955-4860-97EF-1BE73309C869</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
 				<key>seconds</key>
 				<string>4</string>
 			</dict>
@@ -472,7 +511,7 @@
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
-			<string>9125F622-F950-4E5B-959A-2ADB203A796A</string>
+			<string>1D928E0E-49D5-4EEB-93EC-114C7F307C49</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -485,7 +524,7 @@
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
-			<string>1D928E0E-49D5-4EEB-93EC-114C7F307C49</string>
+			<string>9125F622-F950-4E5B-959A-2ADB203A796A</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -676,21 +715,6 @@
 		<dict>
 			<key>config</key>
 			<dict>
-				<key>escaping</key>
-				<integer>0</integer>
-				<key>script</key>
-				<string>itermDirCommand renderer "loadnvm &amp;&amp; npm start"</string>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.action.terminalcommand</string>
-			<key>uid</key>
-			<string>891774B0-A6F4-4FDC-8959-787C17F251BC</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
 				<key>argumenttype</key>
 				<integer>2</integer>
 				<key>keyword</key>
@@ -706,6 +730,21 @@
 			<string>alfred.workflow.input.keyword</string>
 			<key>uid</key>
 			<string>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand renderer "loadnvm &amp;&amp; npm start"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>891774B0-A6F4-4FDC-8959-787C17F251BC</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -743,12 +782,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omapi "loadnvm &amp;&amp; npm start"</string>
+				<string>itermDirTab omapi</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</string>
+			<string>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -758,12 +797,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirTab omapi</string>
+				<string>itermDirCommand omapi "loadnvm &amp;&amp; npm start"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</string>
+			<string>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -798,6 +837,70 @@
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
 			<string>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab tp</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>C3B76076-189C-498B-810D-C02FCD566FF8</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>omup tp</string>
+				<key>subtext</key>
+				<string>Setup TrustPulse App iTerm tabs</string>
+				<key>text</key>
+				<string>OM Up TrustPulse App</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>8EACC32B-85B8-419C-B3C2-4722D9A2A736</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand tp "tailtrim"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>680E383B-4C61-4972-9B72-853C64B0EBEA</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>3</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>EBA2A51C-6C93-4A8F-BAD5-9A6280780BE2</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -870,6 +973,17 @@
 			<key>ypos</key>
 			<integer>505</integer>
 		</dict>
+		<key>680E383B-4C61-4972-9B72-853C64B0EBEA</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>tail debug.log for TP App</string>
+			<key>xpos</key>
+			<integer>170</integer>
+			<key>ypos</key>
+			<integer>820</integer>
+		</dict>
 		<key>6C8C96B3-3333-4DA2-8960-9A3777409FC6</key>
 		<dict>
 			<key>note</key>
@@ -914,6 +1028,13 @@
 			<integer>170</integer>
 			<key>ypos</key>
 			<integer>205</integer>
+		</dict>
+		<key>8EACC32B-85B8-419C-B3C2-4722D9A2A736</key>
+		<dict>
+			<key>xpos</key>
+			<integer>10</integer>
+			<key>ypos</key>
+			<integer>820</integer>
 		</dict>
 		<key>9125F622-F950-4E5B-959A-2ADB203A796A</key>
 		<dict>
@@ -1001,6 +1122,15 @@
 			<key>ypos</key>
 			<integer>190</integer>
 		</dict>
+		<key>C3B76076-189C-498B-810D-C02FCD566FF8</key>
+		<dict>
+			<key>note</key>
+			<string>Goto OM App Theme</string>
+			<key>xpos</key>
+			<integer>390</integer>
+			<key>ypos</key>
+			<integer>815</integer>
+		</dict>
 		<key>D74D95C4-EF0A-4557-8565-D12B5763CB11</key>
 		<dict>
 			<key>note</key>
@@ -1025,6 +1155,13 @@
 			<integer>390</integer>
 			<key>ypos</key>
 			<integer>350</integer>
+		</dict>
+		<key>EBA2A51C-6C93-4A8F-BAD5-9A6280780BE2</key>
+		<dict>
+			<key>xpos</key>
+			<integer>320</integer>
+			<key>ypos</key>
+			<integer>845</integer>
 		</dict>
 		<key>EF4A6003-5955-4860-97EF-1BE73309C869</key>
 		<dict>
