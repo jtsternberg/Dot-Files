@@ -519,6 +519,7 @@ class Helpers {
 		$args = array_merge( [
 			'relative' => true,
 			'failExit' => true,
+			'flags' => 0,
 		], $args );
 
 		if ( $args['relative'] ) {
@@ -531,14 +532,14 @@ class Helpers {
 			echo "\n--------------------\n\n";
 		}
 
-		$results = file_put_contents( $file, $contents );
+		$results = file_put_contents( $file, $contents, $args['flags'] );
 
 		if ( ! $this->isSilent() ) {
 			echo $file .' $results: ';
 			print_r( $results );
 			echo "\n--------------------\n\n";
 
-			if ( empty( $results ) ) {
+			if ( empty( $results ) && ! empty( $contents ) ) {
 				$this->msg( sprintf( 'Failed to write to file (%s). ABORTING', $file ), 'red' );
 				if ( $args['failExit'] ) {
 					exit( 1 );
