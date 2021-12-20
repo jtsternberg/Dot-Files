@@ -15,17 +15,14 @@ test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfile
 alias vup="cd ~/vagrant && vagrant up && flash && say 'vagrant is up'"
 alias valt="cd ~/vagrant && vagrant halt && flash && say 'vagrant is halted'"
 alias vssh="cd ~/vagrant && vagrant ssh"
-alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
+# alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
 alias ohmyzsh="subl ~/.dotfiles/.oh-my-zsh"
 alias cmb="cd ~/Sites/dsgnwrks.pro/wp-content/mu-plugins/cmb2/"
 alias dw="cd ~/Sites/dsgnwrks.pro/"
 alias dwplugins="cd ~/Sites/dsgnwrks.pro/wp-content/plugins"
-alias om="cd ~/Sites/app.optinmonster.test/app/public/wp-content"
 alias dwthemes="cd ~/Sites/dsgnwrks.pro/wp-content/themes"
 alias dwsites="cd ~/Sites"
-alias dwlibraries="cd ~/Sites/dsgnwrks.pro/wp-content/plugins/library-holder"
-alias dwclients="cd ~/Documents/Work/WebDevStudios/Clients"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
 alias vdebug="tail -f $vdebuglog"
 alias dwdebug="tail -f $dwlog"
@@ -40,7 +37,6 @@ alias ql='qlmanage -p'
 alias gifs='~/Sites/wpengine/gifs'
 alias mergeall='git mergetool -t opendiff'
 alias pubkey='more ~/.ssh/id_rsa.pub | pbcopy | printf '\''=> Public key copied to pasteboard.\n'\'
-alias pubkeyzao='more ~/.ssh/id_rsa_zaobot.pub | pbcopy | printf '\''=> Public key copied to pasteboard.\n'\'
 alias hidedotfiles='defaults write com.apple.finder AppleShowAllFiles -bool false &amp;&amp; killall Finder'
 alias showdotfiles='defaults write com.apple.finder AppleShowAllFiles -bool true &amp;&amp; killall Finder'
 # Random commit message
@@ -59,9 +55,7 @@ alias pls='sudo $(fc -ln -1)'
 alias xdebuglog='sudo chmod 666 /tmp/xdebug-remote.log'
 alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask cleanup && npm update -g && gem update"
 alias git=hub
-alias dockerstart="bash '/Applications/Docker/Docker Quickstart Terminal.app/Contents/Resources/Scripts/start.sh'"
 alias vlc="/Applications/VLC.app/Contents/MacOS/VLC"
-alias listenstripe="stripe listen --forward-to https://app.optinmonster.test/index.php\?edd-listener\=stripe"
 
 # t tasks https://github.com/sjl/t
 alias t="python $HOME/.dotfiles/t/t.py --task-dir $HOME/Dropbox/t-tasks --list tasks"
@@ -102,12 +96,15 @@ alias itermDirTab='itermScriptRun ~/.dotfiles/iterm-python/dirmaptab.py'
 alias itermDirCommand='itermScriptRun ~/.dotfiles/iterm-python/dirmapcommand.py'
 
 # Make sure composer uses the Brew version of PHP.
-alias composer="/usr/local/Cellar/php@7.2/7.2.23/bin/php  /usr/local/bin/composer"
+alias composer="/usr/local/Cellar/php/7.3.11/bin/php  /usr/local/bin/composer"
+alias composer="/usr/local/Cellar/php/7.3.11/bin/php  /usr/local/bin/composer"
 
-# Git help
+# PHP CS help
 alias phpcschanged='bin/phpcs --colors -s `git diff --name-only | grep .php`'
 alias phpcbfchanged='bin/phpcbf --colors `git diff --name-only | grep .php`'
 
+# Simulator
+alias emptyioscache='xcrun simctl erase all'
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
@@ -217,8 +214,9 @@ source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
 # [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
 
 zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
-# fpath=(~/.dotfilesg/it $fpath)
+# f	=(~/.dotfilesg/it $fpath)
 
+fpath=(~/.stripe $fpath)
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit

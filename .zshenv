@@ -33,9 +33,10 @@ PATH=$PATH:/home/vagrant/bin
 PATH=$PATH:~/.node/bin
 PATH=$PATH:./node_modules/.bin
 PATH=$PATH:/usr/local/sbin
-PATH=$PATH:/usr/local/Cellar/php@7.2/7.2.23/bin/
+PATH=$PATH:/usr/local/Cellar/php/7.3.11/bin
 PATH=$PATH:~/.dotfiles/git
 PATH=$PATH:$(brew --prefix)/share/zsh/site-functions
+PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
 
 export PATH=$PATH
 export PATH="$(brew --prefix coreutils)/libexec/gnubin:/usr/local/bin:$PATH"
@@ -45,10 +46,6 @@ export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/su
 
 export WP_TESTS_DIR=/tmp/wordpress/tests
 
-export DOCKER_TLS_VERIFY="1"
-export DOCKER_HOST="tcp://192.168.99.100:2376"
-export DOCKER_CERT_PATH="$HOME/.docker/machine/machines/default"
-export DOCKER_MACHINE_NAME="default"
 export NVM_DIR="$HOME/.nvm"
 # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # This loads nvm
 # Run this command to configure your shell:
