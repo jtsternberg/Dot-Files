@@ -10,7 +10,7 @@ export PATH=/usr/local/bin:$PATH
 # export PATH=$PATH:/usr/local/bin
 # PATH=$PATH
 PATH=$PATH=$(brew --prefix coreutils)/libexec/gnubin
-PATH=$PATH=/usr/local/opt/php@7.1/bin
+PATH=$PATH=/usr/local/opt/php@7.4/bin
 PATH=$PATH:/usr/local/bin
 PATH=$PATH:/usr/bin
 PATH=$PATH:/bin
