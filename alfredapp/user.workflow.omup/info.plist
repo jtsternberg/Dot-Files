@@ -393,7 +393,7 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omhn "tailtrim"</string>
+				<string>itermDirCommand omapp "tailtrim"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
