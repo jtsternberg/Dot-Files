@@ -1,6 +1,8 @@
 #!/usr/bin/env perl
 #
 # http://daringfireball.net/2007/03/javascript_bookmarklet_builder
+#
+# If error, run `cpan URI::Escape`
 
 use strict;
 use warnings;
