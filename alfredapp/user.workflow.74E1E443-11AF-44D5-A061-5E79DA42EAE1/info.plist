@@ -222,7 +222,7 @@ end alfred_script</string>
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermScripRun ~/.dotfiles/iterm-python/dirmaptail.py {query}</string>
+				<string>itermScriptRun ~/.dotfiles/iterm-python/dirmaptail.py {query}</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>

@@ -223,5 +223,5 @@ loadnvm() {
 		. "/usr/local/opt/nvm/etc/bash_completion"
 	fi
 
-	nvm use 12
+	nvm use 12.14.0
 }
