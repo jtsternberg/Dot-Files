@@ -143,9 +143,9 @@ prompt_status() {
   [[ -n "$symbols" ]] && prompt_segment black default "$symbols"
 }
 
-function battery_charge {
-  echo `~/bin/batcharge.py`
-}
+# function battery_charge {
+#   echo `~/bin/batcharge.py`
+# }
 
 # function prompt_online() {
 #   OFFLINE="Offline"
@@ -177,7 +177,7 @@ viewdiff () {
   for i; do vimdiff -R <(svn cat "$1") "$1"; done
 }
 
-RPROMPT='$(prompt_local_host_name) $(battery_charge)'
+RPROMPT='$(prompt_local_host_name)'
 
 ## Main prompt
 build_prompt() {
