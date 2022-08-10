@@ -19,6 +19,9 @@
 
 $hard = false;
 $testrun = false;
+$dirs_only = false;
+$working_dir = dirname( __FILE__ );
+$destination_dir = $_SERVER['HOME'];
 
 foreach ( (array) $argv as $arg ) {
 	if ( ! $testrun ) {
@@ -27,9 +30,19 @@ foreach ( (array) $argv as $arg ) {
 	if ( ! $hard ) {
 		$hard = 'hard' == $arg;
 	}
+	if ( ! $dirs_only ) {
+		$dirs_only = '--dirsonly' == $arg;
+	}
+	if ( 0 === strpos( $arg, '--dir=' ) ) {
+		$working_dir = str_replace( '--dir=', '', $arg );
+	}
+	if ( 0 === strpos( $arg, '--destination=' ) ) {
+		$destination_dir = realpath( str_replace( '--destination=', '', $arg ) );
+	}
 }
 
-$working_dir = dirname( __FILE__ );
+$destination_dir = rtrim( $destination_dir, '/\\' ) . '/';
+
 $files = array_merge(
 	glob( $working_dir . '/.*' ),
 	glob( $working_dir . '/*' )
@@ -55,20 +68,32 @@ $ignore = array(
 	'misc',
 	'.zshrc.pre-oh-my-zsh',
 );
+$ignore_begins = array(
+	'.',
+);
 
 $count = 0;
 foreach( $files as $index => $file ) {
+	$filepath = realpath( $file );
 	$filename = basename( $file );
-
 	if ( in_array( $filename, $ignore ) ) {
 		continue;
 	}
 
+	foreach ( $ignore_begins as $needle ) {
+		if ( 0 === strpos( $filename, $needle ) ) {
+			continue 2;
+		}
+	}
+
+	if ( $dirs_only && ! is_dir( $filename ) ) {
+		continue;
+	}
+
 	$from = str_replace( $filename, '', $file );
-	$to = $_SERVER['HOME'] . '/';
 	do_notice( ( ++$count ) .' File: ' . $filename, false, false );
 
-	$newfile = str_ireplace( $from, $to, $file );
+	$newfile = $destination_dir . $filename;
 	$exists  = file_exists( $newfile );
 
 	if ( ! $hard ) {
@@ -81,7 +106,9 @@ foreach( $files as $index => $file ) {
 	if ( ! $testrun ) {
 
 		if ( $exists && $hard ) {
-			$removed = is_dir( $newfile ) ? @rmdir( $newfile ) : @unlink( $newfile );
+			$removed = is_dir( $newfile ) && ! is_link( $newfile )
+				? rmdir( $newfile )
+				: unlink( $newfile );
 
 			if ( ! $removed ) {
 				do_notice( '    : Could not be replaced.', false, false );
@@ -89,8 +116,8 @@ foreach( $files as $index => $file ) {
 			}
 		}
 
-		// do_notice( print_r( array( $file, $newfile ), true ) );
-		$linked = symlink( $file, $newfile );
+		// do_notice( print_r( array( $filepath, $newfile ), true ) );
+		$linked = symlink( $filepath, $newfile );
 
 		if ( ! $linked ) {
 			$moved = 'Was NOT moved to:';
@@ -99,7 +126,7 @@ foreach( $files as $index => $file ) {
 		}
 	}
 
-	do_notice( '    '. $moved .' ' . $newfile . '.', false, false );
+	do_notice( '    '. $moved .' ' . $newfile, false, false );
 }
 
 function do_notice( $text, $before = true, $after = true ) {
