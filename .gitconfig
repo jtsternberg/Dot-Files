@@ -133,6 +133,7 @@
 
 	; search
 	search = "!f() { git log -G \"$*\" --decorate; }; f"
+	stash-search = "!f() { git stash list -i -p -G\"$@\"; }; f"
 	f = "!git ls-files | grep -i"
 	grep = grep -Ii
 	gr = grep -Ii
@@ -244,6 +245,7 @@
 
 [push]
 	default = simple
+	autoSetupRemote = true
 
 [color]
 	ui = always
@@ -324,3 +326,5 @@
 [mergetool "Kaleidoscope"]
   cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
   trustExitCode = true
+[safe]
+	directory = /private/etc/apache2

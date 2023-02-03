@@ -27,6 +27,7 @@ alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Res
 alias vdebug="tail -f $vdebuglog"
 alias dwdebug="tail -f $dwlog"
 alias cmbdebug="echo 'hello :)' > /tmp/wordpress/wp-content/debug.log && clear && tail -f /tmp/wordpress/wp-content/debug.log"
+alias testsdebug="echo 'hello :)' > /tmp/wordpress/wp-content/debug.log && clear && tail -f /tmp/wordpress/wp-content/debug.log"
 #alias mmv() { vimdiff -R <(svn cat "$1") "$1"; }
 autoload -U zmv
 alias mmv='noglob zmv -W'
@@ -35,7 +36,7 @@ alias copysshkey='pbcopy < ~/.ssh/id_rsa.pub'
 alias myip='curl ifconfig.me -v | pbcopy'
 alias ql='qlmanage -p'
 alias gifs='~/Sites/wpengine/gifs'
-alias mergeall='git mergetool -t opendiff'
+alias mergeall='git mergetool -t Kaleidoscope'
 alias pubkey='more ~/.ssh/id_rsa.pub | pbcopy | printf '\''=> Public key copied to pasteboard.\n'\'
 alias hidedotfiles='defaults write com.apple.finder AppleShowAllFiles -bool false &amp;&amp; killall Finder'
 alias showdotfiles='defaults write com.apple.finder AppleShowAllFiles -bool true &amp;&amp; killall Finder'
@@ -170,7 +171,7 @@ plugins=(
 	colorize
 	composer
 	# vagrant
-	osx
+	# osx
 	z
 	zsh-autosuggestions
 	colored-man-pages
@@ -208,7 +209,7 @@ ZSH_DISABLE_COMPFIX=true
 # fi
 
 # Git Extras!
-source /usr/local/opt/git-extras/share/git-extras/git-extras-completion.zsh
+source /opt/homebrew/opt/git-extras/share/git-extras/git-extras-completion.zsh
 
 # added by travis gem
 # [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh

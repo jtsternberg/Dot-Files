@@ -213,15 +213,15 @@ contains () {
 
 # Loads... nvm.
 loadnvm() {
-	if [ -s "/usr/local/opt/nvm/nvm.sh" ]
+	if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]
 	then
-		. "/usr/local/opt/nvm/nvm.sh"
+		. "/opt/homebrew/opt/nvm/nvm.sh"
 	fi
 
-	if [ -s "/usr/local/opt/nvm/etc/bash_completion" ]
+	if [ -s "/opt/homebrew/opt/nvm/etc/bash_completion" ]
 	then
-		. "/usr/local/opt/nvm/etc/bash_completion"
+		. "/opt/homebrew/opt/nvm/etc/bash_completion"
 	fi
 
-	nvm use 12.14.0
+	nvm use 16
 }

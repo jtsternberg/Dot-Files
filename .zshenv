@@ -1,6 +1,9 @@
 # Set path as only allowing unique values
 typeset -U path
 
+# Set PATH, MANPATH, etc., for Homebrew.
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
 # Set architecture flags
 export ARCHFLAGS="-arch x86_64"
 # Ensure user-installed binaries take precedence
@@ -10,7 +13,7 @@ export PATH=/usr/local/bin:$PATH
 # export PATH=$PATH:/usr/local/bin
 # PATH=$PATH
 PATH=$PATH=$(brew --prefix coreutils)/libexec/gnubin
-PATH=$PATH=/usr/local/opt/php@7.4/bin
+PATH=$PATH=/opt/homebrew/opt/php@7.4/bin
 PATH=$PATH:/usr/local/bin
 PATH=$PATH:/usr/bin
 PATH=$PATH:/bin
@@ -35,6 +38,7 @@ PATH=$PATH:./node_modules/.bin
 PATH=$PATH:/usr/local/sbin
 PATH=$PATH:/usr/local/Cellar/php/7.3.11/bin
 PATH=$PATH:~/.dotfiles/git
+PATH=$PATH:~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin
 PATH=$PATH:$(brew --prefix)/share/zsh/site-functions
 PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
 

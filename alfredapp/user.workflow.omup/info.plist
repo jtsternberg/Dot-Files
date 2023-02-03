@@ -408,6 +408,27 @@
 				<key>argumenttype</key>
 				<integer>2</integer>
 				<key>keyword</key>
+				<string>omup wp</string>
+				<key>subtext</key>
+				<string>Setup OM WP plugin iTerm tabs</string>
+				<key>text</key>
+				<string>OM Up the WP plugin</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>BD540B8B-31DF-4807-A34E-5E8E775E4D12</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
 				<string>omup</string>
 				<key>subtext</key>
 				<string>Setup OM iTerm tabs</string>
@@ -444,33 +465,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirTab omhn</string>
+				<string>itermDirCommand omwp "tailtrim"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>6C8C96B3-3333-4DA2-8960-9A3777409FC6</string>
-			<key>version</key>
-			<integer>1</integer>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>argumenttype</key>
-				<integer>2</integer>
-				<key>keyword</key>
-				<string>omup wp</string>
-				<key>subtext</key>
-				<string>Setup OM WP plugin iTerm tabs</string>
-				<key>text</key>
-				<string>OM Up the WP plugin</string>
-				<key>withspace</key>
-				<false/>
-			</dict>
-			<key>type</key>
-			<string>alfred.workflow.input.keyword</string>
-			<key>uid</key>
-			<string>BD540B8B-31DF-4807-A34E-5E8E775E4D12</string>
+			<string>EF4A6003-5955-4860-97EF-1BE73309C869</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -480,12 +480,12 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omwp "tailtrim"</string>
+				<string>itermDirTab omhn</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
-			<string>EF4A6003-5955-4860-97EF-1BE73309C869</string>
+			<string>6C8C96B3-3333-4DA2-8960-9A3777409FC6</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -534,7 +534,7 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand omwp "loadnvm &amp;&amp; npm run build:plugin"</string>
+				<string>itermDirCommand omwp "loadnvm # &amp;&amp; npm run build:plugin"</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
@@ -916,44 +916,44 @@
 			<key>note</key>
 			<string>Goto WP plugin &amp; build</string>
 			<key>xpos</key>
-			<integer>975</integer>
+			<real>975</real>
 			<key>ypos</key>
-			<integer>160</integer>
+			<real>160</real>
 		</dict>
 		<key>0C6CCA48-7120-4A0C-AF9A-CF762DF64EB0</key>
 		<dict>
 			<key>xpos</key>
-			<integer>15</integer>
+			<real>30</real>
 			<key>ypos</key>
-			<integer>365</integer>
+			<real>365</real>
 		</dict>
 		<key>17E3938C-EDAE-4AD7-A883-277BB26E3134</key>
 		<dict>
 			<key>xpos</key>
-			<integer>270</integer>
+			<real>270</real>
 			<key>ypos</key>
-			<integer>35</integer>
+			<real>35</real>
 		</dict>
 		<key>1CCA08C9-2889-4081-9D33-D462655C7590</key>
 		<dict>
 			<key>xpos</key>
-			<integer>325</integer>
+			<real>325</real>
 			<key>ypos</key>
-			<integer>380</integer>
+			<real>380</real>
 		</dict>
 		<key>1D928E0E-49D5-4EEB-93EC-114C7F307C49</key>
 		<dict>
 			<key>xpos</key>
-			<integer>425</integer>
+			<real>425</real>
 			<key>ypos</key>
-			<integer>40</integer>
+			<real>40</real>
 		</dict>
 		<key>210422FE-DB49-4A71-BA84-2A5DA0C09DED</key>
 		<dict>
 			<key>xpos</key>
-			<integer>10</integer>
+			<real>30</real>
 			<key>ypos</key>
-			<integer>10</integer>
+			<real>15</real>
 		</dict>
 		<key>3973DA90-712A-4C3E-9C02-FEECA09462A8</key>
 		<dict>
@@ -962,16 +962,16 @@
 			<key>note</key>
 			<string>tail debug.log for OM App</string>
 			<key>xpos</key>
-			<integer>160</integer>
+			<real>160</real>
 			<key>ypos</key>
-			<integer>10</integer>
+			<real>15</real>
 		</dict>
 		<key>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</key>
 		<dict>
 			<key>xpos</key>
-			<integer>15</integer>
+			<real>30</real>
 			<key>ypos</key>
-			<integer>505</integer>
+			<real>505</real>
 		</dict>
 		<key>680E383B-4C61-4972-9B72-853C64B0EBEA</key>
 		<dict>
@@ -980,25 +980,25 @@
 			<key>note</key>
 			<string>tail debug.log for TP App</string>
 			<key>xpos</key>
-			<integer>170</integer>
+			<real>170</real>
 			<key>ypos</key>
-			<integer>820</integer>
+			<real>820</real>
 		</dict>
 		<key>6C8C96B3-3333-4DA2-8960-9A3777409FC6</key>
 		<dict>
 			<key>note</key>
 			<string>Goto Hot-now</string>
 			<key>xpos</key>
-			<integer>620</integer>
+			<real>620</real>
 			<key>ypos</key>
-			<integer>10</integer>
+			<real>15</real>
 		</dict>
 		<key>78C077C7-5786-4A74-85B8-CC4D99AD6466</key>
 		<dict>
 			<key>xpos</key>
-			<integer>320</integer>
+			<real>320</real>
 			<key>ypos</key>
-			<integer>530</integer>
+			<real>530</real>
 		</dict>
 		<key>891774B0-A6F4-4FDC-8959-787C17F251BC</key>
 		<dict>
@@ -1007,16 +1007,16 @@
 			<key>note</key>
 			<string>Start renderer</string>
 			<key>xpos</key>
-			<integer>170</integer>
+			<real>170</real>
 			<key>ypos</key>
-			<integer>505</integer>
+			<real>505</real>
 		</dict>
 		<key>8BAF75B1-1741-4226-BDD4-E75B60518F8B</key>
 		<dict>
 			<key>xpos</key>
-			<integer>15</integer>
+			<real>30</real>
 			<key>ypos</key>
-			<integer>670</integer>
+			<real>670</real>
 		</dict>
 		<key>8CF6D0FA-B549-4591-B279-DC4FD07E3E36</key>
 		<dict>
@@ -1025,32 +1025,32 @@
 			<key>note</key>
 			<string>Start watcher</string>
 			<key>xpos</key>
-			<integer>170</integer>
+			<real>170</real>
 			<key>ypos</key>
-			<integer>205</integer>
+			<real>205</real>
 		</dict>
 		<key>8EACC32B-85B8-419C-B3C2-4722D9A2A736</key>
 		<dict>
 			<key>xpos</key>
-			<integer>10</integer>
+			<real>30</real>
 			<key>ypos</key>
-			<integer>820</integer>
+			<real>820</real>
 		</dict>
 		<key>9125F622-F950-4E5B-959A-2ADB203A796A</key>
 		<dict>
 			<key>xpos</key>
-			<integer>580</integer>
+			<real>580</real>
 			<key>ypos</key>
-			<integer>40</integer>
+			<real>40</real>
 		</dict>
 		<key>9746B411-C6A4-4F8B-B9D4-66A9710856DD</key>
 		<dict>
 			<key>note</key>
 			<string>Goto OM App Theme</string>
 			<key>xpos</key>
-			<integer>390</integer>
+			<real>390</real>
 			<key>ypos</key>
-			<integer>205</integer>
+			<real>205</real>
 		</dict>
 		<key>985E6FB8-112C-4378-BBB1-41E5514D7B4D</key>
 		<dict>
@@ -1059,9 +1059,9 @@
 			<key>note</key>
 			<string>Start Vue App</string>
 			<key>xpos</key>
-			<integer>975</integer>
+			<real>975</real>
 			<key>ypos</key>
-			<integer>290</integer>
+			<real>290</real>
 		</dict>
 		<key>A4FFFF65-510C-488F-AF13-2EFF565528F7</key>
 		<dict>
@@ -1070,9 +1070,9 @@
 			<key>note</key>
 			<string>Start Vue App</string>
 			<key>xpos</key>
-			<integer>170</integer>
+			<real>170</real>
 			<key>ypos</key>
-			<integer>355</integer>
+			<real>355</real>
 		</dict>
 		<key>A6F588F6-9334-4A9E-8488-068D7E07388A</key>
 		<dict>
@@ -1081,87 +1081,87 @@
 			<key>note</key>
 			<string>Start hot-now</string>
 			<key>xpos</key>
-			<integer>465</integer>
+			<real>465</real>
 			<key>ypos</key>
-			<integer>10</integer>
+			<real>15</real>
 		</dict>
 		<key>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</key>
 		<dict>
 			<key>note</key>
 			<string>Goto api.js</string>
 			<key>xpos</key>
-			<integer>385</integer>
+			<real>385</real>
 			<key>ypos</key>
-			<integer>665</integer>
+			<real>665</real>
 		</dict>
 		<key>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</key>
 		<dict>
 			<key>xpos</key>
-			<integer>320</integer>
+			<real>320</real>
 			<key>ypos</key>
-			<integer>695</integer>
+			<real>695</real>
 		</dict>
 		<key>B36D724D-012F-48DC-8E0E-432FB13093D7</key>
 		<dict>
 			<key>xpos</key>
-			<integer>10</integer>
+			<real>30</real>
 			<key>ypos</key>
-			<integer>210</integer>
+			<real>210</real>
 		</dict>
 		<key>BD540B8B-31DF-4807-A34E-5E8E775E4D12</key>
 		<dict>
 			<key>xpos</key>
-			<integer>825</integer>
+			<real>825</real>
 			<key>ypos</key>
-			<integer>15</integer>
+			<real>15</real>
 		</dict>
 		<key>BF5EDE24-5A8D-439A-BC14-89D27B8013AB</key>
 		<dict>
 			<key>xpos</key>
-			<integer>920</integer>
+			<real>920</real>
 			<key>ypos</key>
-			<integer>190</integer>
+			<real>190</real>
 		</dict>
 		<key>C3B76076-189C-498B-810D-C02FCD566FF8</key>
 		<dict>
 			<key>note</key>
 			<string>Goto OM App Theme</string>
 			<key>xpos</key>
-			<integer>390</integer>
+			<real>390</real>
 			<key>ypos</key>
-			<integer>815</integer>
+			<real>815</real>
 		</dict>
 		<key>D74D95C4-EF0A-4557-8565-D12B5763CB11</key>
 		<dict>
 			<key>note</key>
 			<string>Goto OM App</string>
 			<key>xpos</key>
-			<integer>310</integer>
+			<real>310</real>
 			<key>ypos</key>
-			<integer>10</integer>
+			<real>15</real>
 		</dict>
 		<key>DB5C2B96-21DE-4968-BBE3-31A381CCD4F5</key>
 		<dict>
 			<key>xpos</key>
-			<integer>920</integer>
+			<real>920</real>
 			<key>ypos</key>
-			<integer>365</integer>
+			<real>365</real>
 		</dict>
 		<key>E7632854-C574-45EE-A08A-914BCA3BDCE4</key>
 		<dict>
 			<key>note</key>
 			<string>Goto OM Dash</string>
 			<key>xpos</key>
-			<integer>390</integer>
+			<real>390</real>
 			<key>ypos</key>
-			<integer>350</integer>
+			<real>350</real>
 		</dict>
 		<key>EBA2A51C-6C93-4A8F-BAD5-9A6280780BE2</key>
 		<dict>
 			<key>xpos</key>
-			<integer>320</integer>
+			<real>320</real>
 			<key>ypos</key>
-			<integer>845</integer>
+			<real>845</real>
 		</dict>
 		<key>EF4A6003-5955-4860-97EF-1BE73309C869</key>
 		<dict>
@@ -1170,25 +1170,25 @@
 			<key>note</key>
 			<string>tail debug.log for WP plugin</string>
 			<key>xpos</key>
-			<integer>975</integer>
+			<real>975</real>
 			<key>ypos</key>
-			<integer>15</integer>
+			<real>15</real>
 		</dict>
 		<key>EF736134-C614-4622-8ACA-CFC635C1FC30</key>
 		<dict>
 			<key>xpos</key>
-			<integer>320</integer>
+			<real>320</real>
 			<key>ypos</key>
-			<integer>235</integer>
+			<real>235</real>
 		</dict>
 		<key>F40053F3-40FC-4822-908C-71B279784B87</key>
 		<dict>
 			<key>note</key>
 			<string>Goto OM Renderer</string>
 			<key>xpos</key>
-			<integer>385</integer>
+			<real>385</real>
 			<key>ypos</key>
-			<integer>510</integer>
+			<real>510</real>
 		</dict>
 		<key>F83E7F3F-F423-4CFB-A201-FF2DE719E9CD</key>
 		<dict>
@@ -1197,11 +1197,13 @@
 			<key>note</key>
 			<string>Start watcher</string>
 			<key>xpos</key>
-			<integer>170</integer>
+			<real>170</real>
 			<key>ypos</key>
-			<integer>665</integer>
+			<real>665</real>
 		</dict>
 	</dict>
+	<key>userconfigurationconfig</key>
+	<array/>
 	<key>webaddress</key>
 	<string></string>
 </dict>
