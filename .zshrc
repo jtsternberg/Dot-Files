@@ -208,16 +208,16 @@ ZSH_DISABLE_COMPFIX=true
 # 	source $( echo $(which vv)-completions )
 # fi
 
-# Git Extras!
-source /opt/homebrew/opt/git-extras/share/git-extras/git-extras-completion.zsh
 
-# added by travis gem
-# [ -f /Users/JT/.travis/travis.sh ] && source /Users/JT/.travis/travis.sh
-
+fpath=(~/.dotfiles/git $fpath)
 zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
-# f	=(~/.dotfilesg/it $fpath)
+
+# Git Extras!
+fpath=(/opt/homebrew/opt/git-extras/share/git-extras $fpath)
+# source /opt/homebrew/opt/git-extras/share/git-extras/git-extras-completion.zsh
 
 fpath=(~/.stripe $fpath)
+
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
