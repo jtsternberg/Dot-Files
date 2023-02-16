@@ -55,7 +55,6 @@ alias structure='tree -I "node_modules" -L 3'
 alias pls='sudo $(fc -ln -1)'
 alias xdebuglog='sudo chmod 666 /tmp/xdebug-remote.log'
 alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask cleanup && npm update -g && gem update"
-alias git=hub
 alias vlc="/Applications/VLC.app/Contents/MacOS/VLC"
 
 # t tasks https://github.com/sjl/t
@@ -202,22 +201,12 @@ ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
 
-ZSH_DISABLE_COMPFIX=true
-# VV completions, woot!
-# if [[ ! -z $(which vv) ]]; then
-# 	source $( echo $(which vv)-completions )
-# fi
-
-
-fpath=(~/.dotfiles/git $fpath)
-zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
-
 # Git Extras!
-fpath=(/opt/homebrew/opt/git-extras/share/git-extras $fpath)
 # source /opt/homebrew/opt/git-extras/share/git-extras/git-extras-completion.zsh
+# zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
+# fpath=(~/.dotfiles/git $fpath)
 
 fpath=(~/.stripe $fpath)
-
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
