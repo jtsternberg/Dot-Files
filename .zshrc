@@ -105,6 +105,9 @@ alias phpcbfchanged='bin/phpcbf --colors `git diff --name-only | grep .php`'
 
 # Simulator
 alias emptyioscache='xcrun simctl erase all'
+# Go to brew completions
+# https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
+alias brewcompletions="$(brew --prefix)/share/zsh/site-functions"
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions
@@ -159,18 +162,16 @@ setopt RM_STAR_WAIT
 plugins=(
 	goto-sites
 	dirmap-completions
-	gh-completions
-	goto-dirmap
-	git
-	git-extras
-	gitfast
+	goto-dirmap # https://github.com/jtsternberg/Dot-Files/blob/master/zsh-custom/plugins/goto-dirmap/goto-dirmap.plugin.zsh
+	git # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/git
+	git-extras # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/git-extras
+	gitfast # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/gitfast
 	npm
 	zsh-syntax-highlighting
 	brew
 	colorize
 	composer
-	# vagrant
-	# osx
+	macos # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/macos
 	z
 	zsh-autosuggestions
 	colored-man-pages
@@ -201,12 +202,14 @@ ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
 
-# Git Extras!
-# source /opt/homebrew/opt/git-extras/share/git-extras/git-extras-completion.zsh
-# zstyle ':completion:*:*:git:*' script ~/.dotfiles/git/git-completion.bash
-# fpath=(~/.dotfiles/git $fpath)
+# https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
+if type brew &>/dev/null
+then
+  FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
+fi
 
-fpath=(~/.stripe $fpath)
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
+
+

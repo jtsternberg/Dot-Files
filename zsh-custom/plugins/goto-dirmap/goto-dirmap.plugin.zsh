@@ -1,3 +1,26 @@
+# ------------------------------------------------------------------------------
+# Description
+# -----------
+#
+#  Completion script for dirmap (https://github.com/jtsternberg/Dot-Files/blob/master/bin/dirmap).
+#
+# To add directories shortcuts:
+# `dirmap add <key> <path>``
+#
+# To navigate directories:
+# `goto <key>`
+#
+# To autocomplete:
+# `goto [TAB]`
+#
+# ------------------------------------------------------------------------------
+# Authors
+# -------
+#
+#  * jtsternberg (https://github.com/jtsternberg)
+#
+# ------------------------------------------------------------------------------
+
 goto() {
 	mapkeys=($(dirmap commands))
 
@@ -18,4 +41,3 @@ _goto() {
 	_arguments -C \
 		"1: :(--help $mapkeys)" \
 }
-compdef _goto goto
