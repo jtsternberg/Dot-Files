@@ -42,7 +42,14 @@ class Help {
 	 *
 	 * @var string
 	 */
-	public $output = 'Which command? ';
+	public $prefix = 'Which command? ';
+
+	/**
+	 * The help message output.
+	 *
+	 * @var string
+	 */
+	public $output = '';
 
 	/**
 	 * The invalide message prefix.
@@ -50,6 +57,13 @@ class Help {
 	 * @var string
 	 */
 	public $invalid = 'Invalid command! ';
+
+	/**
+	 * The description for the command..
+	 *
+	 * @var string
+	 */
+	public $description = '';
 
 	/**
 	 * Whether the current request is requesting help.
@@ -68,7 +82,7 @@ class Help {
 		}
 	}
 
-	public function setup( string $scriptName = '', array $commands ) {
+	public function setup( string $scriptName = '', array $commands = [] ) {
 		$this
 			->setScriptName( $scriptName )
 			->setCommands( $commands );
@@ -84,8 +98,25 @@ class Help {
 		$this->options .= "\n\n   or: {$this->scriptName} {$this->helpFlag}\n";
 		$this->options .= "   or: {$this->scriptName} <command> [-h|--help] to display sub-command help.\n";
 
+		if ( $this->description ) {
+			$this->output .= $this->description . "\n\n";
+		}
+
+		$this->output .= $this->prefix;
 		$this->output .= $this->options;
 		$this->invalid .= $this->options;
+
+		return $this;
+	}
+
+	public function setPrefix( $prefix ) {
+		$this->prefix = $prefix;
+
+		return $this;
+	}
+
+	public function setDescription( $description ) {
+		$this->description = $description;
 
 		return $this;
 	}
