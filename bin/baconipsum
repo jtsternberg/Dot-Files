@@ -1,0 +1,106 @@
+#!/usr/bin/env php
+<?php
+namespace JT\CLI;
+# =============================================================================
+# Gets some bacom ipsum
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/baconipsum
+#
+# Version 0.1.0
+#
+# Outputs some bacon ipsum.
+# https://baconipsum.com/api/?type=meat-and-filler
+#
+# Examples:
+# `$ baconipsum`
+#
+# Outputs some random bacom ipsum text. e.g.
+# `$ baconipsum --format=html`
+#
+# > <p>Proident alcatra beef ribs, cow enim shoulder buffalo ea aute pastrami meatball.  Tri-tip spare ribs adipisicing, dolor sint rump ham.  Aliquip consequat magna sirloin non voluptate nulla ut corned beef.  Tenderloin cupim id meatloaf aliquip dolore deserunt pork.  Cillum officia picanha, reprehenderit ut deserunt ground round veniam chicken ribeye.  Tri-tip nostrud ground round, frankfurter beef consequat ad drumstick rump.  Meatball in turducken, frankfurter bacon porchetta turkey.</p>
+# > <p>Ut ullamco short loin, ground round turkey elit ea salami ad leberkas.  Nostrud proident eu tenderloin aliqua jerky sunt eiusmod.  Shankle pork chop ullamco non buffalo pork loin cupidatat.  Do occaecat velit, bresaola deserunt eiusmod tenderloin beef incididunt shankle fugiat.  Capicola porchetta rump, pork adipisicing ham incididunt ground round consectetur non id pastrami sausage nisi leberkas.</p>
+# > <p>Minim leberkas nostrud sint ut chislic.  Strip steak ullamco pork loin, cupim pork est irure deserunt id short ribs.  Excepteur chislic aute salami cupim shank.  T-bone minim in consectetur aute veniam flank kielbasa kevin enim cillum dolore.  Spare ribs sunt shankle turkey sint biltong meatball irure officia.</p>
+# > <p>Consequat mollit andouille, filet mignon jerky aliqua cupim burgdoggen alcatra pancetta chuck ham.  Landjaeger burgdoggen fatback, bacon id mollit ea kevin pancetta.  Irure venison id turkey lorem hamburger ut.  Dolore tail jerky chislic minim.  Proident sausage do eu cupim excepteur filet mignon culpa venison, beef ribs enim pastrami reprehenderit doner.  Excepteur dolor dolore pork chop, commodo biltong spare ribs anim hamburger proident pastrami fatback.  Filet mignon sirloin in pig aliqua voluptate sunt proident quis officia ground round kielbasa.</p>
+# > <p>Filet mignon quis cillum, ea ham pork belly leberkas dolore ground round doner reprehenderit.  In consectetur turkey ball tip nulla irure ex mollit.  Sint swine tail et in t-bone rump meatball sirloin short loin sausage eiusmod bresaola.  Excepteur ribeye dolore kielbasa.  Strip steak cillum dolor corned beef frankfurter.</p>
+#
+# Usage (`baconipsum -h`):
+# baconipsum [<number-paragraphs-or-sentences>] [<format>|--format=<format>] [<type>|--type=<type>] [--sentences|-s] [--start-with-lorem]]
+# =============================================================================
+
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+$helpyHelperton
+	->setScriptName( 'baconipsum' )
+	->setPrefix( '' )
+	->setDescription( 'Returns meaty lorem ipsum text. Uses the Bacon Ipsum JSON API: https://baconipsum.com/json-api/' )
+	->setSampleUsage( '[<number-paragraphs-or-sentences>] [<format>|--format=<format>] [<type>|--type=<type>] [--sentences|-s] [--start-with-lorem]' )
+	->buildDocs( [
+		'[<number-paragraphs-or-sentences>]' => 'Optional number of paragraphs (or sentences when using --sentences flag), defaults to 5.',
+		'<format>, --format=<format>'        => '‘json’ (default), ‘text’, or ‘html’',
+		'<type>, --type=<type>'              => '‘all-meat’ (default) for meat only or ‘meat-and-filler’ for meat mixed with miscellaneous "lorem ipsum" filler.',
+		'-s, --sentences'                    => 'Use sentences instead of paragraphs.',
+		'--start-with-lorem'                 => 'Start the first paragraph with ‘Bacon ipsum dolor sit amet’.',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit(0);
+}
+
+$useSentences = $cli->hasFlag( 'sentence' );
+$q = [
+	// optional number of paragraphs, defaults to 5.
+	'paras' => $useSentences ? null : $cli->getArg( 1, 5 ),
+	// number of sentences (this overrides paragraphs)
+	'sentences' => $useSentences ? $cli->getArg( 1, 5 ) : null,
+	// ‘json’ (default), ‘text’, or ‘html’
+	'format' => $cli->getArg( 2, $cli->getFlag( 'format' ) ),
+	// all-meat for meat only or meat-and-filler for meat mixed with miscellaneous ‘lorem ipsum’ filler.
+	'type' => $cli->getArg( 3, $cli->getFlag( 'type', 'meat-and-filler' ) ),
+	// optional pass 1 to start the first paragraph with ‘Bacon ipsum dolor sit amet’.
+	'start-with-lorem' => $cli->hasFlag( 'start-with-lorem' ) ? '1' : null,
+];
+
+$q = array_filter( $q );
+if ( empty( $q['paras'] ) || ! is_numeric( $q['paras'] ) ) {
+	$cli->err( 'First argument (<number-paragraphs-or-sentences>) arg is required to be a number.' );
+	exit(1);
+}
+if ( ! empty( $q['format'] ) && ! in_array( $q['format'], [ 'json', 'text', 'html' ] )) {
+	$cli->err( '<format> arg is required to be one of ‘json’ (default), ‘text’, or ‘html’' );
+	exit(1);
+}
+if ( ! empty( $q['type'] ) && ! in_array( $q['type'], [ 'all-meat', 'meat-and-filler' ] )) {
+	$cli->err( '<type>, --type=<type> args are required to be one of ‘all-meat’ or ‘meat-and-filler’' );
+	exit(1);
+}
+
+$resp = curlGet( 'https://baconipsum.com/api/', $q );
+if ( $resp ) {
+	echo "$resp";
+	echo exit(0);
+}
+
+$cli->err( 'Something went wrong when fetching.' );
+exit(1);
+
+function curlGet( $url, $get = [] ) {
+	if ( ! empty( $get ) ) {
+		$url .= ( false === strpos( $url, '?' ) ? '?' : '' ) . http_build_query( $get );
+		$url = str_replace( '%C2%A0', '+', $url );
+	}
+
+	// echo __LINE__ .') $url: '. print_r( $url, true ) ."\n";
+
+	$ch = curl_init();
+	curl_setopt( $ch, CURLOPT_URL, $url );
+	curl_setopt( $ch, CURLOPT_HEADER, 0);
+	curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true);
+	curl_setopt( $ch, CURLOPT_TIMEOUT, 5);
+	// ob_start();
+	$result = curl_exec( $ch );
+	curl_close( $ch );
+	// echo __LINE__ .') $result: '. print_r( $result, true ) ."\n";
+
+	return $result;
+}

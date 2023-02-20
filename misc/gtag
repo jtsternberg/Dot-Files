@@ -30,8 +30,11 @@ namespace JT\CLI;
 $cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
 $git = $cli->git;
 
-$helpyHelperton = $cli
-	->getHelp( 'tag', [
+$helpyHelperton = $cli->getHelp( 'tag' );
+
+$helpyHelperton
+	->setDescription( 'This script provides several tools for working with and displaying git tags.' )
+	->setup( 'tag', [
 
 		'all' => [
 '[--reverse]',

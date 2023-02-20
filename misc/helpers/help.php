@@ -2,6 +2,43 @@
 /**
  * CLI Help handler.
  *
+ * Setup multi-command help:
+ * 	$helpyHelperton
+ * 		->setDescription( 'This script provides several tools for working with and displaying git tags.' )
+ * 		->setup( 'tag', [
+ * 			'all' => [
+ * 	'[--reverse]',
+ * 	'Outputs all tags in chronological order.',
+ * 	'-r, --reverse Optionally output in reverse chronological order.'
+ * 			],
+ * 			'some' => [
+ * 	'[<number-rows>]',
+ * 	'Outputs a limited number (25 by default) of tag rows, in chronological order.',
+ * 	'<number-rows> Optionally define the maximum number of rows to display.'
+ * 			],
+ * 	'-y, --yes       Will autoconfirm all prompts, and push without delay.
+ *
+ * 	-shh, --silent  Used to return clean output (no prompts/messaging)
+ * 	                to other scripts.',
+ * 			],
+ * 		] );
+ *
+ * Setup single command help:
+ * $helpyHelperton = $cli->getHelp();
+ * 	$helpyHelperton
+ * 		->setScriptName( 'baconipsum' )
+ * 		->setPrefix( '' )
+ * 		->setDescription( 'Returns meaty lorem ipsum text. Uses the Bacon Ipsum JSON API' )
+ * 		->setSampleUsage( '[<number-paragraphs-or-sentences>] [<format>|--format=<format>] [<type>|--type=<type>] [--sentences|-s] [--start-with-lorem]' )
+ * 		->buildDocs( [
+ * 			'[<number-paragraphs-or-sentences>]' => 'Optional number of paragraphs (or sentences when using --sentences flag), defaults to 5.',
+ * 			'<format>, --format=<format>'        => '‘json’ (default), ‘text’, or ‘html’',
+ * 			'<type>, --type=<type>'              => '‘all-meat’ (default) for meat only or ‘meat-and-filler’ for meat mixed with miscellaneous "lorem ipsum" filler.',
+ * 			'-s, --sentences'                    => 'Use sentences instead of paragraphs.',
+ * 			'--start-with-lorem'                 => 'Start the first paragraph with ‘Bacon ipsum dolor sit amet’.',
+ * 		] );
+
+ *
  * @since 1.0.1
  */
 
@@ -42,7 +79,7 @@ class Help {
 	 *
 	 * @var string
 	 */
-	public $prefix = 'Which command? ';
+	public $prefix = '';
 
 	/**
 	 * The help message output.
@@ -57,6 +94,13 @@ class Help {
 	 * @var string
 	 */
 	public $invalid = 'Invalid command! ';
+
+	/**
+	 * The command sample usage
+	 *
+	 * @var string
+	 */
+	public $sampleUsage = '';
 
 	/**
 	 * The description for the command..
@@ -87,24 +131,98 @@ class Help {
 			->setScriptName( $scriptName )
 			->setCommands( $commands );
 
+		$hasSubCommands = false;
 		$output = [];
 		foreach ( $this->commands as $command => $args ) {
-			if ( is_array( $args ) ) {
-				$args = $args[0];
+			if ( ! is_numeric( $command ) ) {
+				if ( is_array( $args ) ) {
+					$args = $args[0];
+				}
+				$output[] = "{$command} {$args}";
+				$hasSubCommands = true;
+			} else {
+				if ( 0 === $command ) {
+					$output[] = print_r( $args, true ) . "\n";
+				} else {
+					$output[] = print_r( $args, true );
+				}
 			}
-			$output[] = "{$command} {$args}";
 		}
-		$this->options .= "\n   {$this->scriptName} " . implode( "\n   or: {$this->scriptName} ", $output );
-		$this->options .= "\n\n   or: {$this->scriptName} {$this->helpFlag}\n";
+
+		if ( $this->sampleUsage ) {
+			$this->options .= $this->sampleUsage;
+		}
+
+		if ( $hasSubCommands ) {
+			$this->options .= "\n   {$this->scriptName} " . implode( "\n   or: {$this->scriptName} ", $output );
+			$this->options .= "\n\n   or: ";
+		} else {
+			$this->options .= "\n   {$this->scriptName} " . implode( "\n   ", $output );
+
+		}
+
+		$this->options .= "{$this->scriptName} {$this->helpFlag}\n";
+
 		$this->options .= "   or: {$this->scriptName} <command> [-h|--help] to display sub-command help.\n";
 
 		if ( $this->description ) {
-			$this->output .= $this->description . "\n\n";
+			$this->output .= "\n" . $this->description . "\n\n";
+		}
+
+		$this->output .= $this->prefix ?: 'Which command? ';
+		$this->output .= $this->options;
+		$this->invalid .= $this->options;
+
+		return $this;
+	}
+
+	// Used for single command scripts.
+	public function buildDocs( array $commandArgs ) {
+		if ( $this->description ) {
+			$this->output .= "\n" . $this->description . "\n\n";
 		}
 
 		$this->output .= $this->prefix;
-		$this->output .= $this->options;
-		$this->invalid .= $this->options;
+
+		$buffer = max( array_map( 'strlen', array_keys( $commandArgs ) ) ) + 1;
+		$output = [];
+		foreach ( $commandArgs as $arg => $argDesc ) {
+			$str = "{$arg} ";
+			$argLength = strlen( $arg );
+			$padding = $buffer - $argLength;
+			$argBuffer = '';
+			if ( ! empty( $padding ) ) {
+				$argBuffer = str_repeat( ' ', $padding );
+				$str .= $argBuffer;
+			}
+
+			$lineBuffer = str_repeat( ' ', strlen( $str ) );
+			$chunkedString = explode( '~~', wordwrap( $argDesc, 80, '~~' ) );
+			if ( count( $chunkedString ) > 1 ) {
+				foreach ( $chunkedString as $index => $string ) {
+					if ( $index > 0 ) {
+						$chunkedString[ $index ] = $lineBuffer . '   ' . $string;
+					}
+				}
+				$str .= implode( "\n", $chunkedString ) . "\n";
+			} else {
+				$str .= $argDesc;
+			}
+
+			$output[] = $str;
+		}
+
+		$options = $this->options . "{$this->scriptName} ";
+
+		if ( $this->sampleUsage ) {
+			$options .= "{$this->sampleUsage} \n";
+		}
+
+		$options .= "\n   " . implode( "\n   ", $output );
+		$options .= "\nor: {$this->scriptName} {$this->helpFlag}\n";
+
+		$this->output .= $options;
+		$this->invalid .= $options;
 
 		return $this;
 	}
@@ -117,6 +235,12 @@ class Help {
 
 	public function setDescription( $description ) {
 		$this->description = $description;
+
+		return $this;
+	}
+
+	public function setSampleUsage( $sampleUsage ) {
+		$this->sampleUsage = $sampleUsage;
 
 		return $this;
 	}
