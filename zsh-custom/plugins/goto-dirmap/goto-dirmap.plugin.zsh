@@ -41,3 +41,5 @@ _goto() {
 	_arguments -C \
 		"1: :(--help $mapkeys)" \
 }
+
+compdef _goto goto
