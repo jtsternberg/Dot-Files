@@ -71,6 +71,15 @@ $ignore = array(
 $ignore_begins = array(
 	'.',
 );
+$noignore = array(
+	'.gemrc',
+	'.gitconfig',
+	'.gitignore_global',
+	'.zlogin',
+	'.zprofile',
+	'.zshenv',
+	'.zshrc',
+);
 
 $count = 0;
 foreach( $files as $index => $file ) {
@@ -81,7 +90,7 @@ foreach( $files as $index => $file ) {
 	}
 
 	foreach ( $ignore_begins as $needle ) {
-		if ( 0 === strpos( $filename, $needle ) ) {
+		if ( 0 === strpos( $filename, $needle ) && ! in_array( $filename, $noignore, true ) ) {
 			continue 2;
 		}
 	}
