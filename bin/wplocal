@@ -1,0 +1,18 @@
+#!/bin/bash
+#
+# A fancy alias for `wp`, since LocalWP still hasn't fixed their
+# dang php 8/macos/homebrew issues.
+#
+# https://community.localwp.com/t/wp-cli-errors-failed-loading-opcache-so-xdebug-so-and-warning-php-startup-unable-to-load-dynamic-library-imagick-so-code-unsigned/22719/29
+# https://community.localwp.com/t/local-lightning-php-8-open-site-shell-does-not-work-on-zsh/30510/18
+#
+# Be sure to run the "Open site shell" before using this command.
+# (because it generates the correct source file we base ours on)
+
+# Generate the local paths file to source.
+TMPFILE=`_wplocalgenerate`
+# Now source it.
+source "$TMPFILE"
+# And proxy the wp cli command
+CMD="wp $@"
+exec $CMD
