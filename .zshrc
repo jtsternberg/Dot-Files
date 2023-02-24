@@ -107,7 +107,7 @@ alias phpcbfchanged='bin/phpcbf --colors `git diff --name-only | grep .php`'
 alias emptyioscache='xcrun simctl erase all'
 # Go to brew completions
 # https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
-alias brewcompletions="$(brew --prefix)/share/zsh/site-functions"
+alias brewcompletions="/opt/homebrew/share/zsh/site-functions"
 # alias svn='/usr/local/bin/svn'
 
 ## Git functions

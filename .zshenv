@@ -25,20 +25,15 @@ PATH=$PATH:~/wpcs/vendor/bin
 PATH=$PATH:~/.dotfiles/bin
 PATH=$PATH:~/.dotfiles/bin/vv
 PATH=$PATH:~/.composer/vendor/bin
-PATH=$PATH:/home/vagrant/bin
 PATH=$PATH:~/.node/bin
 PATH=$PATH:./node_modules/.bin
 PATH=$PATH:/usr/local/sbin
 PATH=$PATH:~/.dotfiles/git
 PATH=$PATH:~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin
 PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
-
-
-# Set PATH, MANPATH, etc., for Homebrew.
-eval "$(/opt/homebrew/bin/brew shellenv)"
-PATH=$PATH=$(brew --prefix coreutils)/libexec/gnubin
-PATH=$PATH:$(brew --prefix)/share/zsh/site-functions
-PATH=$PATH:$(brew --prefix)/libexec/gnubin:/usr/local/bin:
+PATH=$PATH=/opt/homebrew/opt/coreutils/libexec/gnubin
+PATH=$PATH:/opt/homebrew/share/zsh/site-functions
+PATH=$PATH:/opt/homebrew/libexec/gnubin:/usr/local/bin:
 export PATH=$PATH
 
 export EDITOR='subl -w'
