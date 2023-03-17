@@ -550,6 +550,49 @@ class Helpers {
 		return $results;
 	}
 
+	// Get files of type w/in a directory.
+	public function getDirFiles( $dir, $type = '', $sort = 'modifiedDesc' ) {
+		$files = array();
+		$dir = new \DirectoryIterator( $dir );
+		foreach ( $dir as $fileinfo ) {
+			if ( ! $type || $type === $fileinfo->getExtension() ) {
+
+				// Modification Time: is the time when the contents of the file was last modified. For example, you used an editor to add new content or delete some existing content.
+				$files[ $fileinfo->getMTime() ] = $fileinfo->getFilename();
+			}
+		}
+
+		switch ( $sort ) {
+			case 'modifiedAsc':
+				ksort( $files );
+				break;
+			case 'modifiedDesc':
+			default:
+				krsort( $files );
+				break;
+		}
+
+		return $files;
+	}
+
+	// Fetches file contents and filters the rows by callback.
+	public function filteredFileContentRows( $file, $filterCb ) {
+		$handle = @fopen( $file, "r" );
+		$lines = [];
+		if ( ! empty( $handle ) ) {
+			while ( ( $line = fgets( $handle ) ) !== false ) {
+				$line = $filterCb( $line );
+				if ( false !== $line ) {
+					$lines[] = $line;
+				}
+			}
+
+			fclose($handle);
+		}
+
+		return implode( "\n", $lines );
+	}
+
 	/**
 	 * Get help object for a command.
 	 *

@@ -1,0 +1,371 @@
+#!/usr/bin/env php
+<?php
+namespace JT\CLI;
+# =============================================================================
+# Convert sublime .sublime-project files to VS Code .code-workspace files.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/sublimetovscode
+#
+# Version 0.1.0
+#
+# Examples:
+# `$ sublimetovscode myproject.sublime-project`
+#
+# Usage (`sublimetovscode -h`):
+# sublimetovscode [<fileOrPath>] [<destFileOrPath>] [--excludeExcludes]
+# =============================================================================
+
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+$helpyHelperton
+	->setScriptName( 'sublimetovscode' )
+	->setPrefix( '' )
+	->setDescription( 'Convert sublime .sublime-project files to VS Code .code-workspace files.' )
+	->setSampleUsage( '[<fileOrPath>] [<destFileOrPath>] [--excludeExcludes]' )
+	->buildDocs( [
+		'[<fileOrPath>]'         => 'The file to convert. If a path, will convert all files found.',
+		'[<destFileOrPath>]'     => 'The destination .code-workspace file, or path if <file> is a path.',
+		'-ee, --excludeExcludes' => 'Do not migrate the `file_exclude_patterns` and `folder_exclude_patterns` sections to the VS Code Workspace `files.exclude`',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit(0);
+}
+
+$filePath = $cli->getArg( 1, getcwd() );
+$destination = $cli->getArg( 2 );
+$excludeExcludes = $cli->hasFlags( 'excludeExcludes', 'ee' );
+$file = basename( $filePath );
+
+if ( is_dir( $filePath ) ) {
+	$files = $cli->getDirFiles( $filePath, 'sublime-project' );
+	$count = count( $files );
+	if ( ! $cli->confirm( "Are you sure you want to convert all ({$count}) .sublime-project files in this direcotry ({$file})? [y/n]" ) ) {
+		exit(1);
+	}
+
+	if ( $destination && ! is_dir( $destination ) ) {
+		$cli->err( "Destination must be a path." );
+		exit(1);
+	}
+    $cli->err( "Sorry, I haven't been implemented yet." );
+    exit(1);
+
+	// die( print_r( [
+	// 	'50 $files' => array_splice( $files, 0, 50 ),
+	// 	'count' => count( $files ),
+	// ], true ) );
+	foreach ( $files as $file ) {
+	// 	$name = str_replace( '.sublime-project', '', $file );
+
+	// 	if ( $destination ) {
+
+	// 	}
+	// 	.code-workspace
+	// 	die( print_r( [
+	// 	'$filePath' => $filePath,
+	// 	'$excludeExcludes' => $excludeExcludes,
+	// 	'$file' => $file,
+	// 	'$name' => $name,
+	// ], true ) );
+
+	}
+}
+
+$name = str_replace( '.sublime-project', '', $file );
+if (
+	$destination
+	&& ! is_dir( $destination )
+	&& '.code-workspace' !== substr( $destination, -( strlen( '.code-workspace' ) ) )
+) {
+	$cli->err( "Destination must be a path or be a file with the `.code-workspace` extension." );
+	exit(1);
+}
+
+if ( empty( $destination ) ) {
+	$destination = $cli->wd;
+}
+
+$isPath = is_dir( $destination );
+if ( $isPath ) {
+	$newName = $name . '.code-workspace';
+	$destination = $destination . DIRECTORY_SEPARATOR . $newName;
+}
+
+if ( file_exists( $destination ) ) {
+	if ( ! $cli->confirm( "The destination file already exists: {$destination} \nDo you want to overwrite? [y/n]" ) ) {
+		exit(1);
+	}
+}
+
+ob_start();
+include_once $file;
+// grab the data from the output buffer and add it to our $content variable
+$json = ob_get_clean();
+$json = (new CommentJson)->decode( $json, true );
+
+if ( json_last_error() ) {
+	$err = json_last_error_msg();
+	$cli->err( "Error decoding .sublime-project file: {$err}" );
+	exit(1);
+}
+if ( empty( $json['folders'] ) ) {
+	$cli->err( "Error decoding .sublime-project file. Missing folders." );
+	exit(1);
+}
+
+$newContent = [
+	'folders' => [],
+	'settings' => [
+		'files.exclude' => [],
+	],
+];
+
+foreach ( $json['folders'] as $folder ) {
+	if ( $folder['path'] ) {
+		$newContent['folders'][] = [
+			'path' => $folder['path'],
+		];
+	}
+
+    if ( ! $excludeExcludes ) {
+        if ( ! empty( $folder['file_exclude_patterns'] ) ) {
+            foreach ( $folder['file_exclude_patterns'] as $pattern ) {
+                $newContent['settings']['files.exclude'][$pattern] = true;
+            }
+        }
+        if ( ! empty( $folder['folder_exclude_patterns'] ) ) {
+            foreach ( $folder['folder_exclude_patterns'] as $pattern ) {
+                $newContent['settings']['files.exclude'][$pattern] = true;
+            }
+        }
+    }
+}
+
+$cli->writeToFile( $destination, json_encode( $newContent, JSON_PRETTY_PRINT ), [
+	'relative' => 0 !== strpos( $destination, '/' ),
+	'failExit' => true,
+	'flags' => 0,
+] );
+
+// $cli->err( 'Something went wrong when fetching.' );
+exit(0);
+
+function isRelativePath( $path ) {
+	return 0 === strpos( $path, '~' );
+}
+
+function isAbsPath( $path ) {
+	return 0 === strpos( $path, '/' );
+}
+
+function json_decode_commented($data, $assoc = false, $maxDepth = 512, $opts = 0) {
+  $data = preg_replace('~
+    (" (?:\\\\. | [^"])*+ ") | \# [^\v]*+ | // [^\v]*+ | /\* .*? \*/
+  ~xs', '$1', $data);
+
+  return json_decode($data, $assoc, $maxDepth, $opts);
+}
+
+/**
+ * JSON comment and trailing comma stripper.
+ *
+ * @author Jitendra Adhikari <jiten.adhikary@gmail.com>
+ * @see https://github.com/adhocore/php-json-comment
+ */
+class CommentJson
+{
+    /** @var int The current index being scanned */
+    protected $index = -1;
+
+    /** @var bool If current char is within a string */
+    protected $inStr = false;
+
+    /** @var int Lines of comments 0 = no comment, 1 = single line, 2 = multi lines */
+    protected $comment = 0;
+
+    /** @var int Holds the backtace position of a possibly trailing comma */
+    protected $commaPos = -1;
+
+    /**
+     * Strip comments from JSON string.
+     *
+     * @param string $json
+     *
+     * @return string The comment stripped JSON.
+     */
+    public function strip(string $json): string
+    {
+        if (!\preg_match('%\/(\/|\*)%', $json) && !\preg_match('/,\s*(\}|\])/', $json)) {
+            return $json;
+        }
+
+        $this->reset();
+
+        return $this->doStrip($json);
+    }
+
+    protected function reset()
+    {
+        $this->index   = -1;
+        $this->inStr   = false;
+        $this->comment = 0;
+    }
+
+    protected function doStrip(string $json): string
+    {
+        $return = '';
+        $crlf   = ["\n" => '\n', "\r" => '\r'];
+
+        while (isset($json[++$this->index])) {
+            $oldprev                  = $prev ?? '';
+            list($prev, $char, $next) = $this->getSegments($json);
+
+            $return = $this->checkTrail($char, $return);
+
+            if ($this->inStringOrCommentEnd($prev, $char, $char . $next, $oldprev)) {
+                $return .= $this->inStr && isset($crlf[$char]) ? $crlf[$char] : $char;
+
+                continue;
+            }
+
+            $wasSingle = 1 === $this->comment;
+            if ($this->hasCommentEnded($char, $char . $next) && $wasSingle) {
+                $return = \rtrim($return) . $char;
+            }
+
+            $this->index += $char . $next === '*/' ? 1 : 0;
+        }
+
+        return $return;
+    }
+
+    protected function getSegments(string $json): array
+    {
+        return [
+            $json[$this->index - 1] ?? '',
+            $json[$this->index],
+            $json[$this->index + 1] ?? '',
+        ];
+    }
+
+    protected function checkTrail(string $char, string $json): string
+    {
+        if ($char === ',' || $this->commaPos === -1) {
+            $this->commaPos = $this->commaPos + ($char === ',' ? 1 : 0);
+
+            return $json;
+        }
+
+        if (\ctype_digit($char) || \strpbrk($char, '"tfn{[')) {
+            $this->commaPos = -1;
+        } elseif ($char === ']' || $char === '}') {
+            $pos  = \strlen($json) - $this->commaPos - 1;
+            $json = \substr($json, 0, $pos) . \ltrim(\substr($json, $pos), ',');
+
+            $this->commaPos = -1;
+        } else {
+            $this->commaPos += 1;
+        }
+
+        return $json;
+    }
+
+    protected function inStringOrCommentEnd(string $prev, string $char, string $next, string $oldprev): bool
+    {
+        return $this->inString($char, $prev, $next, $oldprev) || $this->inCommentEnd($next);
+    }
+
+    protected function inString(string $char, string $prev, string $next, string $oldprev): bool
+    {
+        if (0 === $this->comment && $char === '"' && $prev !== '\\') {
+            return $this->inStr = !$this->inStr;
+        }
+
+        if ($this->inStr && \in_array($next, ['":', '",', '"]', '"}'], true)) {
+            $this->inStr = "$oldprev$prev" !== '\\\\';
+        }
+
+        return $this->inStr;
+    }
+
+    protected function inCommentEnd(string $next): bool
+    {
+        if (!$this->inStr && 0 === $this->comment) {
+            $this->comment = $next === '//' ? 1 : ($next === '/*' ? 2 : 0);
+        }
+
+        return 0 === $this->comment;
+    }
+
+    protected function hasCommentEnded(string $char, string $next): bool
+    {
+        $singleEnded = $this->comment === 1 && $char == "\n";
+        $multiEnded  = $this->comment === 2 && $next == '*/';
+
+        if ($singleEnded || $multiEnded) {
+            $this->comment = 0;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Strip comments and decode JSON string.
+     *
+     * @param string $json
+     * @param bool   $assoc
+     * @param int    $depth
+     * @param int    $options
+     *
+     * @see http://php.net/json_decode [JSON decode native function]
+     *
+     * @throws \RuntimeException When decode fails.
+     *
+     * @return mixed
+     */
+    public function decode(string $json, bool $assoc = false, int $depth = 512, int $options = 0)
+    {
+        $decoded = \json_decode($this->strip($json), $assoc, $depth, $options);
+
+        if (\JSON_ERROR_NONE !== $err = \json_last_error()) {
+            $msg = 'JSON decode failed';
+
+            if (\function_exists('json_last_error_msg')) {
+                $msg .= ': ' . \json_last_error_msg();
+            }
+
+            throw new \RuntimeException($msg, $err);
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * Static alias of decode().
+     */
+    public static function parse(string $json, bool $assoc = false, int $depth = 512, int $options = 0)
+    {
+        static $parser;
+
+        if (!$parser) {
+            $parser = new static;
+        }
+
+        return $parser->decode($json, $assoc, $depth, $options);
+    }
+
+    public static function parseFromFile(string $file, bool $assoc = false, int $depth = 512, int $options = 0)
+    {
+        if (!is_file($file)) {
+            throw new \InvalidArgumentException($file . ' does not exist or is not a file');
+        }
+
+        $json = \file_get_contents($file);
+
+        return static::parse(\trim($json), $assoc, $depth, $options);
+    }
+}
