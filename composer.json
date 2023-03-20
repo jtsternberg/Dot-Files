@@ -1,0 +1,5 @@
+{
+    "require": {
+        "adhocore/json-comment": "^1.2"
+    }
+}
