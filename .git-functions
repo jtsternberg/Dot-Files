@@ -25,6 +25,14 @@ diffcommit() {
 	git difftool $1~1 $1 ${2:-}
 }
 
+stashdiff() {
+	diffcommit stash@{${1:-0}} ${2:-}
+}
+
+stashreplacediff() {
+	git stash drop stash@{${1:-0}} && stashdiff ${1:-0}
+}
+
 glasttag() {
 	git describe --tags --abbrev=0;
 }
