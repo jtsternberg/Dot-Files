@@ -1,0 +1,349 @@
+#!/usr/bin/env php
+<?php
+namespace JT\CLI;
+# =============================================================================
+# Convert Github CLI JSON output to Markdown.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/ghjsontomd
+#
+# Version 0.1.0
+#
+# Examples:
+# `$ ghjsontomd issue-73.json`
+#
+# Usage (`ghjsontomd -h`):
+# ghjsontomd [<fileOrPath>] [<destFileOrPath>]
+# =============================================================================
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+$ghmd = new GhToMd;
+
+$helpyHelperton
+	->setScriptName( 'ghjsontomd' )
+	->setPrefix( '' )
+	->setDescription( 'Convert Github CLI JSON output to Markdown.' )
+	->setSampleUsage( '[<fileOrPath>] [<destFileOrPath>]' )
+	->buildDocs( [
+		'[<fileOrPath>]'     => 'The file to convert. If a path, will convert all files found.',
+		'[<destFileOrPath>]' => 'The destination .md file, or path if <file> is a path.',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit(0);
+}
+
+$filePath = $cli->getArg( 1, getcwd() );
+$destination = $cli->getArg( 2 );
+$file = basename( $filePath );
+
+if ( is_dir( $filePath ) ) {
+	$cli->err( "Sorry, I haven't been implemented yet." );
+	exit(1);
+}
+
+$name = str_replace( '.json', '', $file );
+if (
+	$destination
+	&& ! is_dir( $destination )
+	&& '.md' !== substr( $destination, -( strlen( '.md' ) ) )
+) {
+	$cli->err( "Destination must be a path or be a file with the `.md` extension." );
+	exit(1);
+}
+
+if ( empty( $destination ) ) {
+	$destination = $cli->wd;
+}
+$json = $ghmd->getJson( $filePath );
+
+if ( json_last_error() ) {
+	$err = json_last_error_msg();
+	$cli->err( "Error decoding .json file: {$err}" );
+	exit(1);
+}
+
+$ghmd->setJson( $json );
+
+$isPath = is_dir( $destination );
+if ( $isPath ) {
+	$destination = $destination . DIRECTORY_SEPARATOR . $ghmd->generateName();
+}
+
+if ( file_exists( $destination ) ) {
+	if ( ! $cli->confirm( "The destination file already exists: {$destination} \nDo you want to overwrite? [y/n]" ) ) {
+		exit(1);
+	}
+}
+
+if ( ! file_exists( $filePath ) ) {
+    $cli->err( "File not found: {$filePath}" );
+    exit(1);
+}
+
+$newContent = [];
+$newContent[] = $ghmd->generateTitle();
+$newContent[] = $ghmd->generateSummary();
+$newContent[] = $ghmd->generateChangesSummary();
+$reviewersSummary = $ghmd->generateReviewersSummary();
+if ( ! empty( $reviewersSummary ) ) {
+	$newContent[] = $reviewersSummary;
+}
+
+$assigneesSummary = $ghmd->generateAssigneesSummary();
+if ( ! empty( $assigneesSummary ) ) {
+	$newContent[] = $assigneesSummary;
+}
+
+$labelsSummary = $ghmd->generateLabelsSummary();
+if ( ! empty( $labelsSummary ) ) {
+	$newContent[] = $labelsSummary;
+}
+
+$newContent[] = "\n" . $json['body'];
+
+$commentsSummary = $ghmd->generateCommentsSummary();
+if ( ! empty( $commentsSummary ) ) {
+	$newContent[] = $commentsSummary;
+}
+
+$newContent[] = "\n---\n\n\n";
+
+$newContent[] = sprintf(
+	'[Export of Github issue for [%1$s](https://github.com/%1$s). Generated on %2$s.]',
+	$ghmd->getRepoPath(),
+	// 2023.03.28 at 11:34:49
+	date( 'Y.m.d \a\t h:i:s A' )
+);
+
+$newContent = implode( "\n", $newContent ) . "\n";
+
+$cli->writeToFile( $destination, $newContent, [
+	'relative' => 0 !== strpos( $destination, '/' ),
+	'failExit' => true,
+	'flags' => 0,
+] );
+
+// $cli->err( 'Something went wrong when fetching.' );
+exit(0);
+
+function isRelativePath( $path ) {
+	return 0 === strpos( $path, '~' );
+}
+
+function isAbsPath( $path ) {
+	return 0 === strpos( $path, '/' );
+}
+
+function json_decode_commented($data, $assoc = false, $maxDepth = 512, $opts = 0) {
+  $data = preg_replace('~
+    (" (?:\\\\. | [^"])*+ ") | \# [^\v]*+ | // [^\v]*+ | /\* .*? \*/
+  ~xs', '$1', $data);
+
+  return json_decode($data, $assoc, $maxDepth, $opts);
+}
+
+
+class GhToMd {
+	protected $json;
+
+	public function getJson( $filePath ) {
+		ob_start();
+		include_once $filePath;
+		// grab the data from the output buffer and add it to our $content variable
+		$json = ob_get_clean();
+		return (new \Ahc\Json\Comment)->decode( $json, true );
+	}
+
+	public function setJson( $json ) {
+		$this->json = $json;
+	}
+
+	public function getRepoPath() {
+		$owner = $this->json['headRepositoryOwner']['login'] ?? '';
+		$repo  = $this->json['headRepository']['name'] ?? '';
+		if ( empty( $owner ) || empty( $repo ) ) {
+			$parts = explode( 'github.com/', $this->json['url'] );
+			$parts = explode( '/', $parts[1] );
+			$owner = array_shift( $parts );
+			$repo .= array_shift( $parts );
+		}
+
+		return "{$owner}/{$repo}";
+	}
+
+	public function generateName() {
+		$newName = [];
+		$newName[] = explode( 'T', $this->json['createdAt'] )[0];
+		$newName[] = $this->json['number'];
+		$newName[] = false !== strpos( $this->json['url'], 'pull' ) ? 'pr' : 'issue';
+		$newName[] = strtolower( $this->json['state'] );
+		$newName[] = 'md';
+
+		return implode( '.', $newName );
+	}
+
+	public function generateTitle() {
+		return sprintf(
+			'# %s [#%d](%s)',
+			$this->json['title'],
+			$this->json['number'],
+			$this->json['url']
+		) . "\n";
+	}
+
+	public function generateSummary() {
+		return sprintf(
+			'**%s** • %s wants to merge %d commits into %s from %s • %s  ',
+			ucfirst( strtolower( $this->json['state'] ) ),
+			$this->json['author']['login'],
+			count( $this->json['commits'] ),
+			$this->json['baseRefName'],
+			$this->json['headRefName'],
+			date( 'F j, Y h:i:s A', strtotime( $this->json['createdAt'] ) ),
+		);
+	}
+
+	public function generateChangesSummary() {
+		return sprintf(
+			'%s%s• %s  ',
+			! empty( $this->json['additions'] ) ? sprintf( '<span style="color:green">+%d</span> ', $this->json['additions'] ) : '',
+			! empty( $this->json['deletions'] ) ? sprintf( '<span style="color:red">-%d</span> ', $this->json['deletions'] ) : '',
+			! empty( $this->json['statusCheckRollup'] ) ? count( $this->json['statusCheckRollup'] ) . ' checks completed' : '*No checks*',
+		);
+	}
+
+	public function generateReviewersSummary() {
+		$reviewers = [];
+		if ( ! empty( $this->json['reviews'] ) ) {
+			$completed = [];
+			foreach ( (array) $this->json['reviews'] as $review ) {
+				$status = strtolower( $review['state'] );
+				$status = explode( '_', $status );
+				$status = ucfirst( implode( ' ', $status ) );
+
+				$completed[] = sprintf(
+					'%s (%s)',
+					$review['author']['login'],
+					$status,
+				);
+			}
+
+			if ( ! empty( $completed) ) {
+				$reviewers[] = implode( ', ', $completed );
+			}
+		}
+
+		if ( ! empty( $this->json['reviewRequests'] ) ) {
+			$requested = [];
+			foreach ( (array) $this->json['reviewRequests'] as $request ) {
+				$requested[] = sprintf(
+					'%s (Requested)',
+					$request['login']
+				);
+			}
+
+			if ( ! empty( $requested ) ) {
+				$reviewers[] = implode( ', ', $requested );
+			}
+		}
+
+		return ! empty( $reviewers )
+			? '**Reviewers:** ' . implode( ', ', $reviewers ) . '  '
+			: '';
+	}
+
+	public function generateAssigneesSummary() {
+		if ( ! empty( $this->json['assignees'] ) ) {
+			$assignees = array_map( function( $assignee ) {
+				return $assignee['login'];
+			}, $this->json['assignees'] );
+
+			if ( ! empty( $assignees ) ) {
+				return '**Assignees:** ' . implode( ', ', $assignees ) . '  ';
+			}
+		}
+
+		return '';
+	}
+
+	public function generateLabelsSummary() {
+		if ( ! empty( $this->json['labels'] ) ) {
+			$labels = array_map( function( $label ) {
+				return '`' . $label['name'] . '`';
+			}, $this->json['labels'] );
+
+			if ( ! empty( $labels ) ) {
+				return '**Labels:** ' . implode( ', ', $labels ) . '  ';
+			}
+		}
+
+		return '';
+	}
+
+	public function generateCommentsSummary() {
+		$all = [];
+		if ( ! empty( $this->json['reviews'] ) ) {
+			foreach ( (array) $this->json['reviews'] as $review ) {
+				if ( ! empty( $review['body'] ) ) {
+					$review['type'] = 'review';
+					$review['time'] = strtotime( $review['submittedAt'] );
+					$all[] = $review;
+				}
+			}
+		}
+
+		if ( ! empty( $this->json['comments'] ) ) {
+			foreach ( (array) $this->json['comments'] as $comment ) {
+				if ( ! empty( $comment['body'] ) ) {
+					$comment['type'] = 'comment';
+					$comment['time'] = strtotime( $comment['createdAt'] );
+					$all[] = $comment;
+				}
+			}
+		}
+
+		if ( empty( $all ) ) {
+			return '';
+		}
+
+		// Now sort by time.
+		usort( $all, function( $a, $b ) {
+			return $a['time'] - $b['time'];
+		} );
+
+		// Now loop through and generate comment messages.
+		$comments = [];
+		foreach ( $all as $comment ) {
+			$lines = [];
+			$state = strtolower( $comment['state'] ?? 'commented' );
+			switch( $state ) {
+				case 'changes_requested':
+					$verb = 'requested changes';
+					break;
+				case 'pending':
+					$verb = 'created pending review';
+					break;
+				default:
+					$verb = $state;
+					break;
+			}
+
+			$lines[] = sprintf(
+				"##### %s %s on [%s](%s)\n",
+				$comment['author']['login'],
+				$verb,
+				date( 'F j, Y h:i:s A', $comment['time'] ),
+				$comment['url'] ?? $this->json['url']
+			);
+			$lines[] = $comment['body'];
+
+			$comments[] = implode( "\n", $lines );
+		}
+
+		return "\n\n---\n\n#### Comments\n\n" . implode( "\n\n\n", $comments );
+	}
+}

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Merges CHILD repo into PARENT.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Uses: https://github.com/newren/git-filter-repo
+# =============================================================================
+
+PARENT_REMOTE="${1}"
+CHILD_REMOTE="${2}"
+CHILD_DESTINATION_DIR="${3}"
+
+PARENT_REPO_NAME=`echo "$PARENT_REMOTE" | cut -d "/" -f 2`
+PARENT_PATH=${PARENT_REPO_NAME%".git"}
+
+CHILD_REPO_NAME=`echo "$CHILD_REMOTE" | cut -d "/" -f 2`
+CHILD_PATH=${CHILD_REPO_NAME%".git"}
+
+
+echo "PARENT_REMOTE         = $PARENT_REMOTE"
+echo "CHILD_REMOTE          = $CHILD_REMOTE"
+echo "CHILD_DESTINATION_DIR = $CHILD_DESTINATION_DIR"
+echo "PARENT_REPO_NAME      = $PARENT_REPO_NAME"
+echo "PARENT_PATH           = $PARENT_PATH"
+echo "CHILD_REPO_NAME       = $CHILD_REPO_NAME"
+echo "CHILD_PATH            = $CHILD_PATH"
+echo ""
+
+# Clone PARENT repo
+git clone "$PARENT_REMOTE"
+
+# Clone CHILD repo
+git clone "$CHILD_REMOTE"
+
+# CD into CHILD repo:
+cd "$CHILD_PATH"
+
+# Move all items in repo to a subdirectory, and rewrite history.
+# (where it will live in the PARENT repo)
+# Uses: https://github.com/newren/git-filter-repo
+git-filter-repo --to-subdirectory-filter "$CHILD_DESTINATION_DIR"
+
+# CD into PARENT repo:
+cd "../$PARENT_PATH"
+
+# Add the CHILD repo as a remote, "childrepo"
+git remote add -f childrepo "../$CHILD_PATH"
+
+# Ensure the tags are fetched as well.
+git fetch childrepo --tags
+
+# Merge from CHILD into PARENT!
+git merge --allow-unrelated-histories childrepo/master
+wait
+
+# The CHILD remote is no longer needed. We're done!
+git remote remove childrepo
+
+echo ''
+echo 'ALL DONE! To view changes:'
+echo "$ cd $PARENT_PATH && ls -la"
