@@ -29,6 +29,7 @@ class DirMap {
 
 	protected $helpers;
 	public $hd = '';
+	public $source = '';
 	public static $instance = null;
 
 	public function __construct( CLI\Helpers $helpers ) {
