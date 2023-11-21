@@ -175,6 +175,7 @@ plugins=(
 	z
 	zsh-autosuggestions
 	colored-man-pages
+	stripe-completions
 )
 # Git plugin docs: https://github.com/robbyrussell/oh-my-zsh/wiki/Plugin:git
 
@@ -208,8 +209,9 @@ then
   FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
 fi
 
+# The next lines enables shell command completion for Stripe
+fpath=(~/.stripe $fpath)
+
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
-
-
