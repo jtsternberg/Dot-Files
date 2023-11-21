@@ -99,6 +99,8 @@
 				<false/>
 			</dict>
 		</array>
+		<key>4FB14C1A-AEBE-4DC0-ACC2-821642464058</key>
+		<array/>
 		<key>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</key>
 		<array>
 			<dict>
@@ -143,6 +145,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>78C077C7-5786-4A74-85B8-CC4D99AD6466</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>897930AD-1A79-489B-B014-A1F06E864A91</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A78EFB07-3982-4266-B18D-08210228491E</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -205,6 +220,19 @@
 		</array>
 		<key>985E6FB8-112C-4378-BBB1-41E5514D7B4D</key>
 		<array/>
+		<key>993D8D59-46C8-405B-825F-0AF4672AF930</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>4FB14C1A-AEBE-4DC0-ACC2-821642464058</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>A4FFFF65-510C-488F-AF13-2EFF565528F7</key>
 		<array>
 			<dict>
@@ -223,6 +251,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>9125F622-F950-4E5B-959A-2ADB203A796A</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A78EFB07-3982-4266-B18D-08210228491E</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>993D8D59-46C8-405B-825F-0AF4672AF930</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -275,6 +316,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>051DFD24-AE1C-43C1-BA6C-9C39CB5AF97D</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>D40BECDC-59A4-45DD-A647-06A2752EB984</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>FF55E54D-51BC-44AB-9F4C-E4B0D3B0A311</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -353,6 +407,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>ABAFA000-B6D1-4228-A0EF-8ABAB7EC0456</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>FF55E54D-51BC-44AB-9F4C-E4B0D3B0A311</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>897930AD-1A79-489B-B014-A1F06E864A91</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -493,7 +560,7 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
@@ -506,7 +573,7 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
@@ -519,7 +586,7 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
@@ -547,12 +614,48 @@
 			<key>config</key>
 			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
 			<string>BF5EDE24-5A8D-439A-BC14-89D27B8013AB</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>omup theme</string>
+				<key>subtext</key>
+				<string>Setup OM theme iTerm tabs</string>
+				<key>text</key>
+				<string>OM Up the theme</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>B36D724D-012F-48DC-8E0E-432FB13093D7</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand ommarketing-theme "tailtrim"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>FF55E54D-51BC-44AB-9F4C-E4B0D3B0A311</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -592,18 +695,18 @@
 				<key>argumenttype</key>
 				<integer>2</integer>
 				<key>keyword</key>
-				<string>omup theme</string>
+				<string>omup marketing</string>
 				<key>subtext</key>
-				<string>Setup OM theme iTerm tabs</string>
+				<string>Setup OM marketing iTerm tabs</string>
 				<key>text</key>
-				<string>OM Up the theme</string>
+				<string>OM Up the marketing theme</string>
 				<key>withspace</key>
 				<false/>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.input.keyword</string>
 			<key>uid</key>
-			<string>B36D724D-012F-48DC-8E0E-432FB13093D7</string>
+			<string>D40BECDC-59A4-45DD-A647-06A2752EB984</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -632,6 +735,19 @@
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
 			<string>985E6FB8-112C-4378-BBB1-41E5514D7B4D</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>1</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>897930AD-1A79-489B-B014-A1F06E864A91</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -668,8 +784,23 @@
 		<dict>
 			<key>config</key>
 			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirTab om</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>A78EFB07-3982-4266-B18D-08210228491E</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
 				<key>seconds</key>
-				<string>4</string>
+				<string>3</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.utility.delay</string>
@@ -709,6 +840,19 @@
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
 			<string>1CCA08C9-2889-4081-9D33-D462655C7590</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>seconds</key>
+				<string>3</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.utility.delay</string>
+			<key>uid</key>
+			<string>993D8D59-46C8-405B-825F-0AF4672AF930</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -760,6 +904,21 @@
 			<string>alfred.workflow.action.terminalcommand</string>
 			<key>uid</key>
 			<string>F40053F3-40FC-4822-908C-71B279784B87</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand ommarketing-theme "loadnvm &amp;&amp; npm start"</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>4FB14C1A-AEBE-4DC0-ACC2-821642464058</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -966,6 +1125,17 @@
 			<key>ypos</key>
 			<real>15</real>
 		</dict>
+		<key>4FB14C1A-AEBE-4DC0-ACC2-821642464058</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>4</integer>
+			<key>note</key>
+			<string>Start watcher</string>
+			<key>xpos</key>
+			<real>700</real>
+			<key>ypos</key>
+			<real>510</real>
+		</dict>
 		<key>56DC531B-9E4C-4939-9AC0-3C7844C23DA2</key>
 		<dict>
 			<key>xpos</key>
@@ -1011,6 +1181,13 @@
 			<key>ypos</key>
 			<real>505</real>
 		</dict>
+		<key>897930AD-1A79-489B-B014-A1F06E864A91</key>
+		<dict>
+			<key>xpos</key>
+			<real>640</real>
+			<key>ypos</key>
+			<real>330</real>
+		</dict>
 		<key>8BAF75B1-1741-4226-BDD4-E75B60518F8B</key>
 		<dict>
 			<key>xpos</key>
@@ -1027,7 +1204,7 @@
 			<key>xpos</key>
 			<real>170</real>
 			<key>ypos</key>
-			<real>205</real>
+			<real>210</real>
 		</dict>
 		<key>8EACC32B-85B8-419C-B3C2-4722D9A2A736</key>
 		<dict>
@@ -1050,7 +1227,7 @@
 			<key>xpos</key>
 			<real>390</real>
 			<key>ypos</key>
-			<real>205</real>
+			<real>210</real>
 		</dict>
 		<key>985E6FB8-112C-4378-BBB1-41E5514D7B4D</key>
 		<dict>
@@ -1062,6 +1239,13 @@
 			<real>975</real>
 			<key>ypos</key>
 			<real>290</real>
+		</dict>
+		<key>993D8D59-46C8-405B-825F-0AF4672AF930</key>
+		<dict>
+			<key>xpos</key>
+			<real>640</real>
+			<key>ypos</key>
+			<real>480</real>
 		</dict>
 		<key>A4FFFF65-510C-488F-AF13-2EFF565528F7</key>
 		<dict>
@@ -1084,6 +1268,15 @@
 			<real>465</real>
 			<key>ypos</key>
 			<real>15</real>
+		</dict>
+		<key>A78EFB07-3982-4266-B18D-08210228491E</key>
+		<dict>
+			<key>note</key>
+			<string>Goto OM Marketing wp-content</string>
+			<key>xpos</key>
+			<real>700</real>
+			<key>ypos</key>
+			<real>360</real>
 		</dict>
 		<key>A87B6EC0-4BC4-4825-8B81-36E67BA044AB</key>
 		<dict>
@@ -1130,6 +1323,13 @@
 			<real>390</real>
 			<key>ypos</key>
 			<real>815</real>
+		</dict>
+		<key>D40BECDC-59A4-45DD-A647-06A2752EB984</key>
+		<dict>
+			<key>xpos</key>
+			<real>565</real>
+			<key>ypos</key>
+			<real>215</real>
 		</dict>
 		<key>D74D95C4-EF0A-4557-8565-D12B5763CB11</key>
 		<dict>
@@ -1179,7 +1379,7 @@
 			<key>xpos</key>
 			<real>320</real>
 			<key>ypos</key>
-			<real>235</real>
+			<real>240</real>
 		</dict>
 		<key>F40053F3-40FC-4822-908C-71B279784B87</key>
 		<dict>
@@ -1200,6 +1400,17 @@
 			<real>170</real>
 			<key>ypos</key>
 			<real>665</real>
+		</dict>
+		<key>FF55E54D-51BC-44AB-9F4C-E4B0D3B0A311</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>tail debug.log for OM Marketing</string>
+			<key>xpos</key>
+			<real>700</real>
+			<key>ypos</key>
+			<real>210</real>
 		</dict>
 	</dict>
 	<key>userconfigurationconfig</key>
