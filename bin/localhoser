@@ -65,7 +65,15 @@ class LocalHoser {
 			exit( 0 );
 		}
 
+
+		$backupFile = '';
+		if ( ! is_numeric( $index ) ) {
+			$index = array_search( $index, $files );
+		}
 		$backupFile = $files[ $index ] ?? '';
+
+		// print( __METHOD__ . ':' . __LINE__ .') '. print_r( get_defined_vars(), true ) );
+		// exit(1);
 		if ( empty( $backupFile ) ) {
 			$this->helpers->err( "\nThere is no backup at that index ({$index}) for the current conf file: {$conf}\n", false );
 			exit( 1 );
