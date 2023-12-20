@@ -1,0 +1,216 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Utility for swapping localhost listeners.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/localhoser
+#
+# Version 0.1.0
+#
+# Utility for swapping localhost listeners.
+#
+# Helpful "run apache on macos" resource: https://getgrav.org/blog/macos-sonoma-apache-multiple-php-versions
+#
+# Usage:
+# localhoser help
+# localhoser locateConf
+# localhoser backupConf
+# localhoser confHasBackup
+# localhoser swapConf <sourceToCopyFrom>
+# localhoser restoreConf <index> # index is optional, and will list backups if not provided
+# localhoser <key>
+# =============================================================================
+class LocalHoser {
+
+	protected $addHelp = "Two argumens are accepted, the directory map key (alias), which is required, and the actual path (will default to the current directory if empty). E.g.\n   localhoser add mysites ~/Sites\n";
+	protected $removeHelp = "The directory map key (alias) argumen is required. E.g.\n   localhoser remove mysites\n";
+
+	protected $helpers;
+	public $hd = '';
+	public $backup = '';
+	public static $instance = null;
+
+	public function __construct( CLI\Helpers $helpers ) {
+		$this->helpers = $helpers;
+		$this->hd = dirname( dirname( __DIR__ ) );
+		$this->backup = $this->hd . '/.localhoser';
+		if ( ! file_exists( $this->backup ) ) {
+			mkdir( $this->backup );
+		}
+
+		self::$instance = $this;
+	}
+
+	public function restoreConf() {
+		$conf           = $this->getConfLocation();
+		$backupLocation = "{$this->backup}{$conf}";
+
+		// use glob in $backupLocation  to get all backups
+		$files = glob( $backupLocation . '.*.bak', GLOB_NOSORT );
+		if ( empty( $files ) ) {
+			$this->helpers->err( "\nThere is no backup for the current conf file: {$conf}\n", false );
+			exit( 1 );
+		}
+
+		array_multisort( array_map( 'filemtime', $files ), SORT_NUMERIC, SORT_DESC, $files );
+
+		$index = $this->helpers->getArg( 2, null );
+		if ( null === $index ) {
+			$this->helpers->msg( "\nAvailable backups:\n", 'green' );
+			foreach ( $files as $i => $file ) {
+				$this->helpers->msg( "  [{$i}] {$file}" );
+			}
+			$this->helpers->msg( "\nUse `localhoser restoreConf <index>` to restore a backup.\n" );
+			exit( 0 );
+		}
+
+		$backupFile = $files[ $index ] ?? '';
+		if ( empty( $backupFile ) ) {
+			$this->helpers->err( "\nThere is no backup at that index ({$index}) for the current conf file: {$conf}\n", false );
+			exit( 1 );
+		}
+
+		if ( ! copy( $backupFile, $conf ) ) {
+			$this->helpers->err( "\nCould not restore conf file: {$conf}\n", false );
+			exit( 1 );
+		}
+
+		$this->helpers->msg( "\nRestored conf files:\n", 'green' );
+		$this->helpers->msg( "  {$backupFile} ->\n    {$conf}\n" );
+	}
+
+	public function swapConf() {
+		$from = $this->helpers->getArg( 2, '' );
+		if ( empty( $from ) ) {
+			$this->helpers->err( "\nYou must specify a conf to swap from (backup).\n", false );
+			exit( 1 );
+		}
+
+		// First, backup the current conf
+		$conf = $this->_backupConf();
+
+		// Now, copy over the new conf
+		if ( ! copy( $from, $conf ) ) {
+			$this->helpers->err( "\nCould not copy the new conf file: {$conf}\n", false );
+			exit( 1 );
+		}
+
+		$this->helpers->msg( "\nSwapped conf files:\n", 'green' );
+		$this->helpers->msg( "  {$from} ->\n    {$conf}\n" );
+		$this->helpers->msg( "(Use `localhoser restoreConf` to restore the previous conf file.)\n" );
+		$this->helpers->msg( "\nYou will need to restart apache for these changes to take effect. E.g.\n  sudo apachectl restart\n  or\n  sudo apachectl graceful\n", 'yellow' );
+
+	}
+
+	public function confHasBackup() {
+		$conf = $this->getConfLocation();
+		$backup = $this->getBackupFilePath( $conf );
+
+		if ( ! file_exists( $backup ) ) {
+			$this->helpers->err( "\nThere is no backup for the current revisionn of the conf file: {$conf}\n", false );
+			exit( 1 );
+		}
+
+		$this->helpers->msg( "\nBackup found:\n", 'green' );
+		$this->helpers->msg( "  {$conf} ->\n    {$backup}\n" );
+	}
+
+	public function backupConf() {
+		$conf = $this->_backupConf();
+		$this->helpers->msg( "\nBacked up {$conf}\n", 'green' );
+	}
+
+	public function locateConf() {
+		$location = $this->getConfLocation();
+
+		$this->helpers->msg( "\n{$location}\n", 'green' );
+	}
+
+	protected function getConfLocation() {
+		$result = `apachectl -V | grep SERVER_CONFIG_FILE`;
+
+		$location = substr( $result, strpos( $result, '"' ) + 1 );
+		$location = substr( $location, 0, strpos( $location, '"' ) );
+
+		return $location;
+	}
+
+	protected function _backupConf() {
+		$conf = $this->getConfLocation();
+		$backup = $this->getBackupFilePath( $conf );
+
+		$path = pathinfo( $backup );
+		if ( ! file_exists( $path['dirname'] ) ) {
+			mkdir( $path['dirname'], 0777, true );
+		}
+
+		if ( ! copy( $conf, $backup ) ) {
+			$this->helpers->err( "\nCould not backup conf file: {$conf}\n", false );
+			exit( 1 );
+		}
+
+		return $conf;
+	}
+
+	protected function getBackupFilePath( $conf ) {
+		$md5 = md5_file( $conf );
+
+		return "{$this->backup}{$conf}.{$md5}.bak";
+	}
+
+	public function help( ) {
+		$this->helpers->msg( "\n`localhoser` help:\n", 'green' );
+		$this->helpers->msg( "\n`TODO: write help text`\n", 'green' );
+		// $indent = '   ';
+		// $doubleIndent = str_repeat( $indent, 2 );
+		// $this->helpers->msg( "\n{$indent}(get):", 'green' );
+		// $this->helpers->msg( $doubleIndent . "- Simply pass the directory map key (alias) as the first argument. E.g.\n{$doubleIndent}localhoser mysites\n{$doubleIndent}- Or, to use in another script:\n{$doubleIndent}cd \"`localhoser mysites`\"\n", 'green' );
+
+		// // echo "\n";
+
+		// $this->helpers->msg( "\n{$indent}add:", 'green' );
+		// $this->helpers->msg( $doubleIndent . '- ' .str_replace( '   ', $doubleIndent, $this->addHelp ), 'green' );
+
+		// $this->helpers->msg( "\n{$indent}remove:", 'green' );
+		// $this->helpers->msg( $doubleIndent . '- ' .str_replace( '   ', $doubleIndent, $this->removeHelp ), 'green' );
+
+
+		// $this->helpers->msg( "\n{$indent}list:", 'green' );
+		// $this->helpers->msg( $doubleIndent . "- Outputs the stored directory map for reference. Use --keys (-k) flag to output only the map keys.\n", 'green' );
+
+		// $this->helpers->msg( "\n{$indent}help:", 'green' );
+		// $this->helpers->msg( $doubleIndent . "- This help text.\n", 'green' );
+
+		echo "\n";
+
+		$this->list();
+	}
+}
+
+function commands( LocalHoser $localhoser ) {
+	$methods = get_class_methods( $localhoser );
+	$key     = array_search( '__construct', $methods );
+
+	unset( $methods[ $key ] );
+
+	$key     = array_search( 'get', $methods );
+
+	unset( $methods[ $key ] );
+
+	return $methods;
+}
+
+$helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$localhoser  = new LocalHoser( $helpers );
+$command = $helpers->getArg( 1, '' );
+
+if ( 'commands' === $command ) {
+	exit( implode("\n", commands( $localhoser ) ) );
+}
+
+if ( is_callable( [ $localhoser, $command ] ) ) {
+	return $localhoser->{$command}( $helpers->args );
+}
+
+$localhoser->get();
