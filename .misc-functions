@@ -3,7 +3,7 @@ finddebuglog() {
 	CURRDIR=$PWD;
 	FILE=${1:-$PWD}
 
-	# Convet dot-based paths.
+	# Convert dot-based paths.
 	if [[ "$FILE" == '.' ]]; then
 		FILE="$PWD";
 	elif [[ $FILE == *..* ]]; then
@@ -27,6 +27,12 @@ finddebuglog() {
 		FILE='';
 	fi
 
+
+	# If still nothing, let's use find
+	if [[ -z "$FILE" ]]; then
+		FILE=`find . -iname 'debug.log' -maxdepth 2 | tail -n 1`;
+	fi
+
 	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
 }
 
@@ -48,6 +54,11 @@ findlogfile() {
 	else
 		# Whoops, nothing found.
 		FILE='';
+	fi
+
+	# If still nothing, let's use find
+	if [[ -z "$FILE" ]]; then
+		FILE=`find . -iname '*.log' -maxdepth 2 | tail -n 1`;
 	fi
 
 	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
