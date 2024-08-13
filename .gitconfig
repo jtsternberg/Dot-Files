@@ -192,8 +192,20 @@
 	}; f"
 	deletecurrentbranch = dlt
 	dbr = "!f() { git checkout master && git branch -d $1; }; f"
+	brdwith = "!f() {\
+		FOUND=`git branch -l --color='never' | grep \"^  $1\" --color='never' | tr -d ' '`;\
+		if [ -n \"$FOUND\" ]; then\
+			echo \"$FOUND\" | while read -r branch; do \
+				echo ''; \
+				git branch ${2:--d} \"$branch\"; \
+			done; \
+		else\
+			echo \"No branches found matching '$1'\";\
+		fi;\
+	}; f"
 	Dbr = "!f() { git checkout master && git branch -D $1; }; f"
 	deletebranch = dbr
+	deletebranchwith = brdwith
 	update = "!COMPARE=${2:-`git getmain`};git checkout \"$1\" && git merge $COMPARE && git difflist $COMPARE"
 	difflist = "!COMPARE=${1:-`git getmain`};printf \"\\n\\n\\033[0;32mDiff from $COMPARE:\\033[0m\\n\\n$(git diff --name-only $COMPARE)\\n\\n\""
 
