@@ -6,6 +6,11 @@
 	; List all aliases
 	la = "!git config -l | grep alias | cut -c 7-"
 
+	; Get main branch
+	getmain = "!git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1"
+	setmain = "!git remote set-head origin -a"
+
+
 	; basic shortcuts
 	a = add -p
 	aa = add
@@ -127,8 +132,9 @@
 	dts = difftool --staged
 	dtst = difftool --staged
 	diffst = difftool --staged
-	diffm = difftool master
-	dtm = difftool master
+	diffm = "!git difftool `git getmain`"
+	dtm = "!git difftool `git getmain`"
+
 	patch = "!f() { git --no-pager diff --color=never ${1%.} > patch.patch; }; f"
 
 	; search
@@ -188,8 +194,8 @@
 	dbr = "!f() { git checkout master && git branch -d $1; }; f"
 	Dbr = "!f() { git checkout master && git branch -D $1; }; f"
 	deletebranch = dbr
-	update = "!COMPARE=${2:-'master'};git checkout \"$1\" && git merge $COMPARE && git difflist $COMPARE"
-	difflist = "!COMPARE=${1:-'master'};printf \"\\n\\n\\033[0;32mDiff from $COMPARE:\\033[0m\\n\\n$(git diff --name-only $COMPARE)\\n\\n\""
+	update = "!COMPARE=${2:-`git getmain`};git checkout \"$1\" && git merge $COMPARE && git difflist $COMPARE"
+	difflist = "!COMPARE=${1:-`git getmain`};printf \"\\n\\n\\033[0;32mDiff from $COMPARE:\\033[0m\\n\\n$(git diff --name-only $COMPARE)\\n\\n\""
 
 	; stash
 	sl = stash list
