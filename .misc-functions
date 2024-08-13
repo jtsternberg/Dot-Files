@@ -242,5 +242,5 @@ loadnvm() {
 		. "/opt/homebrew/opt/nvm/etc/bash_completion"
 	fi
 
-	nvm use 16
+	nvm use ${1-'20'}
 }
