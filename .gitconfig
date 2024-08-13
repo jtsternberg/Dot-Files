@@ -346,3 +346,8 @@
   trustExitCode = true
 [safe]
 	directory = /private/etc/apache2
+[filter "lfs"]
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
