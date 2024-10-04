@@ -248,10 +248,12 @@
 	; 	git tag --sort=creatordate -n;\
 	; }; f"
 
+	; PR Description Generator
+	pr-desc = "!f() { php ~/.dotfiles/bin/pr-description-generator | pbcopy && echo 'PR description prompt copied to clipboard!'; }; f"
 
 ; Environment
 [core]
-	editor = 'vim'
+	editor = cursor --wait
 	symlinks = false
 	excludesfile = /Users/JT/.gitignore_global
 	autocrlf = false
@@ -266,7 +268,7 @@
 	autoSetupRemote = true
 
 [color]
-	ui = always
+	ui = true
 	branch = always
 	diff = always
 	interactive = always

@@ -1,0 +1,140 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Utility for generating a GitHub Pull Request description prompt.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/pr-description-generator
+#
+# Version 0.1.0
+#
+# Generates a prompt for an AI to create a GitHub Pull Request description
+# based on the current branch's changes compared to the main branch.
+#
+# Usage:
+# pr-description-generator [options]
+# pr-description-generator --help
+# pr-description-generator --output=FILE
+# =============================================================================
+
+class PRDescriptionGenerator {
+    protected $helpers;
+    protected $mainBranch;
+    protected $currentBranch;
+
+    public function __construct(CLI\Helpers $helpers) {
+        $this->helpers = $helpers;
+        $this->mainBranch = trim(`git getmain`);
+        $this->currentBranch = trim(`git rev-parse --abbrev-ref HEAD`);
+    }
+
+    public function generate() {
+        if ($this->helpers->hasFlags(['help'], ['h'])) {
+            return $this->help();
+        }
+
+        $commits = $this->getCommitsWithDiffs();
+        $files = $this->getChangedFiles();
+
+        $prompt = $this->createPrompt($commits, $files);
+
+        // Check if --output option is provided
+        $outputFile = $this->helpers->getFlag('output');
+        if ($outputFile) {
+            $this->saveToFile($prompt, $outputFile);
+        } else {
+            // Output the prompt to stdout
+            echo $prompt;
+        }
+    }
+
+    protected function getCommitsWithDiffs() {
+        $commits = [];
+        $commitHashes = explode("\n", trim(`git log {$this->mainBranch}..{$this->currentBranch} --format=%H`));
+        foreach ($commitHashes as $hash) {
+            $commits[$hash] = trim(`git show {$hash}`);
+        }
+        return $commits;
+    }
+
+    protected function getChangedFiles() {
+        return `git diff --name-status {$this->mainBranch}..{$this->currentBranch}`;
+    }
+
+    protected function formatCommits($commits) {
+        $formatted = '';
+        foreach ($commits as $hash => $commit) {
+            $formatted .= "### Commit [{$hash}]\n\n";
+            $formatted .= "```\n";
+            $formatted .= $commit;
+            $formatted .= "\n```\n\n";
+        }
+        return $formatted;
+    }
+
+    protected function createPrompt($commits, $files) {
+        $prompt = <<<EOT
+You are an AI assistant tasked with generating a GitHub Pull Request description. Use the following information to create a comprehensive and well-structured description:
+
+## Branch Information
+- Current Branch: `{$this->currentBranch}`
+- Compared to: `{$this->mainBranch}`
+
+## Commits
+
+{$this->formatCommits($commits)}
+
+## Changed Files
+```
+{$files}
+```
+
+Based on the information provided above, please generate a Pull Request description using the following template:
+
+```markdown
+## Description
+[Provide a clear and concise description of the changes made in this pull request. Explain the issue that was fixed and the new behavior introduced.]
+
+## Testing Procedure
+1. [Step-by-step instructions for testing the changes]
+2. [Include any specific scenarios or edge cases to be tested]
+3. [Add more steps as needed]
+
+## Additional Notes
+- [Any relevant information, such as related HelpScout tickets or known limitations]
+- [Performance considerations, if applicable]
+- [Any other important details]
+```
+
+Please ensure that the generated description is informative, well-structured, and easy to understand for reviewers.
+EOT;
+
+        return $prompt;
+    }
+
+    protected function saveToFile($content, $filename) {
+        if (file_put_contents($filename, $content) !== false) {
+            $this->helpers->msg("Prompt saved to file: $filename", 'green');
+        } else {
+            $this->helpers->err("Failed to save prompt to file: $filename");
+        }
+    }
+
+    public function help() {
+        $this->helpers->msg("\n`pr-description-generator` help:\n", 'green');
+        $indent = '   ';
+        $this->helpers->msg("{$indent}Usage: pr-description-generator [options]\n", 'green');
+        $this->helpers->msg("{$indent}Options:", 'green');
+        $this->helpers->msg("{$indent}{$indent}--help, -h     Show this help message", 'green');
+        $this->helpers->msg("{$indent}{$indent}--output=FILE  Save the generated prompt to the specified file\n", 'green');
+        $this->helpers->msg("{$indent}Description:", 'green');
+        $this->helpers->msg("{$indent}{$indent}Generates a prompt for an AI to create a GitHub Pull Request description\n", 'green');
+        $this->helpers->msg("{$indent}{$indent}based on the current branch's changes compared to the main branch.\n", 'green');
+        $this->helpers->msg("{$indent}Note:", 'green');
+        $this->helpers->msg("{$indent}{$indent}This command should be run from within a git repository.\n", 'green');
+    }
+}
+
+$helpers = require_once dirname(__DIR__) . '/misc/helpers.php';
+$generator = new PRDescriptionGenerator($helpers);
+$generator->generate();
