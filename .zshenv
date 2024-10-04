@@ -36,7 +36,7 @@ PATH=$PATH:/opt/homebrew/share/zsh/site-functions
 PATH=$PATH:/opt/homebrew/libexec/gnubin:/usr/local/bin:
 export PATH=$PATH
 
-export EDITOR='subl -w'
+export EDITOR='cursor -w'
 export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl -w'
 
 export WP_TESTS_DIR=/tmp/wordpress/tests

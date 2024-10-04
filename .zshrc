@@ -67,6 +67,8 @@ alias wpbackup='date="`date +%m%d%Y`" && wp db export backup-"$date".sql'
 alias gethooks="$HOME/.dotfiles/bin/gethooks/gethooks"
 alias newtab="open -a iTerm ."
 alias nt="open -a iTerm ."
+alias code="cursor"
+alias lg="lazygit"
 
 # For when the sidebar items disappear.
 # https://apple.stackexchange.com/a/210469
