@@ -445,7 +445,7 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirTab omapp</string>
+				<string>itermDirTab omapp &amp;&amp; /Users/JT/Library/Application\ Support/Local/ssh-entry/E-ZSkm7-h.sh; exit;</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
