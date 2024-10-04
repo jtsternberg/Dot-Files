@@ -117,9 +117,6 @@ wptests() {
 # Open in MacDown
 macdown() { open -a MacDown $1 }
 
-# Open in Mou
-mou() { open -a Mou $1 }
-
 # Find in current directory
 f() { find . -name "$1" }
 
