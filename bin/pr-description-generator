@@ -17,63 +17,163 @@ namespace JT;
 # pr-description-generator --output=FILE
 # =============================================================================
 
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+->setScriptName('pr-description-generator')
+->setPrefix('')
+->setDescription('Generates a prompt for an AI to create a GitHub Pull Request description based on the current branch\'s changes compared to the main branch.')
+->setSampleUsage('[options]')
+->buildDocs([
+	'--help, -h'                 => 'Show this help message',
+	'--output=FILE'              => 'Save the generated prompt to the specified file',
+	'--ignore=FILE1,FILE2,FILE3' => 'Comma-separated list of files to ignore in the diff output',
+	'--verbose, -v'              => 'Display verbose output',
+]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
 class PRDescriptionGenerator {
-    protected $helpers;
-    protected $mainBranch;
-    protected $currentBranch;
+	protected $cli;
+	protected $mainBranch;
+	protected $currentBranch;
+	protected $ignoredFiles = ['package-lock.json', 'yarn.lock', 'composer.lock'];
+	protected $currentHash = '';
 
-    public function __construct(CLI\Helpers $helpers) {
-        $this->helpers = $helpers;
-        $this->mainBranch = trim(`git getmain`);
-        $this->currentBranch = trim(`git rev-parse --abbrev-ref HEAD`);
-    }
+	public function __construct(CLI\Helpers $cli) {
+		$this->cli = $cli;
+		$this->mainBranch = trim(`git getmain`);
+		$this->currentBranch = trim(`git rev-parse --abbrev-ref HEAD`);
+		$ignored = explode(',', $cli->getFlag('ignore', ''));
+		$ignored = array_map('trim', $ignored);
+		$this->ignoredFiles = array_merge($this->ignoredFiles, $ignored);
+	}
 
-    public function generate() {
-        if ($this->helpers->hasFlags(['help'], ['h'])) {
-            return $this->help();
-        }
+	public function generate() {
+		$commits = $this->getCommitsWithDiffs();
+		$files = $this->getChangedFiles();
 
-        $commits = $this->getCommitsWithDiffs();
-        $files = $this->getChangedFiles();
+		$prompt = $this->createPrompt($commits, $files);
 
-        $prompt = $this->createPrompt($commits, $files);
+		// Check if --output option is provided
+		$outputFile = $this->cli->getFlag('output');
+		if ($outputFile) {
+			$this->saveToFile($prompt, $outputFile);
+		} else {
+			// Output the prompt to stdout
+			echo $prompt;
+		}
+	}
 
-        // Check if --output option is provided
-        $outputFile = $this->helpers->getFlag('output');
-        if ($outputFile) {
-            $this->saveToFile($prompt, $outputFile);
-        } else {
-            // Output the prompt to stdout
-            echo $prompt;
-        }
-    }
+	protected function getCommitsWithDiffs() {
+		$commits = [];
+		$commitHashes = explode("\n", trim(`git log {$this->mainBranch}..{$this->currentBranch} --format=%H`));
+		foreach ($commitHashes as $this->currentHash) {
+			$fullDiff = trim(`git show -p --pretty=format:"%h %s" {$this->currentHash}`);
+			$filteredDiff = $this->filterignoredFiles($fullDiff);
+			if (!empty($filteredDiff)) {
+				$commits[$this->currentHash] = $filteredDiff;
+			}
+		}
+		return $commits;
+	}
 
-    protected function getCommitsWithDiffs() {
-        $commits = [];
-        $commitHashes = explode("\n", trim(`git log {$this->mainBranch}..{$this->currentBranch} --format=%H`));
-        foreach ($commitHashes as $hash) {
-            $commits[$hash] = trim(`git show {$hash}`);
-        }
-        return $commits;
-    }
+	protected function filterignoredFiles($diff) {
+		// $output = false !== stripos( $diff, 'package-lock.json' );
+		$lines = explode("\n", $diff);
+		$filteredLines = [];
+		$skip = false;
+		$currentFile = '';
+		$signalStart = 'diff --git';
+		$signalLength = strlen($signalStart);
 
-    protected function getChangedFiles() {
-        return `git diff --name-status {$this->mainBranch}..{$this->currentBranch}`;
-    }
+		// if ( $output ) {
+		// 	// print( __METHOD__ . ':' . __LINE__ .') $lines: '. print_r( $lines, true ) . "\n\n" );
+		// }
 
-    protected function formatCommits($commits) {
-        $formatted = '';
-        foreach ($commits as $hash => $commit) {
-            $formatted .= "### Commit [{$hash}]\n\n";
-            $formatted .= "```\n";
-            $formatted .= $commit;
-            $formatted .= "\n```\n\n";
-        }
-        return $formatted;
-    }
+		foreach ($lines as $index => $line) {
+			$startPos = strpos( $line, $signalStart );
+			// $output = false !== stripos( $line, 'package-lock.json' );
 
-    protected function createPrompt($commits, $files) {
-        $prompt = <<<EOT
+			if ( false !== $startPos ) {
+				if ( $skip ) {
+					$skip = false;
+					if ( $this->cli->isVerbose() ) {
+						$this->cli->msg( "Resume: ". print_r( [
+							'file' => $currentFile,
+							'line' => $index + 1,
+							'contents' => $line,
+						], true ) . "\n" );
+					}
+				} else {
+					$line = $this->removeHiddenCharacters( $line );
+					$signalStart = $signalStart;
+					if ( false !== $startPos ) {
+						$currentFile = substr( $line, $startPos + $signalLength );
+					}
+
+					$position = strpos( $currentFile, ' b/' );
+					if ( false !== $position ) {
+						$currentFile = substr( $currentFile, 0, $position );
+					}
+
+					// Now get JUST the file, not the directory
+					$currentFile = basename( $currentFile );
+					$currentFile = trim( $currentFile );
+					$skip = in_array( $currentFile, $this->ignoredFiles );
+
+					if ( $skip && $this->cli->isVerbose() ) {
+						$this->cli->msg( "Skipping file diff: " . print_r( [
+							'file' => $currentFile,
+							'line' => $index + 1,
+							'contents' => $line,
+							'hash' => $this->currentHash,
+						], true ) . "\n" );
+					}
+
+					if ( $skip ) {
+						$filteredLines[] = 'skipped...';
+						continue;
+					}
+				}
+			}
+
+			if (!$skip) {
+				$filteredLines[] = $line;
+			}
+		}
+
+		return implode("\n", $filteredLines);
+	}
+
+	protected function removeHiddenCharacters($string) {
+		// Remove invisible characters and trim whitespace
+		$clean = preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $string);
+		return trim($clean);
+	}
+
+	protected function getChangedFiles() {
+		return `git diff --name-status {$this->mainBranch}..{$this->currentBranch}`;
+	}
+
+	protected function formatCommits($commits) {
+		$formatted = '';
+		foreach ($commits as $hash => $commit) {
+			$formatted .= "### Commit [{$hash}]\n\n";
+			$formatted .= "```\n";
+			$formatted .= $commit;
+			$formatted .= "\n```\n\n";
+		}
+		return $formatted;
+	}
+
+	protected function createPrompt($commits, $files) {
+		// return '';
+		$prompt = <<<EOT
 You are an AI assistant tasked with generating a GitHub Pull Request description. Use the following information to create a comprehensive and well-structured description:
 
 ## Branch Information
@@ -109,32 +209,24 @@ Based on the information provided above, please generate a Pull Request descript
 Please ensure that the generated description is informative, well-structured, and easy to understand for reviewers.
 EOT;
 
-        return $prompt;
-    }
+		return $prompt;
+	}
 
-    protected function saveToFile($content, $filename) {
-        if (file_put_contents($filename, $content) !== false) {
-            $this->helpers->msg("Prompt saved to file: $filename", 'green');
-        } else {
-            $this->helpers->err("Failed to save prompt to file: $filename");
-        }
-    }
+	protected function saveToFile($content, $filename) {
+		$results = $this->cli->writeToFile( $filename, $content, [
+			'relative' => false,
+			'failExit' => false,
+			'silent' => true,
+		] );
 
-    public function help() {
-        $this->helpers->msg("\n`pr-description-generator` help:\n", 'green');
-        $indent = '   ';
-        $this->helpers->msg("{$indent}Usage: pr-description-generator [options]\n", 'green');
-        $this->helpers->msg("{$indent}Options:", 'green');
-        $this->helpers->msg("{$indent}{$indent}--help, -h     Show this help message", 'green');
-        $this->helpers->msg("{$indent}{$indent}--output=FILE  Save the generated prompt to the specified file\n", 'green');
-        $this->helpers->msg("{$indent}Description:", 'green');
-        $this->helpers->msg("{$indent}{$indent}Generates a prompt for an AI to create a GitHub Pull Request description\n", 'green');
-        $this->helpers->msg("{$indent}{$indent}based on the current branch's changes compared to the main branch.\n", 'green');
-        $this->helpers->msg("{$indent}Note:", 'green');
-        $this->helpers->msg("{$indent}{$indent}This command should be run from within a git repository.\n", 'green');
-    }
+		if (! empty( $results)) {
+			$this->cli->msg("Prompt saved to file: $filename", 'green');
+		} else {
+			$this->cli->err("Failed to save prompt to file: $filename");
+			exit(1);
+		}
+	}
 }
 
-$helpers = require_once dirname(__DIR__) . '/misc/helpers.php';
-$generator = new PRDescriptionGenerator($helpers);
+$generator = new PRDescriptionGenerator($cli);
 $generator->generate();

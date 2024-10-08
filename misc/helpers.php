@@ -520,13 +520,17 @@ class Helpers {
 			'relative' => true,
 			'failExit' => true,
 			'flags' => 0,
+			'silent' => false,
 		], $args );
+		$ssshhhhh = $this->isSilent() || $args['silent'];
 
 		if ( $args['relative'] ) {
 			$file = $this->wd . '/' . $file;
+		} else {
+			$file = $this->convertPathToAbsolute( $file );
 		}
 
-		if ( ! $this->isSilent() ) {
+		if ( ! $ssshhhhh ) {
 			echo $file .' $contents: ';
 			print_r( $contents );
 			echo "\n--------------------\n\n";
@@ -534,7 +538,7 @@ class Helpers {
 
 		$results = file_put_contents( $file, $contents, $args['flags'] );
 
-		if ( ! $this->isSilent() ) {
+		if ( ! $ssshhhhh ) {
 			echo $file .' $results: ';
 			print_r( $results );
 			echo "\n--------------------\n\n";
@@ -548,6 +552,52 @@ class Helpers {
 		}
 
 		return $results;
+	}
+
+	/**
+	 * Convert a path to an absolute path.
+	 *
+	 * @param  string $filename The path to convert.
+	 * @param  string $base     Optional base path. Defaults to working directory.
+	 *
+	 * @return string The absolute path.
+	 */
+	public function convertPathToAbsolute( $filename, $base = null ) {
+		$base = null === $base ? $this->wd : $base;
+		if ( '/' !== strrev($base) ) {
+			$base .= '/';
+		}
+
+		$filename = str_replace( '~', getenv( 'HOME' ), $filename );
+
+		// return if already absolute
+		if (parse_url($filename, PHP_URL_SCHEME) != '') {
+			return $filename;
+		}
+
+		// parse base:
+		$bits = parse_url($base);
+
+		// remove non-directory element from path
+		$path = preg_replace('#/[^/]*$#', '', $bits['path']);
+
+		// destroy path if relative path points to root
+		if ($filename[0] == '/') {
+			$path = '';
+		}
+
+		// dirty absolute path
+		$abs = "$path/$filename";
+
+		// replace '//' or '/./' or '/foo/../' with '/'
+		$re = array('#(/\.?/)#', '#/(?!\.\.)[^/]+/\.\./#');
+		for(
+			$n = 1; $n > 0;
+			$abs = preg_replace( $re, '/', $abs, -1, $n )
+		) {}
+
+		// absolute path is ready!
+		return $abs;
 	}
 
 	// Get files of type w/in a directory.

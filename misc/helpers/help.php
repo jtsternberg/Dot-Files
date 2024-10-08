@@ -54,6 +54,13 @@ use JT\CLI\Helpers;
 class Help {
 
 	/**
+	 * The CLI helper.
+	 *
+	 * @var Helpers
+	 */
+	protected $cli;
+
+	/**
 	 * Nave of the script being documented with help.
 	 *
 	 * @var string
