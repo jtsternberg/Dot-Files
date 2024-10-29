@@ -73,7 +73,7 @@ class PRDescriptionGenerator {
 		$commits = [];
 		$commitHashes = explode("\n", trim(`git log {$this->mainBranch}..{$this->currentBranch} --format=%H`));
 		foreach ($commitHashes as $this->currentHash) {
-			$fullDiff = trim(`git show -p --pretty=format:"%h %s" {$this->currentHash}`);
+			$fullDiff = trim(`git show -p --no-color --ignore-all-space --ignore-space-change --pretty=format:"%h %s" {$this->currentHash}`);
 			$filteredDiff = $this->filterignoredFiles($fullDiff);
 			if (!empty($filteredDiff)) {
 				$commits[$this->currentHash] = $filteredDiff;
