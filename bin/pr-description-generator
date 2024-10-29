@@ -189,7 +189,7 @@ You are an AI assistant tasked with generating a GitHub Pull Request description
 {$files}
 ```
 
-Based on the information provided above, please generate a Pull Request description using the following template:
+Based on the information provided above, please generate a Pull Request description using the following markdown template.
 
 ```markdown
 ## Description
