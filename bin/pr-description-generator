@@ -21,16 +21,16 @@ $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
 $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
-->setScriptName('pr-description-generator')
-->setPrefix('')
-->setDescription('Generates a prompt for an AI to create a GitHub Pull Request description based on the current branch\'s changes compared to the main branch.')
-->setSampleUsage('[options]')
-->buildDocs([
-	'--help, -h'                 => 'Show this help message',
-	'--output=FILE'              => 'Save the generated prompt to the specified file',
-	'--ignore=FILE1,FILE2,FILE3' => 'Comma-separated list of files to ignore in the diff output',
-	'--verbose, -v'              => 'Display verbose output',
-]);
+	->setScriptName('pr-description-generator')
+	->setPrefix('')
+	->setDescription('Generates a prompt for an AI to create a GitHub Pull Request description based on the current branch\'s changes compared to the main branch.')
+	->setSampleUsage('[options]')
+	->buildDocs([
+		'--help, -h'                 => 'Show this help message',
+		'--output=FILE'              => 'Save the generated prompt to the specified file',
+		'--ignore=FILE1,FILE2,FILE3' => 'Comma-separated list of files to ignore in the diff output',
+		'--verbose, -v'              => 'Display verbose output',
+	]);
 
 if ($helpyHelperton->batSignal) {
 	$cli->msg($helpyHelperton->getHelp());
