@@ -174,8 +174,6 @@ class PRDescriptionGenerator {
 	protected function createPrompt($commits, $files) {
 		// return '';
 		$prompt = <<<EOT
-You are an AI assistant tasked with generating a GitHub Pull Request description. Use the following information to create a comprehensive and well-structured description:
-
 ## Branch Information
 - Current Branch: `{$this->currentBranch}`
 - Compared to: `{$this->mainBranch}`
@@ -189,7 +187,10 @@ You are an AI assistant tasked with generating a GitHub Pull Request description
 {$files}
 ```
 
-Based on the information provided above, please generate a Pull Request description using the following markdown template.
+-----
+[Save the above to a file to be attached to the LLM chat]
+
+Based on the information provided in the attached file, please generate a comprehensive and well-structured Pull Request description using the following markdown template.
 
 ```markdown
 ## Description
@@ -201,7 +202,7 @@ Based on the information provided above, please generate a Pull Request descript
 3. [Add more steps as needed]
 
 ## Additional Notes
-- [Any relevant information, such as related HelpScout tickets or known limitations]
+- [Any relevant information, such as related issues or known limitations]
 - [Performance considerations, if applicable]
 - [Any other important details]
 ```
