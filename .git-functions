@@ -16,6 +16,16 @@ deleteremote() { git push $1 :$2 }
 # Search commits for a string or code
 searchcommits() { git log -G "$*" --pretty=format:"%C(yellow)%h %Creset%s %Cgreen(%cr) %Cblue[%cn - %ce]" --decorate }
 
+# Search stashes for a string or code
+searchstashes() {
+	git stash list | cut -d: -f1 | while read -r stash_id; do
+		found=`git stash show -p "$stash_id" | grep "$*"`
+		if [ -n "$found" ]; then
+			echo "\nFound in: $stash_id\n$found"
+		fi
+	done
+}
+
 # Reset-checkout.. checks out branch, removes untracked files, and re-inits submodules
 checkout-reset() {
 	git checkout $1 && remove-untracked && git submodule update --init --recursive
