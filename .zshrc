@@ -178,8 +178,18 @@ plugins=(
 	zsh-autosuggestions
 	colored-man-pages
 	stripe-completions
+	fzf
 )
 # Git plugin docs: https://github.com/robbyrussell/oh-my-zsh/wiki/Plugin:git
+
+# From fzf tutorial.
+# https://www.youtube.com/shorts/iGxpTdy6b-Y
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt appendhistory
+# https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/fzf
+# export FZF_BASE=/opt/homebrew/opt/fzf
 
 ### Fix slowness of pastes with zsh-syntax-highlighting.zsh
 # https://gist.github.com/magicdude4eva/2d4748f8ef3e6bf7b1591964c201c1ab
