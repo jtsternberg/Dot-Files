@@ -208,6 +208,7 @@
 	deletebranchwith = brdwith
 	update = "!COMPARE=${2:-`git getmain`};git checkout \"$1\" && git merge $COMPARE && git difflist $COMPARE"
 	difflist = "!COMPARE=${1:-`git getmain`};printf \"\\n\\n\\033[0;32mDiff from $COMPARE:\\033[0m\\n\\n$(git diff --name-only $COMPARE)\\n\\n\""
+	stashdiff = "!f() { git difftool stash@{${1:-0}}~1 stash@{${1:-0}}; }; f"
 
 	; stash
 	sl = stash list
