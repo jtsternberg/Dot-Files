@@ -1,0 +1,111 @@
+#!/bin/bash
+#
+# Prints all hooks in a dir to a .log file.
+#
+# Permissions issues:
+# run: chmod +x gethooks
+#
+# gist: https://gist.github.com/ramiabraham/e8356e00130351ddcbe2c62125e6c52a
+#
+# Easy usage:
+#
+# wget https://gist.githubusercontent.com/ramiabraham/e8356e00130351ddcbe2c62125e6c52a/raw gethooks && chmod +x gethooks
+#
+# To answer your question:
+# Yes! This will indeed print matches for any occurence of `apply_filters` or `do_action`
+# within .php files, including substring matches,
+# and any occurrences that may be within doc blocks.
+#
+# Why?
+# Mostly because I really don't want to write that awk regex.
+# In addition, adding this would potentially introduce some weird bugs,
+# due to the varying ways in which inline comments are added/decorated.
+#
+
+# The expected plugin dir.
+plugins_dir="wp-content/plugins/"
+
+# Today's date.
+now=$(date +"%Y-%m-%d")
+
+# Prints a new line.
+newline() {
+	printf "\n"
+}
+
+# Colorz
+green() {
+	echo -e "\033[33;32m $1 \033[0m"
+}
+
+red() {
+	echo -e "\033[33;31m $1 \033[0m"
+}
+
+yellow() {
+	echo -e "\033[33;33m $1 \033[0m"
+}
+
+magenta() {
+	echo -e "\033[33;35m $1 \033[0m"
+}
+
+__get_hooks() {
+	echo "Type the plugin slug, without slashes, for which you'd like to generate hooks."
+
+	read -r plugin
+
+	if [[ ! -d "wp-content" ]]; then
+
+		newline
+		red "No wp-content directory was found! Use this script in a WordPress site root."
+		newline
+		exit || 0
+	fi
+
+	plugin_path="$plugins_dir/$plugin"
+	__log="hooks-tempfile.log"
+
+
+	# create log file
+	if [[ ! -f $__log ]]; then
+		touch "$__log"
+	fi
+
+	yellow "Getting all hooks for $plugin and copying to hooks-$plugin.log file in site root..." &&
+	echo "Hooks for $plugin_path, generated on $now." >> $__log &&
+	echo $'\n' >> $__log &&
+	echo "Actions:" >> $__log &&
+	echo $'\n' >> $__log
+	echo "------------------" >> $__log
+	echo $'\n' >> $__log
+
+	for i in $(find "$plugin_path" -type f -name "*.php"); do
+		# Uncomment to get line numbers and filenames;
+		# comment out the other awk command if doing so.
+		# awk '/do_action(/{print NR":"$0}' $i >> $__log
+		awk '/do_action/' $i >> $__log
+	done
+
+	echo $'\n' >> $__log
+	echo "Filters:" >> $__log &&
+	echo $'\n' >> $__log
+	echo "------------------" >> $__log
+	echo $'\n' >> $__log
+
+	for i in $(find "$plugin_path" -type f -name "*.php"); do
+		# Uncomment to get line numbers and filenames;
+		# comment out the other awk command if doing so.
+		# awk '/apply_filters(/{print NR":"$0}' $i >> $__log
+		awk '/apply_filters/' $i >> $__log
+	done
+	echo $'\n' >> $__log
+
+	mv "$__log" "hooks-$plugin-$now.log"
+
+	newline
+	green "Done!"
+	exit || 1
+}
+
+__get_hooks
