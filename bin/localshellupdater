@@ -1,0 +1,84 @@
+#!/usr/bin/env php
+<?php
+# =============================================================================
+# Utility for updating LocalWP Site Shell scripts.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Updates LocalWP's Site Shell scripts to modify the directory paths and enhance functionality.
+# Primarily used to:
+# 1. Append "/wp-content" to the default LocalWP app/public path
+# 2. Replace the default path with a custom path
+# 3. Add lazygit integration for git repositories
+#
+# Usage:
+# localshellupdater <path-to-shell-script>           # Appends "/wp-content" to LocalWP path
+# localshellupdater <path-to-shell-script> <newpath> # Replaces LocalWP path with new path
+#
+# Examples:
+# localshellupdater ~/Local\ Sites/my-site/shell.sh             # Adds "/wp-content" to path
+# localshellupdater ~/Local\ Sites/my-site/shell.sh ~/projects  # Changes path to "~/projects"
+# =============================================================================
+
+namespace JT;
+
+if ($argc < 2) {
+	echo "Usage: {$argv[0]} <path-to-shell-script> [new-path]\n";
+	exit(1);
+}
+
+$scriptPath = $argv[1];
+$newPath = $argc > 2 ? $argv[2] : null;
+
+// Check if the file exists
+if (!file_exists($scriptPath)) {
+	echo "Error: File not found at '{$scriptPath}'\n";
+	exit(1);
+}
+
+// Read the file content
+$originalContent = file_get_contents($scriptPath);
+
+// Update the content based on whether a new path is provided
+if ($newPath) {
+	// Replace the entire `cd` line with the new path
+	$updatedContent = preg_replace(
+		'/cd "([^"]+\/app\/public)"/',
+		'cd "' . rtrim($newPath, '/') . '"',
+		$originalContent
+	);
+} else {
+	// Append `/wp-content` to the existing path
+	$updatedContent = preg_replace(
+		'/cd "([^"]+\/app\/public)"/',
+		'cd "$1/wp-content"',
+		$originalContent
+	);
+}
+
+// Open lazygit in the new shell if git is detected
+$updatedContent = preg_replace(
+	'/exec \$SHELL$/',
+	'exec $SHELL -c \'git status && lazygit || echo "no git"; exec $SHELL\'',
+	$updatedContent
+);
+
+if ($updatedContent === null) {
+	echo "Error: Failed to update the script content\n";
+	exit(1);
+}
+
+// Save the updated content back to the file
+if (file_put_contents($scriptPath, $updatedContent) === false) {
+	echo "Error: Unable to write updated content to '{$scriptPath}'\n";
+	exit(1);
+}
+
+echo "Script updated successfully.\n";
+
+// Make the updated script executable
+chmod($scriptPath, 0755);
+
+// Execute the updated script
+passthru($scriptPath);
