@@ -413,10 +413,26 @@ class Helpers {
 	 */
 	public function err( $text, $lineBreak = true ) {
 		if ( ! $this->isSilent() ) {
-			echo $this->getErr( $text, $lineBreak = true );
+			echo $this->getErr( $text, $lineBreak );
 		}
 
 		return $this;
+	}
+
+	/**
+	 * Outputs a formatted error message and exits with a given code.
+	 *
+	 * @since  1.0.1
+	 *
+	 * @param  string  $args      Error message to output.
+	 * @param  integer $code      Exit code. Default, 1.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return Helpers
+	 */
+	public function exitErr( $args, $code = 1, $lineBreak = true ) {
+		$this->err( $args, $lineBreak );
+		exit( $code );
 	}
 
 	/**
@@ -430,7 +446,7 @@ class Helpers {
 	 * @return string
 	 */
 	public function getErr( $text, $lineBreak = true ) {
-		return $this->getMsg( $text, 'red', $lineBreak = true );
+		return $this->getMsg( $text, 'red', $lineBreak );
 	}
 
 	/**

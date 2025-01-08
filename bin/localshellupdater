@@ -52,8 +52,7 @@ if (!$scriptPath) {
 // Check if the file exists
 $scriptPath = $cli->convertPathToAbsolute($scriptPath);
 if (!file_exists($scriptPath)) {
-	$cli->err("Error: File not found at '{$scriptPath}'");
-	exit(1);
+	$cli->exitErr("Error: File not found at '{$scriptPath}'");
 }
 
 // Read the file content
@@ -88,8 +87,7 @@ $updatedContent = preg_replace(
 );
 
 if ($updatedContent === null) {
-	$cli->err('Error: Failed to update the script content');
-	exit(1);
+	$cli->exitErr('Error: Failed to update the script content');
 }
 
 // Save the updated content back to the file
@@ -100,8 +98,7 @@ $results = $cli->writeToFile($scriptPath, $updatedContent, [
 ]);
 
 if (empty($results)) {
-	$cli->err("Error: Unable to write updated content to '{$scriptPath}'");
-	exit(1);
+	$cli->exitErr("Error: Unable to write updated content to '{$scriptPath}'");
 }
 
 $cli->msg('Script updated successfully', 'green');
