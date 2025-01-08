@@ -113,6 +113,9 @@ alias emptyioscache='xcrun simctl erase all'
 alias brewcompletions="/opt/homebrew/share/zsh/site-functions"
 # alias svn='/usr/local/bin/svn'
 
+# Local shell
+alias localshell='bash "$(_localshell)"'
+
 ## Git functions
 source ~/.dotfiles/.git-functions
 

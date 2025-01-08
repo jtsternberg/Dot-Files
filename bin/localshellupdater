@@ -101,10 +101,9 @@ if (empty($results)) {
 	$cli->exitErr("Error: Unable to write updated content to '{$scriptPath}'");
 }
 
-$cli->msg('Script updated successfully', 'green');
 
 // Make the updated script executable
 chmod($scriptPath, 0755);
 
-// Execute the updated script
-passthru($scriptPath);
+echo $scriptPath;
+exit(0);
