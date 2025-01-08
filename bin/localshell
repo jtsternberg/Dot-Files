@@ -1,0 +1,114 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Utility for managing LocalWP Site Shell scripts configuration.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Manages configuration for LocalWP's Site Shell scripts to modify directory paths.
+#
+# Usage:
+# localshell config --scriptPath="~/Local Sites/my-site/shell.sh"
+# localshell config --scriptPath="~/Local Sites/my-site/shell.sh" --destinationPath="~/projects"
+# localshell                 # Runs with saved configuration
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('localshell')
+	->setPrefix('')
+	->setDescription('Manages configuration for LocalWP\'s Site Shell scripts to modify directory paths.')
+	->setup('localshell', [
+		' - Runs localshellupdater with saved configuration' => [''],
+		'config' => [
+			'--scriptPath=<path> [--destinationPath=<path>]',
+			'Save configuration for future use',
+			'--scriptPath=<path>      Path to LocalWP site shell script',
+			'--destinationPath=<path> Custom destination path (optional)',
+		],
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
+	exit(0);
+}
+
+const CONFIG_FILE = '.localshell';
+
+// Handle config command
+if ('config' === $cli->getArg(1)) {
+	$config = [];
+	$hasValidOption = false;
+
+	$options = ['scriptPath', 'destinationPath'];
+	foreach ($options as $option) {
+		$value = $cli->getFlag($option);
+		if ($value) {
+			$config[$option] = $value;
+			$hasValidOption = true;
+		}
+	}
+
+	// Validate at least one option was provided
+	if (!$hasValidOption) {
+		$cli->err('Error: At least one option (--scriptPath or --destinationPath) is required');
+		$cli->msg("\nRunning 'localshell config --help' for usage information...", 'yellow');
+		$cli->msg("\n" . $helpyHelperton->getHelp('config'));
+		exit(1);
+	}
+
+	// Save configuration
+	$results = $cli->writeToFile(CONFIG_FILE, json_encode($config, JSON_PRETTY_PRINT), [
+		'failExit' => false,
+		'silent' => true,
+	]);
+
+	if (empty($results)) {
+		$cli->err('Error: Unable to save configuration');
+		exit(1);
+	}
+
+	$cli->msg('Configuration saved successfully', 'green');
+	exit(0);
+}
+
+// Handle default command (no arguments)
+if (empty($cli->getArg(1))) {
+	// Check if config file exists
+	if (!file_exists(CONFIG_FILE)) {
+		$cli->err('Error: No configuration found. Run \'localshell config\' first');
+		$cli->msg("\nRunning 'localshell --help' for usage information...", 'yellow');
+		$cli->msg($helpyHelperton->getHelp());
+		exit(1);
+	}
+
+	// Load configuration
+	$config = json_decode(file_get_contents(CONFIG_FILE), true);
+	if (!$config || !isset($config['scriptPath'])) {
+		$cli->err('Error: Invalid configuration file');
+		exit(1);
+	}
+
+	// Convert paths to absolute
+	$scriptPath = $cli->convertPathToAbsolute($config['scriptPath']);
+	$cmd = ['localshellupdater', escapeshellarg($scriptPath)];
+
+	if (isset($config['destinationPath'])) {
+		$destinationPath = $cli->convertPathToAbsolute($config['destinationPath']);
+		$cmd[] = escapeshellarg($destinationPath);
+	}
+
+	// Execute localshellupdater
+	passthru(implode(' ', $cmd), $returnCode);
+	exit($returnCode);
+}
+
+// Invalid command
+$cli->err("Error: Unknown command '{$cli->getArg(1)}'");
+$cli->msg("\nRunning 'localshell --help' for usage information...", 'yellow');
+$cli->msg($helpyHelperton->getHelp());
+exit(1);
