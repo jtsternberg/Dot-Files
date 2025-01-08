@@ -95,6 +95,7 @@ alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
 alias itermScriptRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin/python'
 alias itermScripRun='itermScriptRun'
 alias itermDirTab='itermScriptRun ~/.dotfiles/iterm-python/dirmaptab.py'
+alias itermDirNewTab='itermScriptRun ~/.dotfiles/iterm-python/dirmapnewtab.py'
 alias itermDirCommand='itermScriptRun ~/.dotfiles/iterm-python/dirmapcommand.py'
 
 # Make sure composer uses the Brew version of PHP.
