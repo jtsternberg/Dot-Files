@@ -86,6 +86,21 @@
 				<false/>
 			</dict>
 		</array>
+		<key>225083EE-60E1-4860-8A5E-D327B3DF8093</key>
+		<array/>
+		<key>247E13BF-D3BF-4039-A5D6-93AADE35BF7E</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>4585DE45-AF6A-4480-828B-9A31FA6CD529</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>3973DA90-712A-4C3E-9C02-FEECA09462A8</key>
 		<array>
 			<dict>
@@ -324,6 +339,34 @@
 				<false/>
 			</dict>
 		</array>
+		<key>CFDD8415-05E0-417A-9490-EC9FC6023C20</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>225083EE-60E1-4860-8A5E-D327B3DF8093</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>D12D36A3-B86C-4545-AE71-E5BEB6F8DBBD</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>D1A124FB-3EE2-4FEF-8B5B-EAFAF68BDD99</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>D1A124FB-3EE2-4FEF-8B5B-EAFAF68BDD99</key>
+		<array/>
 		<key>D40BECDC-59A4-45DD-A647-06A2752EB984</key>
 		<array>
 			<dict>
@@ -355,6 +398,19 @@
 			<dict>
 				<key>destinationuid</key>
 				<string>985E6FB8-112C-4378-BBB1-41E5514D7B4D</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>E6920E20-95A2-4D41-83F6-62384AD8AEF2</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>D3E1919A-09EF-4B80-9C2A-5ACEB35BAD4B</string>
 				<key>modifiers</key>
 				<integer>0</integer>
 				<key>modifiersubtext</key>
@@ -971,6 +1027,81 @@
 				<key>argumenttype</key>
 				<integer>2</integer>
 				<key>keyword</key>
+				<string>linup backend</string>
+				<key>subtext</key>
+				<string>Setup Lindris Backend iTerm tabs</string>
+				<key>text</key>
+				<string>Lindris Up Backend App</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>D12D36A3-B86C-4545-AE71-E5BEB6F8DBBD</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand lindrisfrontend 'echo -n -e "\033]0;lindrisfrontend LOG\007";itermDirNewTab lindrisfrontend "localshellupdater ~/Library/ApplicationSupport/Local/ssh-entry/V-dp05VsH.sh ~/Sites/lindris/lindris-frontend" &amp;&amp; ./vendor/bin/sail up -d &amp;&amp; tailtrim storage/logs/laravel.log'</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>225083EE-60E1-4860-8A5E-D327B3DF8093</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>linup</string>
+				<key>subtext</key>
+				<string>Setup Lindris Frontend iTerm tabs</string>
+				<key>text</key>
+				<string>Lindris Up Frontend App</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>CFDD8415-05E0-417A-9490-EC9FC6023C20</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand lindrisbackend 'docker compose -f _workshop/lindris/development/docker-compose.yml up -d; lazygit';
+itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend mysql error LOG\007";docker exec -it oempro_app bash -c "ls -t data/logs/mysql_errors-*.log | head -n1 | xargs tail -f" || echo "\n...Wait for docker up to complete, then press ^ key and enter\n"';
+itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker exec -it oempro_app bash -c "tail -f data/logs/errors-local.log" || echo "\n...Wait for docker up to complete, then press ^ key and enter\n"';
+</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>D1A124FB-3EE2-4FEF-8B5B-EAFAF68BDD99</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
 				<string>omup api.js</string>
 				<key>subtext</key>
 				<string>OM Up api.js iTerm tabs</string>
@@ -1053,6 +1184,78 @@
 		<dict>
 			<key>config</key>
 			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>linup plugin</string>
+				<key>subtext</key>
+				<string>Setup Lindris Plugin/site iTerm tabs</string>
+				<key>text</key>
+				<string>Lindris Up WordPress Plugin</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>247E13BF-D3BF-4039-A5D6-93AADE35BF7E</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand linwpplugin 'echo -n -e "\033]0;linwpplugin LOG\007";itermDirNewTab linwpplugin "localshellupdater ~/Library/ApplicationSupport/Local/ssh-entry/hLU3WV0OH.sh ~/Sites/lindris/wp-lindris-testing/app/public/wp-content/plugins/email-marketing-newsletters-lindris" &amp;&amp; tailtrim'</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>4585DE45-AF6A-4480-828B-9A31FA6CD529</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>linup marketing</string>
+				<key>subtext</key>
+				<string>Setup Lindris Marketing site iTerm tabs</string>
+				<key>text</key>
+				<string>Lindris Up Marketing Site</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>E6920E20-95A2-4D41-83F6-62384AD8AEF2</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>itermDirCommand lindrismarketing 'echo -n -e "\033]0;lindrismarketing LOG\007";itermDirNewTab lindrismarketing "localshellupdater ~/Library/ApplicationSupport/Local/ssh-entry/o_wmCyU3M.sh" &amp;&amp; tailtrim'</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>D3E1919A-09EF-4B80-9C2A-5ACEB35BAD4B</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
 				<key>seconds</key>
 				<string>3</string>
 			</dict>
@@ -1114,6 +1317,24 @@
 			<key>ypos</key>
 			<real>15</real>
 		</dict>
+		<key>225083EE-60E1-4860-8A5E-D327B3DF8093</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>do it...</string>
+			<key>xpos</key>
+			<real>680</real>
+			<key>ypos</key>
+			<real>670</real>
+		</dict>
+		<key>247E13BF-D3BF-4039-A5D6-93AADE35BF7E</key>
+		<dict>
+			<key>xpos</key>
+			<real>825</real>
+			<key>ypos</key>
+			<real>830</real>
+		</dict>
 		<key>3973DA90-712A-4C3E-9C02-FEECA09462A8</key>
 		<dict>
 			<key>colorindex</key>
@@ -1124,6 +1345,17 @@
 			<real>160</real>
 			<key>ypos</key>
 			<real>15</real>
+		</dict>
+		<key>4585DE45-AF6A-4480-828B-9A31FA6CD529</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>do it...</string>
+			<key>xpos</key>
+			<real>965</real>
+			<key>ypos</key>
+			<real>830</real>
 		</dict>
 		<key>4FB14C1A-AEBE-4DC0-ACC2-821642464058</key>
 		<dict>
@@ -1324,6 +1556,42 @@
 			<key>ypos</key>
 			<real>815</real>
 		</dict>
+		<key>CFDD8415-05E0-417A-9490-EC9FC6023C20</key>
+		<dict>
+			<key>xpos</key>
+			<real>540</real>
+			<key>ypos</key>
+			<real>670</real>
+		</dict>
+		<key>D12D36A3-B86C-4545-AE71-E5BEB6F8DBBD</key>
+		<dict>
+			<key>xpos</key>
+			<real>815</real>
+			<key>ypos</key>
+			<real>670</real>
+		</dict>
+		<key>D1A124FB-3EE2-4FEF-8B5B-EAFAF68BDD99</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>do it...</string>
+			<key>xpos</key>
+			<real>955</real>
+			<key>ypos</key>
+			<real>670</real>
+		</dict>
+		<key>D3E1919A-09EF-4B80-9C2A-5ACEB35BAD4B</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>do it...</string>
+			<key>xpos</key>
+			<real>685</real>
+			<key>ypos</key>
+			<real>835</real>
+		</dict>
 		<key>D40BECDC-59A4-45DD-A647-06A2752EB984</key>
 		<dict>
 			<key>xpos</key>
@@ -1346,6 +1614,13 @@
 			<real>920</real>
 			<key>ypos</key>
 			<real>365</real>
+		</dict>
+		<key>E6920E20-95A2-4D41-83F6-62384AD8AEF2</key>
+		<dict>
+			<key>xpos</key>
+			<real>545</real>
+			<key>ypos</key>
+			<real>835</real>
 		</dict>
 		<key>E7632854-C574-45EE-A08A-914BCA3BDCE4</key>
 		<dict>
