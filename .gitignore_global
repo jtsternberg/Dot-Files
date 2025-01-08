@@ -40,3 +40,6 @@ img/.svn/props/slideshow-controls-2x.png.svn-work
 img/.svn/props/slideshow-controls.png.svn-work
 img/.svn/props/slideshow-loader.gif.svn-work
 stripe-webhooks.log
+
+# Custom commands
+.localshell
