@@ -255,7 +255,7 @@
 ; Environment
 [core]
 	editor = cursor --wait
-	symlinks = false
+	symlinks = true
 	excludesfile = /Users/JT/.gitignore_global
 	autocrlf = false
 	whitespace = cr-at-eol
