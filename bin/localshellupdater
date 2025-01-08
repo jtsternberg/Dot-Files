@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+namespace JT;
 # =============================================================================
 # Utility for updating LocalWP Site Shell scripts.
 # By Justin Sternberg <me@jtsternberg.com>
@@ -21,28 +22,50 @@
 # localshellupdater ~/Local\ Sites/my-site/shell.sh ~/projects  # Changes path to "~/projects"
 # =============================================================================
 
-namespace JT;
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
 
-if ($argc < 2) {
-	echo "Usage: {$argv[0]} <path-to-shell-script> [new-path]\n";
+$helpyHelperton
+	->setScriptName('localshellupdater')
+	->setPrefix('')
+	->setDescription('Updates LocalWP\'s Site Shell scripts to modify the directory paths and enhance functionality.')
+	->setSampleUsage('<path-to-shell-script> [<new-path>]')
+	->buildDocs([
+		'<path-to-shell-script>' => 'Path to the LocalWP shell script to update',
+		'[<new-path>]'          => 'Optional custom path to replace the default LocalWP path. If not provided, "/wp-content" will be appended to the default path',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+// Validate required argument
+$scriptPath = $cli->getArg(1);
+if (!$scriptPath) {
+	$cli->err('Error: Path to shell script is required');
+	$cli->msg("\nRunning 'localshellupdater --help' for usage information...", 'yellow');
+	$cli->msg($helpyHelperton->getHelp());
 	exit(1);
 }
 
-$scriptPath = $argv[1];
-$newPath = $argc > 2 ? $argv[2] : null;
-
 // Check if the file exists
+$scriptPath = $cli->convertPathToAbsolute($scriptPath);
 if (!file_exists($scriptPath)) {
-	echo "Error: File not found at '{$scriptPath}'\n";
+	$cli->err("Error: File not found at '{$scriptPath}'");
 	exit(1);
 }
 
 // Read the file content
 $originalContent = file_get_contents($scriptPath);
 
+// Get optional new path
+$newPath = $cli->getArg(2);
+
 // Update the content based on whether a new path is provided
 if ($newPath) {
 	// Replace the entire `cd` line with the new path
+	$newPath = $cli->convertPathToAbsolute($newPath);
 	$updatedContent = preg_replace(
 		'/cd "([^"]+\/app\/public)"/',
 		'cd "' . rtrim($newPath, '/') . '"',
@@ -65,17 +88,23 @@ $updatedContent = preg_replace(
 );
 
 if ($updatedContent === null) {
-	echo "Error: Failed to update the script content\n";
+	$cli->err('Error: Failed to update the script content');
 	exit(1);
 }
 
 // Save the updated content back to the file
-if (file_put_contents($scriptPath, $updatedContent) === false) {
-	echo "Error: Unable to write updated content to '{$scriptPath}'\n";
+$results = $cli->writeToFile($scriptPath, $updatedContent, [
+	'relative' => false,
+	'failExit' => false,
+	'silent' => true,
+]);
+
+if (empty($results)) {
+	$cli->err("Error: Unable to write updated content to '{$scriptPath}'");
 	exit(1);
 }
 
-echo "Script updated successfully.\n";
+$cli->msg('Script updated successfully', 'green');
 
 // Make the updated script executable
 chmod($scriptPath, 0755);
