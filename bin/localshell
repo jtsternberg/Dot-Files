@@ -39,6 +39,32 @@ if ($helpyHelperton->batSignal) {
 
 const CONFIG_FILE = '.localshell';
 
+function findConfigFile($startDir, $maxLevels = 5) {
+	$currentDir = rtrim($startDir, '/');
+	$configPath = '';
+	$levelsUp = 0;
+
+	while ($levelsUp < $maxLevels) {
+		$testPath = $currentDir . '/' . CONFIG_FILE;
+		if (file_exists($testPath)) {
+			$configPath = $testPath;
+			break;
+		}
+
+		// Go up one directory
+		$parentDir = dirname($currentDir);
+		if ($parentDir === $currentDir) {
+			// We've reached the root
+			break;
+		}
+
+		$currentDir = $parentDir;
+		$levelsUp++;
+	}
+
+	return $configPath;
+}
+
 // Handle config command
 if ('config' === $cli->getArg(1)) {
 	$config = [];
@@ -78,8 +104,9 @@ if ('config' === $cli->getArg(1)) {
 
 // Handle default command (no arguments)
 if (empty($cli->getArg(1))) {
-	// Check if config file exists
-	if (!file_exists(CONFIG_FILE)) {
+	// Check if config file exists in current or parent directories
+	$configPath = findConfigFile($cli->wd);
+	if (empty($configPath)) {
 		$cli->err('Error: No configuration found. Run \'localshell config\' first');
 		$cli->msg("\nRunning 'localshell --help' for usage information...", 'yellow');
 		$cli->msg($helpyHelperton->getHelp());
@@ -87,7 +114,7 @@ if (empty($cli->getArg(1))) {
 	}
 
 	// Load configuration
-	$config = json_decode(file_get_contents(CONFIG_FILE), true);
+	$config = json_decode(file_get_contents($configPath), true);
 	if (!$config || !isset($config['scriptPath'])) {
 		$cli->err('Error: Invalid configuration file');
 		exit(1);
