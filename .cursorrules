@@ -1,0 +1,143 @@
+# CLI Script Conventions
+New CLI scripts should be named like `bin/my-script`, and will be written preferably in PHP.
+
+## Files
+`bin/*`
+
+## Language
+`php`
+
+## Patterns
+
+### CLI Script Header Format
+```php
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# {{description}}
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version {{version}}
+#
+# {{detailed_description}}
+#
+# Usage:
+# {{command}} {{usage_example}}
+#
+# Examples:
+# {{examples}}
+# =============================================================================
+```
+
+### CLI Helpers Setup
+```php
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+```
+
+### Single-Command Help Documentation
+```php
+$helpyHelperton
+    ->setScriptName('{{scriptName}}')
+    ->setPrefix('')
+    ->setDescription('{{description}}')
+    ->setSampleUsage('{{usage}}')
+    ->buildDocs([
+        '{{argument}}' => '{{argument_description}}',
+    ]);
+
+if ($helpyHelperton->batSignal) {
+    $cli->msg($helpyHelperton->getHelp());
+    exit(0);
+}
+```
+
+### Multi-Command Help Documentation
+```php
+$helpyHelperton
+    ->setScriptName('{{scriptName}}')
+    ->setPrefix('')
+    ->setDescription('{{description}}')
+    ->setup('{{scriptName}}', [
+        '{{command}}' => [
+            '{{command_usage}}',
+            '{{command_description}}',
+            '{{command_options}}',
+        ],
+    ]);
+
+if ($helpyHelperton->batSignal) {
+    $cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
+    exit(0);
+}
+```
+
+## Conventions
+
+### Namespace
+- Use namespace JT for all CLI scripts
+
+### Code Organization
+- Use procedural PHP by default for simpler scripts
+- Use classes when complexity warrants it (e.g. when script requires multiple methods or manages state)
+- See `bin/localshellupdater` for procedural example
+- See `bin/pr-description-generator` for class-based example
+
+### Documentation
+- Include comprehensive header documentation with usage and examples
+
+### CLI Helper Methods
+- Use `$cli` helper methods for:
+  - Path handling (`convertPathToAbsolute`)
+  - File operations (`writeToFile`)
+  - Argument/flag parsing (`getArg`, `getFlag`)
+  - Output messaging (`msg`, `err`)
+  - User interaction:
+    - `ask()` - CLI prompt with optional required response
+    - `confirm()` - Yes/no confirmation prompt
+    - `requestAnswer()` - Basic prompt for input
+    - `isYes()`, `isNo()` - Check response values
+  - Flag checking:
+    - `hasFlag()`, `hasFlags()` - Check for --flag existence
+    - `hasShortFlag()` - Check for -f style flags
+    - `getFlag()` - Get value of --flag=value
+  - Common state checks:
+    - `isSilent()` - Check if --silent/--porcelain/-shh
+    - `isVerbose()` - Check if --verbose/-v
+    - `isAutoconfirm()` - Check if --yes/-y
+  - Directory operations:
+    - `getDirFiles()` - Get filtered directory contents
+    - `filteredFileContentRows()` - Process file contents by line
+  - Git operations via `$cli->git`:
+    - See `helpers/git.php` for available methods
+- Use `$helpyHelperton` for help documentation
+
+### Color Conventions
+- Red: errors
+- Green: success
+- Yellow: informational/warning
+
+### Exit Codes
+- 0: success
+- 1: error
+
+### File Operations
+- File paths should be handled with `convertPathToAbsolute`
+- File operations should use `writeToFile` with appropriate options
+
+### Help Documentation
+- Should be comprehensive and follow established patterns
+- Scripts should validate required arguments
+- Provide helpful error messages
+- Error messages should include instructions for getting help
+
+## Style Guidelines
+- Use tabs for indentation (size: 3)
+- Trim trailing whitespace
+- Insert final newline
+- Follow PSR-12 naming conventions
+- Use meaningful variable names
+- Include appropriate spacing around operators
+- Group related code blocks with newlines
+- Add comments for complex operations
