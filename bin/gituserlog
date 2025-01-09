@@ -45,64 +45,6 @@ if ($helpyHelperton->batSignal) {
 
 const CONFIG_FILE = '.ghrepos.jsonc';
 
-// Handle config command
-if ('config' === $cli->getArg(1)) {
-	$configPath = findConfigFile(getcwd());
-
-	if (empty($configPath)) {
-		// Create new config file with example comments
-		$template = <<<'JSON'
-[
-	// Add your repository URLs below
-	"git@github.com:org/repo.git",
-
-	/* You can use multi-line
-	   comments as well */
-	"git@github.com:org/another-repo.git",
-
-	// Wiki repositories
-	// "git@github.com:org/repo.wiki.git"
-]
-JSON;
-		$configPath = CONFIG_FILE;
-
-		$cli->writeToFile($configPath, $template, [
-			'failExit' => true,
-			'silent' => true,
-		]);
-
-		$cli->msg("Created new config file: $configPath\n", 'green');
-	}
-
-	// Open in configured editor
-	passthru(getenv('EDITOR') . ' ' . escapeshellarg($configPath));
-	exit(0);
-}
-
-function findConfigFile($startDir, $maxLevels = 5) {
-	$currentDir = rtrim($startDir, '/');
-	$configPath = '';
-	$levelsUp = 0;
-
-	while ($levelsUp < $maxLevels) {
-		$testPath = $currentDir . '/' . CONFIG_FILE;
-		if (file_exists($testPath)) {
-			$configPath = $testPath;
-			break;
-		}
-
-		$parentDir = dirname($currentDir);
-		if ($parentDir === $currentDir) {
-			break;
-		}
-
-		$currentDir = $parentDir;
-		$levelsUp++;
-	}
-
-	return $configPath;
-}
-
 class GitUserLogger {
 	private $cli;
 	private $author;
@@ -110,16 +52,18 @@ class GitUserLogger {
 	private $logsdir;
 	private $repos = [];
 
-	public function __construct($cli, $author, $days = 7) {
+	public function init($cli, $author, $days = 7) {
 		$this->cli = $cli;
 		$this->author = $author;
 		$this->days = $days;
 		$this->logsdir = dirname($cli->wd) . '/weeklylog';
 		$this->loadRepos();
+
+		return $this;
 	}
 
 	private function loadRepos() {
-		$configPath = findConfigFile($this->cli->wd);
+		$configPath = $this->findConfigFile($this->cli->wd);
 		if (empty($configPath)) {
 			$this->cli->err('Error: No .ghrepos configuration found.');
 			$this->cli->msg("\nRun 'gituserlog config' to create and edit configuration.\n", 'yellow');
@@ -217,6 +161,71 @@ class GitUserLogger {
 
 		return $reponame;
 	}
+
+
+	public function editConfig() {
+		$configPath = $this->findConfigFile(getcwd());
+
+		if (empty($configPath)) {
+			// Create new config file with example comments
+			$template = <<<'JSON'
+	[
+		// Add your repository URLs below
+		"git@github.com:org/repo.git",
+
+		/* You can use multi-line
+			comments as well */
+		"git@github.com:org/another-repo.git",
+
+		// Wiki repositories
+		// "git@github.com:org/repo.wiki.git"
+	]
+	JSON;
+			$configPath = CONFIG_FILE;
+
+			$cli->writeToFile($configPath, $template, [
+				'failExit' => true,
+				'silent' => true,
+			]);
+
+			$cli->msg("Created new config file: $configPath\n", 'green');
+		}
+
+		// Open in configured editor
+		passthru(getenv('EDITOR') . ' ' . escapeshellarg($configPath));
+	}
+
+	private function findConfigFile($startDir, $maxLevels = 5) {
+		$currentDir = rtrim($startDir, '/');
+		$configPath = '';
+		$levelsUp = 0;
+
+		while ($levelsUp < $maxLevels) {
+			$testPath = $currentDir . '/' . CONFIG_FILE;
+			if (file_exists($testPath)) {
+				$configPath = $testPath;
+				break;
+			}
+
+			$parentDir = dirname($currentDir);
+			if ($parentDir === $currentDir) {
+				break;
+			}
+
+			$currentDir = $parentDir;
+			$levelsUp++;
+		}
+
+		return $configPath;
+	}
+}
+
+$logger = new GitUserLogger();
+
+// Handle config command
+if ('config' === $cli->getArg(1)) {
+	$logger->editConfig();
+	exit(0);
 }
 
 $author = $cli->getArg(1);
@@ -228,5 +237,6 @@ if ($days <= 0 || !is_numeric($days)) {
 	exit(1);
 }
 
-$logger = new GitUserLogger($cli, $author, $days);
-$logger->generate();
+$logger
+	->init($cli, $author, $days)
+	->generate();
