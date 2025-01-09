@@ -1,0 +1,345 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# GitHub User Activity Logger
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Generates a log of GitHub activity (PRs and Issues) for a given user over a
+# specified time period. Organizes the content into monthly activity files and
+# generates an index with links to specific sections.
+#
+# Examples:
+# githubuserlog jtsternberg awesomemotive 94
+# githubuserlog jtsternberg awesomemotive --wikiPath=~/Sites/my-wiki
+#
+# Filter examples:
+# githubuserlog jtsternberg bigorg --repoFilter=project-     # Match exact string
+# githubuserlog jtsternberg bigorg --repoFilter='^wp-'       # Match start of name
+# githubuserlog jtsternberg bigorg --repoFilter='project-|app-|lib-'  # Match multiple patterns
+# githubuserlog jtsternberg bigorg --repoFilter='PROJECT-'   # Case-insensitive by default
+#
+# Usage (`githubuserlog -h`):
+# githubuserlog <username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>]
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('githubuserlog')
+	->setPrefix('')
+	->setDescription('Generate a log of GitHub activity for a given user')
+	->setSampleUsage('<username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>]')
+	->buildDocs([
+		'<username>'           => 'GitHub username to fetch activity for',
+		'<organization>'       => 'GitHub organization to fetch activity from',
+		'[<days>]'            => 'Number of days to look back (default: 7)',
+		'--wikiPath=<path>'   => 'Custom path to store wiki content (default: ~/Downloads/<username>)',
+		'--repoFilter=<pattern>' => 'Filter repos by name using regex pattern (required if org has >100 repos)',
+		'--repoLimit=<number>' => 'Limit the number of repos to fetch (default, paginates through all)',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+class GitHubActivityLogger {
+	private $cli;
+	private $username;
+	private $org;
+	private $days;
+	private $since;
+	private $activity = [];
+	private $baseDir;
+	private $activityDir;
+	private $repoFilter;
+	private $repoLimit;
+
+	public function __construct(
+		$cli,
+		$username,
+		$org,
+		$days = 7,
+		$wikiPath = '',
+		$repoFilter = '',
+		$repoLimit = 501
+	) {
+		// Check gh CLI is installed
+		if (shell_exec('which gh') === null) {
+			$cli->err("GitHub CLI (gh) is not installed. Please install it first: https://cli.github.com/\n");
+			exit(1);
+		}
+		$this->cli = $cli;
+		$this->username = $username;
+		$this->org = $org;
+		$this->days = $days;
+		$this->repoFilter = $repoFilter;
+		$this->repoLimit = $repoLimit;
+		$this->since = date('Y-m-d', strtotime("-$days days"));
+
+		$this->baseDir = $wikiPath
+			? $cli->convertPathToAbsolute($wikiPath)
+			: $cli->convertPathToAbsolute("~/Downloads/github-activity-$username");
+
+		$this->activityDir = "{$this->baseDir}/activity";
+
+		$this->createDirectories();
+	}
+
+	private function createDirectories() {
+		foreach ([$this->baseDir, $this->activityDir] as $dir) {
+			if (!is_dir($dir)) {
+				mkdir($dir, 0777, true);
+			}
+		}
+	}
+
+	private function execGitHub($cmd) {
+		$output = shell_exec($cmd);
+		if ($output === null) {
+			$this->cli->err("GitHub CLI command failed: $cmd");
+			exit(1);
+		}
+		return $output;
+	}
+
+	private function jsonDecode($json, $context = '') {
+		$data = json_decode($json, true);
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			$this->cli->err("JSON decode error in $context: " . json_last_error_msg());
+			exit(1);
+		}
+		return $data ?: [];
+	}
+
+	public function generate() {
+		$repos = $this->getRepos();
+		$total = count($repos);
+
+		if ($total > 100 && empty($this->repoFilter)) {
+			$this->cli->err("Organization has more than 100 repositories. Please provide a --repoFilter parameter.\n");
+			exit(1);
+		}
+
+		if (!empty($this->repoFilter)) {
+			// Don't escape if it looks like a regex pattern (contains special chars)
+			$pattern = preg_match('/[\\^$.*+?()[\]{}|]/', $this->repoFilter)
+				? $this->repoFilter
+				: preg_quote($this->repoFilter, '/');
+
+			$repos = array_filter($repos, function($repo) use ($pattern) {
+				return preg_match("/{$pattern}/i", $repo);
+			});
+			$total = count($repos);
+		}
+
+		$this->cli->msg("Found $total " . ($this->repoFilter ? "filtered " : "") . "repositories\n", 'green');
+
+		foreach ($repos as $i => $repo) {
+			$repoName = $repo;
+			$current = $i + 1;
+			$this->cli->msg("[$current/$total] Processing $repoName...", 'yellow');
+
+			$this->processRepo($repoName);
+
+			$this->cli->msg(" done\n", 'green');
+		}
+
+		if (empty($this->activity)) {
+			$this->cli->msg("\nNo activity found for the given time period.\n", 'yellow');
+			exit(0);
+		}
+
+		$this->cli->msg("Writing monthly files...", 'yellow');
+		$this->writeMonthlyFiles();
+		$this->cli->msg(" done\n", 'green');
+
+		$this->cli->msg("Writing index file...", 'yellow');
+		$this->writeIndexFile();
+		$this->cli->msg(" done\n", 'green');
+	}
+
+	private function getRepos() {
+		$limited = $this->repoLimit !== 501;
+		$limit = $limited ? " (limit {$this->repoLimit})" : '';
+		$this->cli->msg("Fetching repositories{$limit}...", 'yellow');
+
+		if ( ! $limited ) {
+			// There's no pagination in the gh cli, so we need to use gh api
+			$json = $this->execGitHub("gh api -H 'Accept: application/vnd.github+json' -X GET '/orgs/{$this->org}/repos?per_page=500' --jq '.[].name' --paginate");
+		} else {
+			$json = $this->execGitHub("gh repo list {$this->org} --json name --limit {$this->repoLimit} --jq '.[].name'");
+		}
+
+		$repos = explode( "\n", $json );
+		$repos = array_filter( $repos );
+
+		return $repos;
+	}
+
+	private function processRepo($repoName) {
+		$fullRepo = "{$this->org}/$repoName";
+
+		// Get pull requests
+		$this->cli->msg("\n  • Fetching pull requests...", 'cyan', false);
+		$prsJson = $this->execGitHub("gh pr list --repo $fullRepo --author {$this->username} --state all --json number,title,url,createdAt,body,author,state,comments --search 'created:>={$this->since}'");
+		$prs = $this->jsonDecode($prsJson, "pull requests for $repoName");
+		$this->cli->msg(" found " . count($prs), 'green');
+
+		if (!empty($prs)) {
+			foreach ($prs as $pr) {
+				// Fetch PR comments
+				$this->cli->msg("    ↳ Fetching comments for PR #{$pr['number']}...", 'cyan', false);
+				$commentsJson = $this->execGitHub("gh pr view {$pr['number']} --repo $fullRepo --json comments");
+				$comments = $this->jsonDecode($commentsJson, "PR #{$pr['number']} comments")['comments'] ?? [];
+				$this->cli->msg(" found " . count($comments), 'green');
+
+				$pr['comments'] = $comments;
+				$month = date('Y-m', strtotime($pr['createdAt']));
+				$this->activity[$month]['pull_requests'][$repoName][] = $pr;
+			}
+		}
+
+		// Get issues
+		$this->cli->msg("  • Fetching issues...", 'cyan', false);
+		$issuesJson = $this->execGitHub("gh issue list --repo $fullRepo --author {$this->username} --state all --json number,title,url,createdAt,body,author,state --search 'created:>={$this->since}'");
+		$issues = $this->jsonDecode($issuesJson, "issues for $repoName");
+		$this->cli->msg(" found " . count($issues), 'green');
+
+		if (!empty($issues)) {
+			foreach ($issues as $issue) {
+				$month = date('Y-m', strtotime($issue['createdAt']));
+				$this->activity[$month]['issues'][$repoName][] = $issue;
+			}
+		}
+	}
+
+	private function writeMonthlyFiles() {
+		foreach ($this->activity as $month => $monthActivity) {
+			$output = "# GitHub Activity - " . date('F Y', strtotime("$month-01")) . "\n\n";
+
+			if (!empty($monthActivity['pull_requests'])) {
+				$output .= "## Pull Requests\n\n";
+				foreach ($monthActivity['pull_requests'] as $repo => $prs) {
+					$output .= "### $repo\n\n";
+					foreach ($prs as $pr) {
+						$output .= "#### PR #{$pr['number']}: `{$pr['title']}`\n"
+							. "**Status:** {$pr['state']}\n"
+							. "**Author:** {$pr['author']['login']}\n"
+							. "**Created:** " . date('Y-m-d', strtotime($pr['createdAt'])) . "\n"
+							. "**URL:** {$pr['url']}\n\n"
+							. "{$pr['body']}\n\n";
+
+						if (!empty($pr['comments'])) {
+							$output .= "##### PR #{$pr['number']} — Comments\n\n";
+							foreach ($pr['comments'] as $comment) {
+								$output .= "**{$comment['author']['login']}** on "
+									. date('Y-m-d', strtotime($comment['createdAt']))
+									. ":\n\n{$comment['body']}\n\n---\n\n";
+							}
+						}
+					}
+				}
+			}
+
+			if (!empty($monthActivity['issues'])) {
+				$output .= "## Issues\n\n";
+				foreach ($monthActivity['issues'] as $repo => $issues) {
+					$output .= "### $repo\n\n";
+					foreach ($issues as $issue) {
+						$output .= "#### Issue #{$issue['number']}: `{$issue['title']}`\n"
+							. "**Status:** {$issue['state']}\n"
+							. "**Author:** {$issue['author']['login']}\n"
+							. "**Created:** " . date('Y-m-d', strtotime($issue['createdAt'])) . "\n"
+							. "**URL:** {$issue['url']}\n\n"
+							. "{$issue['body']}\n\n";
+					}
+				}
+			}
+
+			$monthFile = "{$this->activityDir}/$month.md";
+			$this->cli->writeToFile($monthFile, $output, [
+				'relative' => false,
+				'failExit' => true,
+				'silent' => true,
+			]);
+		}
+	}
+
+	private function writeIndexFile() {
+		$output = "# GitHub Activity for {$this->username} since {$this->since}\n\n";
+
+		foreach ($this->activity as $month => $monthActivity) {
+			if (!empty($monthActivity['pull_requests'])) {
+				$output .= "## Pull Requests\n\n";
+				foreach ($monthActivity['pull_requests'] as $repo => $prs) {
+					$output .= "### $repo\n\n";
+					foreach ($prs as $pr) {
+						$output .= "- [[activity/$month.md#PR {$pr['number']} `{$pr['title']}`|`{$pr['title']}`]] ([GitHub]({$pr['url']})) - "
+							. date('Y-m-d', strtotime($pr['createdAt'])) . "\n";
+					}
+					$output .= "\n";
+				}
+			}
+
+			if (!empty($monthActivity['issues'])) {
+				$output .= "## Issues\n\n";
+				foreach ($monthActivity['issues'] as $repo => $issues) {
+					$output .= "### $repo\n\n";
+					foreach ($issues as $issue) {
+						$output .= "- [[activity/$month.md#Issue {$issue['number']} `{$issue['title']}`|`{$issue['title']}`]] ([GitHub]({$issue['url']})) - "
+							. date('Y-m-d', strtotime($issue['createdAt'])) . "\n";
+					}
+					$output .= "\n";
+				}
+			}
+		}
+
+		$indexFile = "{$this->baseDir}/activity-last-{$this->days}-days.md";
+		$this->cli->writeToFile($indexFile, $output, [
+			'relative' => false,
+			'failExit' => true,
+			'silent' => true,
+		]);
+
+		$this->cli->msg("\nLog file saved to: $indexFile\n", 'green');
+		$this->cli->msg("Activity files saved to: {$this->activityDir}\n", 'green');
+	}
+}
+
+$username = $cli->getArg(1);
+$org = $cli->getArg(2);
+
+if (empty($username) || empty($org)) {
+	$cli->err("Please provide both a GitHub username and organization\n");
+	$cli->msg($helpyHelperton->getHelp());
+	exit(1);
+}
+
+$days = $cli->getArg(3, 7);
+$wikiPath = $cli->getFlag('wikiPath');
+$repoFilter = $cli->getFlag('repoFilter');
+$repoLimit = $cli->getFlag('repoLimit', 501);
+
+foreach (compact('days', 'repoLimit') as $key => $value) {
+	if ($value <= 0 || !is_numeric($value)) {
+		$cli->err("--{$key} must be a positive number");
+		$cli->msg($helpyHelperton->getHelp());
+		exit(1);
+	}
+}
+
+$logger = new GitHubActivityLogger(
+	$cli,
+	$username,
+	$org,
+	$days,
+	$wikiPath,
+	$repoFilter,
+	$repoLimit
+);
+$logger->generate();
