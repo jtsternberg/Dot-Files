@@ -1,0 +1,217 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Git User Activity Logger
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Generates a log of Git activity for a given user over a specified time period.
+#
+# Examples:
+# gituserlog "Justin Sternberg" 94
+# gituserlog "Justin Sternberg"    # Uses default 7 days
+# gituserlog config               # Create/edit .ghrepos config file
+#
+# Usage (`gituserlog -h`):
+# gituserlog <author> [<days>]
+# gituserlog config
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('gituserlog')
+	->setPrefix('')
+	->setDescription('Generate a log of Git activity for a given user')
+	->setup('gituserlog', [
+		'<author> [<days>]' => [
+			'Generate git log for author',
+			'<author>  Git author name to fetch activity for',
+			'[<days>]  Number of days to look back (default: 7)',
+		],
+		'config' => [
+			'Create/edit .ghrepos configuration file',
+		],
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
+	exit(0);
+}
+
+const CONFIG_FILE = '.ghrepos';
+
+// Handle config command
+if ('config' === $cli->getArg(1)) {
+	$configPath = findConfigFile(getcwd());
+
+	if (empty($configPath)) {
+		// Create new config file
+		$template = "[\n\t\"git@github.com:org/repo.git\",\n\t\"git@github.com:org/another-repo.git\"\n]\n";
+		$configPath = CONFIG_FILE;
+
+		$cli->writeToFile($configPath, $template, [
+			'failExit' => true,
+			'silent' => true,
+		]);
+
+		$cli->msg("Created new config file: $configPath\n", 'green');
+	}
+
+	// Open in configured editor
+	passthru(getenv('EDITOR') . ' ' . escapeshellarg($configPath));
+	exit(0);
+}
+
+function findConfigFile($startDir, $maxLevels = 5) {
+	$currentDir = rtrim($startDir, '/');
+	$configPath = '';
+	$levelsUp = 0;
+
+	while ($levelsUp < $maxLevels) {
+		$testPath = $currentDir . '/' . CONFIG_FILE;
+		if (file_exists($testPath)) {
+			$configPath = $testPath;
+			break;
+		}
+
+		$parentDir = dirname($currentDir);
+		if ($parentDir === $currentDir) {
+			break;
+		}
+
+		$currentDir = $parentDir;
+		$levelsUp++;
+	}
+
+	return $configPath;
+}
+
+class GitUserLogger {
+	private $cli;
+	private $author;
+	private $days = 7;
+	private $logsdir;
+	private $repos = [];
+
+	public function __construct($cli, $author, $days = 7) {
+		$this->cli = $cli;
+		$this->author = $author;
+		$this->days = $days;
+		$this->logsdir = dirname($cli->wd) . '/weeklylog';
+		$this->loadRepos();
+	}
+
+	private function loadRepos() {
+		$configPath = findConfigFile($this->cli->wd);
+		if (empty($configPath)) {
+			$this->cli->err('Error: No .ghrepos configuration found.');
+			$this->cli->msg("\nRun 'gituserlog config' to create and edit configuration.\n", 'yellow');
+			exit(1);
+		}
+
+		$config = json_decode(file_get_contents($configPath), true);
+		if (!$config || !is_array($config)) {
+			$this->cli->err('Error: Invalid .ghrepos configuration file');
+			exit(1);
+		}
+
+		$this->repos = $config;
+	}
+
+	public function generate() {
+		if (empty($this->author)) {
+			$this->cli->msg("\nListing all authors\n", 'green');
+			$allAuthors = $this->getAllAuthors();
+			exit(implode("\n", $allAuthors) . "\n\n");
+		}
+
+		$this->cli->msg("\nCommits for {$this->author} in last {$this->days} days...");
+
+		foreach ($this->repos as $repo) {
+			$contents = $this->showUserLog($repo);
+			if (!empty($contents)) {
+				echo $contents;
+			}
+		}
+		echo "\n";
+	}
+
+	private function getAllAuthors() {
+		$allAuthors = [];
+		foreach ($this->repos as $repo) {
+			$authors = $this->getRepoAuthors($repo);
+			$allAuthors = array_merge($allAuthors, $authors);
+			chdir($this->logsdir);
+		}
+
+		return array_unique(array_filter($allAuthors));
+	}
+
+	private function getRepoAuthors($repo) {
+		$prev = !empty($this->cli->flags['silent']) ? $this->cli->flags['silent'] : false;
+		$this->cli->flags['silent'] = '--silent';
+		$this->updateRepo($repo);
+		if ($prev) {
+			$this->cli->flags['silent'] = $prev;
+		} else {
+			unset($this->cli->flags['silent']);
+		}
+
+		return explode("\n", `git log --format='%aN' | sort -u`);
+	}
+
+	private function showUserLog($repo) {
+		$reponame = $this->updateRepo($repo);
+
+		$porcelain = $this->cli->hasFlags('porcelain') ? ' --no-color' : '';
+		$output = `git log --pretty=format:"%C(yellow)%h [%ai]%Cred%d %Creset%s%Cblue [%cn]%Creset" --decorate --date=short --reverse --all --since="{$this->days} days ago" --author="{$this->author}"$porcelain`;
+
+		if (!empty($output)) {
+			$this->cli->msg("\nFrom: $reponame\n", 'green');
+			return $output . "\n";
+		}
+
+		return '';
+	}
+
+	private function updateRepo($repo, $branch = 'master') {
+		preg_match_all('~\/(.+)\.git~', $repo, $matches);
+
+		if (empty($matches[1][0])) {
+			die(print_r(compact('matches', 'repo'), true));
+		}
+
+		$reponame = $matches[1][0];
+		$repodir = $this->logsdir . '/' . $reponame;
+
+		if (is_dir($repodir)) {
+			chdir($repodir);
+			`git pull --rebase --quiet`;
+		} else {
+			$this->cli->msg("\nCloning: $repo\n", 'green');
+			`git clone $repo --quiet`;
+			chdir($repodir);
+		}
+
+		`git checkout $branch --quiet`;
+
+		return $reponame;
+	}
+}
+
+$author = $cli->getArg(1);
+$days = $cli->getArg(2, 7);
+
+if ($days <= 0 || !is_numeric($days)) {
+	$cli->err("Days must be a positive number\n");
+	$cli->msg($helpyHelperton->getHelp());
+	exit(1);
+}
+
+$logger = new GitUserLogger($cli, $author, $days);
+$logger->generate();
+
