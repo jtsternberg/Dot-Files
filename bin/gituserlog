@@ -56,7 +56,15 @@ class GitUserLogger {
 		$this->cli = $cli;
 		$this->author = $author;
 		$this->days = $days;
-		$this->logsdir = dirname($cli->wd) . '/weeklylog';
+
+		// Create a unique temp directory for this script
+		$this->logsdir = sys_get_temp_dir() . '/gituserlog';
+
+		// Ensure temp directory exists
+		if (!is_dir($this->logsdir)) {
+			mkdir($this->logsdir, 0777, true);
+		}
+
 		$this->loadRepos();
 
 		return $this;
@@ -83,6 +91,8 @@ class GitUserLogger {
 	}
 
 	public function generate() {
+		chdir($this->logsdir);
+
 		if (empty($this->author)) {
 			$this->cli->msg("\nListing all authors\n", 'green');
 			$allAuthors = $this->getAllAuthors();
