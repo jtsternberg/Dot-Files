@@ -51,13 +51,15 @@ class GitHubActivityLogger {
 	private $cli;
 	private $username;
 	private $org;
-	private $days;
+	private $days = 7;
 	private $since;
 	private $activity = [];
-	private $baseDir;
-	private $activityDir;
-	private $repoFilter;
-	private $repoLimit;
+	private $baseDir = '';
+	private $fileName = '';
+	private $activityDir = '';
+	private $repoFilter = '';
+	private $repoSearch = '';
+	private $repoLimit = 501;
 
 	public function __construct(
 		$cli,
@@ -66,6 +68,7 @@ class GitHubActivityLogger {
 		$days = 7,
 		$wikiPath = '',
 		$repoFilter = '',
+		$repoSearch = '',
 		$repoLimit = 501
 	) {
 		// Check gh CLI is installed
@@ -78,6 +81,7 @@ class GitHubActivityLogger {
 		$this->org = $org;
 		$this->days = $days;
 		$this->repoFilter = $repoFilter;
+		$this->repoSearch = $repoSearch;
 		$this->repoLimit = $repoLimit;
 		$this->since = date('Y-m-d', strtotime("-$days days"));
 
@@ -85,7 +89,8 @@ class GitHubActivityLogger {
 			? $cli->convertPathToAbsolute($wikiPath)
 			: $cli->convertPathToAbsolute("~/Downloads/github-activity-$username");
 
-		$this->activityDir = "{$this->baseDir}/activity";
+		$this->fileName = "activity-last-{$this->days}-days";
+		$this->activityDir = "{$this->baseDir}/{$this->fileName}";
 
 		$this->createDirectories();
 	}
@@ -166,19 +171,57 @@ class GitHubActivityLogger {
 	private function getRepos() {
 		$limited = $this->repoLimit !== 501;
 		$limit = $limited ? " (limit {$this->repoLimit})" : '';
-		$this->cli->msg("Fetching repositories{$limit}...", 'yellow');
+		$action = $this->repoSearch ? 'Searching' : 'Fetching';
+		$this->cli->msg("{$action} repositories{$limit}...", 'yellow');
 
-		if ( ! $limited ) {
-			// There's no pagination in the gh cli, so we need to use gh api
-			$json = $this->execGitHub("gh api -H 'Accept: application/vnd.github+json' -X GET '/orgs/{$this->org}/repos?per_page=500' --jq '.[].name' --paginate");
-		} else {
-			$json = $this->execGitHub("gh repo list {$this->org} --json name --limit {$this->repoLimit} --jq '.[].name'");
-		}
+		$limit = $limited ? $this->repoLimit : false;
+		$cmd = ! empty( $this->repoSearch )
+			? $this->searchReposCommand($limit)
+			: $this->filteredReposCommand($limit);
+
+		$cmd[] = "--jq '.[].name'";
+
+		$json = $this->execGitHub(implode(' ', $cmd));
 
 		$repos = explode( "\n", $json );
 		$repos = array_filter( $repos );
 
 		return $repos;
+	}
+
+	private function filteredReposCommand($repoLimit) {
+		$cmd = [];
+		if ( $repoLimit ) {
+			$cmd[] = "gh repo list {$this->org}";
+			$cmd[] = '--json=name';
+			$cmd[] = "--limit {$repoLimit}";
+		} else {
+			// There's no pagination in the gh cli, so we need to use gh api
+			$cmd[] = 'gh api';
+			$cmd[] = "-X GET '/orgs/{$this->org}/repos?per_page=500'";
+			$cmd[] = "-H 'Accept: application/vnd.github+json'";
+			$cmd[] = '--paginate';
+		}
+
+		return $cmd;
+	}
+
+	private function searchReposCommand($repoLimit) {
+		$cmd = ["gh search repos"];
+
+		// Add org filter
+		$cmd[] = "--owner={$this->org}";
+		$escaped = escapeshellarg($this->repoSearch);
+		$cmd[] = "in:name {$escaped}";
+
+		if ($repoLimit) {
+			$cmd[] = "--limit=" . $repoLimit;
+		}
+
+		// Get just the repo names
+		$cmd[] = '--json name';
+
+		return $cmd;
 	}
 
 	private function processRepo($repoName) {
@@ -299,7 +342,7 @@ class GitHubActivityLogger {
 			}
 		}
 
-		$indexFile = "{$this->baseDir}/activity-last-{$this->days}-days.md";
+		$indexFile = "{$this->baseDir}/{$this->fileName}.md";
 		$this->cli->writeToFile($indexFile, $output, [
 			'relative' => false,
 			'failExit' => true,
@@ -323,6 +366,7 @@ if (empty($username) || empty($org)) {
 $days = $cli->getArg(3, 7);
 $wikiPath = $cli->getFlag('wikiPath');
 $repoFilter = $cli->getFlag('repoFilter');
+$repoSearch = $cli->getFlag('repoSearch');
 $repoLimit = $cli->getFlag('repoLimit', 501);
 
 foreach (compact('days', 'repoLimit') as $key => $value) {
@@ -340,6 +384,7 @@ $logger = new GitHubActivityLogger(
 	$days,
 	$wikiPath,
 	$repoFilter,
+	$repoSearch,
 	$repoLimit
 );
 $logger->generate();
