@@ -114,7 +114,13 @@ alias brewcompletions="/opt/homebrew/share/zsh/site-functions"
 # alias svn='/usr/local/bin/svn'
 
 # Local shell
-alias localshell='bash "$(_localshell)"'
+localshell() {
+	if [ $# -eq 0 ]; then
+		bash "$(_localshell)"
+	else
+		_localshell "$@"
+	fi
+}
 
 ## Git functions
 source ~/.dotfiles/.git-functions
