@@ -254,7 +254,7 @@ class Helpers {
 	 * @return boolean
 	 */
 	public function isSilent() {
-		return $this->hasFlags( [ 'silent', 'porcelain' ], 'shh' );
+		return $this->hasFlags( [ 'silent' ], 'shh' );
 	}
 
 	/**
@@ -514,6 +514,10 @@ class Helpers {
 			'light_cyan'    => "\033[96m",
 			'white'         => "\033[97m",
 		);
+
+		if ( $this->hasFlags( [ 'porcelain' ] ) ) {
+			return '';
+		}
 
 		return $color && isset( $colors[ $color ] )
 			? $colors[ $color ]
