@@ -30,7 +30,6 @@ $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
 	->setScriptName('githubuserlog')
-	->setPrefix('')
 	->setDescription('Generate a log of GitHub activity for a given user')
 	->setSampleUsage('<username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>]')
 	->buildDocs([

@@ -25,16 +25,17 @@ $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
 	->setScriptName('gituserlog')
-	->setPrefix('')
 	->setDescription('Generate a log of Git activity for a given user')
 	->setSampleUsage('<author> [<days>] [--porcelain]')
+	->setupDefaultCommand([
+		'<author>'    => 'The Git author name to fetch activity for',
+		'[<days>]'    => 'Number of days to look back (default: 7)',
+		'--porcelain' => 'Output in porcelain format (for redirecting to file, etc.)',
+      '' => 'E.g. gituserlog "Justin Sternberg" 94 --porcelain > gitactivity.log',
+	])
 	->setup('gituserlog', [
-		'<author> [<days>]' => [
-			'Generate git log for author',
-			'<author>  Git author name to fetch activity for',
-			'[<days>]  Number of days to look back (default: 7)',
-		],
 		'config' => [
+			'',
 			'Create/edit .ghrepos configuration file',
 		],
 	]);

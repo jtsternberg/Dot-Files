@@ -10,25 +10,41 @@ namespace JT;
 # Manages configuration for LocalWP's Site Shell scripts to modify directory paths.
 #
 # Usage:
-# localshell config --scriptPath="~/Local Sites/my-site/shell.sh"
-# localshell config --scriptPath="~/Local Sites/my-site/shell.sh" --destinationPath="~/projects"
-# localshell                 # Runs with saved configuration
+# _localshell config --scriptPath="~/Local Sites/my-site/shell.sh"
+# _localshell config --scriptPath="~/Local Sites/my-site/shell.sh" --destinationPath="~/projects"
+# bash "$(_localshell)"  # Runs with saved configuration
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
 $helpyHelperton = $cli->getHelp();
-
+/*
 $helpyHelperton
-	->setScriptName('localshell')
+	->setScriptName('_localshell')
 	->setPrefix('')
 	->setDescription('Manages configuration for LocalWP\'s Site Shell scripts to modify directory paths.')
-	->setup('localshell', [
+	->setup('_localshell', [
 		' - Runs localshellupdater with saved configuration' => [''],
 		'config' => [
 			'--scriptPath=<path> [--destinationPath=<path>]',
 			'Save configuration for future use',
 			'--scriptPath=<path>      Path to LocalWP site shell script',
 			'--destinationPath=<path> Custom destination path (optional)',
+		],
+	]);
+ */
+$helpyHelperton
+	->setScriptName('bash "$(_localshell)"')
+	->setDescription("Manages configuration for LocalWP's Site Shell scripts to modify directory paths.\n\nScript returns the path to the LocalWP site shell script. To run the\nLocalWP site shell script, you need to run `bash \"$(_localshell)\"`")
+	->setupDefaultCommand([])
+	->setup('_localshell', [
+		'config' => [
+			'--scriptPath=<path> [--destinationPath=<path>]',
+			'Save configuration for future use',
+			'--scriptPath=<path>      Path to LocalWP site shell script',
+			'',
+			"--destinationPath=<path> Custom destination path (optional)
+                         Updates/overrides the directory that the LocalWP
+                         site shell script will cd into after running.",
 		],
 	]);
 
@@ -82,7 +98,7 @@ if ('config' === $cli->getArg(1)) {
 	// Validate at least one option was provided
 	if (!$hasValidOption) {
 		$cli->err('Error: At least one option (--scriptPath or --destinationPath) is required');
-		$cli->msg("\nRunning 'localshell config --help' for usage information...", 'yellow');
+		$cli->msg("\nRunning '_localshell config --help' for usage information...", 'yellow');
 		$cli->msg("\n" . $helpyHelperton->getHelp('config'));
 		exit(1);
 	}
@@ -107,8 +123,8 @@ if (empty($cli->getArg(1))) {
 	// Check if config file exists in current or parent directories
 	$configPath = findConfigFile($cli->wd);
 	if (empty($configPath)) {
-		$cli->err('Error: No configuration found. Run \'localshell config\' first');
-		$cli->msg("\nRunning 'localshell --help' for usage information...", 'yellow');
+		$cli->err('Error: No configuration found. Run \'_localshell config\' first');
+		$cli->msg("\nRunning '_localshell --help' for usage information...", 'yellow');
 		$cli->msg($helpyHelperton->getHelp());
 		exit(1);
 	}
@@ -136,6 +152,6 @@ if (empty($cli->getArg(1))) {
 
 // Invalid command
 $cli->err("Error: Unknown command '{$cli->getArg(1)}'");
-$cli->msg("\nRunning 'localshell --help' for usage information...", 'yellow');
+$cli->msg("\nRunning '_localshell --help' for usage information...", 'yellow');
 $cli->msg($helpyHelperton->getHelp());
 exit(1);
