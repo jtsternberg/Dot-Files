@@ -37,35 +37,101 @@ $helpyHelperton = $cli->getHelp();
 ```
 
 ### Single-Command Help Documentation
+
+For when the command is a single command, with no sub-commands.
+
 ```php
 $helpyHelperton
-    ->setScriptName('{{scriptName}}')
-    ->setPrefix('')
-    ->setDescription('{{description}}')
-    ->setSampleUsage('{{usage}}')
-    ->buildDocs([
-        '{{argument}}' => '{{argument_description}}',
-    ]);
+	->setScriptName('example')
+	->setDescription('Description of example')
+	->setSampleUsage('<arg1> <arg2> [<arg3>] [--flagWithValue=<value>] [--flag]')
+	->buildDocs([
+		'<arg1>'                  => 'Explanation of arg1',
+		'<arg2>'                  => 'Explanation of arg2',
+		'[<arg3>]'                => 'Explanation of arg3',
+		'--flagWithValue=<value>' => 'Explanation of flagWithValue',
+		'--flag'                  => 'Explanation of flag',
+	]);
 
 if ($helpyHelperton->batSignal) {
-    $cli->msg($helpyHelperton->getHelp());
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+```
+
+### Sub-Command Help Documentation
+
+For when the command only has sub-commands (not a primary command/function).
+
+```php
+$helpyHelperton
+	->setScriptName('parentcommand')
+	->setDescription('Description of parentcommand')
+	->setup('parentcommand', [
+		'subcommand' => [
+			'<arg1> <arg2> [<arg3>] [--flagWithValue=<value>] [--flag]',
+			'Description of subcommand',
+'<arg1>          Explanation of arg1
+<arg2>          Explanation of arg2
+<arg3>          Explanation of arg3
+
+--flagWithValue=<value>
+                Longer explanation for flag with value
+                Value can be one of: \'one\', \'two\', \'three\', \'four\'
+                or yadda yadda yadda
+
+--flag          Explanation of flag
+
+-y, --yes       Will autoconfirm all prompts. Use to bla bla bla
+
+--porcelain     Used to return clean output to other scripts.
+-shh, --silent  Prevents outputting help/progress messages.',
+		],
+	]);
+
+if ($helpyHelperton->batSignal) {
+    $cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
     exit(0);
 }
 ```
 
-### Multi-Command Help Documentation
+### Primary command with sub-commands Help Documentation
+
+For when the command is a primary command, with sub-commands.
+
 ```php
 $helpyHelperton
-    ->setScriptName('{{scriptName}}')
-    ->setPrefix('')
-    ->setDescription('{{description}}')
-    ->setup('{{scriptName}}', [
-        '{{command}}' => [
-            '{{command_usage}}',
-            '{{command_description}}',
-            '{{command_options}}',
-        ],
-    ]);
+	->setScriptName('primarycommand')
+	->setDescription('Description of primarycommand')
+	->setSampleUsage('<arg1> <arg2> [<arg3>] [--flagWithValue=<value>] [--flag]')
+	->setupDefaultCommand([
+		'<arg1>'                  => 'Explanation of arg1',
+		'<arg2>'                  => 'Explanation of arg2',
+		'[<arg3>]'                => 'Explanation of arg3',
+		'--flagWithValue=<value>' => 'Explanation of flagWithValue',
+		'--flag'                  => 'Explanation of flag',
+	])
+	->setup('primarycommand', [
+		'subcommand' => [
+			'<arg1> <arg2> [<arg3>] [--flagWithValue=<value>] [--flag]',
+			'Description of subcommand',
+'<arg1>          Explanation of arg1
+<arg2>          Explanation of arg2
+<arg3>          Explanation of arg3
+
+--flagWithValue=<value>
+                Longer explanation for flag with value
+                Value can be one of: \'one\', \'two\', \'three\', \'four\'
+                or yadda yadda yadda
+
+--flag          Explanation of flag
+
+-y, --yes       Will autoconfirm all prompts. Use to bla bla bla
+
+--porcelain     Used to return clean output to other scripts.
+-shh, --silent  Prevents outputting help/progress messages.',
+		],
+	]);
 
 if ($helpyHelperton->batSignal) {
     $cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
