@@ -48,14 +48,17 @@ if ($helpyHelperton->batSignal) {
 const CONFIG_FILE = '.ghrepos.jsonc';
 
 class GitUserLogger {
-	private $cli;
 	private $author;
 	private $days = 7;
 	private $logsdir;
 	private $repos = [];
 
-	public function init($cli, $author, $days = 7) {
-		$this->cli = $cli;
+	public function __construct(
+		private $cli
+	) {
+	}
+
+	public function init($author, $days = 7) {
 		$this->author = $author;
 		$this->days = $days;
 
@@ -164,6 +167,7 @@ class GitUserLogger {
 		if (!empty($output)) {
 			return $output . "\n\n";
 		}
+		chdir($this->logsdir);
 
 		return '';
 	}
@@ -215,12 +219,12 @@ class GitUserLogger {
 	JSON;
 			$configPath = CONFIG_FILE;
 
-			$cli->writeToFile($configPath, $template, [
+			$this->cli->writeToFile($configPath, $template, [
 				'failExit' => true,
 				'silent' => true,
 			]);
 
-			$cli->msg("Created new config file: $configPath\n", 'green');
+			$this->cli->msg("Created new config file: $configPath\n", 'green');
 		}
 
 		// Open in configured editor
@@ -252,7 +256,7 @@ class GitUserLogger {
 	}
 }
 
-$logger = new GitUserLogger();
+$logger = new GitUserLogger($cli);
 
 // Handle config command
 if ('config' === $cli->getArg(1)) {
@@ -270,5 +274,5 @@ if ($days <= 0 || !is_numeric($days)) {
 }
 
 $logger
-	->init($cli, $author, $days)
+	->init($author, $days)
 	->generate();
