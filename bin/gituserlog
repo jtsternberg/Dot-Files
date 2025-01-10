@@ -27,6 +27,7 @@ $helpyHelperton
 	->setScriptName('gituserlog')
 	->setPrefix('')
 	->setDescription('Generate a log of Git activity for a given user')
+	->setSampleUsage('<author> [<days>] [--porcelain]')
 	->setup('gituserlog', [
 		'<author> [<days>]' => [
 			'Generate git log for author',
@@ -94,16 +95,24 @@ class GitUserLogger {
 		chdir($this->logsdir);
 
 		if (empty($this->author)) {
-			$this->cli->msg("\nListing all authors\n", 'green');
+			$this->cli->msg("\nFetching all authors...", 'yellow');
 			$allAuthors = $this->getAllAuthors();
+			$this->cli->msg("\n" . count($allAuthors) . " authors found", 'green');
 			exit(implode("\n", $allAuthors) . "\n\n");
 		}
 
-		$this->cli->msg("\nCommits for {$this->author} in last {$this->days} days...");
+		$total = count($this->repos);
+		$this->cli->msg("\nFetching commits for {$this->author} in last {$this->days} days...\n", 'yellow');
 
-		foreach ($this->repos as $repo) {
+		foreach ($this->repos as $i => $repo) {
+			$current = $i + 1;
+			$this->cli->msg("[$current/$total] Processing ", 'yellow', false);
 			$contents = $this->showUserLog($repo);
-			if (!empty($contents)) {
+			if (empty($contents)) {
+				$this->cli->msg(" done", 'green', false);
+				$this->cli->msg(" (no commits found)");
+			} else {
+				$this->cli->msg(" done\n", 'green');
 				echo $contents;
 			}
 		}
@@ -112,8 +121,12 @@ class GitUserLogger {
 
 	private function getAllAuthors() {
 		$allAuthors = [];
-		foreach ($this->repos as $repo) {
+		$total = count($this->repos);
+		foreach ($this->repos as $i => $repo) {
+			$current = $i + 1;
+			$this->cli->msg("\n[$current/$total] Checking {$repo}...", 'yellow', false);
 			$authors = $this->getRepoAuthors($repo);
+			$this->cli->msg(" found " . count($authors) . " authors", 'green');
 			$allAuthors = array_merge($allAuthors, $authors);
 			chdir($this->logsdir);
 		}
@@ -124,25 +137,31 @@ class GitUserLogger {
 	private function getRepoAuthors($repo) {
 		$prev = !empty($this->cli->flags['silent']) ? $this->cli->flags['silent'] : false;
 		$this->cli->flags['silent'] = '--silent';
-		$this->updateRepo($repo);
+		$repodir = $this->updateRepo($repo);
+
+		if (!is_dir($repodir)) {
+			return [];
+		}
+
+		chdir($repodir);
+		$output = `git log --format='%aN' | sort -u 2>/dev/null`;
+
 		if ($prev) {
 			$this->cli->flags['silent'] = $prev;
 		} else {
 			unset($this->cli->flags['silent']);
 		}
 
-		return explode("\n", `git log --format='%aN' | sort -u`);
+		return $output ? explode("\n", $output) : [];
 	}
 
 	private function showUserLog($repo) {
 		$reponame = $this->updateRepo($repo);
-
 		$porcelain = $this->cli->hasFlags('porcelain') ? ' --no-color' : '';
 		$output = `git log --pretty=format:"%C(yellow)%h [%ai]%Cred%d %Creset%s%Cblue [%cn]%Creset" --decorate --date=short --reverse --all --since="{$this->days} days ago" --author="{$this->author}"$porcelain`;
 
 		if (!empty($output)) {
-			$this->cli->msg("\nFrom: $reponame\n", 'green');
-			return $output . "\n";
+			return $output . "\n\n";
 		}
 
 		return '';
@@ -157,19 +176,21 @@ class GitUserLogger {
 
 		$reponame = $matches[1][0];
 		$repodir = $this->logsdir . '/' . $reponame;
+		[$path, $reponame] = explode($this->logsdir . '/', $repodir);
 
 		if (is_dir($repodir)) {
 			chdir($repodir);
-			`git pull --rebase --quiet`;
+			$this->cli->msg("{$reponame} updating...", 'cyan', false);
+			`git pull --rebase --quiet 2>/dev/null`;
 		} else {
-			$this->cli->msg("\nCloning: $repo\n", 'green');
-			`git clone $repo --quiet`;
+			$this->cli->msg("{$reponame} cloning...", 'cyan', false);
+			`git clone $repo --quiet 2>/dev/null`;
 			chdir($repodir);
 		}
 
-		`git checkout $branch --quiet`;
+		`git checkout $branch --quiet 2>/dev/null`;
 
-		return $reponame;
+		return $repodir;
 	}
 
 
