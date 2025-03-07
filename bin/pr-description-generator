@@ -196,17 +196,19 @@ Based on the information provided in the attached file, please generate a compre
 [Provide a clear and concise description of the changes made in this pull request. Explain the issue that was fixed and the new behavior introduced.]
 
 ## Testing Procedure
+[Include a testing procedure for the changes made in this pull request. This should be a step-by-step guide for how to test the changes and ensure they work as expected. It should include things like test commands to run, CURL requests to make, UI interactions to perform, etc.]
 1. [Step-by-step instructions for testing the changes]
 2. [Include any specific scenarios or edge cases to be tested]
 3. [Add more steps as needed]
 
 ## Additional Notes
-- [Any relevant information, such as related issues or known limitations]
-- [Performance considerations, if applicable]
-- [Any other important details]
+[Optional section - Include only if relevant:
+- Links to related PRs or issues
+- Important implementation details that reviewers should be aware of
+- Breaking changes or deprecation notices]
 ```
 
-Please ensure that the generated description is informative, well-structured, and easy to understand for reviewers.
+Please ensure that the generated description is concise and focused on the key changes and testing requirements. The Additional Notes section should only be included if it provides valuable context beyond what's covered in the Description section.
 EOT;
 
 		return $prompt;
