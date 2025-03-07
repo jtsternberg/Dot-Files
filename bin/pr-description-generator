@@ -24,28 +24,28 @@ $helpyHelperton
 	->setScriptName('pr-description-generator')
 	->setPrefix('')
 	->setDescription('Generates a prompt for an AI to create a GitHub Pull Request description based on the current branch\'s changes compared to the main branch.')
-	->setSampleUsage('[--output=FILE] [--ignore=FILE1,FILE2,FILE3] [--verbose]')
-	->buildDocs([
+	->setSampleUsage('[--output=FILE] [--ignore=FILE1,FILE2,FILE3] [--base=BRANCH] [--verbose]')	->buildDocs([
 		'--output=FILE'              => 'Save the generated prompt to the specified file',
 		'--ignore=FILE1,FILE2,FILE3' => 'Comma-separated list of files to ignore in the diff output',
+		'--base=BRANCH'              => 'Base branch to compare against (defaults to main/master)',
 		'--verbose, -v'              => 'Display verbose output',
-	]);
+  ]);
 
-if ($helpyHelperton->batSignal) {
+  if ($helpyHelperton->batSignal) {
 	$cli->msg($helpyHelperton->getHelp());
 	exit(0);
 }
 
 class PRDescriptionGenerator {
 	protected $cli;
-	protected $mainBranch;
+	protected $baseBranch;
 	protected $currentBranch;
 	protected $ignoredFiles = ['package-lock.json', 'yarn.lock', 'composer.lock'];
 	protected $currentHash = '';
 
 	public function __construct(CLI\Helpers $cli) {
 		$this->cli = $cli;
-		$this->mainBranch = trim(`git getmain`);
+		$this->baseBranch = trim($cli->getFlag('base', `git getmain`));
 		$this->currentBranch = trim(`git rev-parse --abbrev-ref HEAD`);
 		$ignored = explode(',', $cli->getFlag('ignore', ''));
 		$ignored = array_map('trim', $ignored);
@@ -70,7 +70,7 @@ class PRDescriptionGenerator {
 
 	protected function getCommitsWithDiffs() {
 		$commits = [];
-		$commitHashes = explode("\n", trim(`git log {$this->mainBranch}..{$this->currentBranch} --format=%H`));
+		$commitHashes = explode("\n", trim(`git log {$this->baseBranch}..{$this->currentBranch} --format=%H`));
 		foreach ($commitHashes as $this->currentHash) {
 			$fullDiff = trim(`git show -p --no-color --ignore-all-space --ignore-space-change --pretty=format:"%h %s" {$this->currentHash}`);
 			$filteredDiff = $this->filterignoredFiles($fullDiff);
@@ -156,7 +156,7 @@ class PRDescriptionGenerator {
 	}
 
 	protected function getChangedFiles() {
-		return `git diff --name-status {$this->mainBranch}..{$this->currentBranch}`;
+		return `git diff --name-status {$this->baseBranch}..{$this->currentBranch}`;
 	}
 
 	protected function formatCommits($commits) {
@@ -175,7 +175,7 @@ class PRDescriptionGenerator {
 		$prompt = <<<EOT
 ## Branch Information
 - Current Branch: `{$this->currentBranch}`
-- Compared to: `{$this->mainBranch}`
+- Compared to: `{$this->baseBranch}`
 
 ## Commits
 
