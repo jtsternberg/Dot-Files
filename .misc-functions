@@ -58,7 +58,7 @@ findlogfile() {
 
 	# If still nothing, let's use find
 	if [[ -z "$FILE" ]]; then
-		FILE=`find . -iname '*.log' -maxdepth 2 | tail -n 1`;
+		FILE=`find . -iname '*.log' -maxdepth 3 | tail -n 1`;
 	fi
 
 	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
