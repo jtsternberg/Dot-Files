@@ -69,6 +69,7 @@ alias newtab="open -a iTerm ."
 alias nt="open -a iTerm ."
 alias code="cursor"
 alias lg="lazygit"
+alias ghv="gh repo view --web"
 
 # For when the sidebar items disappear.
 # https://apple.stackexchange.com/a/210469
