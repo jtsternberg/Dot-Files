@@ -168,7 +168,7 @@ class Helpers {
 	 *
 	 * @since  1.0.0
 	 *
-	 * @param  string $index    Inded for arg to get.
+	 * @param  string $index    Index for arg to get.
 	 * @param  mixed  $fallback Fallback value if arg not found.
 	 *
 	 * @return mixed
