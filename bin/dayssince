@@ -1,0 +1,157 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+
+# =============================================================================
+# Days Since Calculator
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Calculates the number of days since a given date.
+#
+# Usage:
+# dayssince <date> [--porcelain]
+#
+# Examples:
+# dayssince 2024-01-01
+# dayssince last monday
+# dayssince yesterday
+# dayssince quarter 1          # First quarter of current year
+# dayssince quarter 2 2024     # Second quarter of 2024
+# dayssince Q3                 # Third quarter of current year
+# dayssince Q4 2024           # Fourth quarter of 2024
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('dayssince')
+	->setDescription('Calculate the number of days since a given date')
+	->setSampleUsage('<date> [--porcelain]')
+	->buildDocs([
+		'<date>'      => 'The date to calculate days from. Supports various formats:
+                  - Standard dates (2024-01-01, yesterday, last monday)
+                  - Quarters with optional year:
+                    • quarter 1 / Q1 (defaults to next year)
+                    • quarter 2 2024 / Q2 2024
+                    • quarter 3 / Q3 (defaults to current year)
+                    • Q4 2024',
+		'--porcelain' => 'Output just the number of days without any formatting',
+	]);
+
+if ($helpyHelperton->batSignal || empty( $cli->getArg(1) ) ) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+class DaysSince {
+	public function __construct(
+		private $cli
+	) {}
+
+	protected function getDateFromArgs() {
+		$args = $this->cli->args;
+		unset( $args[0] );
+
+		return implode(' ', $args);
+	}
+
+	public function calculate($date = null) {
+		// If no date provided, try to get from args
+		if (empty($date)) {
+			$date = $this->getDateFromArgs();
+		}
+
+		if (empty($date)) {
+			throw new \Exception("Error: Date argument is required\n");
+		}
+
+		// Try to parse quarter format first
+		$quarterDate = $this->parseQuarter($date);
+		if ($quarterDate !== false) {
+			$timestamp = $quarterDate;
+		} else {
+			$timestamp = strtotime($date);
+		}
+
+		if ($timestamp === false) {
+			$this->cli->err("Error: Invalid date format\n");
+			exit(1);
+		}
+
+		$dateTime = new \DateTime();
+		$dateTime->setTimestamp($timestamp);
+		$now = new \DateTime();
+
+		$interval = $dateTime->diff($now);
+		$days = $interval->days;
+
+		// Handle future dates
+		if ($timestamp > time()) {
+			$days = -$days;
+		}
+
+		return $days;
+	}
+
+	protected function parseQuarter($date) {
+		// Match patterns like:
+		// - "quarter 1" or "Q1"
+		// - "quarter 2 2024" or "Q2 2024"
+		// - "quarter 3 of 2024"
+		if (!preg_match(
+			'/(?:quarter|Q)'  // "quarter" or "Q"
+			. '\s*'          // Optional whitespace
+			. '(\d)'         // Single digit (captured)
+			. '\s*'          // Optional whitespace
+			. '(?:'          // Non-capturing group start
+				. '(?:of\s*)?' // Optional "of" with whitespace
+				. '(\d{4})'    // Exactly 4 digits (captured)
+			. ')?'           // End optional non-capturing group
+			. '/i',          // Case-insensitive flag
+			$date,
+			$matches
+		)) {
+			return false;
+		}
+
+		$quarter = (int) $matches[1];
+		if ($quarter < 1 || $quarter > 4) {
+			$this->cli->err("Error: Quarter must be between 1 and 4\n");
+			exit(1);
+		}
+
+		// Always use current year if no year specified
+		$year = isset($matches[2]) ? (int) $matches[2] : (int) date('Y');
+
+		// Calculate the month based on quarter (Q1=1, Q2=4, Q3=7, Q4=10)
+		$month = (($quarter - 1) * 3) + 1;
+
+		return strtotime("$year-$month-01");
+	}
+
+	public function output($days) {
+		if ($this->cli->hasFlags('porcelain')) {
+			echo $days;
+			return;
+		}
+
+		if ($days === 0) {
+			$this->cli->msg("That's today!");
+		} elseif ($days === 1) {
+			$this->cli->msg("1 day ago");
+		} elseif ($days === -1) {
+			$this->cli->msg("1 day from now");
+		} elseif ($days < 0) {
+			$this->cli->msg(abs($days) . " days from now");
+		} else {
+			$this->cli->msg($days . " days ago");
+		}
+	}
+}
+
+$calculator = new DaysSince($cli);
+$days = $calculator->calculate();
+$calculator->output($days);
