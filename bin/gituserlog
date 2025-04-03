@@ -189,7 +189,19 @@ class GitUserLogger {
 			`git pull --rebase --quiet 2>/dev/null`;
 		} else {
 			$this->cli->msg("{$reponame} cloning...", 'cyan', false);
-			`git clone $repo --quiet 2>/dev/null`;
+			$output = `git clone $repo $repodir --quiet 2>&1`;
+			if (!empty($output)) {
+				throw new \Exception(
+					sprintf(
+						"Error: Failed to clone %s into %s.\nClone output: %s",
+						$repo,
+						$repodir,
+						$output
+					),
+					__LINE__
+				);
+			}
+
 			chdir($repodir);
 		}
 
@@ -273,6 +285,12 @@ if ($days <= 0 || !is_numeric($days)) {
 	exit(1);
 }
 
-$logger
-	->init($author, $days)
-	->generate();
+try {
+	$logger
+		->init($author, $days)
+		->generate();
+} catch (\Exception $e) {
+	$cli->err("\n\n{$e->getMessage()} on line {$e->getLine()}\n");
+	exit(1);
+}
+
