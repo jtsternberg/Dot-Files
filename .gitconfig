@@ -278,10 +278,11 @@
 	meta = yellow bold
 	; whitespace = red reverse
 [color "diff-highlight"]
-	oldNormal = red bold
+	oldNormal = red "#341e26"
 	oldHighlight = red reverse bold
-	newNormal = green bold
-	newHighlight = 22 bold green
+	newNormal = green
+    newNormal = green "#173318"
+	newHighlight = green "#1d572e" bold
 
 [interactive]
 # Use same diff highlighting for interactive staging
