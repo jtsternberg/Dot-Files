@@ -39,4 +39,4 @@ log show --style syslog --predicate 'eventMessage contains "Wake reason"' --last
 echo -e "\n🧾 Recent pmset sleep/wake events:\n" >> "$logfile"
 pmset -g log | grep -E "Sleep|Wake" | tail -n 100 >> "$logfile" 2>&1
 
-echo -e "\n✅ Log written to: $logfile\n"
+echo -e "\n✅ Log written to: $logfile ($(date))\n"
