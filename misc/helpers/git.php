@@ -163,8 +163,12 @@ class Git {
 	public function getNextTag( $type = 'patch' ) {
 		$lasttag = $this->currentTag();
 
-		$parts = explode( '.', $lasttag );
-		$keys = array_keys( $parts );
+		if ( empty( $lasttag ) ) {
+			$parts = [ 0, 0, 0 ];
+			$index = 0;
+		} else {
+			$parts = explode( '.', $lasttag );
+		}
 
 		// Allowed version number parts.
 		$keys = array(
@@ -189,11 +193,17 @@ class Git {
 			throw $error;
 		}
 
-		if ( ! isset( $parts[ $keys[ $type ] ] ) ) {
+		$index = $keys[ $type ];
+
+		if ( empty( $lasttag ) ) {
+			$parts = [ 0, 0, 0 ];
+			$index = 0;
+		}
+
+		if ( ! isset( $parts[ $index ] ) ) {
 			throw new Exception( "The last tag ($lasttag) is missing the $type section.", 2 );
 		}
 
-		$index = $keys[ $type ];
 		// Increase the requested version.
 		$parts[ $index ]++;
 		// Then loop through the rest of the version parts and zero them out.
@@ -226,6 +236,49 @@ class Git {
 			|| false !== strpos( $tag, '..' )
 		);
 		return ! $invalid;
+	}
+
+	/**
+	 * Get list of modified files.
+	 *
+	 * @since  1.1.9
+	 *
+	 * @param  string $matches Limit results with grep.
+	 *
+	 * @return array Results
+	 */
+	public function getModified( $matches = '' ) {
+		$command = 'git diff-index --name-only --diff-filter=ACMR HEAD --';
+		if ( ! empty( $matches ) ) {
+			$command .= ' | grep ' . $matches;
+		}
+
+		$results = `$command`;
+		$results = ! empty( $results ) ? explode( "\n", $results ) : [];
+		$results = array_filter( $results );
+
+		return $results;
+	}
+
+	/**
+	 * Returns a list of file paths of changed files between two points.
+	 *
+	 * @since 1.3.0
+	 *
+	 * @param string $start           The start commit/tag/branch.
+	 * @param string $end             The end commit/tag/branch. Optional. Defaults to HEAD.
+	 * @param string $additionalFlags Additional flags to pass to git diff.
+	 *
+	 * @return array Results.
+	 */
+	public function getFilesChanged( $start = '', $end = 'HEAD', $additionalFlags = '' ) {
+		$command = "git diff --name-only {$additionalFlags} {$start} {$end}";
+
+		$results = `$command`;
+		$results = ! empty( $results ) ? explode( "\n", $results ) : [];
+		$results = array_filter( $results );
+
+		return $results;
 	}
 
 	/**

@@ -254,7 +254,7 @@ class Helpers {
 	 * @return boolean
 	 */
 	public function isSilent() {
-		return $this->hasFlags( [ 'silent' ], 'shh' );
+		return $this->hasFlags( [ 'silent', 'porcelain' ], 'shh' );
 	}
 
 	/**
@@ -266,6 +266,17 @@ class Helpers {
 	 */
 	public function isVerbose() {
 		return $this->hasFlags( 'verbose', 'v' );
+	}
+
+	/**
+	 * Whether the various "ignoreErrors" flags were passed.
+	 *
+	 * @since  1.1.1
+	 *
+	 * @return boolean
+	 */
+	public function shouldIgnoreErrors() {
+		return $this->hasFlags( 'ignoreErrors', 'ignore' );
 	}
 
 	/**
@@ -366,7 +377,7 @@ class Helpers {
 		if ( $question ) {
 			$this->msg( $question, 'yellow' );
 		}
-		$handle = fopen ( 'php://stdin', 'r' );
+		$handle = fopen( 'php://stdin', 'r' );
 		$answer = trim( fgets( $handle ) );
 		return ! empty( $answer ) ? $answer : $fallback;
 	}
@@ -436,6 +447,24 @@ class Helpers {
 	}
 
 	/**
+	 * Output formatted success message if the silent flag is not set.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param  string  $text      Success message to output.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return Helpers
+	 */
+	public function successMsg( $text, $lineBreak = true ) {
+		if ( ! $this->isSilent() ) {
+			echo $this->getSuccessMsg( $text, $lineBreak );
+		}
+
+		return $this;
+	}
+
+	/**
 	 * Get a formatted error message.
 	 *
 	 * @since  1.0.1
@@ -447,6 +476,20 @@ class Helpers {
 	 */
 	public function getErr( $text, $lineBreak = true ) {
 		return $this->getMsg( $text, 'red', $lineBreak );
+	}
+
+	/**
+	 * Get a formatted success message.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param  string  $text      Success message to output.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return string
+	 */
+	public function getSuccessMsg( $text, $lineBreak = true ) {
+		return $this->getMsg( $text, 'green', $lineBreak );
 	}
 
 	/**
@@ -480,7 +523,15 @@ class Helpers {
 	 * @return string
 	 */
 	public function getMsg( $text, $color = '', $lineBreak = true ) {
-		return $this->color( $color ) . $text . $this->color( 'none' ) . ( $lineBreak ? PHP_EOL : '' );
+		if ( $color ) {
+			$text = $this->color( $color ) . $text . $this->color( 'none' );
+		}
+
+		if ( $lineBreak ) {
+			$text .= PHP_EOL;
+		}
+
+		return $text;
 	}
 
 	/**
@@ -493,7 +544,7 @@ class Helpers {
 	 * @return string
 	 */
 	public function color( $color ) {
-		$colors = array(
+		$colors = [
 			'red_bg'        => "\e[1;37;41m",
 			'none'          => "\033[0m",
 			'default'       => "\033[39m",
@@ -513,7 +564,7 @@ class Helpers {
 			'light_magenta' => "\033[95m",
 			'light_cyan'    => "\033[96m",
 			'white'         => "\033[97m",
-		);
+		];
 
 		if ( $this->hasFlags( [ 'porcelain' ] ) ) {
 			return '';
@@ -539,8 +590,8 @@ class Helpers {
 		$args = array_merge( [
 			'relative' => true,
 			'failExit' => true,
-			'flags' => 0,
-			'silent' => false,
+			'flags'    => 0,
+			'silent'   => false,
 		], $args );
 		$ssshhhhh = $this->isSilent() || $args['silent'];
 
@@ -551,15 +602,17 @@ class Helpers {
 		}
 
 		if ( ! $ssshhhhh ) {
-			echo $file .' $contents: ';
+			echo $file . ' $contents: ';
 			print_r( $contents );
 			echo "\n--------------------\n\n";
 		}
 
-		$results = file_put_contents( $file, $contents, $args['flags'] );
+		$results = 'prepend' === $args['flags']
+			? $this->prependFile( $file, $contents )
+			: file_put_contents( $file, $contents, $args['flags'] );
 
 		if ( ! $ssshhhhh ) {
-			echo $file .' $results: ';
+			echo $file . ' $results: ';
 			print_r( $results );
 			echo "\n--------------------\n\n";
 
@@ -572,6 +625,38 @@ class Helpers {
 		}
 
 		return $results;
+	}
+
+	/**
+	 * Prepend given contents onto given file.
+	 *
+	 * @since 1.3.5
+	 *
+	 * @param  string $file     File name or path. Defaults to using relative path.
+	 * @param  string $contents Content to write to file.
+	 * @param  array  $args     Additional args ([relative => <bool>, failexit => <bool>])
+	 *
+	 * @return bool             That process completed.
+	 */
+	function prependFile( $file, $contents ) {
+
+		$handle      = fopen( $file, 'r+' );
+		$length      = strlen( $contents );
+		$finalLength = filesize( $file ) + $length;
+		$prevString  = fread( $handle, $length );
+
+		rewind( $handle );
+
+		$i = 1;
+		while ( ftell( $handle ) < $finalLength ) {
+			fwrite( $handle, $contents );
+			$contents = $prevString;
+			$prevString = fread( $handle, $length );
+			fseek( $handle, $i * $length );
+			$i++;
+		}
+
+		return true;
 	}
 
 	/**
@@ -620,7 +705,17 @@ class Helpers {
 		return $abs;
 	}
 
-	// Get files of type w/in a directory.
+	/**
+	 * Get files of type w/in a directory.
+	 *
+	 * @since 1.6.0
+	 *
+	 * @param  string $dir  The directory to get files from.
+	 * @param  string $type The type of files to get.
+	 * @param  string $sort The sort order.
+	 *
+	 * @return array
+	 */
 	public function getDirFiles( $dir, $type = '', $sort = 'modifiedDesc' ) {
 		$files = array();
 		$dir = new \DirectoryIterator( $dir );
@@ -645,7 +740,16 @@ class Helpers {
 		return $files;
 	}
 
-	// Fetches file contents and filters the rows by callback.
+	/**
+	 * Fetches file contents and filters the rows by callback.
+	 *
+	 * @since 1.6.0
+	 *
+	 * @param  string $file     The file to fetch.
+	 * @param  string $filterCb The callback to filter the rows.
+	 *
+	 * @return string
+	 */
 	public function filteredFileContentRows( $file, $filterCb ) {
 		$handle = @fopen( $file, "r" );
 		$lines = [];
@@ -661,6 +765,44 @@ class Helpers {
 		}
 
 		return implode( "\n", $lines );
+	}
+
+	/**
+	 * Run CLI command and output results if not silent mode.
+	 *
+	 * @since  1.1.0
+	 *
+	 * @param  string $command The CLI command.
+	 *
+	 * @return string The command results.
+	 */
+	public function runCommand( $command ) {
+		$results = `$command`;
+		if ( ! $this->isSilent() ) {
+			echo $results;
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Run CLI command and output results if not silent mode.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param  string $command The CLI command.
+	 *
+	 * @return string The command exit code.
+	 */
+	public function runCommandWithExitCode( $command ) {
+		exec( $command, $results, $exitCode );
+		$results = implode( PHP_EOL, $results );
+
+		if ( ! $this->isSilent() ) {
+			echo $results;
+		}
+
+		return $exitCode;
 	}
 
 	/**

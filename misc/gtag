@@ -61,7 +61,7 @@ $helpyHelperton
 		],
 
 		'delete'  => [
-'[--yes|-y] [--silent]',
+'[-y|--yes] [-shh|--silent]',
 'Deletes the last tag or given tag.',
 '-y, --yes       Will autoconfirm all prompts. Use to generate the
                 the next tag using the defaults.
@@ -70,7 +70,7 @@ $helpyHelperton
                 to other scripts. Similar to Git\'s --porcelain flag.',
 		],
 		'push'  => [
-'[--yes|-y] [--silent]',
+'[-y|--yes] [-shh|--silent]',
 'Pushes local branch and local tags to the remote branch.',
 '-y, --yes       Will autoconfirm all prompts, and push without delay.
 
@@ -94,10 +94,10 @@ if ( empty( $command ) ) {
 
 switch ( $command ) {
 	case 'all':
-		echo $git->listTags( $cli->hasFlags( [ 'reverse' ], 'r' ) );
+		echo $git->listTags( $cli->hasFlags( [ 'reverse' ], 'r' ) ) ?: $cli->getMsg( "No tags found.\n", 'yellow' );
 		break;
 	case 'some':
-		echo $git->listTags( false, intval( $cli->getArg( 2, 25 ) ) );
+		echo $git->listTags( false, intval( $cli->getArg( 2, 25 ) ) ) ?: $cli->getMsg( "No tags found.\n", 'yellow' );
 		break;
 	case 'last':
 	case 'current':
@@ -108,7 +108,7 @@ switch ( $command ) {
 		break;
 	case 'next':
 		try {
-			$nextTag = $git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 2 ) ) );
+			$nextTag = $git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 2 ) ) ?? 'patch' );
 			echo $silent ? $nextTag : $cli->getMsg( "Next Tag = {$nextTag}", 'green' );
 		} catch ( \Exception $e ) {
 			echo $silent ? $e->getMessage() : $cli->getErr( $e->getMessage() );
@@ -197,7 +197,8 @@ function newTag() {
 	}
 
 	$tagDesc = getTagDescription( $nextTag );
-	$result = exec( 'git tag -a '. $nextTag .' -m "'. $tagDesc .'"' );
+	$cmd     = 'git tag -a '. $nextTag .' -m '. escapeshellarg( $tagDesc );
+	$result  = exec( $cmd );
 
 	echo "\n" . $git->listTags( false, 25 );
 
