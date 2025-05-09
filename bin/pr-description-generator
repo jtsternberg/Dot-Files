@@ -187,9 +187,8 @@ class PRDescriptionGenerator {
 ```
 
 -----
-[Save the above to a file to be attached to the LLM chat]
 
-Based on the information provided in the attached file, please generate a comprehensive and well-structured Pull Request description using the following markdown template.
+Based on the information provided above, please generate a comprehensive and well-structured Pull Request description using the following markdown template.
 
 ```markdown
 ## Description
