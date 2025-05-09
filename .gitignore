@@ -28,3 +28,7 @@ private
 private/*
 .zshrc.pre-oh-my-zsh
 vendor
+
+
+# Ignore bookmarklets
+*.bookmarklet.js
