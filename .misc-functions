@@ -58,7 +58,8 @@ findlogfile() {
 
 	# If still nothing, let's use find
 	if [[ -z "$FILE" ]]; then
-		FILE=`find . -iname '*.log' -maxdepth 3 | tail -n 1`;
+		# Grab the first log file ordered by last-modified
+		FILE=`find . -iname '*.log' -maxdepth 3 -type f -exec stat -f "%m %N" {} \; | sort -nr | head -n 1 | cut -d' ' -f2-`;
 	fi
 
 	[ ! -z "$FILE" ] && [ -f "$FILE" ] && echo "$FILE"
