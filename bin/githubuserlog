@@ -97,7 +97,19 @@ class GitHubActivityLogger {
 	private function createDirectories() {
 		foreach ([$this->baseDir, $this->activityDir] as $dir) {
 			if (!is_dir($dir)) {
-				mkdir($dir, 0777, true);
+				if (@mkdir($dir, 0777, true) === false) {
+					$error = error_get_last();
+					$errorMessage = $error['message'] ?? 'Unknown error';
+
+					throw new \Exception(
+						sprintf(
+							"Failed to create directory %s: %s",
+							$dir,
+							$errorMessage
+						),
+						__LINE__
+					);
+				}
 			}
 		}
 	}
@@ -376,14 +388,19 @@ foreach (compact('days', 'repoLimit') as $key => $value) {
 	}
 }
 
-$logger = new GitHubActivityLogger(
-	$cli,
-	$username,
-	$org,
-	$days,
-	$wikiPath,
-	$repoFilter,
-	$repoSearch,
-	$repoLimit
-);
-$logger->generate();
+try {
+	$logger = new GitHubActivityLogger(
+		$cli,
+		$username,
+		$org,
+		$days,
+		$wikiPath,
+		$repoFilter,
+		$repoSearch,
+		$repoLimit
+	);
+	$logger->generate();
+} catch (\Exception $e) {
+	$cli->err("\n\n{$e->getMessage()} on line {$e->getLine()}\n");
+	exit(1);
+}
