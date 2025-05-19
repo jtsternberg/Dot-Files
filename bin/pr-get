@@ -1,0 +1,284 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# GitHub PR Exporter
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Exports a GitHub Pull Request Description and Timeline (reviews, comments, etc) to markdown
+#
+# Usage:
+# pr-get <prNumber> [<repo>] [--output=FILE]
+#
+# Examples:
+# pr-get 123
+# pr-get 123 jtsternberg/Dot-Files
+# pr-get 456 --output=~/Desktop/pr-456.md
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('pr-get')
+	->setDescription('Exports a GitHub Pull Request Description and Timeline (reviews, comments, etc) to markdown')
+	->setSampleUsage('<prNumber> [<repo>] [--output=FILE]')
+	->buildDocs([
+		'<prNumber>'    => 'Pull request number to export',
+		'[<repo>]'      => 'Repository slug (e.g. myrepo). Defaults to current repo',
+		'--output=FILE' => 'Output file path. Defaults to ./<repo>-<prNumber>.md',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+class PRGet {
+	protected $cli;
+	protected $prNumber;
+	protected $repo;
+	protected $outputFile;
+
+	public function __construct($cli) {
+		$this->cli = $cli;
+		$this->parseArgs();
+	}
+
+	protected function parseArgs() {
+		$pr = $this->cli->getArg(1);
+		if (!$pr || !is_numeric($pr)) {
+			$this->cli->err('You must provide a valid PR number.');
+			$this->cli->msg($GLOBALS['helpyHelperton']->getHelp());
+			exit(1);
+		}
+		$this->prNumber = (int) $pr;
+
+		$this->repo = trim(
+			$this->cli->getArg(2)
+				?? shell_exec('gh repo view --json nameWithOwner --jq=.nameWithOwner')
+		);
+
+		// Output file
+		$outputFlag = $this->cli->getFlag('output');
+		if ($outputFlag) {
+			$this->outputFile = $this->cli->convertPathToAbsolute($outputFlag);
+		} else {
+			$repoSafe = str_replace('/', '-', $this->repo);
+			$this->outputFile = $this->cli->wd . "/{$repoSafe}-{$this->prNumber}.md";
+		}
+	}
+
+	public function generate() {
+		try {
+			$reviews = $this->getReviews();
+			[$reviewComments, $orphanedComments, $replies] = $this->getReviewComments($reviews);
+
+			$timeline = [];
+			foreach ($reviews as $review) {
+				$item = $this->getReviewTimelineItem($review, $reviewComments, $replies);
+				if ($item) {
+					$timeline[] = $item;
+				}
+			}
+
+			foreach ($orphanedComments as $comment) {
+				if (empty($comment['pull_request_review_id'])) {
+					$timeline[] = $this->createItem($comment, 'orphaned_review_comment');
+				}
+			}
+
+			foreach ($this->getPrComments() as $comment) {
+				$timeline[] = $this->createItem($comment, 'comment');
+			}
+
+			$timeline = $this->sortByTime($timeline);
+
+			$prDetails = shell_exec("gh pr view {$this->prNumber} --repo='{$this->repo}'");
+
+			$markdown = '';
+			$markdown .= "# Pull Request (#{$this->prNumber})\n";
+			$markdown .= $prDetails . "\n\n";
+			$markdown .= "## PR Timeline for #{$this->prNumber}\n\n";
+			foreach ($timeline as $item) {
+				$markdown .= $this->renderCommentMarkdown($item);
+			}
+
+			$this->cli->writeToFile($this->outputFile, $markdown, [
+				'relative' => false,
+				'failExit' => true,
+				'silent' => true,
+			]);
+			$this->cli->msg("PR timeline exported to: {$this->outputFile}", 'green');
+		} catch (\Exception $e) {
+			$this->cli->err($e->getMessage());
+			exit(1);
+		}
+	}
+
+	protected function ghApiCmndResults($cmd) {
+		$results = $this->cli->getCommandOutputAndExitCode($cmd);
+
+		if ($results['exitCode'] !== 0) {
+			throw new \Exception(sprintf("Command `%s` failed.\n\nDetails: %s\n", $cmd, print_r($results, true)));
+		}
+
+		if ( empty( $results['output'] ) ) {
+			return [];
+		}
+
+		$result = json_decode($results['output'], true);
+		if (json_last_error() !== JSON_ERROR_NONE) {
+			throw new \Exception("Error decoding JSON for command: $cmd\n\n" . json_last_error_msg());
+		}
+
+		return $result;
+	}
+
+	protected function getReviews() {
+		return $this->ghApiCmndResults("gh api repos/{$this->repo}/pulls/{$this->prNumber}/reviews --paginate");
+	}
+
+	protected function getReviewComments($reviews) {
+		$results = $this->ghApiCmndResults("gh api repos/{$this->repo}/pulls/{$this->prNumber}/comments --paginate");
+		$reviewComments = [];
+		$orphanedComments = [];
+		foreach ($results as $comment) {
+			if (!empty($comment['pull_request_review_id'])) {
+				$reviewComments[$comment['pull_request_review_id']][] = $comment;
+			} else {
+				$orphanedComments[] = $comment;
+			}
+		}
+		$replies = [];
+		foreach ($reviews as $review) {
+			if (!empty($reviewComments[$review['id']])) {
+				foreach ($reviewComments[$review['id']] as $index => $comment) {
+					if (!empty($comment['in_reply_to_id'])) {
+						$replies[$comment['in_reply_to_id']][] = $comment;
+						unset($reviewComments[$review['id']][$index]);
+					}
+				}
+			}
+		}
+		return [$reviewComments, $orphanedComments, $replies];
+	}
+
+	protected function getPrComments() {
+		return $this->ghApiCmndResults("gh api repos/{$this->repo}/issues/{$this->prNumber}/comments --paginate");
+	}
+
+	protected function getReviewTimelineItem($review, $reviewComments, $replies) {
+		$item = $this->createItem($review, 'review');
+		$item['comments'] = [];
+		$item['state'] = $review['state'];
+		if (!empty($reviewComments[$review['id']])) {
+			foreach ($reviewComments[$review['id']] as $comment) {
+				$reviewComment = $this->createItem($comment, 'review_comment');
+				$reviewComment['parent_review_id'] = $comment['pull_request_review_id'] ?? null;
+				$item['comments'][$comment['id']] = $reviewComment;
+				if (!empty($replies[$comment['id']])) {
+					$item['comments'][$comment['id']]['comments'] = array_map(function($reply) use ($comment) {
+						$reviewCommentReply = $this->createItem($reply, 'review_comment_reply');
+						$reviewCommentReply['parent_comment_id'] = $comment['id'];
+						return $reviewCommentReply;
+					}, $replies[$comment['id']]);
+				}
+			}
+			if (!empty($item['comments'])) {
+				$item['comments'] = $this->sortByTime($item['comments']);
+			}
+		}
+		return !empty($item['comments']) || !empty($item['body']) ? $item : false;
+	}
+
+	protected function createItem($comment, $type = 'review_comment') {
+		$time = null;
+		if (!empty($comment['created_at'])) {
+			$time = $comment['created_at'];
+		} elseif (!empty($comment['submitted_at'])) {
+			$time = $comment['submitted_at'];
+		}
+		$item = [
+			'type' => $type,
+			'time' => $time,
+			'user' => $comment['user']['login'],
+			'body' => $comment['body'],
+			'url'  => $comment['html_url'],
+			'id'   => $comment['id'],
+		];
+		if (isset($comment['path'], $comment['line'])) {
+			$item['file'] = $comment['path'];
+			$item['line'] = $comment['line'];
+		}
+		return $item;
+	}
+
+	protected function sortByTime(array $items): array {
+		usort($items, fn($a, $b) => strcmp($a['time'], $b['time']));
+		return $items;
+	}
+
+	protected function formatReviewDate(string $date): string {
+		return date('M j, Y H:i', strtotime($date));
+	}
+
+	protected function renderCommentMarkdown($item, $depth = 0) {
+		$indent = str_repeat("\t", $depth);
+		$user = $item['user'];
+		$date = $this->formatReviewDate($item['time']);
+		$body = trim($item['body']);
+		$url = $item['url'];
+		$type = $item['type'];
+		$md = "";
+		if ($type === 'review') {
+			$state = isset($item['state']) ? strtoupper($item['state']) : '';
+			$md .= "{$indent}### Review by @$user on [$date]($url)";
+			if ($state) $md .= " _($state)_";
+			$md .= "\n\n";
+			if ($body) {
+				$md .= "{$indent}> " . str_replace("\n", "\n{$indent}> ", $body) . "\n\n";
+			}
+			if (!empty($item['comments'])) {
+				foreach ($item['comments'] as $comment) {
+					$md .= $this->renderCommentMarkdown($comment, 0);
+				}
+			}
+			$md .= "\n";
+		} elseif ($type === 'comment') {
+			$md .= "{$indent}### Comment by @$user on [$date]($url):  \n\n";
+			$md .= "{$indent}> " . str_replace("\n", "\n{$indent}> ", $body) . "\n\n\n";
+		} elseif ($type === 'review_comment' || $type === 'review_comment_reply' || $type === 'orphaned_review_comment') {
+			$file = isset($item['file']) ? $item['file'] : '';
+			$line = isset($item['line']) ? $item['line'] : '';
+			$md .= "{$indent}- **@$user** commented [`$type`]";
+			if ($type !== 'review_comment_reply') {
+				if ($file) {
+					$md .= " on `$file`";
+				}
+				if ($line) {
+					$md .= " (line $line)";
+				}
+			}
+			$md .= " on [$date]($url):  \n";
+			$indent = str_repeat("\t", $depth + 1);
+			$md .= "{$indent}> " . str_replace("\n", "\n{$indent}> ", $body) . "\n\n\n";
+			if (!empty($item['comments'])) {
+				foreach ($item['comments'] as $reply) {
+					$md .= $this->renderCommentMarkdown($reply, $depth + 1);
+				}
+			}
+		}
+		return $md;
+	}
+}
+
+try {
+	$prGet = new PRGet($cli);
+	$prGet->generate();
+} catch (\Exception $e) {
+	$cli->err("\n\n{$e->getMessage()} on line {$e->getLine()}\n");
+	exit(1);
+}

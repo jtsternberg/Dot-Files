@@ -806,6 +806,34 @@ class Helpers {
 	}
 
 	/**
+	 * Run CLI command and output results if not silent mode.
+	 *
+	 * @param  string $command The CLI command.
+	 *
+	 * @return array The command output and exit code.
+	 */
+	public function getCommandOutputAndExitCode( $command ) {
+		$descriptorspec = [
+			0 => ['pipe', 'r'],  // stdin
+			1 => ['pipe', 'w'],  // stdout
+			2 => ['pipe', 'w']   // stderr
+		];
+		$process = proc_open($command, $descriptorspec, $pipes);
+		$stdout = stream_get_contents($pipes[1]);
+		$stderr = stream_get_contents($pipes[2]);
+		foreach ($pipes as $pipe) {
+			fclose($pipe);
+		}
+		$exitCode = proc_close($process);
+
+		return [
+			'exitCode' => $exitCode,
+			'error' => trim($stderr),
+			'output' => trim($stdout),
+		];
+	}
+
+	/**
 	 * Get help object for a command.
 	 *
 	 * @since  1.0.1
