@@ -218,6 +218,12 @@
 	; submodules
 	su = submodule update --init --recursive
 
+	; worktrees
+	wt = worktree
+	wtl = worktree list
+	wta = worktree add
+	wtr = worktree remove
+	wtprune = worktree prune
 	;git-svn
 	svnr = svn rebase
 	svnd = svn dcommit
