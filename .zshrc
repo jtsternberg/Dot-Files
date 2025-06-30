@@ -235,6 +235,12 @@ fi
 # The next lines enables shell command completion for Stripe
 fpath=(~/.stripe $fpath)
 
+# The following lines have been added by Docker Desktop to enable Docker CLI completions.
+fpath=(/Users/JT/.docker/completions $fpath)
+# autoload -Uz compinit
+# compinit
+# End of Docker CLI completions
+
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
