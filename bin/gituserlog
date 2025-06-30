@@ -105,16 +105,24 @@ class GitUserLogger {
 			exit(implode("\n", $allAuthors) . "\n\n");
 		}
 
+		$porcelain = $this->cli->hasFlags('porcelain') ? ' --no-color' : '';
+
 		$total = count($this->repos);
 		$this->cli->msg("\nFetching commits for {$this->author} in last {$this->days} days...\n", 'yellow');
 
 		foreach ($this->repos as $i => $repo) {
 			$current = $i + 1;
 			$this->cli->msg("[$current/$total] Processing ", 'yellow', false);
+			if ($porcelain) {
+				echo "[$current/$total] $repo\n";
+			}
 			$contents = $this->showUserLog($repo);
 			if (empty($contents)) {
 				$this->cli->msg(" done", 'green', false);
 				$this->cli->msg(" (no commits found)");
+				if ($porcelain) {
+					echo "(no commits found for this period)\n\n";
+				}
 			} else {
 				$this->cli->msg(" done\n", 'green');
 				echo $contents;
