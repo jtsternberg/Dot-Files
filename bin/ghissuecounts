@@ -1,0 +1,322 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# GitHub Issue Counts
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Counts GitHub issues per repo over a date range using gh GraphQL.
+# By default counts issues created in the range; with --closed counts issues closed in the range.
+# Uses the shared .ghrepos.jsonc config (same as gituserlog) for repositories.
+#
+# Examples:
+# ghissuecounts 2025-08-03 2025-08-09 --porcelain
+# ghissuecounts --org=awesomemotive 2025-08-03 2025-08-09
+# ghissuecounts config
+# ghissuecounts last-week --aggregated # All created in last week
+# ghissuecounts last-week --aggregated --open # All created in last week and still open
+# ghissuecounts last-week --closed # All closed in last week
+#
+# Usage (`ghissuecounts -h`):
+# ghissuecounts <start|last-week> [<end>] [--org=<org>] [--porcelain] [--aggregated] [--closed] [--open] [--ids] [--json]
+# ghissuecounts config
+# =============================================================================
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+require_once dirname(__DIR__) . '/misc/RepoConfigTrait.php';
+
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+->setScriptName('ghissuecounts')
+->setDescription('Count GitHub issues per repo over a date range')
+->setSampleUsage('<start|last-week> [<end>] [--org=<org>] [--porcelain] [--aggregated] [--closed] [--open] [--ids] [--json]')
+->setupDefaultCommand([
+	'<start|last-week>' => 'Start date (YYYY-MM-DD), or keyword last-week for previous Mon-Sun range',
+	'[<end>]'           => 'End date (YYYY-MM-DD). Omit when using last-week',
+	'--org=<org>'       => 'Optional GitHub organization to scope repo slugs',
+	'--porcelain'       => 'Machine-readable output',
+	'--aggregated'      => 'Print only a single aggregated total across all repos',
+	'--closed'          => 'Count issues closed in the range instead of created',
+	'--open'            => 'When counting created, restrict to issues currently open',
+	'--ids'             => 'Also output the matching issue numbers. In aggregated mode, lists are only printed in non-porcelain mode',
+	'--json'            => 'Output results as a JSON object',
+	])
+	->setup('ghissuecounts', [
+		'config' => [
+			'',
+			'Create/edit .ghrepos configuration file',
+		],
+	]);
+
+	if ($helpyHelperton->batSignal) {
+		$cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
+		exit(0);
+	}
+
+class GhIssueCountsCommand {
+	use RepoConfigTrait;
+
+	public function __construct(private $cli) {}
+
+	public function run(): void {
+		$sub = $this->cli->getArg(1);
+		if ('config' === $sub) {
+			$this->editConfig();
+			return;
+		}
+
+		$start = $this->cli->getArg(1);
+		$end   = $this->cli->getArg(2);
+		$org   = $this->cli->getFlag('org');
+
+		// Support keyword last-week => previous Mon-Sun
+		if ($start === 'last-week') {
+			[$start, $end] = $this->computeLastWeekRange();
+		}
+
+		if (!$this->isValidDate($start) || !$this->isValidDate($end)) {
+			$this->cli->err("Start and End must be valid dates (YYYY-MM-DD)\n");
+			$this->cli->err("Start: $start\n");
+			$this->cli->err("End: $end\n");
+			$this->cli->msg($this->cli->getHelp()->getHelp());
+			exit(1);
+		}
+
+		$this->loadRepos();
+		$slugs = $this->extractRepoSlugs($org);
+		if (empty($slugs)) {
+			throw new \Exception("No repositories found in .ghrepos.jsonc\n");
+		}
+
+		$useClosed = $this->cli->hasFlags('closed');
+		$restrictOpen = $this->cli->hasFlags('open');
+
+		$includeIds = $this->cli->hasFlags('ids');
+		[$query, $args] = $this->buildGraphQLQuery($slugs, $start, $end, $useClosed, $restrictOpen, $includeIds);
+		$this->executeGhGraphQL($query, $args, $slugs, $start, $end);
+	}
+
+	private function isValidDate($d): bool {
+		return (bool)preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', (string)$d);
+	}
+
+	private function computeLastWeekRange(): array {
+		// Determine last Monday and last Sunday relative to today
+		// We want the ISO week Mon..Sun of the previous week
+		$today = new \DateTimeImmutable('today');
+		// Get this week's Monday
+		$thisMonday = $today->modify('monday this week');
+		// Last week's Monday is 7 days before this Monday
+		$lastMonday = $thisMonday->modify('-7 days');
+		$lastSunday = $lastMonday->modify('+6 days');
+		return [
+			$lastMonday->format('Y-m-d'),
+			$lastSunday->format('Y-m-d'),
+		];
+	}
+
+	private function extractRepoSlugs(?string $forceOrg = null): array {
+		$slugs = [];
+		foreach ($this->repos as $repoUrl) {
+			// Handles SSH and HTTPS github URLs ending with .git or .wiki.git
+			if (preg_match('~github.com[:/]([^/]+)/([^/.]+)(?:\.wiki)?\.git$~', $repoUrl, $m)) {
+				$org = $m[1];
+				$repo = $m[2];
+				$slugs[] = ($forceOrg ?: $org) . '/' . $repo;
+			}
+		}
+		return array_values(array_unique($slugs));
+	}
+
+	private function buildGraphQLQuery(array $slugs, string $start, string $end, bool $useClosed = false, bool $restrictOpen = false, bool $includeIds = false): array {
+		$varDefs = [];
+		$fields = [];
+		$args = [];
+		$index = 1;
+		foreach ($slugs as $slug) {
+			$var = 'q' . $index;
+			list($org, $repo) = explode('/', $slug, 2);
+			$queryParts = [
+				"repo:$org/$repo",
+				'is:issue',
+			];
+			if ($useClosed) {
+				$queryParts[] = 'is:closed';
+				$queryParts[] = "closed:$start..$end";
+			} else {
+				if ($restrictOpen) {
+					$queryParts[] = 'is:open';
+				}
+				$queryParts[] = "created:$start..$end";
+			}
+			$args["-f"][] = $var . '=' . implode(' ', $queryParts);
+			$varDefs[] = '$' . $var . ': String!';
+			$alias = str_replace('-', '_', $repo);
+			$first = $includeIds ? 100 : 1;
+			$field = $alias . ": search(type: ISSUE, first: $first, query: \$" . $var . ") { issueCount";
+			if ($includeIds) {
+				$field .= " nodes { ... on Issue { number } }";
+			}
+			$field .= ' }';
+			$fields[] = $field;
+			$index++;
+		}
+
+		$query = 'query(' . implode(', ', $varDefs) . ') { ' . implode(' ', $fields) . ' }';
+		return [$query, $args];
+	}
+
+	private function executeGhGraphQL(string $query, array $args, array $slugs, string $start, string $end): void {
+		$porcelain = $this->cli->hasFlags('porcelain');
+		$aggregated = $this->cli->hasFlags('aggregated');
+		$includeIds = $this->cli->hasFlags('ids');
+		$asJson = $this->cli->hasFlags('json');
+		$cmdParts = ['gh', 'api', 'graphql'];
+		foreach ($args['-f'] as $f) {
+			$cmdParts[] = '-f';
+			$cmdParts[] = escapeshellarg($f);
+		}
+		$cmdParts[] = '-f';
+		$cmdParts[] = 'query=' . escapeshellarg($query);
+		$cmd = implode(' ', $cmdParts) . ' 2>/dev/null';
+
+		if (!$porcelain && !$asJson) {
+			$mode = $this->cli->hasFlags('closed') ? 'closed' : 'created';
+			$this->cli->msg("\nQuerying GitHub GraphQL for $mode issue counts...\n", 'yellow');
+		}
+
+		$output = shell_exec($cmd);
+		if ($output === null) {
+			throw new \Exception("Failed to execute gh api graphql. Ensure GitHub CLI is installed and authenticated.\n");
+		}
+
+		$data = json_decode($output, true);
+		if (!isset($data['data'])) {
+			throw new \Exception("Unexpected response from GitHub API.\n\n" . print_r($data, true));
+		}
+
+		$counts = [];
+		$repoToIds = [];
+		foreach ($slugs as $slug) {
+			list($org, $repo) = explode('/', $slug, 2);
+			$alias = str_replace('-', '_', $repo);
+			$counts[$slug] = $data['data'][$alias]['issueCount'] ?? 0;
+			if ($includeIds) {
+				$nodes = $data['data'][$alias]['nodes'] ?? [];
+				$ids = [];
+				foreach ($nodes as $node) {
+					if (isset($node['number'])) {
+						$ids[] = (int)$node['number'];
+					}
+				}
+				$repoToIds[$slug] = $ids;
+			}
+		}
+
+		if ($aggregated) {
+			$sum = array_sum(array_values($counts));
+			if ($asJson) {
+				$payload = [
+					'start' => $start,
+					'end'   => $end,
+					'mode'  => $this->cli->hasFlags('closed') ? 'closed' : 'created',
+					'aggregated' => true,
+					'total' => $sum,
+				];
+				if ($includeIds) {
+					$all = [];
+					foreach ($repoToIds as $slug => $ids) {
+						foreach ($ids as $id) {
+							$all[] = [ 'repo' => $slug, 'number' => $id ];
+						}
+					}
+					$payload['issues'] = $all;
+				}
+				echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+				return;
+			}
+			if ($porcelain) {
+				echo $sum . "\n";
+				return;
+			}
+			$this->cli->msg('Total: ', 'cyan', false);
+			$this->cli->msg((string)$sum, 'green');
+			if ($includeIds) {
+				$all = [];
+				foreach ($repoToIds as $slug => $ids) {
+					foreach ($ids as $id) {
+						$all[] = $slug . '#' . $id;
+					}
+				}
+				if (!empty($all)) {
+					$this->cli->msg("\nIDs: ", 'cyan', false);
+					$this->cli->msg(implode(', ', $all));
+				}
+			}
+			if ( $this->cli->isSilent() ) {
+				echo $sum;
+			}
+			return;
+		}
+
+		if ($asJson) {
+			$sum = array_sum(array_values($counts));
+
+			$payload = [
+				'start' => $start,
+				'end'   => $end,
+				'mode'  => $this->cli->hasFlags('closed') ? 'closed' : 'created',
+				'aggregated' => $sum,
+				'repos' => [],
+			];
+			foreach ($counts as $slug => $count) {
+				$entry = [ 'repo' => $slug, 'count' => $count ];
+				if ($includeIds && !empty($repoToIds[$slug])) {
+					$entry['issues'] = array_map(function($n){ return $n; }, $repoToIds[$slug]);
+				}
+				$payload['repos'][] = $entry;
+			}
+			echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+			return;
+		}
+
+		if ($porcelain) {
+			foreach ($counts as $slug => $count) {
+				echo $slug . ' ' . $count . "\n";
+			}
+			return;
+		}
+
+		$total = count($counts);
+		$index = 1;
+		foreach ($counts as $slug => $count) {
+			$this->cli->msg("[$index/$total] $slug: ", 'cyan', false);
+			$this->cli->msg((string)$count, 'green');
+			if ($includeIds && !empty($repoToIds[$slug])) {
+				$this->cli->msg(' IDs: ', 'cyan', false);
+				$this->cli->msg(implode(', ', $repoToIds[$slug]));
+			}
+			$index++;
+		}
+	}
+}
+
+	try {
+		$cmd = new GhIssueCountsCommand($cli);
+		$cmd->run();
+	} catch (\Exception $e) {
+		$cli->err("\n\n{$e->getMessage()} on line {$e->getLine()}");
+		$cli->err("\n\n" . print_r( [
+			'class' => get_class( $e ),
+			'code'  => $e->getCode(),
+			'trace' => array_map( function( $line ) {
+				return preg_replace( '~^#\d.? ~', '', $line );
+			}, explode( "\n", $e->getTraceAsString() ) ),
+		], true ) . "\n");
+		exit(1);
+	}
