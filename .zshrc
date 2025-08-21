@@ -245,3 +245,14 @@ fpath=(/Users/JT/.docker/completions $fpath)
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
+
+[[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path zsh)"
+
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/Users/JT/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/JT/google-cloud-sdk/path.zsh.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/Users/JT/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/JT/google-cloud-sdk/completion.zsh.inc'; fi
+
+# Created by `pipx` on 2025-07-23 14:21:40
+export PATH="$PATH:/Users/JT/.local/bin"
