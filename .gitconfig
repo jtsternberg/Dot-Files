@@ -347,6 +347,7 @@
 
 [diff]
     tool = Kaleidoscope
+	renameLimit = 3475
 [difftool "Kaleidoscope"]
   cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
 [merge]
