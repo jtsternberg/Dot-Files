@@ -91,14 +91,18 @@ prompt_git() {
     # fi
     mode=""
 
-    git_desc=$(head -n 1 "${repo_path}/description")
+    if [[ -f "${repo_path}/description" ]]; then
+      git_desc=$(head -n 1 "${repo_path}/description")
 
-    if [[ $git_desc == *"nnamed repository"* ]]; then
-      desc=""
+      if [[ $git_desc == *"nnamed repository"* ]]; then
+        desc=""
+      else
+        # desc=`"${git_desc}" | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g'`
+        # desc=$git_desc | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g'
+        desc="$(echo $git_desc | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g') "
+      fi
     else
-      # desc=`"${git_desc}" | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g'`
-      # desc=$git_desc | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g'
-      desc="$(echo $git_desc | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g') "
+      desc=""
     fi
 
     setopt promptsubst
