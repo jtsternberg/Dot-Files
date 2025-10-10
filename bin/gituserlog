@@ -175,7 +175,7 @@ class GitUserLogger {
 		if (is_dir($repodir)) {
 			chdir($repodir);
 			$this->cli->msg("{$reponame} updating...", 'cyan', false);
-			`git pull --rebase --quiet 2>/dev/null`;
+			`git fetch --all --quiet 2>/dev/null`;
 		} else {
 			$this->cli->msg("{$reponame} cloning...", 'cyan', false);
 			$output = `git clone $repo $repodir --quiet 2>&1`;
