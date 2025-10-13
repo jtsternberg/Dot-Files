@@ -20,7 +20,7 @@ namespace JT;
 # ghissuecounts last-week --closed # All closed in last week
 #
 # Usage (`ghissuecounts -h`):
-# ghissuecounts <start|last-week> [<end>] [--org=<org>] [--porcelain] [--aggregated] [--closed] [--open] [--ids] [--json] [--ignore-labels=<labels>]
+# ghissuecounts <start|last-week> [<end>] [--org=<org>] [--porcelain] [--aggregated] [--closed] [--open] [--ids] [--json] [--ignore-labels=<labels>] [--ignore-assignees=<assignees>]
 # ghissuecounts config
 # =============================================================================
 
@@ -34,7 +34,7 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 ->setScriptName('ghissuecounts')
 ->setDescription('Count GitHub issues per repo over a date range')
-->setSampleUsage('<start|last-week> [<end>] [--org=<org>] [--porcelain] [--aggregated] [--closed] [--open] [--ids] [--json] [--ignore-labels=<labels>]')
+->setSampleUsage('<start|last-week> [<end>] [--org=<org>] [--porcelain] [--aggregated] [--closed] [--open] [--ids] [--json] [--ignore-labels=<labels>] [--ignore-assignees=<assignees>]')
 ->setupDefaultCommand([
 	'<start|last-week>' => 'Start date (YYYY-MM-DD), or keyword last-week for previous Mon-Sun range',
 	'[<end>]'           => 'End date (YYYY-MM-DD). Omit when using last-week',
@@ -46,6 +46,7 @@ $helpyHelperton
 	'--ids'             => 'Also output the matching issue numbers. In aggregated mode, lists are only printed in non-porcelain mode',
 	'--json'            => 'Output results as a JSON object',
 	'--ignore-labels=<labels>' => 'Comma-separated list of labels to exclude from issue counts.',
+	'--ignore-assignees=<assignees>' => 'Comma-separated list of assignees to exclude from issue counts.',
 	])
 	->setup('ghissuecounts', [
 		'config' => [
@@ -100,8 +101,10 @@ class GhIssueCountsCommand {
 		$includeIds = $this->cli->hasFlags('ids');
 		$ignoreLabels = $this->cli->getFlag('ignore-labels');
 		$ignoreLabels = $ignoreLabels ? array_map('trim', explode(',', $ignoreLabels)) : [];
+		$ignoreAssignees = $this->cli->getFlag('ignore-assignees');
+		$ignoreAssignees = $ignoreAssignees ? array_map('trim', explode(',', $ignoreAssignees)) : [];
 
-		[$query, $args] = $this->buildGraphQLQuery($slugs, $start, $end, $useClosed, $restrictOpen, $includeIds, $ignoreLabels);
+		[$query, $args] = $this->buildGraphQLQuery($slugs, $start, $end, $useClosed, $restrictOpen, $includeIds, $ignoreLabels, $ignoreAssignees);
 		$this->executeGhGraphQL($query, $args, $slugs, $start, $end);
 	}
 
@@ -137,7 +140,7 @@ class GhIssueCountsCommand {
 		return array_values(array_unique($slugs));
 	}
 
-	private function buildGraphQLQuery(array $slugs, string $start, string $end, bool $useClosed = false, bool $restrictOpen = false, bool $includeIds = false, array $ignoreLabels = []): array {
+	private function buildGraphQLQuery(array $slugs, string $start, string $end, bool $useClosed = false, bool $restrictOpen = false, bool $includeIds = false, array $ignoreLabels = [], array $ignoreAssignees = []): array {
 		$varDefs = [];
 		$fields = [];
 		$args = [];
@@ -153,6 +156,11 @@ class GhIssueCountsCommand {
 				foreach ($ignoreLabels as $label) {
 					// Need to handle labels with spaces
 					$queryParts[] = '-label:"' . $label . '"';
+				}
+			}
+			if (!empty($ignoreAssignees)) {
+				foreach ($ignoreAssignees as $assignee) {
+					$queryParts[] = '-assignee:' . $assignee;
 				}
 			}
 			if ($useClosed) {
