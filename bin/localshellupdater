@@ -66,7 +66,7 @@ if ($newPath) {
 	// Replace the entire `cd` line with the new path
 	$newPath = $cli->convertPathToAbsolute($newPath);
 	$updatedContent = preg_replace(
-		'/cd "([^"]+\/app\/public)"/',
+		'~cd "([^"]+/app/public[^"]*)"~',
 		'cd "' . rtrim($newPath, '/') . '"',
 		$originalContent
 	);
