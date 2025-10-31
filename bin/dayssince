@@ -74,6 +74,21 @@ class DaysSince {
 			$timestamp = $quarterDate;
 		} else {
 			$timestamp = strtotime($date);
+
+			// If the parsed date is in the future and it's a simple day name,
+			// use the previous week's occurrence instead
+			if ($timestamp !== false && $timestamp > time()) {
+				$normalizedDate = trim(strtolower($date));
+				// Check if it's a simple day name (not prefixed with "last", "next", etc.)
+				$dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+				$isSimpleDayName = in_array($normalizedDate, $dayNames, true) || in_array($normalizedDate . 's', $dayNames, true);
+
+				// If it's a future date within 7 days and a simple day name, use last week
+				$daysDiff = ($timestamp - time()) / 86400;
+				if ($isSimpleDayName && $daysDiff < 7) {
+					$timestamp = strtotime("last " . $date);
+				}
+			}
 		}
 
 		if ($timestamp === false) {
