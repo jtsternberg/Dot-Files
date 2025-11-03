@@ -60,6 +60,19 @@
 				<false/>
 			</dict>
 		</array>
+		<key>1D90B73E-027D-4251-A6B7-5E9A6B825FFA</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>5D70D929-B212-467C-901F-5EB105AE12CC</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 		<key>1D928E0E-49D5-4EEB-93EC-114C7F307C49</key>
 		<array>
 			<dict>
@@ -488,11 +501,11 @@
 	<key>createdby</key>
 	<string>Justin Sternberg</string>
 	<key>description</key>
-	<string>Open iTerm tabs to OM dirs &amp; run scripts</string>
+	<string>Open iTerm tabs to OM/Lindris dirs &amp; run scripts</string>
 	<key>disabled</key>
 	<false/>
 	<key>name</key>
-	<string>OM Up</string>
+	<string>OM/Lin Up</string>
 	<key>objects</key>
 	<array>
 		<dict>
@@ -1048,7 +1061,7 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand lindrisfrontend 'echo -n -e "\033]0;lindrisfrontend LOG\007";itermDirNewTab lindrisfrontend "localshellupdater ~/Library/ApplicationSupport/Local/ssh-entry/V-dp05VsH.sh ~/Sites/lindris/lindris-frontend" &amp;&amp; ./vendor/bin/sail up -d &amp;&amp; tailtrim storage/logs/laravel.log'</string>
+				<string>iterm_linup_frontend</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
@@ -1084,10 +1097,7 @@
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand lindrisbackend 'docker compose -f _workshop/lindris/development/docker-compose.yml up -d; lazygit';
-itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend mysql error LOG\007";docker exec -it oempro_app bash -c "ls -t data/logs/mysql_errors-*.log | head -n1 | xargs tail -f" || echo "\n...Wait for docker up to complete, then press ^ key and enter\n"';
-itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker exec -it oempro_app bash -c "tail -f data/logs/errors-local.log" || echo "\n...Wait for docker up to complete, then press ^ key and enter\n"';
-</string>
+				<string>iterm_linup_backend</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
@@ -1208,7 +1218,7 @@ itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker 
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand linwpplugin 'echo -n -e "\033]0;linwpplugin LOG\007";itermDirNewTab linwpplugin "localshellupdater ~/Library/ApplicationSupport/Local/ssh-entry/hLU3WV0OH.sh ~/Sites/lindris/wp-lindris-testing/app/public/wp-content/plugins/email-marketing-newsletters-lindris" &amp;&amp; tailtrim'</string>
+				<string>iterm_linup_plugin</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
@@ -1244,7 +1254,7 @@ itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker 
 				<key>escaping</key>
 				<integer>0</integer>
 				<key>script</key>
-				<string>itermDirCommand lindrismarketing 'echo -n -e "\033]0;lindrismarketing LOG\007";itermDirNewTab lindrismarketing "localshellupdater ~/Library/ApplicationSupport/Local/ssh-entry/o_wmCyU3M.sh" &amp;&amp; tailtrim'</string>
+				<string>iterm_linup_marketing</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.action.terminalcommand</string>
@@ -1263,6 +1273,42 @@ itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker 
 			<string>alfred.workflow.utility.delay</string>
 			<key>uid</key>
 			<string>EBA2A51C-6C93-4A8F-BAD5-9A6280780BE2</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>linup monorepo</string>
+				<key>subtext</key>
+				<string>Setup Lindris Monorepo iTerm tabs</string>
+				<key>text</key>
+				<string>Lindris Up Monorepo</string>
+				<key>withspace</key>
+				<false/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>1D90B73E-027D-4251-A6B7-5E9A6B825FFA</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>escaping</key>
+				<integer>0</integer>
+				<key>script</key>
+				<string>iterm_linup_monorepo</string>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.terminalcommand</string>
+			<key>uid</key>
+			<string>5D70D929-B212-467C-901F-5EB105AE12CC</string>
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
@@ -1302,6 +1348,13 @@ itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker 
 			<real>325</real>
 			<key>ypos</key>
 			<real>380</real>
+		</dict>
+		<key>1D90B73E-027D-4251-A6B7-5E9A6B825FFA</key>
+		<dict>
+			<key>xpos</key>
+			<real>545</real>
+			<key>ypos</key>
+			<real>975</real>
 		</dict>
 		<key>1D928E0E-49D5-4EEB-93EC-114C7F307C49</key>
 		<dict>
@@ -1374,6 +1427,17 @@ itermDirNewTab lindrisbackend 'echo -n -e "\033]0;Backend error LOG\007";docker 
 			<real>30</real>
 			<key>ypos</key>
 			<real>505</real>
+		</dict>
+		<key>5D70D929-B212-467C-901F-5EB105AE12CC</key>
+		<dict>
+			<key>colorindex</key>
+			<integer>12</integer>
+			<key>note</key>
+			<string>do it...</string>
+			<key>xpos</key>
+			<real>685</real>
+			<key>ypos</key>
+			<real>975</real>
 		</dict>
 		<key>680E383B-4C61-4972-9B72-853C64B0EBEA</key>
 		<dict>
