@@ -1,0 +1,138 @@
+alias itermScriptRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin/python'
+alias itermScripRun='itermScriptRun'
+alias itermDirTab='itermScriptRun ~/.dotfiles/iterm-python/dirmaptab.py'
+alias itermDirNewTab='itermScriptRun ~/.dotfiles/iterm-python/dirmapnewtab.py'
+alias itermDirCommand='itermScriptRun ~/.dotfiles/iterm-python/dirmapcommand.py'
+
+iterm_tab_banner() {
+	LABEL=$1
+	echo -n -e "\033]0;$LABEL\007"
+}
+
+iterm_local_shell_cmd() {
+	DIRMAP_KEY=$1
+	CMD=${2:-''}
+	SCRIPT_PATH=`get_localwp_site_script_path`
+	DESTINATION_PATH=`dirmap $DIRMAP_KEY`
+	_localshell config --scriptPath=$SCRIPT_PATH --destinationPath=$DESTINATION_PATH --cmd=$CMD --porcelain
+	localshellupdater $SCRIPT_PATH $DESTINATION_PATH $CMD
+}
+
+
+
+
+
+
+# Get the LocalWP site script path for the current project path.
+#
+# Usage:
+#   get_localwp_site_script_path
+#
+# Returns:
+#   The script path if found, empty string otherwise.
+get_localwp_site_script_path() {
+	local site_id
+	local check_path
+
+	# Get the current project path (should be the LocalWP site root)
+	local current_project_path=$(get_current_project_path)
+	local ssh_entry_dir="$HOME/Library/ApplicationSupport/Local/ssh-entry"
+	local sites_json="$HOME/Library/ApplicationSupport/Local/sites.json"
+
+	# Try JSON-based lookup first, traversing up directories until we find a match
+	if [ -f "$sites_json" ]; then
+		check_path="$current_project_path"
+
+		# Traverse up directories until we find a match or reach root
+		while [ "$check_path" != "/" ] && [ "$check_path" != "." ] && [ -n "$check_path" ]; do
+			site_id=$(jq -r --arg path "$check_path" '. | to_entries[] | select(.value.path == $path or .value.path == ("~" + ($path | sub("^'$HOME'"; "")))) | .key' "$sites_json" | head -1)
+			if [ -n "$site_id" ]; then
+				echo "$ssh_entry_dir/$site_id.sh"
+				return 0
+			fi
+
+			# Move up one directory
+			check_path=$(dirname "$check_path")
+		done
+	fi
+
+	# Fallback: search through shell scripts directly, also traversing up
+	if [ -d "$ssh_entry_dir" ]; then
+		check_path="$current_project_path"
+
+		while [ "$check_path" != "/" ] && [ "$check_path" != "." ] && [ -n "$check_path" ]; do
+			for shell_script in "$ssh_entry_dir"/*.sh; do
+				if [ -f "$shell_script" ]; then
+					# Check if this shell script contains our project path
+					if grep -Fq -- "\"$check_path\"" "$shell_script" 2>/dev/null; then
+						echo "$shell_script"
+						return 0
+					fi
+				fi
+			done
+
+			# Move up one directory
+			check_path=$(dirname "$check_path")
+		done
+	fi
+
+	return 1
+}
+
+# Get the LocalWP site ID for the current project path.
+#
+# Usage:
+#   get_localwp_site_id
+#
+# Returns:
+#   The site ID if found, empty string otherwise.
+get_localwp_site_id() {
+	local script_path	site_id
+
+	script_path=$(get_localwp_site_script_path)
+	if [ -n "$script_path" ]; then
+		site_id=$(basename "$script_path" .sh)
+		echo "$site_id"
+		return 0
+	fi
+
+	return 1
+}
+
+# Get the MySQL socket path for the current LocalWP site.
+#
+# Usage:
+#   get_localwp_mysql_socket
+#
+# Returns:
+#   The socket path if found and exists, empty string otherwise.
+get_localwp_mysql_socket() {
+	local site_id
+	local mysql_socket
+
+	site_id=$(get_localwp_site_id)
+
+	if [ -z "$site_id" ]; then
+		return 1
+	fi
+
+	mysql_socket="$HOME/Library/ApplicationSupport/Local/run/${site_id}/mysql/mysqld.sock"
+
+	if [ -S "$mysql_socket" ]; then
+		echo "$mysql_socket"
+		return 0
+	fi
+
+	return 1
+}
+
+# Get the current project path (LocalWP site root).
+#
+# Usage:
+#   get_current_project_path
+#
+# Returns:
+#   The project path.
+get_current_project_path() {
+	pwd | sed 's|/wp-content/plugins/.*||' | sed 's|/app/public$||'
+}

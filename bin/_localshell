@@ -38,13 +38,17 @@ $helpyHelperton
 	->setupDefaultCommand([])
 	->setup('_localshell', [
 		'config' => [
-			'--scriptPath=<path> [--destinationPath=<path>]',
+			'[edit] --scriptPath=<path> [--destinationPath=<path>] [--cmd=<command>]',
 			'Save configuration for future use',
+			'edit   	                 Edit the configuration file',
 			'--scriptPath=<path>      Path to LocalWP site shell script',
 			'',
 			"--destinationPath=<path> Custom destination path (optional)
                          Updates/overrides the directory that the LocalWP
                          site shell script will cd into after running.",
+			'',
+			"--cmd=<command>          Custom command to run before exec \$SHELL (optional)
+                         Defaults to 'git status || echo \"no git\"'",
 		],
 	]);
 
@@ -83,14 +87,35 @@ function findConfigFile($startDir, $maxLevels = 5) {
 
 // Handle config command
 if ('config' === $cli->getArg(1)) {
+	if ('edit' === $cli->getArg(2)) {
+		passthru(getenv('EDITOR') . ' ' . escapeshellarg(CONFIG_FILE), $returnCode);
+		exit($returnCode);
+	}
+
 	$config = [];
+
+	// Get existing config so we can merge with it
+	if (file_exists(CONFIG_FILE)) {
+		$existingConfig = json_decode(file_get_contents(CONFIG_FILE), true);
+		if ($existingConfig) {
+			$config = $existingConfig;
+		}
+	}
+
+
 	$hasValidOption = false;
 
-	$options = ['scriptPath', 'destinationPath'];
+	$options = ['scriptPath', 'destinationPath', 'cmd'];
 	foreach ($options as $option) {
-		$value = $cli->getFlag($option);
-		if ($value) {
-			$config[$option] = $value;
+		if ($cli->hasFlag($option)) {
+			$value = $cli->getFlag($option);
+
+			// if value is falsey, unset the option
+			if (in_array($value, ['', null, false, 0])) {
+				unset($config[$option]);
+			} else {
+				$config[$option] = $value;
+			}
 			$hasValidOption = true;
 		}
 	}
@@ -143,6 +168,10 @@ if (empty($cli->getArg(1))) {
 	if (isset($config['destinationPath'])) {
 		$destinationPath = $cli->convertPathToAbsolute($config['destinationPath']);
 		$cmd[] = escapeshellarg($destinationPath);
+	}
+
+	if (isset($config['cmd'])) {
+		$cmd[] = '--cmd=' . escapeshellarg($config['cmd']);
 	}
 
 	// Execute localshellupdater
