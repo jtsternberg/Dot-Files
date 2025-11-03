@@ -93,11 +93,8 @@ alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
 # https://github.com/creationix/nvm/issues/539#issuecomment-245791291
 # alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
 
-alias itermScriptRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin/python'
-alias itermScripRun='itermScriptRun'
-alias itermDirTab='itermScriptRun ~/.dotfiles/iterm-python/dirmaptab.py'
-alias itermDirNewTab='itermScriptRun ~/.dotfiles/iterm-python/dirmapnewtab.py'
-alias itermDirCommand='itermScriptRun ~/.dotfiles/iterm-python/dirmapcommand.py'
+# Iterm commands
+source ~/.dotfiles/.iterm-commands
 
 # Make sure composer uses the Brew version of PHP.
 # alias composer="/usr/local/Cellar/php/7.3.11/bin/php  /usr/local/bin/composer"
