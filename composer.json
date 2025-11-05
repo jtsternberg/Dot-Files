@@ -1,5 +1,6 @@
 {
     "require": {
-        "adhocore/json-comment": "^1.2"
+        "adhocore/json-comment": "^1.2",
+        "league/html-to-markdown": "^5.1"
     }
 }
