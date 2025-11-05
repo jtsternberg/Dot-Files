@@ -97,17 +97,26 @@ class GitUserLogger {
 			if ($porcelain) {
 				echo "[$current/$total] $repo\n";
 			}
-			$contents = $this->showUserLog($repo);
-			if (empty($contents)) {
-				$this->cli->msg(" done", 'green', false);
-				$this->cli->msg(" (no commits found)");
-				if ($porcelain) {
-					echo "(no commits found for this period)\n\n";
+			try {
+				$contents = $this->showUserLog($repo);
+				if (empty($contents)) {
+					$this->cli->msg(" done", 'green', false);
+					$this->cli->msg(" (no commits found)");
+					if ($porcelain) {
+						echo "(no commits found for this period)\n\n";
+					}
+				} else {
+					$this->cli->msg(" done\n", 'green');
+					echo $contents;
 				}
-			} else {
-				$this->cli->msg(" done\n", 'green');
-				echo $contents;
+			} catch (EmptyRepositoryException $e) {
+				$this->cli->msg(" done", 'green', false);
+				$this->cli->msg(" ({$e->getMessage()})");
+				if ($porcelain) {
+					echo "({$e->getMessage()})\n\n";
+				}
 			}
+
 		}
 		echo "\n";
 	}
@@ -180,6 +189,9 @@ class GitUserLogger {
 			$this->cli->msg("{$reponame} cloning...", 'cyan', false);
 			$output = `git clone $repo $repodir --quiet 2>&1`;
 			if (!empty($output)) {
+				if ( false !== strpos( $output, 'You appear to have cloned an empty repository' ) ) {
+					throw new EmptyRepositoryException( trim( $output ), __LINE__ );
+				}
 				throw new \Exception(
 					sprintf(
 						"Error: Failed to clone %s into %s.\nClone output: %s",
@@ -238,3 +250,4 @@ try {
 	exit(1);
 }
 
+class EmptyRepositoryException extends \Exception {}
