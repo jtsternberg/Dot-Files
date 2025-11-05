@@ -1,0 +1,344 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Utility for converting HTML to Markdown.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Converts HTML content to Markdown format using league/html-to-markdown.
+# Can read from a file or stdin, and output to a file or stdout.
+#
+# Examples:
+# html-to-markdown input.html
+# html-to-markdown input.html output.md
+# cat input.html | html-to-markdown
+# html-to-markdown input.html --preserve-comments
+# html-to-markdown input.html --no-strip-tags --no-hard-break
+#
+# Usage (`html-to-markdown -h`):
+# html-to-markdown [<input-file>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support]
+# =============================================================================
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('html-to-markdown')
+	->setDescription('Convert HTML content to Markdown format')
+	->setSampleUsage('[<input-file>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support]')
+	->setupDefaultCommand([
+		'[<input-file>]'            => 'Input HTML file. If omitted, reads from stdin.',
+		'[<output-file>]'           => 'Output Markdown file. If omitted, writes to stdout.',
+		'--no-strip-tags'           => 'Disable stripping HTML tags without Markdown equivalents (enabled by default)',
+		'--no-hard-break'           => 'Disable hard breaks (use two spaces + newline instead of just newline). Hard breaks enabled by default',
+		'--header-style=<style>'    => 'Header style: "atx" for # Header or "setext" for === Header (default: atx)',
+		'--remove-nodes=<nodes>'    => 'Override space-separated list of DOM nodes to remove (default: "script style link[rel="stylesheet"] meta noscript")',
+		'--preserve-comments'       => 'Preserve HTML comments in the output',
+		'--strip-placeholder-links' => 'Remove <a> tags that don\'t have href attributes',
+		'--autolinks'               => 'Enable autolinks (use <url> syntax when possible). Default: full [text](url) syntax',
+		'--list-item-style=<char>'  => 'List item character: "-", "*", or "+" (default: "-")',
+		'--disable-table-support'   => 'Disable Markdown table support (tables are enabled by default)',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
+	exit(0);
+}
+
+class HtmlToMarkdownCommand {
+	public function __construct(private $cli) {}
+
+	public function run(): void {
+		$inputFile = $this->cli->getArg(1);
+		$outputFile = $this->cli->getArg(2);
+
+		// Read HTML input
+		$html = $this->readInput($inputFile);
+
+		// Build converter options
+		$options = $this->buildConverterOptions();
+
+		// Convert HTML to Markdown
+		$markdown = $this->convertToMarkdown($html, $options);
+
+		// Write output
+		$this->writeOutput($markdown, $outputFile);
+	}
+
+	private function readInput(?string $inputFile): string {
+		if ($inputFile) {
+			if (!file_exists($inputFile)) {
+				$this->cli->err("Input file not found: {$inputFile}\n");
+				exit(1);
+			}
+			$html = file_get_contents($inputFile);
+			if ($html === false) {
+				$this->cli->err("Failed to read input file: {$inputFile}\n");
+				exit(1);
+			}
+			return $html;
+		}
+
+		// Read from stdin
+		$html = '';
+		$handle = fopen('php://stdin', 'r');
+		while (($line = fgets($handle)) !== false) {
+			$html .= $line;
+		}
+		fclose($handle);
+
+		return $html;
+	}
+
+	private function buildConverterOptions(): array {
+		// Defaults matching AISEO's AIOSEO\Plugin\Pro\Llms::convertToMarkdown behavior
+		$options = [
+			'use_autolinks' => false,
+			'strip_tags'    => true,
+			'hard_break'    => true,
+			'header_style'  => 'atx',
+			'remove_nodes'  => 'script style link[rel="stylesheet"] meta noscript',
+		];
+
+		// Allow disabling strip_tags
+		if ($this->cli->hasFlags('no-strip-tags')) {
+			$options['strip_tags'] = false;
+		}
+
+		// Allow disabling hard_break
+		if ($this->cli->hasFlags('no-hard-break')) {
+			$options['hard_break'] = false;
+		}
+
+		// Allow overriding header_style
+		$headerStyle = $this->cli->getFlag('header-style');
+		if ($headerStyle) {
+			if (!in_array($headerStyle, ['atx', 'setext'], true)) {
+				$this->cli->err("Invalid header-style. Must be 'atx' or 'setext'.\n");
+				exit(1);
+			}
+			$options['header_style'] = $headerStyle;
+		}
+
+		// Allow overriding remove_nodes
+		$removeNodes = $this->cli->getFlag('remove-nodes');
+		if ($removeNodes) {
+			$options['remove_nodes'] = $removeNodes;
+		}
+
+		if ($this->cli->hasFlags('preserve-comments')) {
+			$options['preserve_comments'] = true;
+		}
+
+		if ($this->cli->hasFlags('strip-placeholder-links')) {
+			$options['strip_placeholder_links'] = true;
+		}
+
+		if ($this->cli->hasFlags('autolinks')) {
+			$options['use_autolinks'] = true;
+		}
+
+		$listItemStyle = $this->cli->getFlag('list-item-style');
+		if ($listItemStyle) {
+			if (!in_array($listItemStyle, ['-', '*', '+'], true)) {
+				$this->cli->err("Invalid list-item-style. Must be '-', '*', or '+'.\n");
+				exit(1);
+			}
+			$options['list_item_style'] = $listItemStyle;
+		}
+
+		return $options;
+	}
+
+	private function convertToMarkdown(string $html, array $options): string {
+		try {
+			$converter = new \League\HTMLToMarkdown\HtmlConverter($options);
+
+			// Enable table support by default (unless disabled)
+			if (!$this->cli->hasFlags('disable-table-support')) {
+				$converter->getEnvironment()->addConverter(
+					new \League\HTMLToMarkdown\Converter\TableConverter()
+				);
+			}
+
+			// Convert HTML to Markdown
+			$content = $converter->convert($html);
+
+		} catch (\Exception $e) {
+			// Output warning about conversion failure
+			$this->cli->msg("Warning: HTML to Markdown conversion failed: {$e->getMessage()}\n", 'yellow');
+			$this->cli->msg("Falling back to basic tag stripping and cleanup.\n", 'yellow');
+
+			// Fallback: Will simply strip HTML tags and clean up using existing methods
+			$content = $html;
+		}
+
+		$content = $this->wpStripAllTags($content);
+		$content = $this->cleanupMarkdown($content);
+
+		return $content;
+
+	}
+
+	/**
+	 * Cleans up markdown content by normalizing whitespace and decoding HTML entities.
+	 *
+	 * @param string $markdown The markdown content to clean up.
+	 * @return string The cleaned up markdown.
+	 */
+	private function cleanupMarkdown(string $markdown): string {
+		$markdown = preg_replace('/\n\s*\n\s*\n+/', "\n\n", trim($markdown));
+		$markdown = $this->decodeHtmlEntities($markdown);
+
+		return $markdown;
+	}
+
+	/**
+	 * Strips all HTML tags from text, including script and style tags.
+	 * Adapted from WordPress wp_strip_all_tags().
+	 *
+	 * @param string $text The text to strip tags from.
+	 * @param bool $removeBreaks Whether to remove line breaks.
+	 * @return string The text with all tags stripped.
+	 */
+	private function wpStripAllTags(string $text, bool $removeBreaks = false): string {
+		if (is_null($text)) {
+			return '';
+		}
+
+		if (!is_scalar($text)) {
+			throw new \InvalidArgumentException(
+				sprintf(
+					'Warning: %s expects parameter #1 ($text) to be a string, %s given.',
+					__FUNCTION__,
+					gettype($text)
+				)
+			);
+		}
+
+		$text = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $text);
+		$text = strip_tags($text);
+
+		if ($removeBreaks) {
+			$text = preg_replace('/[\r\n\t ]+/', ' ', $text);
+		}
+
+		return trim($text);
+	}
+
+	/**
+	 * Returns the string after all HTML entities have been decoded.
+	 * Adapted from AIOSEO\Plugin\Common\Traits\Helpers\Strings::decodeHtmlEntities().
+	 *
+	 * @param string $string The string to decode.
+	 * @return string The decoded string.
+	 */
+	private function decodeHtmlEntities(string $string): string {
+		static $decodeHtmlEntities = [];
+		if (isset($decodeHtmlEntities[$string])) {
+			return $decodeHtmlEntities[$string];
+		}
+
+		// We must manually decode non-breaking spaces since html_entity_decode doesn't do this.
+		$modifiedString = $this->pregReplace('/&nbsp;/', ' ', $string);
+		$decodeHtmlEntities[$string] = html_entity_decode($modifiedString, ENT_QUOTES);
+
+		return $decodeHtmlEntities[$string];
+	}
+
+	/**
+	 * preg_replace but with the replacement escaped.
+	 * Adapted from AIOSEO\Plugin\Common\Traits\Helpers\Strings::pregReplace().
+	 *
+	 * @param string $pattern The pattern to search for.
+	 * @param string $replacement The replacement string.
+	 * @param string $subject The subject to search in.
+	 * @return string The subject with matches replaced.
+	 */
+	private function pregReplace(string $pattern, string $replacement, string $subject): string {
+		if (!$subject) {
+			return $subject;
+		}
+
+		$key = $pattern . $replacement . $subject;
+
+		static $pregReplace = [];
+		if (isset($pregReplace[$key])) {
+			return $pregReplace[$key];
+		}
+
+		// Escape the replacement string
+		$replacement = $this->escapeRegexReplacement($replacement);
+		$pregReplace[$key] = preg_replace($pattern, $replacement, $subject);
+
+		return $pregReplace[$key];
+	}
+
+	/**
+	 * Escapes special regex characters inside the replacement string.
+	 * Adapted from AIOSEO\Plugin\Common\Traits\Helpers\Strings::escapeRegexReplacement().
+	 *
+	 * @param string $string The string.
+	 * @return string The escaped string.
+	 */
+	private function escapeRegexReplacement(string $string): string {
+		static $escapeRegexReplacement = [];
+		if (isset($escapeRegexReplacement[$string])) {
+			return $escapeRegexReplacement[$string];
+		}
+
+		$escapeRegexReplacement[$string] = str_replace('$', '\$', $string);
+
+		return $escapeRegexReplacement[$string];
+	}
+
+	private function writeOutput(string $markdown, ?string $outputFile): void {
+		if ($outputFile) {
+			// Check if output file already exists
+			if (file_exists($outputFile)) {
+				if (!$this->cli->confirm("Output file already exists: {$outputFile}\nDo you want to overwrite? [y/n]")) {
+					exit(1);
+				}
+			}
+
+			// Ensure output directory exists
+			$dir = dirname($outputFile);
+			if ($dir && !is_dir($dir) && !mkdir($dir, 0755, true)) {
+				$this->cli->err("Failed to create output directory: {$dir}\n");
+				exit(1);
+			}
+
+			$result = file_put_contents($outputFile, $markdown);
+			if ($result === false) {
+				$this->cli->err("Failed to write output file: {$outputFile}\n");
+				exit(1);
+			}
+
+			if (!$this->cli->isSilent()) {
+				$this->cli->msg("Converted HTML to Markdown: {$outputFile}\n", 'green');
+			}
+		} else {
+			// Write to stdout
+			echo $markdown;
+		}
+	}
+}
+
+try {
+	$cmd = new HtmlToMarkdownCommand($cli);
+	$cmd->run();
+} catch (\Exception $e) {
+	$cli->err("\n\n{$e->getMessage()} on line {$e->getLine()}");
+	$cli->err("\n\n" . print_r([
+		'class' => get_class($e),
+		'code'  => $e->getCode(),
+		'trace' => array_map(function($line) {
+			return preg_replace('~^#\d.? ~', '', $line);
+		}, explode("\n", $e->getTraceAsString())),
+	], true) . "\n");
+	exit(1);
+}
