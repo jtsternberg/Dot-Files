@@ -88,6 +88,17 @@ class Git {
 	}
 
 	/**
+	 * Get the main branch.
+	 *
+	 * @since  1.6.0
+	 *
+	 * @return string
+	 */
+	public function getMainBranch() {
+		return trim( `git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1` );
+	}
+
+	/**
 	 * Get the current branch.
 	 *
 	 * @since  1.0.1
@@ -96,6 +107,29 @@ class Git {
 	 */
 	public function currentBranch() {
 		return trim( `git rev-parse --abbrev-ref HEAD` );
+	}
+
+	/**
+	 * Get the changed files between two branches.
+	 *
+	 * @since  1.6.0
+	 *
+	 * @param  string $baseBranch The base branch.
+	 * @param  string $currentBranch The current branch.
+	 *
+	 * @return string
+	 */
+	public function getChangedFiles( $baseBranch = '', $currentBranch = '' ) {
+		if ( empty( $baseBranch ) ) {
+			$baseBranch = $this->getMainBranch();
+		}
+
+		if ( empty( $currentBranch ) ) {
+			$currentBranch = $this->currentBranch();
+		}
+
+		$gitOutput = `git diff --name-status {$baseBranch}..{$currentBranch}`;
+		return trim( $gitOutput ?: '' );
 	}
 
 	/**
@@ -279,6 +313,78 @@ class Git {
 		$results = array_filter( $results );
 
 		return $results;
+	}
+
+	/**
+	 * Pull tags from remote repository.
+	 *
+	 * @since  1.6.1
+	 *
+	 * @return boolean True if successful, false if failed
+	 */
+	public function pullTags() {
+		exec( 'git fetch --tags 2>/dev/null', $output, $result );
+		return 0 === $result;
+	}
+
+	/**
+	 * Get the repository path from the remote URL.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @return string Repository path in format "owner/repo"
+	 */
+	public function getRepoPathFromUrl() {
+		$remote = $this->getRepoUrl();
+		$remote = explode( ':', $remote )[1] ?? '';
+		// Remove .git suffix from the remote
+		$remote = preg_replace( '/\.git$/', '', $remote );
+
+		return $remote;
+	}
+
+	/**
+	 * Get the remote repository URL.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @return string Remote repository URL
+	 */
+	public function getRepoUrl() {
+		// Try to get the URL from the current branch's upstream remote
+		$upstream = trim( `git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null` );
+
+		if ( $upstream && strpos( $upstream, '/' ) !== false ) {
+			$remote = explode( '/', $upstream )[0];
+			$url = trim( `git remote get-url {$remote} 2>/dev/null` );
+			if ( $url ) {
+				return $url;
+			}
+		}
+
+		// Fallback 1: Try origin remote
+		$url = trim( `git remote get-url origin 2>/dev/null` );
+		if ( $url ) {
+			return $url;
+		}
+
+		// Fallback 2: Get the first available remote
+		$remotes = explode( "\n", trim( `git remote 2>/dev/null` ) );
+		if ( ! empty( $remotes[0] ) ) {
+			$url = trim( `git remote get-url {$remotes[0]} 2>/dev/null` );
+			if ( $url ) {
+				return $url;
+			}
+		}
+
+		// Fallback 3: Try git config
+		$url = trim( `git config --get remote.origin.url 2>/dev/null` );
+		if ( $url ) {
+			return $url;
+		}
+
+		// If all else fails, return empty string
+		return '';
 	}
 
 	/**
