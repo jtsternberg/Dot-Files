@@ -24,11 +24,18 @@ $helpyHelperton
 	->setScriptName('pr-description-generator')
 	->setPrefix('')
 	->setDescription('Generates a prompt for an AI to create a GitHub Pull Request description based on the current branch\'s changes compared to the main branch.')
-	->setSampleUsage('[--output=FILE] [--ignore=FILE1,FILE2,FILE3] [--base=BRANCH] [--verbose]')	->buildDocs([
+	->setSampleUsage('[--output=FILE] [--ignore=FILE1,FILE2,FILE3] [--base=BRANCH] [--summary] [--truncate=N] [--maxDocLines=N] [--smart[=THRESHOLD]] [--lineCount] [--verbose] [--prompt[=FILE]]')
+	->buildDocs([
 		'--output=FILE'              => 'Save the generated prompt to the specified file',
 		'--ignore=FILE1,FILE2,FILE3' => 'Comma-separated list of files to ignore in the diff output',
 		'--base=BRANCH'              => 'Base branch to compare against (defaults to main/master)',
+		'--summary'                  => 'Output summary mode: commit messages + file stats, no diffs',
+		'--truncate=N'               => 'Truncate diffs to N lines per commit (default: 100)',
+		'--maxDocLines=N'            => 'Auto-truncate documentation files over N lines (default: false, 0 = ignore docs diffs)',
+		'--smart[=THRESHOLD]'        => 'Automatically choose best output mode based on size (default threshold: 1000 lines)',
+		'--lineCount'                => 'Output only the line count',
 		'--verbose, -v'              => 'Display verbose output',
+		'--prompt[=FILE]'            => 'Include the AI prompt template in the output. Optionally specify a path to a custom prompt template file.',
   ]);
 
   if ($helpyHelperton->batSignal) {
@@ -38,25 +45,87 @@ $helpyHelperton
 
 class PRDescriptionGenerator {
 	protected $cli;
+	protected $git;
 	protected $baseBranch;
 	protected $currentBranch;
 	protected $ignoredFiles = ['package-lock.json', 'yarn.lock', 'composer.lock'];
 	protected $currentHash = '';
+	protected $truncateLines = 0;
+	protected $summaryMode = false;
+	protected $smartMode = false;
+	protected $lineCountOnly = false;
+	protected $maxSmartLines = 1000; // Threshold for smart mode
+	protected $docExtensions = ['.md', '.txt', '.rst', '.adoc'];
+	protected $maxDocLines = false; // Auto-truncate docs over this
+	protected $binaryExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.pdf', '.zip', '.tar', '.gz', '.woff', '.woff2', '.ttf', '.eot'];
+	protected $testPatterns = ['/test/', '/tests/', '/__tests__/', '/spec/', '.test.', '.spec.', 'Test.php', 'Test.js'];
+	protected $skippedFiles = []; // Track skipped files per commit
 
 	public function __construct(CLI\Helpers $cli) {
 		$this->cli = $cli;
-		$this->baseBranch = trim($cli->getFlag('base', `git getmain`));
-		$this->currentBranch = trim(`git rev-parse --abbrev-ref HEAD`);
+		$this->git = $cli->git;
+
+		$this->baseBranch = trim($cli->getFlag('base', $this->git->getMainBranch()));
+		$this->currentBranch = $this->git->currentBranch();
+
+		// Handle mode flags
+		$this->summaryMode = $cli->hasFlag('summary');
+		$this->lineCountOnly = $cli->hasFlag('lineCount');
+		if ( $this->lineCountOnly ) {
+			$cli->forceSilent = true;
+		}
+
+		$this->smartMode = $cli->hasFlag('smart');
+		// Handle smart mode threshold
+		if ($this->smartMode) {
+			$thresholdValue = $cli->getFlag('smart');
+			if (is_numeric($thresholdValue) && $thresholdValue > 0) {
+				$this->maxSmartLines = intval($thresholdValue);
+			}
+		}
+
+		// Handle truncate flag
+		if ($cli->hasFlag('truncate')) {
+			$truncateValue = $cli->getFlag('truncate');
+			$this->truncateLines = is_numeric($truncateValue) ? intval($truncateValue) : 100;
+		}
+
+		// Handle maxDocLines flag
+		if ($cli->hasFlag('maxDocLines')) {
+			$maxDocValue = $cli->getFlag('maxDocLines');
+			if (is_numeric($maxDocValue)) {
+				$this->maxDocLines = intval($maxDocValue);
+			}
+		}
+
 		$ignored = explode(',', $cli->getFlag('ignore', ''));
 		$ignored = array_map('trim', $ignored);
 		$this->ignoredFiles = array_merge($this->ignoredFiles, $ignored);
+		$this->ignoredFiles = array_unique($this->ignoredFiles);
+		$this->ignoredFiles = array_filter($this->ignoredFiles);
+		if ( $this->cli->isVerbose() ) {
+			$this->cli->msg( "Ignored files: " . print_r( $this->ignoredFiles, true ) . "\n" );
+		}
 	}
 
 	public function generate() {
+		// Handle smart mode - try full, then truncated, then summary
+		if ($this->smartMode) {
+			$this->handleSmartMode();
+			return;
+		}
+
 		$commits = $this->getCommitsWithDiffs();
-		$files = $this->getChangedFiles();
+		$files = $this->git->getChangedFiles($this->baseBranch, $this->currentBranch);
 
 		$prompt = $this->createPrompt($commits, $files);
+
+		// If lineCount only, output line count and exit
+		if ($this->lineCountOnly) {
+			$lineCount = substr_count($prompt, "\n") + 1;
+			echo $lineCount;
+			return;
+		}
 
 		// Check if --output option is provided
 		$outputFile = $this->cli->getFlag('output');
@@ -68,12 +137,123 @@ class PRDescriptionGenerator {
 		}
 	}
 
+	protected function handleSmartMode() {
+		// Try full mode first
+		$this->smartMode = false; // Disable smart mode to prevent recursion
+		$commits = $this->getCommitsWithDiffs();
+		$files = $this->git->getChangedFiles($this->baseBranch, $this->currentBranch);
+		$prompt = $this->createPrompt($commits, $files);
+		$lineCount = substr_count($prompt, "\n") + 1;
+
+		if ($this->cli->isVerbose()) {
+			$this->cli->msg("Smart mode: Full output has {$lineCount} lines");
+		}
+
+		// If under threshold, use full output
+		if ($lineCount <= $this->maxSmartLines) {
+			if ($this->cli->isVerbose()) {
+				$this->cli->msg("Smart mode: Using full output\n");
+			}
+			$this->outputResult($prompt);
+			return;
+		}
+
+		// Try maxDocLines mode
+		$this->maxDocLines = 100;
+		$commits = $this->getCommitsWithDiffs();
+		$prompt = $this->createPrompt($commits, $files);
+		$lineCount = substr_count($prompt, "\n") + 1;
+		if ($this->cli->isVerbose()) {
+			$this->cli->msg("Smart mode: MaxDocLines output has {$lineCount} lines");
+		}
+		if ($lineCount <= $this->maxSmartLines) {
+			if ($this->cli->isVerbose()) {
+				$this->cli->msg("Smart mode: Using MaxDocLines output\n");
+			}
+			$this->outputResult($prompt);
+			return;
+		}
+
+		// Try truncated mode
+		$this->truncateLines = 100;
+		$commits = $this->getCommitsWithDiffs();
+		$prompt = $this->createPrompt($commits, $files);
+		$lineCount = substr_count($prompt, "\n") + 1;
+
+		if ($this->cli->isVerbose()) {
+			$this->cli->msg("Smart mode: Truncated output has {$lineCount} lines");
+		}
+
+		if ($lineCount <= $this->maxSmartLines) {
+			if ($this->cli->isVerbose()) {
+				$this->cli->msg("Smart mode: Using truncated output\n");
+			}
+			$this->outputResult($prompt);
+			return;
+		}
+
+		// Fall back to summary mode
+		$this->summaryMode = true;
+		$this->truncateLines = 0;
+		$commits = $this->getCommitsWithDiffs();
+		$prompt = $this->createPrompt($commits, $files);
+
+		$lineCount = substr_count($prompt, "\n") + 1;
+		if ($this->cli->isVerbose()) {
+			$this->cli->msg("Smart mode: Falling back to summary output ({$lineCount} lines)\n");
+		}
+
+		$this->outputResult($prompt);
+	}
+
+	protected function outputResult($prompt) {
+		if ($this->lineCountOnly) {
+			$lineCount = substr_count($prompt, "\n") + 1;
+			echo $lineCount;
+			return;
+		}
+
+		$outputFile = $this->cli->getFlag('output');
+		if ($outputFile) {
+			$this->saveToFile($prompt, $outputFile);
+		} else {
+			echo $prompt;
+		}
+	}
+
+	protected function isBinaryFile($filename) {
+		$ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+		return in_array('.' . $ext, $this->binaryExtensions);
+	}
+
+	protected function isTestFile($filepath) {
+		foreach ($this->testPatterns as $pattern) {
+			if (stripos($filepath, $pattern) !== false) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	protected function isDocFile($filename) {
+		$ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+		return in_array('.' . $ext, $this->docExtensions);
+	}
+
 	protected function getCommitsWithDiffs() {
 		$commits = [];
-		$commitHashes = explode("\n", trim(`git log {$this->baseBranch}..{$this->currentBranch} --format=%H`));
+		$gitOutput = `git log {$this->baseBranch}..{$this->currentBranch} --format=%H`;
+		$commitHashes = array_filter(explode("\n", trim($gitOutput ?: '')));
 		foreach ($commitHashes as $this->currentHash) {
-			$fullDiff = trim(`git show -p --no-color --ignore-all-space --ignore-space-change --pretty=format:"%h %s" {$this->currentHash}`);
-			$filteredDiff = $this->filterignoredFiles($fullDiff);
+			if ( $this->summaryMode ) {
+				$filteredDiff = `git show -s --format=%B {$this->currentHash}`;
+				$filteredDiff .= `git diff --stat=,,40 --no-color {$this->currentHash}`;
+				$filteredDiff = trim($filteredDiff ?: '');
+			} else {
+				$fullDiff = trim(`git show -p --no-color --ignore-all-space --ignore-space-change --pretty=format:"%B" {$this->currentHash}`);
+				$filteredDiff = $this->filterignoredFiles($fullDiff);
+			}
+
 			if (!empty($filteredDiff)) {
 				$commits[$this->currentHash] = $filteredDiff;
 			}
@@ -82,81 +262,125 @@ class PRDescriptionGenerator {
 	}
 
 	protected function filterignoredFiles($diff) {
-		// $output = false !== stripos( $diff, 'package-lock.json' );
 		$lines = explode("\n", $diff);
 		$filteredLines = [];
 		$skip = false;
 		$currentFile = '';
+		$currentFilePath = '';
 		$signalStart = 'diff --git';
 		$signalLength = strlen($signalStart);
-
-		// if ( $output ) {
-		// 	// print( __METHOD__ . ':' . __LINE__ .') $lines: '. print_r( $lines, true ) . "\n\n" );
-		// }
+		$fileDiffLines = [];
+		$inFileDiff = false;
+		$skippedFiles = [];
 
 		foreach ($lines as $index => $line) {
 			$startPos = strpos( $line, $signalStart );
-			// $output = false !== stripos( $line, 'package-lock.json' );
 
 			if ( false !== $startPos ) {
+				// Process previous file's diff if we were in one
+				if ($inFileDiff && !$skip) {
+					$processedDiff = $this->processDiffLines($fileDiffLines, $currentFile, $currentFilePath);
+					$filteredLines = array_merge($filteredLines, $processedDiff);
+
+					$fileDiffLines = [];
+				}
+
+				$inFileDiff = true;
+				$skip = false;
+
+				$line = $this->removeHiddenCharacters( $line );
+				if ( false !== $startPos ) {
+					$currentFilePath = substr( $line, $startPos + $signalLength );
+				}
+
+				$position = strpos( $currentFilePath, ' b/' );
+				if ( false !== $position ) {
+					$currentFilePath = substr( $currentFilePath, 0, $position );
+				}
+
+				// Extract full path before getting basename
+				$fullPath = trim(str_replace('a/', '', $currentFilePath));
+				$currentFile = basename( $fullPath );
+				$currentFile = trim( $currentFile );
+
+				// Check if file should be skipped
+				$isBinary = $this->isBinaryFile($currentFile);
+				$isTest = $this->isTestFile($fullPath);
+				$isDoc = $this->isDocFile($currentFile);
+				$isIgnored = in_array( $currentFile, $this->ignoredFiles );
+				$skip = $isIgnored || $isBinary || $isTest || ($isDoc && $this->maxDocLines === 0);
+
 				if ( $skip ) {
-					$skip = false;
-					if ( $this->cli->isVerbose() ) {
-						$this->cli->msg( "Resume: ". print_r( [
-							'file' => $currentFile,
-							'line' => $index + 1,
-							'contents' => $line,
-						], true ) . "\n" );
+					// Categorize skipped files
+					$category = $isTest ? 'test' : ($isBinary ? 'binary' : ($isDoc ? 'documentation' : 'ignored'));
+					if (!isset($skippedFiles[$category])) {
+						$skippedFiles[$category] = [];
 					}
-				} else {
-					$line = $this->removeHiddenCharacters( $line );
-					$signalStart = $signalStart;
-					if ( false !== $startPos ) {
-						$currentFile = substr( $line, $startPos + $signalLength );
-					}
+					$skippedFiles[$category][] = $fullPath;
+					continue;
+				}
 
-					$position = strpos( $currentFile, ' b/' );
-					if ( false !== $position ) {
-						$currentFile = substr( $currentFile, 0, $position );
-					}
-
-					// Now get JUST the file, not the directory
-					$currentFile = basename( $currentFile );
-					$currentFile = trim( $currentFile );
-					$skip = in_array( $currentFile, $this->ignoredFiles );
-
-					if ( $skip && $this->cli->isVerbose() ) {
-						$this->cli->msg( "Skipping file diff: " . print_r( [
-							'file' => $currentFile,
-							'line' => $index + 1,
-							'contents' => $line,
-							'hash' => $this->currentHash,
-						], true ) . "\n" );
-					}
-
-					if ( $skip ) {
-						$filteredLines[] = 'skipped...';
-						continue;
-					}
+				$fileDiffLines[] = $line;
+			} else {
+				if (!$skip && $inFileDiff) {
+					$fileDiffLines[] = $line;
+				} elseif (!$inFileDiff) {
+					// This is commit message or metadata, always include
+					$filteredLines[] = $line;
 				}
 			}
+		}
 
-			if (!$skip) {
-				$filteredLines[] = $line;
+		// Process last file's diff
+		if ($inFileDiff && !$skip && !empty($fileDiffLines)) {
+			$processedDiff = $this->processDiffLines($fileDiffLines, $currentFile, $currentFilePath);
+			$filteredLines = array_merge($filteredLines, $processedDiff);
+		}
+
+		// Add skipped files summary
+		if (!empty($skippedFiles)) {
+			foreach ($skippedFiles as $category => $files) {
+				$filteredLines[] = "";
+				$label = ucfirst($category) . " file diff content skipped:";
+				$filteredLines[] = $label;
+				foreach ($files as $file) {
+					$filteredLines[] = "- " . $file;
+				}
 			}
 		}
 
 		return implode("\n", $filteredLines);
 	}
 
+	protected function processDiffLines($diffLines, $filename, $filepath) {
+		$totalLines = count($diffLines);
+		$isDocFile = $this->isDocFile($filename);
+		$maxLines = $this->truncateLines;
+
+		// Auto-truncate documentation files (only if maxDocLines > 0)
+		if ($isDocFile && $this->maxDocLines && $maxLines === 0 && $totalLines > $this->maxDocLines) {
+			$maxLines = $this->maxDocLines;
+		}
+
+		// No truncation needed
+		if ($maxLines === 0 || $totalLines <= $maxLines) {
+			return $diffLines;
+		}
+
+		// Truncate with marker
+		$truncatedLines = array_slice($diffLines, 0, $maxLines);
+		$remainingLines = $totalLines - $maxLines;
+		$truncatedLines[] = "";
+		$truncatedLines[] = "[Diff truncated - {$remainingLines} more lines]";
+		$truncatedLines[] = "";
+
+		return $truncatedLines;
+	}
+
 	protected function removeHiddenCharacters($string) {
 		// Remove invisible characters and trim whitespace
 		$clean = preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $string);
 		return trim($clean);
-	}
-
-	protected function getChangedFiles() {
-		return `git diff --name-status {$this->baseBranch}..{$this->currentBranch}`;
 	}
 
 	protected function formatCommits($commits) {
@@ -171,8 +395,7 @@ class PRDescriptionGenerator {
 	}
 
 	protected function createPrompt($commits, $files) {
-		// return '';
-		$prompt = <<<EOT
+		$output = <<<EOT
 ## Branch Information
 - Current Branch: `{$this->currentBranch}`
 - Compared to: `{$this->baseBranch}`
@@ -185,10 +408,41 @@ class PRDescriptionGenerator {
 ```
 {$files}
 ```
+EOT;
 
------
+		if ($this->cli->hasFlag('prompt')) {
+			$output .= "\n\n" . $this->getPromptTemplate();
+		}
 
-Based on the information provided above, please generate a comprehensive and well-structured Pull Request description using the following markdown template.
+		return $output;
+	}
+
+	protected function getPromptTemplate() {
+		$promptPath = $this->cli->getFlag('prompt');
+
+		if ( $this->cli->isVerbose() ) {
+			$msg = 'Including prompt';
+			if ( ! empty( $promptPath ) ) {
+				$msg .= ': ' . $promptPath;
+			}
+			$this->cli->msg( $msg );
+		}
+
+		if (!empty($promptPath)) {
+			$promptPath = $this->cli->convertPathToAbsolute( $promptPath );
+
+			if (!file_exists($promptPath)) {
+				throw new \Exception("Prompt template file not found: {$promptPath}");
+			}
+
+			$template = file_get_contents($promptPath);
+			if ($template === false) {
+				throw new \Exception("Failed to read prompt template file: {$promptPath}");
+			}
+
+		} else {
+			$template = <<<EOT
+Based on the information provided above, please generate a comprehensive and well-structured Pull Request description (in a new pr-description.md file) using the following markdown template.
 
 ```markdown
 ## Description
@@ -209,8 +463,9 @@ Based on the information provided above, please generate a comprehensive and wel
 
 Please ensure that the generated description is concise and focused on the key changes and testing requirements. The Additional Notes section should only be included if it provides valuable context beyond what's covered in the Description section.
 EOT;
+		}
 
-		return $prompt;
+		return "-----\n\n{$template}";
 	}
 
 	protected function saveToFile($content, $filename) {
@@ -223,11 +478,17 @@ EOT;
 		if (! empty( $results)) {
 			$this->cli->msg("Prompt saved to file: $filename", 'green');
 		} else {
-			$this->cli->err("Failed to save prompt to file: $filename");
-			exit(1);
+			throw new \Exception("Failed to save prompt to file: $filename");
 		}
 	}
 }
 
 $generator = new PRDescriptionGenerator($cli);
-$generator->generate();
+try {
+	$generator->generate();
+} catch (\Exception $e) {
+	$cli->err($e->getMessage());
+	exit(1);
+}
+
+exit(0);

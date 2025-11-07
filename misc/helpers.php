@@ -96,6 +96,15 @@ class Helpers {
 	public $shortFlags = [];
 
 	/**
+	 * Whether to force silent mode.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @var boolean
+	 */
+	public $forceSilent = false;
+
+	/**
 	 * Creates or returns an instance of this class.
 	 * @since  0.1.0
 	 * @return Helpers A single instance of this class.
@@ -254,7 +263,7 @@ class Helpers {
 	 * @return boolean
 	 */
 	public function isSilent() {
-		return $this->hasFlags( [ 'silent', 'porcelain' ], 'shh' );
+		return $this->forceSilent || $this->hasFlags( [ 'silent', 'porcelain' ], 'shh' );
 	}
 
 	/**
@@ -509,6 +518,17 @@ class Helpers {
 		}
 
 		return $this;
+	}
+
+	/**
+	 * Outputs a blank line if the silent flag is not set.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @return Helpers
+	 */
+	public function lineBreak() {
+		return $this->msg( '' );
 	}
 
 	/**
