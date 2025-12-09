@@ -797,7 +797,7 @@ class Helpers {
 	 * @return string The command results.
 	 */
 	public function runCommand( $command ) {
-		$results = `$command`;
+		$results = shell_exec( $command );
 		if ( ! $this->isSilent() ) {
 			echo $results;
 		}
