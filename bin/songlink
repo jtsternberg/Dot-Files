@@ -1,0 +1,48 @@
+#!/bin/zsh
+
+QUERY="$1"
+IS_ALFRED="$2"
+
+# If nothing was passed, bail out quietly
+if [ -z "$QUERY" ]; then
+  osascript -e 'display notification "No URL provided." with title "SongLink"'
+  exit 0
+fi
+
+# Strip tracking/QUERY params like ?si=... (optional but cleaner)
+clean_url="${QUERY%%\?*}"
+
+# Call the SongLink / Odesli API
+response="$(curl -s "https://api.odesli.co/resolve?url=${clean_url}")"
+
+# Try to extract the "id" field from the JSON with jq
+song_id="$(printf '%s' "$response" | jq -r '.id // ""')"
+
+if [ -n "$song_id" ]; then
+  song_url="https://song.link/s/${song_id}"
+
+  # Copy final SongLink URL to clipboard
+  printf '%s' "$song_url" | pbcopy
+
+  # Notify success
+  osascript -e 'display notification "SongLink URL copied to clipboard." with title "SongLink"'
+
+  # Echo the URL so Alfred's "Open URL" action opens it
+  printf '%s' "$song_url"
+
+  # If IS_ALFRED is not set, then open the url in the browser
+  if [ -z "$IS_ALFRED" ]; then
+    open "$song_url"
+  fi
+
+  # Exit with success
+  exit 0
+else
+  # No id in response: copy raw JSON for debugging
+  printf '%s' "$response" | pbcopy
+
+  osascript -e 'display notification "Failed to get SongLink ID. API response copied to clipboard." with title "SongLink"'
+
+  # Print nothing so the Open URL action has nothing to open
+  exit 0
+fi
