@@ -31,7 +31,7 @@ class Git {
 	 *
 	 * @param Helpers $h
 	 */
-	public function __construct( Helpers $h = null ) {
+	public function __construct( ?Helpers $h = null ) {
 		$this->setHelpers( $h );
 	}
 
@@ -54,7 +54,7 @@ class Git {
 	 * @return string
 	 */
 	public function lastCommitMessage() {
-		return trim( `git reflog --pretty=format:'%s [%h, %cN, %ad]' -1` );
+		return trim( shell_exec( "git reflog --pretty=format:'%s [%h, %cN, %ad]' -1" ) );
 	}
 
 	/**
@@ -69,7 +69,7 @@ class Git {
 	 */
 	public function listTags( $reverse = false, $number = false ) {
 		$sort = $reverse ? '-creatordate' : 'creatordate';
-		$all = `git tag --sort={$sort} -n`;
+		$all = shell_exec( "git tag --sort={$sort} -n" );
 		if ( ! $number ) {
 			return $all;
 		}
@@ -95,7 +95,7 @@ class Git {
 	 * @return string
 	 */
 	public function getMainBranch() {
-		return trim( `git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1` );
+		return trim( shell_exec( "git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1" ) );
 	}
 
 	/**
@@ -106,7 +106,7 @@ class Git {
 	 * @return string
 	 */
 	public function currentBranch() {
-		return trim( `git rev-parse --abbrev-ref HEAD` );
+		return trim( shell_exec( "git rev-parse --abbrev-ref HEAD" ) );
 	}
 
 	/**
@@ -128,7 +128,7 @@ class Git {
 			$currentBranch = $this->currentBranch();
 		}
 
-		$gitOutput = `git diff --name-status {$baseBranch}..{$currentBranch}`;
+		$gitOutput = shell_exec( "git diff --name-status {$baseBranch}..{$currentBranch}" );
 		return trim( $gitOutput ?: '' );
 	}
 
@@ -140,7 +140,7 @@ class Git {
 	 * @return string
 	 */
 	public function currentRemote() {
-		$info = trim( (string) `git branch -vv --color=never` );
+		$info = trim( (string) shell_exec( "git branch -vv --color=never" ) );
 
 		// First, split the output into individual lines.
 		$lines = explode( "\n", $info );
@@ -176,7 +176,7 @@ class Git {
 	 * @return string
 	 */
 	public function currentTag() {
-		$rows = explode( "\n", `git tag --sort=creatordate` );
+		$rows = explode( "\n", shell_exec( "git tag --sort=creatordate" ) );
 		$rows = array_filter( $rows, 'trim' );
 		$last = end( $rows );
 
@@ -287,7 +287,7 @@ class Git {
 			$command .= ' | grep ' . $matches;
 		}
 
-		$results = `$command`;
+		$results = shell_exec( $command );
 		$results = ! empty( $results ) ? explode( "\n", $results ) : [];
 		$results = array_filter( $results );
 
@@ -308,7 +308,7 @@ class Git {
 	public function getFilesChanged( $start = '', $end = 'HEAD', $additionalFlags = '' ) {
 		$command = "git diff --name-only {$additionalFlags} {$start} {$end}";
 
-		$results = `$command`;
+		$results = shell_exec( $command );
 		$results = ! empty( $results ) ? explode( "\n", $results ) : [];
 		$results = array_filter( $results );
 
@@ -352,33 +352,33 @@ class Git {
 	 */
 	public function getRepoUrl() {
 		// Try to get the URL from the current branch's upstream remote
-		$upstream = trim( `git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null` );
+		$upstream = trim( shell_exec( "git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null" ) );
 
 		if ( $upstream && strpos( $upstream, '/' ) !== false ) {
 			$remote = explode( '/', $upstream )[0];
-			$url = trim( `git remote get-url {$remote} 2>/dev/null` );
+			$url = trim( shell_exec( "git remote get-url {$remote} 2>/dev/null" ) );
 			if ( $url ) {
 				return $url;
 			}
 		}
 
 		// Fallback 1: Try origin remote
-		$url = trim( `git remote get-url origin 2>/dev/null` );
+		$url = trim( shell_exec( "git remote get-url origin 2>/dev/null" ) );
 		if ( $url ) {
 			return $url;
 		}
 
 		// Fallback 2: Get the first available remote
-		$remotes = explode( "\n", trim( `git remote 2>/dev/null` ) );
+		$remotes = explode( "\n", trim( shell_exec( "git remote 2>/dev/null" ) ) );
 		if ( ! empty( $remotes[0] ) ) {
-			$url = trim( `git remote get-url {$remotes[0]} 2>/dev/null` );
+			$url = trim( shell_exec( "git remote get-url {$remotes[0]} 2>/dev/null" ) );
 			if ( $url ) {
 				return $url;
 			}
 		}
 
 		// Fallback 3: Try git config
-		$url = trim( `git config --get remote.origin.url 2>/dev/null` );
+		$url = trim( shell_exec( "git config --get remote.origin.url 2>/dev/null" ) );
 		if ( $url ) {
 			return $url;
 		}
@@ -402,7 +402,7 @@ class Git {
 		if ( ! $this->helpers->getArg( 2 ) || $altRemote !== $this->helpers->getArg( 2 ) ) {
 			// If not, let's push to that repo as well.
 
-			$remotes = explode( "\n", `git remote -v` );
+			$remotes = explode( "\n", shell_exec( "git remote -v" ) );
 			$remote = '';
 			foreach ( $remotes as $line ) {
 				if ( false !== strpos( $line, $altRemote ) ) {

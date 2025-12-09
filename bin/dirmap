@@ -37,7 +37,7 @@ class DirMap {
 		$this->hd = dirname( dirname( __DIR__ ) );
 		$this->source = $this->hd . '/.dirmap.json';
 		if ( ! file_exists( $this->source ) ) {
-			`echo '[]' >> $this->hd/.dirmap.json`;
+			shell_exec( "echo '[]' >> {$this->hd}/.dirmap.json" );
 		}
 
 		$this->dirs = json_decode( file_get_contents( $this->hd . '/.dirmap.json' ), true );
@@ -123,7 +123,7 @@ class DirMap {
 
 	protected function updateFile( $dirs ) {
 		$json = json_encode( $dirs );
-		`echo '$json' > $this->hd/.dirmap.json`;
+		shell_exec( "echo '$json' > {$this->hd}/.dirmap.json" );
 
 		return $this;
 	}
