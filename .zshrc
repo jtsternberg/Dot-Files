@@ -70,6 +70,32 @@ alias nt="open -a iTerm ."
 alias code="cursor"
 alias lg="lazygit"
 alias ghv="gh repo view --web"
+alias vinedaily="cd ~/Code/vine-daily-log && npm run daily && say 'vine daily opened'"
+
+# Claude Code session management
+alias ccsessions='node ~/.claude/hooks/list-sessions.js'
+alias ccls='node ~/.claude/hooks/list-sessions.js -l'
+alias cctail='node ~/.claude/hooks/tail-session.js'
+
+# Usage examples after adding aliases:
+# ccsessions              # List all sessions
+# ccls                    # List with last activity
+# cctail 1                # Tail session #1
+# cctail 1 -c             # Tail current subagent
+# cctail 1 -s 2           # Tail subagent #2
+
+# Claude Code...
+alias claudecatchup='claude "/catchup"'
+alias claudecreatepr='claude "/create-pr"'
+alias claudecreateissue='claude "/create-github-issue"'
+alias claudecommitstaged='claude "/commit-staged"'
+# alias claudefix='claude "/fix-github-issue $@"'
+claudefix() {
+	claude "/fix-github-issue $@";
+}
+claudeissue() {
+	claude "/create-github-issue $@";
+}
 
 # For when the sidebar items disappear.
 # https://apple.stackexchange.com/a/210469
@@ -224,6 +250,10 @@ ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
 ZSH_HIGHLIGHT_PATTERNS+=('rm -rf *' 'fg=white,bold,bg=red')
 function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
 
+# re: https://github.com/bluzername/claude-code-terminal-title
+# And .claude/skills/terminal-title
+export CLAUDE_TITLE_PREFIX="🤖"
+
 # https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
 if type brew &>/dev/null
 then
@@ -253,3 +283,9 @@ if [ -f '/Users/JT/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/JT/goo
 
 # Created by `pipx` on 2025-07-23 14:21:40
 export PATH="$PATH:/Users/JT/.local/bin"
+
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
+
+
+# Added by Antigravity
+export PATH="/Users/JT/.antigravity/antigravity/bin:$PATH"
