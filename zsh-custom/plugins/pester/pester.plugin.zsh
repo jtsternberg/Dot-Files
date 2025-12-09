@@ -18,43 +18,83 @@ _get_branch_test_files() {
 	git diff --name-only --diff-filter=ACMRTUXB "$main_branch"...HEAD | grep '^tests/.*\.php$'
 }
 
+# Helper function to execute a command and print it
+_run_and_print_cmd() {
+	local CMD="$1"
+	echo "\n- command run:"
+	echo "    $CMD\n"
+	eval $CMD
+}
+
 # 1) Command: runs Pest on args, or on changed test files if no args
 pest-changed() {
 	local staged_only=false
 	local unstaged_only=false
 	local branch_only=false
+	local use_sail=false
 	local -a pest_args=()
-	
+	local has_flags=false
+
 	# Parse flags
 	while (( $# )); do
 		case "$1" in
 			--staged)
 				staged_only=true
+				has_flags=true
 				shift
 				;;
 			--unstaged)
 				unstaged_only=true
+				has_flags=true
 				shift
 				;;
 			--branch)
 				branch_only=true
+				has_flags=true
+				shift
+				;;
+			--sail)
+				use_sail=true
+				has_flags=true
+				# pest_args everything but --sail
 				shift
 				;;
 			*)
 				pest_args+=("$1")
+				has_flags=true
 				shift
 				;;
 		esac
 	done
-	
+
+	if $has_flags; then
+		echo "\nFlags:"
+		if $staged_only; then
+			echo "    - Staged Only: true"
+		fi
+		if $unstaged_only; then
+			echo "    - Unstaged Only: true"
+		fi
+		if $branch_only; then
+			echo "    - Branch Only: true"
+		fi
+		if $use_sail; then
+			echo "    - Use Sail: true"
+		fi
+	fi
+
 	# If specific args provided, just run pest with those args
 	if (( ${#pest_args} )); then
-		php vendor/bin/pest "${pest_args[@]}"
+		if $use_sail; then
+			_run_and_print_cmd "./vendor/bin/sail pest ${(q)pest_args[@]}"
+		else
+			_run_and_print_cmd "php vendor/bin/pest ${(q)pest_args[@]}"
+		fi
 		return
 	fi
-	
+
 	local -a files=()
-	
+
 	if $staged_only; then
 		files=(${(f)"$(_get_staged_test_files)"})
 	elif $unstaged_only; then
@@ -71,9 +111,13 @@ pest-changed() {
 			files=(${(f)"$(_get_branch_test_files)"})
 		fi
 	fi
-	
+
 	if (( ${#files} )); then
-		php vendor/bin/pest "${files[@]}"
+		if $use_sail; then
+			_run_and_print_cmd "./vendor/bin/sail pest ${(q)files[@]}"
+		else
+			_run_and_print_cmd "php vendor/bin/pest ${(q)files[@]}"
+		fi
 	else
 		echo "No changed test files found."
 		return 1
@@ -84,18 +128,19 @@ pest-changed() {
 _pest_changed() {
 	local context state state_descr line
 	typeset -A opt_args
-	
+
 	# Handle flag completion
 	_arguments -C \
 		'--staged[Run tests only on staged files]' \
 		'--unstaged[Run tests only on unstaged files]' \
 		'--branch[Run tests only on files changed in current branch]' \
+		'--sail[Run tests using Laravel Sail]' \
 		'*:test files:->files'
-	
+
 	case $state in
 		files)
 			local -a candidates
-			
+
 			# Check if any flags were specified
 			if [[ -n $opt_args[--staged] ]]; then
 				candidates=(${(f)"$(_get_staged_test_files 2>/dev/null)"})
@@ -113,7 +158,7 @@ _pest_changed() {
 				# Remove duplicates while preserving order
 				candidates=(${(u)candidates})
 			fi
-			
+
 			if (( ${#candidates} )); then
 				# Offer only the changed test files
 				compadd -Q -a candidates
@@ -133,7 +178,7 @@ pest() {
 		pest_args=(tests/)
 	fi
 
-	php vendor/bin/pest "${pest_args[@]}"
+	_run_and_print_cmd "php vendor/bin/pest ${(q)pest_args[@]}"
 }
 
 sailpest() {
@@ -144,7 +189,7 @@ sailpest() {
 		pest_args=(tests/)
 	fi
 
-	./vendor/bin/sail pest "${pest_args[@]}"
+	_run_and_print_cmd "./vendor/bin/sail pest ${(q)pest_args[@]}"
 }
 
 # 2) Completion: smartly anchor to tests/ if present; otherwise current dir
@@ -169,11 +214,27 @@ _pest() {
 }
 
 pestparallel() {
-	php vendor/bin/pest --parallel "$@"
+	_run_and_print_cmd "php vendor/bin/pest --parallel ${(q)@}"
 }
 
 pestannounce() {
-	pestparallel "$@" | tee /tmp/pest_output.txt;
+	local use_sail=false
+	local -a pest_args=()
+
+	# Parse arguments to check for --sail flag
+	for arg in "$@"; do
+		if [[ "$arg" == "--sail" ]]; then
+			use_sail=true
+		else
+			pest_args+=("$arg")
+		fi
+	done
+
+	if $use_sail; then
+		_run_and_print_cmd "./vendor/bin/sail pest --parallel ${(q)pest_args[@]} | tee /tmp/pest_output.txt"
+	else
+		_run_and_print_cmd "php vendor/bin/pest --parallel ${(q)pest_args[@]} | tee /tmp/pest_output.txt"
+	fi
 
 	CLEAN_OUTPUT=$(sed 's/\x1B\[[0-9;]*[JKmsu]//g' /tmp/pest_output.txt);
 	DURATION=$(tail -n 4 /tmp/pest_output.txt | head -n 1 | grep -o '[0-9.]\+s');
