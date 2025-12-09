@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Utility for renaming files in a directory with a given prefix.
+# By Mike England <mengland@awesomemotive.com>
+#
+# Version 0.1.0
+#
+# Usage:
+# tlh <target_dir>
+# - Will hyphenate and lowercase without a prefix.
+#
+# tlh <target_dir> <prefix>
+# - Will hyphenate and lowercase with a prefix.
+#
+# tlh
+# - without a directory specified, it runs in place.
+# =============================================================================
+
+tlh() {
+	# Colors for output
+	local RED="\033[31m"
+	local GREEN="\033[32m"
+	local RESET="\033[0m"
+
+	# Check for directory and prefix arguments
+	local target_dir="${1:-.}"   # Default to current directory if not provided
+	local prefix="${2:-}-"  # Default prefix if not provided
+
+	# Ensure the target directory exists
+	if [ ! -d "$target_dir" ]; then
+	  echo -e "${RED}Error: Directory '$target_dir' does not exist.${RESET}"
+	  return 1
+	fi
+
+	# Convert prefix to lowercase and hyphenate
+	prefix=$(echo "$prefix" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+	# Preview the changes
+	echo "Preview of file renaming in '$target_dir':"
+	for file in "$target_dir"/*; do
+	  if [ -f "$file" ]; then
+		 # Generate the new file name
+		 local original_name=$(basename "$file")
+		 local new_name="${prefix}$(echo "$original_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
+		 echo -e "${RED}$original_name${RESET} -> ${GREEN}$new_name${RESET}"
+	  fi
+	done
+
+	# Prompt for confirmation
+	echo -n "Do you want to proceed? (y/n): "
+	read response
+	if [[ "$response" != "y" && "$response" != "Y" ]]; then
+	  echo "Operation canceled."
+	  return 1
+	fi
+
+	# Perform the renaming
+	for file in "$target_dir"/*; do
+	  if [ -f "$file" ]; then
+		 local original_name=$(basename "$file")
+		 local new_name="${prefix}$(echo "$original_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
+		 mv "$file" "$target_dir/$new_name"
+	  fi
+	done
+
+	echo "Files renamed in '$target_dir' with prefix: $prefix"
+ }
+
+tlh "$@"
