@@ -1,0 +1,84 @@
+#!/bin/bash
+
+DEBUG=false
+query=""
+
+# Parse args - extract --debug flag and build query from rest
+for arg in "$@"; do
+    if [ "$arg" = "--debug" ]; then
+        DEBUG=true
+    else
+        query="$arg"
+    fi
+done
+
+DEBUG_LOG="/tmp/vsws-debug.log"
+if $DEBUG; then
+    echo "=== $(date) ===" >> "$DEBUG_LOG"
+    echo "Args: $@" >> "$DEBUG_LOG"
+    echo "Query: '$query'" >> "$DEBUG_LOG"
+    echo "PWD: $(pwd)" >> "$DEBUG_LOG"
+fi
+
+DIR="/Users/JT/Dropbox/Prefs/workspaces"
+
+# Build list of workspaces
+workspaces=()
+for f in "$DIR"/*.code-workspace; do
+    [ -f "$f" ] || continue
+    workspaces+=("$f")
+done
+
+$DEBUG && echo "Found ${#workspaces[@]} workspaces" >> "$DEBUG_LOG"
+
+# Fuzzy match function - checks if all chars in query appear in order in target
+fuzzy_match() {
+    local query="$1"
+    local target="$2"
+    local q_lower=$(echo "$query" | tr '[:upper:]' '[:lower:]')
+    local t_lower=$(echo "$target" | tr '[:upper:]' '[:lower:]')
+
+    local q_len=${#q_lower}
+    local t_len=${#t_lower}
+    local q_idx=0
+    local t_idx=0
+
+    while [ $q_idx -lt $q_len ] && [ $t_idx -lt $t_len ]; do
+        if [ "${q_lower:$q_idx:1}" = "${t_lower:$t_idx:1}" ]; then
+            ((q_idx++))
+        fi
+        ((t_idx++))
+    done
+
+    [ $q_idx -eq $q_len ]
+}
+
+echo '{"items":['
+
+first=true
+for f in "${workspaces[@]}"; do
+    name=$(basename "$f" .code-workspace)
+
+    # If query provided, filter with fuzzy match
+    if [ -n "$query" ]; then
+        fuzzy_match "$query" "$name" || continue
+    fi
+
+    if [ "$first" = true ]; then
+        first=false
+    else
+        echo ","
+    fi
+    cat <<EOF
+{
+  "uid": "$name",
+  "title": "$name",
+  "arg": "$f",
+  "autocomplete": "$name"
+}
+EOF
+done
+
+echo ']}'
+
+$DEBUG && echo "Done" >> "$DEBUG_LOG"
