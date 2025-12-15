@@ -23,7 +23,7 @@ _run_and_print_cmd() {
 	local CMD="$1"
 	echo "\n- command run:"
 	echo "    $CMD\n"
-	eval $CMD
+	eval "$CMD"
 }
 
 # 1) Command: runs Pest on args, or on changed test files if no args
@@ -86,9 +86,9 @@ pest-changed() {
 	# If specific args provided, just run pest with those args
 	if (( ${#pest_args} )); then
 		if $use_sail; then
-			_run_and_print_cmd "./vendor/bin/sail pest ${(q)pest_args[@]}"
+			_run_and_print_cmd "./vendor/bin/sail pest ${(j: :)${(q)pest_args[@]}}"
 		else
-			_run_and_print_cmd "php vendor/bin/pest ${(q)pest_args[@]}"
+			_run_and_print_cmd "php vendor/bin/pest ${(j: :)${(q)pest_args[@]}}"
 		fi
 		return
 	fi
@@ -114,9 +114,9 @@ pest-changed() {
 
 	if (( ${#files} )); then
 		if $use_sail; then
-			_run_and_print_cmd "./vendor/bin/sail pest ${(q)files[@]}"
+			_run_and_print_cmd "./vendor/bin/sail pest ${(j: :)${(q)files[@]}}"
 		else
-			_run_and_print_cmd "php vendor/bin/pest ${(q)files[@]}"
+			_run_and_print_cmd "php vendor/bin/pest ${(j: :)${(q)files[@]}}"
 		fi
 	else
 		echo "No changed test files found."
@@ -178,7 +178,7 @@ pest() {
 		pest_args=(tests/)
 	fi
 
-	_run_and_print_cmd "php vendor/bin/pest ${(q)pest_args[@]}"
+	_run_and_print_cmd "php vendor/bin/pest ${(j: :)${(q)pest_args[@]}}"
 }
 
 sailpest() {
@@ -189,7 +189,7 @@ sailpest() {
 		pest_args=(tests/)
 	fi
 
-	_run_and_print_cmd "./vendor/bin/sail pest ${(q)pest_args[@]}"
+	_run_and_print_cmd "./vendor/bin/sail pest ${(j: :)${(q)pest_args[@]}}"
 }
 
 # 2) Completion: smartly anchor to tests/ if present; otherwise current dir
@@ -214,7 +214,7 @@ _pest() {
 }
 
 pestparallel() {
-	_run_and_print_cmd "php vendor/bin/pest --parallel ${(q)@}"
+	_run_and_print_cmd "php vendor/bin/pest --parallel ${(j: :)${(q)@}}"
 }
 
 pestannounce() {
@@ -231,9 +231,9 @@ pestannounce() {
 	done
 
 	if $use_sail; then
-		_run_and_print_cmd "./vendor/bin/sail pest --parallel ${(q)pest_args[@]} | tee /tmp/pest_output.txt"
+		_run_and_print_cmd "./vendor/bin/sail pest --parallel ${(j: :)${(q)pest_args[@]}} | tee /tmp/pest_output.txt"
 	else
-		_run_and_print_cmd "php vendor/bin/pest --parallel ${(q)pest_args[@]} | tee /tmp/pest_output.txt"
+		_run_and_print_cmd "php vendor/bin/pest --parallel ${(j: :)${(q)pest_args[@]}} | tee /tmp/pest_output.txt"
 	fi
 
 	CLEAN_OUTPUT=$(sed 's/\x1B\[[0-9;]*[JKmsu]//g' /tmp/pest_output.txt);
