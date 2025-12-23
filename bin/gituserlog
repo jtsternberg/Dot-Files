@@ -12,10 +12,11 @@ namespace JT;
 # Examples:
 # gituserlog "Justin Sternberg" 94
 # gituserlog "Justin Sternberg"    # Uses default 7 days
+# gituserlog "Justin Sternberg" 94 --porcelain > gitactivity.log
 # gituserlog config               # Create/edit .ghrepos config file
 #
 # Usage (`gituserlog -h`):
-# gituserlog <author> [<days>]
+# gituserlog <author> [<days>] [--porcelain]
 # gituserlog config
 # =============================================================================
 
