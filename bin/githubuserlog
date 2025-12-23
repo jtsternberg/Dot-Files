@@ -22,7 +22,7 @@ namespace JT;
 # githubuserlog jtsternberg bigorg --repoFilter='PROJECT-'   # Case-insensitive by default
 #
 # Usage (`githubuserlog -h`):
-# githubuserlog <username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>]
+# githubuserlog <username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>] [--repoSearch=<query>] [--repoLimit=<number>]
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -31,13 +31,14 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('githubuserlog')
 	->setDescription('Generate a log of GitHub activity for a given user')
-	->setSampleUsage('<username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>]')
+	->setSampleUsage('<username> <organization> [<days>] [--wikiPath=<path>] [--repoFilter=<pattern>] [--repoSearch=<query>] [--repoLimit=<number>]')
 	->buildDocs([
 		'<username>'           => 'GitHub username to fetch activity for',
 		'<organization>'       => 'GitHub organization to fetch activity from',
 		'[<days>]'            => 'Number of days to look back (default: 7)',
 		'--wikiPath=<path>'   => 'Custom path to store wiki content (default: ~/Downloads/<username>)',
 		'--repoFilter=<pattern>' => 'Filter repos by name using regex pattern (required if org has >100 repos)',
+		'--repoSearch=<query>' => 'Search repos by name using GitHub search (alternative to --repoFilter)',
 		'--repoLimit=<number>' => 'Limit the number of repos to fetch (default, paginates through all)',
 	]);
 
