@@ -70,6 +70,7 @@ alias nt="open -a iTerm ."
 alias code="cursor"
 alias lg="lazygit"
 alias ghv="gh repo view --web"
+alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'
 alias vinedaily="cd ~/Code/vine-daily-log && npm run daily && say 'vine daily opened'"
 
 # Claude Code session management
