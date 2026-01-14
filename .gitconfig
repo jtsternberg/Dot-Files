@@ -118,6 +118,8 @@
 	lcm = "!f() { git log --pretty=format:"%s" --decorate | head -n ${1-1}; }; f"
 	lastcommits = "!f() { clear && git ls | head -n ${1-20}; }; f"
 	lc = "!f() { clear && git ls | head -n ${1-20} | cowsay -f moose -n; }; f"
+	showcommitmessage = "!f() { git log -1 --format='%C(yellow)%h%Creset %Cgreen%ad%Creset%n%n%B' --date=iso $1; }; f"
+	# cat <<< $(git log -1 --format=%B $1)
 	diff = diff --word-diff
 	; cdiff = diff --color-words
 	cdiff = "!f() { git diff --color-words | diff-so-fancy; }; f"
