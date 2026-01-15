@@ -28,6 +28,7 @@ private
 private/*
 .zshrc.pre-oh-my-zsh
 vendor
+.env
 
 
 # Ignore bookmarklets

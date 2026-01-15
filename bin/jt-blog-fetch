@@ -1,0 +1,274 @@
+#!/usr/bin/env php
+<?php
+
+// Fetches a blog post from jtsternberg.com.
+// Supports browsing by category or fetching by post ID directly.
+
+namespace JT\CLI;
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = getCli( $argv );
+
+use JT\CLI\Commands\SiteCommand;
+use JT\CLI\Commands\FetchFromSiteCommand;
+use JT\CLI\Traits\CategoryTaxonomyTrait;
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'jt-blog-fetch' )
+	->setPrefix( '' )
+	->setDescription( 'Fetches a blog post from jtsternberg.com and saves it locally.' )
+	->setSampleUsage( '[post-id] [--outputFile=FILE] [--rawHtml] [--browse] [--flushCache] [--open]' )
+	->buildDocs( [
+		'[post-id|slug]'     => 'Post ID or slug to fetch (optional if using --browse)',
+		'--postId=ID|SLUG'   => 'Post ID or slug to fetch (alternative to positional argument)',
+		'--outputFile=FILE'  => 'Path to save content (defaults to /tmp/fetchedpost.md)',
+		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
+		'--open'             => 'Open the file in default editor after fetching',
+		'--browse'           => 'Browse categories to select a post',
+		'--flushCache'       => 'Flush cached taxonomy terms and fetch fresh data',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+class BlogFetchCommand extends FetchFromSiteCommand {
+
+	use CategoryTaxonomyTrait;
+
+	protected $flushCache = false;
+	protected $browse = false;
+	protected $allTermsCache = null;
+
+	public function __construct( $cli ) {
+		$this->browse = $cli->hasFlag( 'browse' );
+		$this->flushCache = $cli->hasFlag( 'flushCache' );
+
+		// If browsing, we'll set postId later after selection
+		if ( $this->browse ) {
+			// Temporarily set a dummy value to pass parent validation
+			// We'll override in run()
+			$this->postId = 0;
+
+			// Call grandparent constructor to avoid postId validation
+			SiteCommand::__construct( $cli );
+
+			$this->outputFile = $cli->getFlag( 'outputFile' ) ?: '/tmp/fetchedpost.md';
+			$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
+			$this->openAfterFetch = $cli->hasFlag( 'open' );
+		} else {
+			// Normal flow - require postId
+			parent::__construct( $cli );
+		}
+	}
+
+	/**
+	 * Override to add REST URL with /posts endpoint.
+	 */
+	protected function getRestUrl(): ?string {
+		$baseUrl = parent::getRestUrl();
+		if ( $baseUrl ) {
+			return rtrim( $baseUrl, '/' ) . '/posts';
+		}
+		return null;
+	}
+
+	/**
+	 * Fetch posts in a specific category.
+	 */
+	protected function fetchPostsInCategory( int $categoryId ): array {
+		$baseUrl = $this->resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . "?categories={$categoryId}&per_page=100";
+		$credentials = $this->buildBasicAuthHeader();
+
+		$ch = curl_init( $url );
+		curl_setopt_array( $ch, [
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_HTTPHEADER => [
+				"Authorization: Basic $credentials",
+				'Content-Type: application/json',
+			],
+		] );
+
+		$response = curl_exec( $ch );
+		$httpCode = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+
+		if ( $httpCode !== 200 ) {
+			throw new \Exception( "Error: Failed to fetch posts. HTTP $httpCode" );
+		}
+
+		return json_decode( $response, true );
+	}
+
+	/**
+	 * Display posts and return indexed array.
+	 */
+	protected function displayPosts( array $posts ): array {
+		if ( empty( $posts ) ) {
+			$this->cli->msg( "\nNo posts found in this category.\n", 'yellow' );
+			return [];
+		}
+
+		$indexed = [];
+		$maxNumWidth = strlen( (string) count( $posts ) );
+		$maxTitleWidth = max( array_map( function( $a ) {
+			return strlen( html_entity_decode( $a['title']['rendered'] ) );
+		}, $posts ) );
+		$maxTitleWidth = min( $maxTitleWidth, 60 ); // Cap at 60 chars
+
+		$this->cli->msg( sprintf(
+			"\n  %s  %-{$maxTitleWidth}s  %s\n",
+			str_repeat( ' ', $maxNumWidth + 4 ),
+			'Title',
+			'ID'
+		), '', false );
+
+		$this->cli->msg( sprintf(
+			"  %s  %s\n",
+			str_repeat( '-', $maxTitleWidth + $maxNumWidth + 5 ),
+			str_repeat( '-', 8 )
+		), '', false );
+
+		$number = 1;
+		foreach ( $posts as $post ) {
+			$title = html_entity_decode( $post['title']['rendered'] );
+			if ( strlen( $title ) > 60 ) {
+				$title = substr( $title, 0, 57 ) . '...';
+			}
+			$indexed[] = $post;
+			$this->cli->msg( sprintf(
+				"  - [%-{$maxNumWidth}d] %-{$maxTitleWidth}s  %d\n",
+				$number,
+				$title,
+				$post['id']
+			), '', false );
+			$number++;
+		}
+
+		return $indexed;
+	}
+
+	/**
+	 * Browse categories and select a post to fetch.
+	 */
+	protected function browseAndSelectPost(): ?int {
+		$this->cli->msg( "\nFetching categories...\n", 'yellow', '' );
+		$termsByParent = $this->fetchAllCategoryTerms();
+
+		// Top-level categories (parent = 0)
+		$topCategories = $termsByParent[0] ?? [];
+
+		if ( empty( $topCategories ) ) {
+			$this->cli->msg( "No categories found.\n", 'red' );
+			return null;
+		}
+
+		// Display categories
+		$this->cli->msg( "\nAvailable Categories:\n", 'cyan', false );
+
+		$indexed = [];
+		$counter = 1;
+		$this->buildCategoryTree( 0, $termsByParent, 0, $indexed, $counter );
+
+		$selection = $this->cli->ask( "\nSelect 1-" . count( $indexed ) . " (or 'q' to quit): " );
+		if ( empty( $selection ) || strtolower( $selection ) === 'q' ) {
+			return null;
+		}
+
+		$index = (int) $selection - 1;
+		if ( ! isset( $indexed[ $index ] ) ) {
+			$this->cli->err( "\nInvalid selection\n" );
+			return null;
+		}
+
+		$selectedCategory = $indexed[ $index ];
+		$this->cli->msg( "\nFetching posts in '{$selectedCategory['name']}'...\n", 'yellow' );
+		$posts = $this->fetchPostsInCategory( $selectedCategory['id'] );
+
+		// Display posts
+		$this->cli->msg( "\nPosts:\n", 'cyan', false );
+		$postList = $this->displayPosts( $posts );
+
+		if ( empty( $postList ) ) {
+			return null;
+		}
+
+		$selection = $this->cli->ask( "\nSelect post 1-" . count( $postList ) . " (or 'q' to quit): " );
+		if ( empty( $selection ) || strtolower( $selection ) === 'q' ) {
+			return null;
+		}
+
+		$index = (int) $selection - 1;
+		if ( ! isset( $postList[ $index ] ) ) {
+			$this->cli->err( "\nInvalid selection\n" );
+			return null;
+		}
+
+		return $postList[ $index ]['id'];
+	}
+
+	public function run(): void {
+		$this->cli->msg( "Fetching blog post from jtsternberg.com...\n", 'yellow' );
+
+		// Load environment variables
+		$this->loadEnv();
+
+		// Set credentials from ENV
+		$this->setCredentials();
+
+		// If browsing, get post ID from user selection
+		if ( $this->browse ) {
+			$selectedId = $this->browseAndSelectPost();
+			if ( $selectedId === null ) {
+				$this->cli->msg( "\nNo post selected. Exiting.\n", 'yellow' );
+				return;
+			}
+			$this->postId = $selectedId;
+		}
+
+		// Resolve slug to ID if needed
+		if ( ! empty( $this->postSlug ) ) {
+			$this->cli->msg( "Looking up post by slug: {$this->postSlug}...\n" );
+			$this->postId = $this->resolveSlugToId( $this->postSlug );
+		}
+
+		// Fetch the post
+		$this->cli->msg( "\nFetching post ID: {$this->postId}...\n" );
+		$post = $this->fetchPost( $this->postId );
+
+		$title = html_entity_decode( $post['title']['rendered'] ?? 'Untitled' );
+		$this->cli->msg( "Title: {$title}\n", 'green' );
+
+		// Process content
+		if ( $this->convertToMarkdown ) {
+			$this->cli->msg( "Converting HTML to Markdown...\n" );
+		}
+		$content = $this->processContent( $post );
+
+		// Build final output
+		$output = $this->buildOutput( $post, $content );
+
+		// Write to file
+		file_put_contents( $this->outputFile, $output );
+
+		$this->cli->msg( "\n✓ Post fetched successfully!\n", 'green' );
+		$this->cli->msg( "Output file: {$this->outputFile}\n\n", 'cyan' );
+
+		// Open file if requested
+		if ( $this->openAfterFetch ) {
+			$this->openFile();
+		}
+	}
+}
+
+try {
+	$cmd = new BlogFetchCommand( $cli );
+	$cmd->run();
+} catch ( \Exception $e ) {
+	$cli->err( "\n{$e->getMessage()}\n" );
+	exit( 1 );
+}

@@ -1,0 +1,135 @@
+#!/usr/bin/env php
+<?php
+
+// Deletes a blog post from jtsternberg.com.
+
+namespace JT\CLI;
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = getCli( $argv );
+
+use JT\CLI\Commands\SiteCommand;
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'jt-blog-delete' )
+	->setPrefix( '' )
+	->setDescription( 'Deletes a blog post from jtsternberg.com.' )
+	->setSampleUsage( '<post-id|slug> [--force]' )
+	->buildDocs( [
+		'<post-id|slug>'  => 'Post ID or slug to delete (required)',
+		'--force'         => 'Permanently delete (bypass trash)',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+class BlogDeleteCommand extends SiteCommand {
+
+	protected $postId;
+	protected $postSlug;
+	protected $force = false;
+
+	public function __construct( $cli ) {
+		parent::__construct( $cli );
+
+		// Get post ID/slug from flag or positional argument
+		$postIdentifier = $cli->getFlag( 'postId' ) ?: $cli->getArg( 1 );
+
+		if ( empty( $postIdentifier ) ) {
+			throw new \Exception( "Error: Post ID or slug is required." );
+		}
+
+		// If numeric, treat as ID; otherwise treat as slug
+		if ( is_numeric( $postIdentifier ) ) {
+			$this->postId = (int) $postIdentifier;
+		} else {
+			$this->postSlug = $postIdentifier;
+		}
+
+		$this->force = $cli->hasFlag( 'force' );
+	}
+
+	/**
+	 * Override to add REST URL with /posts endpoint.
+	 */
+	protected function getRestUrl(): ?string {
+		$baseUrl = parent::getRestUrl();
+		if ( $baseUrl ) {
+			return rtrim( $baseUrl, '/' ) . '/posts';
+		}
+		return null;
+	}
+
+	/**
+	 * Resolve a post slug to its ID.
+	 */
+	protected function resolveSlugToId( string $slug ): int {
+		$baseUrl = $this->resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . '?slug=' . urlencode( $slug ) . '&status=any';
+
+		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+
+		if ( empty( $posts ) ) {
+			throw new \Exception( "Error: No post found with slug '{$slug}'" );
+		}
+
+		return (int) $posts[0]['id'];
+	}
+
+	/**
+	 * Delete the post.
+	 */
+	protected function deletePost(): array {
+		$baseUrl = $this->resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . '/' . $this->postId;
+
+		if ( $this->force ) {
+			$url .= '?force=true';
+		}
+
+		return $this->executeRequest( $url, 'DELETE', null, 200 );
+	}
+
+	public function run(): void {
+		$this->cli->msg( "Deleting blog post from jtsternberg.com...\n", 'yellow' );
+
+		// Load environment variables
+		$this->loadEnv();
+
+		// Set credentials from ENV
+		$this->setCredentials();
+
+		// Resolve slug to ID if needed
+		if ( ! empty( $this->postSlug ) ) {
+			$this->cli->msg( "Looking up post by slug: {$this->postSlug}...\n" );
+			$this->postId = $this->resolveSlugToId( $this->postSlug );
+		}
+
+		$this->cli->msg( "Deleting post ID: {$this->postId}...\n" );
+
+		$result = $this->deletePost();
+
+		$title = $result['title']['rendered'] ?? $result['title']['raw'] ?? null;
+
+		if ( $this->force ) {
+			$msg = $title ? "Post permanently deleted: {$title}" : "Post permanently deleted.";
+			$this->cli->msg( "\n✓ {$msg}\n", 'green' );
+		} else {
+			$msg = $title ? "Post moved to trash: {$title}" : "Post moved to trash.";
+			$this->cli->msg( "\n✓ {$msg}\n", 'green' );
+		}
+	}
+}
+
+try {
+	$cmd = new BlogDeleteCommand( $cli );
+	$cmd->run();
+} catch ( \Exception $e ) {
+	$cli->err( "\n{$e->getMessage()}\n" );
+	exit( 1 );
+}

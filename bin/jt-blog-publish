@@ -1,0 +1,102 @@
+#!/usr/bin/env php
+<?php
+
+// Publishes content to jtsternberg.com as a blog post.
+// Expects the content file path to be provided as the first argument.
+
+namespace JT\CLI;
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = getCli( $argv );
+
+use JT\CLI\Commands\PublishToSiteCommand;
+use JT\CLI\Traits\CategoryTaxonomyTrait;
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'jt-blog-publish' )
+	->setPrefix( '' )
+	->setDescription( 'Publishes or updates content on jtsternberg.com.' )
+	->setSampleUsage( '<contentFile> [--title=TITLE] [--status=STATUS] [--categoryId=ID] [--postId=ID] [--disableMarkdown] [--flushCache]' )
+	->buildDocs( [
+		'<contentFile>'        => 'Path to content file (required)',
+		'--title=TITLE'        => 'Blog post title (optional, extracted from H1 if not provided)',
+		'--status=STATUS'      => 'Post status: draft, publish, pending, private, etc. (defaults to draft)',
+		'--categoryId=ID'      => 'Category term ID to assign (skips interactive selection)',
+		'--postId=ID|SLUG'     => 'Post ID or slug to update (updates existing post, can change status)',
+		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
+		'--flushCache'         => 'Flush cached taxonomy terms and fetch fresh data',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+// Get content file from first argument
+$contentFileArg = $cli->getArg( 1 );
+if ( empty( $contentFileArg ) ) {
+	$cli->err( "\nError: Content file path is required as first argument.\n" );
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 1 );
+}
+
+class BlogPublishCommand extends PublishToSiteCommand {
+
+	use CategoryTaxonomyTrait;
+
+	protected $contentFile;
+	protected $flushCache = false;
+	protected $categoryId = null;
+	protected $allTermsCache = null;
+
+	public function __construct( $cli, $contentFileArg ) {
+		// Set contentFile before parent constructor
+		$this->contentFile = $contentFileArg;
+		parent::__construct( $cli );
+
+		// Check for flush cache flag
+		$this->flushCache = $cli->hasFlag( 'flushCache' );
+		$this->categoryId = $cli->getFlag( 'categoryId' );
+	}
+
+	/**
+	 * Override to add REST URL with /posts endpoint.
+	 */
+	protected function getRestUrl(): ?string {
+		$baseUrl = parent::getRestUrl();
+		if ( $baseUrl ) {
+			return rtrim( $baseUrl, '/' ) . '/posts';
+		}
+		return null;
+	}
+
+	/**
+	 * Override to add category selection before publishing.
+	 */
+	protected function publishToSite( string $title, string $content, array $additionalPayload = [] ): array {
+		// Check if categoryId is provided via CLI flag
+		$categoryIds = ! empty( $this->categoryId )
+			? [ (int) $this->categoryId ]
+			// Otherwise prompt for it.
+			: $this->promptForCategories();
+
+		// Add categories to payload if selected
+		if ( ! empty( $categoryIds ) ) {
+			$additionalPayload['categories'] = $categoryIds;
+		}
+
+		// Call parent method with additional payload
+		return parent::publishToSite( $title, $content, $additionalPayload );
+	}
+}
+
+try {
+	$cmd = new BlogPublishCommand( $cli, $contentFileArg );
+	$cmd->run();
+} catch ( \Exception $e ) {
+	$cli->err( "\n{$e->getMessage()}\n" );
+	exit( 1 );
+}
