@@ -156,6 +156,8 @@ class Helpers {
 			}
 		}
 
+		$this->args = array_values( $this->args );
+
 		return $this;
 	}
 
