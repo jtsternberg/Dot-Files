@@ -33,6 +33,7 @@ $helpyHelperton
 	->buildDocs([
 		'[<input-file>]'            => 'Input HTML file. If omitted, reads from stdin.',
 		'[<output-file>]'           => 'Output Markdown file. If omitted, writes to stdout.',
+		'--replace'                 => 'Overwrite the input file with the converted output (no output file needed)',
 		'--no-strip-tags'           => 'Disable stripping HTML tags without Markdown equivalents (enabled by default)',
 		'--no-hard-break'           => 'Disable hard breaks (use two spaces + newline instead of just newline). Hard breaks enabled by default',
 		'--header-style=<style>'    => 'Header style: "atx" for # Header or "setext" for === Header (default: atx)',
@@ -55,6 +56,11 @@ class HtmlToMarkdownCommand {
 	public function run(): void {
 		$inputFile = $this->cli->getArg(1);
 		$outputFile = $this->cli->getArg(2);
+
+		// --replace flag uses input file as output
+		if ($this->cli->hasFlags('replace') && $inputFile && !$outputFile) {
+			$outputFile = $inputFile;
+		}
 
 		// Read HTML input
 		$html = $this->readInput($inputFile);
