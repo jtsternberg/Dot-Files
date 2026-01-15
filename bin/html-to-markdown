@@ -30,7 +30,7 @@ $helpyHelperton
 	->setScriptName('html-to-markdown')
 	->setDescription('Convert HTML content to Markdown format')
 	->setSampleUsage('[<input-file>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support]')
-	->setupDefaultCommand([
+	->buildDocs([
 		'[<input-file>]'            => 'Input HTML file. If omitted, reads from stdin.',
 		'[<output-file>]'           => 'Output Markdown file. If omitted, writes to stdout.',
 		'--no-strip-tags'           => 'Disable stripping HTML tags without Markdown equivalents (enabled by default)',
