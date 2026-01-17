@@ -51,6 +51,7 @@ class BlogPublishCommand extends PublishToSiteCommand {
 	protected $flushCache = false;
 	protected $categoryId = null;
 	protected $allTermsCache = null;
+	protected $isUpdate = false;
 
 	public function __construct( $cli, $contentFileArg ) {
 		// Set contentFile before parent constructor
@@ -60,6 +61,7 @@ class BlogPublishCommand extends PublishToSiteCommand {
 		// Check for flush cache flag
 		$this->flushCache = $cli->hasFlag( 'flushCache' );
 		$this->categoryId = $cli->getFlag( 'categoryId' );
+		$this->isUpdate = ! empty( $cli->getFlag( 'postId' ) );
 	}
 
 	/**
@@ -77,11 +79,14 @@ class BlogPublishCommand extends PublishToSiteCommand {
 	 * Override to add category selection before publishing.
 	 */
 	protected function publishToSite( string $title, string $content, array $additionalPayload = [] ): array {
-		// Check if categoryId is provided via CLI flag
-		$categoryIds = ! empty( $this->categoryId )
-			? [ (int) $this->categoryId ]
-			// Otherwise prompt for it.
-			: $this->promptForCategories();
+		// Determine category IDs: skip fetch when updating unless explicitly provided
+		if ( $this->isUpdate && empty( $this->categoryId ) ) {
+			$categoryIds = [];
+		} elseif ( ! empty( $this->categoryId ) ) {
+			$categoryIds = [ (int) $this->categoryId ];
+		} else {
+			$categoryIds = $this->promptForCategories();
+		}
 
 		// Add categories to payload if selected
 		if ( ! empty( $categoryIds ) ) {
