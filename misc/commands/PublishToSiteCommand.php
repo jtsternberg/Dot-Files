@@ -154,6 +154,32 @@ class PublishToSiteCommand extends SiteCommand {
 	}
 
 	/**
+	 * Strip YAML frontmatter from content if present.
+	 * Frontmatter is delimited by --- at the start and end.
+	 *
+	 * @return bool True if frontmatter was stripped, false otherwise
+	 */
+	protected function stripFrontmatter(): bool {
+		if ( empty( $this->postContent ) ) {
+			return false;
+		}
+
+		// Check if content starts with frontmatter delimiter
+		if ( ! preg_match( '/^---\s*\n/', $this->postContent ) ) {
+			return false;
+		}
+
+		// Find the closing delimiter and remove everything up to and including it
+		if ( preg_match( '/^---\s*\n.*?\n---\s*\n?/s', $this->postContent, $matches ) ) {
+			$this->postContent = substr( $this->postContent, strlen( $matches[0] ) );
+			$this->postContent = ltrim( $this->postContent );
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Process content before conversion. Override in child classes for specific behavior.
 	 */
 	protected function processContent(): void {
@@ -228,6 +254,9 @@ class PublishToSiteCommand extends SiteCommand {
 		}
 
 		$this->postContent = trim( file_get_contents( $this->contentFile ) );
+
+		// Strip YAML frontmatter if present
+		$this->stripFrontmatter();
 
 		// Extract title from first line if enabled
 		$this->maybeExtractTitle();
