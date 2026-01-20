@@ -76,7 +76,7 @@ class FetchFromSiteCommand extends SiteCommand {
 		if ( ! preg_match( '/\/posts\/?$/', $url ) ) {
 			$url .= '/posts';
 		}
-		$url .= '/' . $postId;
+		$url .= '/' . $postId . '?_embed=wp:term';
 
 		return $this->executeRequest( $url, 'GET', null, 200 );
 	}
@@ -113,21 +113,95 @@ class FetchFromSiteCommand extends SiteCommand {
 	}
 
 	/**
-	 * Build output content including title.
+	 * Build YAML frontmatter from post data.
+	 *
+	 * @param array $post
+	 * @return string YAML frontmatter block
+	 */
+	protected function buildFrontmatter( array $post ): string {
+		$frontmatter = [
+			'id'    => $post['id'] ?? null,
+			'slug'  => $post['slug'] ?? null,
+			'title' => html_entity_decode( $post['title']['rendered'] ?? '', ENT_QUOTES, 'UTF-8' ),
+		];
+
+		// Extract taxonomies from embedded terms
+		if ( ! empty( $post['_embedded']['wp:term'] ) ) {
+			foreach ( $post['_embedded']['wp:term'] as $termGroup ) {
+				if ( empty( $termGroup ) || ! is_array( $termGroup ) ) {
+					continue;
+				}
+				$taxonomy = $termGroup[0]['taxonomy'] ?? null;
+				if ( ! $taxonomy ) {
+					continue;
+				}
+				$termNames = array_map( fn( $t ) => $t['name'] ?? '', $termGroup );
+				$termNames = array_filter( $termNames );
+				if ( ! empty( $termNames ) ) {
+					$frontmatter[ $taxonomy ] = $termNames;
+				}
+			}
+		}
+
+		$yaml = "---\n";
+		foreach ( $frontmatter as $key => $value ) {
+			if ( is_array( $value ) ) {
+				$yaml .= "{$key}:\n";
+				foreach ( $value as $item ) {
+					$yaml .= "  - " . $this->yamlEscape( $item ) . "\n";
+				}
+			} else {
+				$yaml .= "{$key}: " . $this->yamlEscape( $value ) . "\n";
+			}
+		}
+		$yaml .= "---\n\n";
+
+		return $yaml;
+	}
+
+	/**
+	 * Escape a value for YAML output.
+	 *
+	 * @param mixed $value
+	 * @return string
+	 */
+	protected function yamlEscape( $value ): string {
+		if ( $value === null ) {
+			return '~';
+		}
+		if ( is_int( $value ) ) {
+			return (string) $value;
+		}
+		$value = (string) $value;
+		// Quote if contains special chars or looks like a number/boolean
+		if ( preg_match( '/[:#\[\]{}|>&*!?\'"]|^[\s-]|[\s]$|^(true|false|null|~|\d+)$/i', $value ) ) {
+			return '"' . str_replace( [ '\\', '"' ], [ '\\\\', '\\"' ], $value ) . '"';
+		}
+		return $value;
+	}
+
+	/**
+	 * Build output content including frontmatter and title.
 	 *
 	 * @param array $post
 	 * @param string $content Processed content
 	 * @return string Full output
 	 */
 	protected function buildOutput( array $post, string $content ): string {
-		$title = $post['title']['rendered'] ?? '';
+		$output = '';
 
-		if ( $this->convertToMarkdown && ! empty( $title ) ) {
-			// Add title as H1 heading for markdown output
-			return "# {$title}\n\n{$content}";
+		if ( $this->convertToMarkdown ) {
+			$output .= $this->buildFrontmatter( $post );
+
+			$title = $post['title']['rendered'] ?? '';
+			if ( ! empty( $title ) ) {
+				$output .= "# {$title}\n\n";
+			}
 		}
 
-		return $content;
+		$output .= $content;
+
+		return $output;
 	}
 
 	/**
