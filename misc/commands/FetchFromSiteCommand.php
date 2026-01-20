@@ -120,9 +120,10 @@ class FetchFromSiteCommand extends SiteCommand {
 	 */
 	protected function buildFrontmatter( array $post ): string {
 		$frontmatter = [
-			'id'    => $post['id'] ?? null,
-			'slug'  => $post['slug'] ?? null,
-			'title' => html_entity_decode( $post['title']['rendered'] ?? '', ENT_QUOTES, 'UTF-8' ),
+			'id'        => $post['id'] ?? null,
+			'slug'      => $post['slug'] ?? null,
+			'title'     => html_entity_decode( $post['title']['rendered'] ?? '', ENT_QUOTES, 'UTF-8' ),
+			'permalink' => $post['link'] ?? null,
 		];
 
 		// Extract taxonomies from embedded terms
@@ -135,10 +136,14 @@ class FetchFromSiteCommand extends SiteCommand {
 				if ( ! $taxonomy ) {
 					continue;
 				}
-				$termNames = array_map( fn( $t ) => $t['name'] ?? '', $termGroup );
-				$termNames = array_filter( $termNames );
-				if ( ! empty( $termNames ) ) {
-					$frontmatter[ $taxonomy ] = $termNames;
+				$terms = array_map( function( $t ) {
+					$name = $t['name'] ?? '';
+					$id = $t['id'] ?? '';
+					return $name && $id ? "{$name} ({$id})" : $name;
+				}, $termGroup );
+				$terms = array_filter( $terms );
+				if ( ! empty( $terms ) ) {
+					$frontmatter[ $taxonomy ] = $terms;
 				}
 			}
 		}
