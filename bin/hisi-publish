@@ -1,0 +1,158 @@
+#!/usr/bin/env php
+<?php
+
+// Updates an episode on howiseeit.click.
+// Expects the content file path to be provided as the first argument.
+
+namespace JT\CLI;
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = getCli( $argv );
+
+use JT\CLI\Commands\PublishToSiteCommand;
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'hisi-publish' )
+	->setPrefix( '' )
+	->setDescription( 'Updates an episode on howiseeit.click.' )
+	->setSampleUsage( '<contentFile> --postId=ID [--title=TITLE] [--status=STATUS] [--disableMarkdown]' )
+	->buildDocs( [
+		'<contentFile>'        => 'Path to content file (required)',
+		'--postId=ID|SLUG'     => 'Episode ID or slug to update (required)',
+		'--title=TITLE'        => 'Episode title (optional, extracted from H1 if not provided)',
+		'--status=STATUS'      => 'Episode status: draft, publish, pending, private, etc. (optional)',
+		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+// Get content file from first argument
+$contentFileArg = $cli->getArg( 1 );
+if ( empty( $contentFileArg ) ) {
+	$cli->err( "\nError: Content file path is required as first argument.\n" );
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 1 );
+}
+
+// Require postId for updates
+if ( ! $cli->getFlag( 'postId' ) ) {
+	$cli->err( "\nError: --postId is required for updating episodes.\n" );
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 1 );
+}
+
+class HisiPublishCommand extends PublishToSiteCommand {
+
+	protected $contentFile;
+
+	public function __construct( $cli, $contentFileArg ) {
+		$this->contentFile = $contentFileArg;
+		parent::__construct( $cli );
+	}
+
+	/**
+	 * Only require username/password, not REST URL (we hardcode it).
+	 */
+	protected function getRequiredEnvVars(): array {
+		return [
+			'JTS_SITE_USERNAME',
+			'JTS_SITE_PASSWORD',
+		];
+	}
+
+	/**
+	 * Return the howiseeit.click podcast endpoint.
+	 */
+	protected function getRestUrl(): ?string {
+		return 'https://howiseeit.click/wp-json/wp/v2/podcast';
+	}
+
+	/**
+	 * Resolve an episode slug to its ID.
+	 */
+	protected function resolveSlugToId( string $slug ): int {
+		$baseUrl = parent::resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . '?slug=' . urlencode( $slug ) . '&status=any';
+
+		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+
+		if ( empty( $posts ) ) {
+			throw new \Exception( "Error: No episode found with slug '{$slug}'" );
+		}
+
+		return (int) $posts[0]['id'];
+	}
+
+	public function run(): void {
+		$this->cli->msg( "Updating episode on howiseeit.click...\n", 'yellow' );
+
+		// Load environment variables
+		$this->loadEnv();
+
+		// Set credentials from ENV
+		$this->setCredentials();
+
+		// Resolve slug to ID if needed
+		if ( ! empty( $this->postSlug ) ) {
+			$this->cli->msg( "Looking up episode by slug: {$this->postSlug}...\n" );
+			$this->postId = $this->resolveSlugToId( $this->postSlug );
+			$this->postSlug = null;
+		}
+
+		$this->postContent = trim( file_get_contents( $this->contentFile ) );
+
+		// Strip YAML frontmatter if present
+		$this->stripFrontmatter();
+
+		// Extract title from first line if enabled
+		$this->maybeExtractTitle();
+
+		// Title is required
+		if ( ! $this->title ) {
+			throw new \Exception( "Error: Title is required. Please pass it as --title=TITLE or include an H1 heading." );
+		}
+
+		// Display title
+		$this->cli->msg( "Title: {$this->title}\n", 'green' );
+
+		// Prepare content
+		if ( $this->disableMarkdown ) {
+			$this->cli->msg( "Using raw HTML content...\n" );
+		} else {
+			$this->cli->msg( "Converting markdown to HTML...\n" );
+		}
+		$content = $this->prepareContent();
+
+		// Update on site
+		$this->cli->msg( "Updating episode..." );
+		$result = $this->publishToSite( $this->title, $content );
+
+		// Extract edit URL
+		$editUrl = $result['link'] ?? '';
+		if ( empty( $editUrl ) ) {
+			throw new \Exception( "Error: Could not extract URL from response" );
+		}
+
+		$parsedUrl = parse_url( $editUrl );
+		$hostname = $parsedUrl['host'];
+		$protocol = $parsedUrl['scheme'];
+		$editUrl = $protocol . '://' . $hostname . '/wp-admin/post.php?post=' . $result['id'] . '&action=edit';
+
+		$this->cli->msg( "\n✓ Episode updated successfully!\n", 'green' );
+		$this->cli->msg( "Edit URL: $editUrl\n\n", 'cyan' );
+	}
+}
+
+try {
+	$cmd = new HisiPublishCommand( $cli, $contentFileArg );
+	$cmd->run();
+} catch ( \Exception $e ) {
+	$cli->err( "\n{$e->getMessage()}\n" );
+	exit( 1 );
+}

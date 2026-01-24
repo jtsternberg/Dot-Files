@@ -1,0 +1,131 @@
+#!/usr/bin/env php
+<?php
+
+// Fetches an episode from howiseeit.click.
+
+namespace JT\CLI;
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = getCli( $argv );
+
+use JT\CLI\Commands\FetchFromSiteCommand;
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'hisi-fetch' )
+	->setPrefix( '' )
+	->setDescription( 'Fetches an episode from howiseeit.click and saves it locally.' )
+	->setSampleUsage( '<episode-id|slug> [--outputFile=FILE] [--rawHtml] [--open]' )
+	->buildDocs( [
+		'<episode-id|slug>'  => 'Episode ID or slug to fetch (required)',
+		'--postId=ID|SLUG'   => 'Episode ID or slug to fetch (alternative to positional argument)',
+		'--outputFile=FILE'  => 'Path to save content (defaults to /tmp/fetchedepisode.md)',
+		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
+		'--open'             => 'Open the file in default editor after fetching',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+class HisiFetchCommand extends FetchFromSiteCommand {
+
+	protected $outputFile = '/tmp/fetchedepisode.md';
+
+	/**
+	 * Only require username/password, not REST URL (we hardcode it).
+	 */
+	protected function getRequiredEnvVars(): array {
+		return [
+			'JTS_SITE_USERNAME',
+			'JTS_SITE_PASSWORD',
+		];
+	}
+
+	/**
+	 * Return the howiseeit.click podcast endpoint.
+	 */
+	protected function getRestUrl(): ?string {
+		return 'https://howiseeit.click/wp-json/wp/v2/podcast';
+	}
+
+	/**
+	 * Resolve an episode slug to its ID.
+	 */
+	protected function resolveSlugToId( string $slug ): int {
+		$baseUrl = $this->resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . '?slug=' . urlencode( $slug ) . '&status=any';
+
+		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+
+		if ( empty( $posts ) ) {
+			throw new \Exception( "Error: No episode found with slug '{$slug}'" );
+		}
+
+		return (int) $posts[0]['id'];
+	}
+
+	/**
+	 * Fetch an episode by ID.
+	 */
+	protected function fetchPost( int $postId ): array {
+		$baseUrl = $this->resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . '/' . $postId . '?_embed=wp:term';
+
+		return $this->executeRequest( $url, 'GET', null, 200 );
+	}
+
+	public function run(): void {
+		$this->cli->msg( "Fetching episode from howiseeit.click...\n", 'yellow' );
+
+		// Load environment variables
+		$this->loadEnv();
+
+		// Set credentials from ENV
+		$this->setCredentials();
+
+		// Resolve slug to ID if needed
+		if ( ! empty( $this->postSlug ) ) {
+			$this->cli->msg( "Looking up episode by slug: {$this->postSlug}...\n" );
+			$this->postId = $this->resolveSlugToId( $this->postSlug );
+		}
+
+		// Fetch the episode
+		$this->cli->msg( "Fetching episode ID: {$this->postId}...\n" );
+		$post = $this->fetchPost( $this->postId );
+
+		$title = html_entity_decode( $post['title']['rendered'] ?? 'Untitled' );
+		$this->cli->msg( "Title: {$title}\n", 'green' );
+
+		// Process content
+		if ( $this->convertToMarkdown ) {
+			$this->cli->msg( "Converting HTML to Markdown...\n" );
+		}
+		$content = $this->processContent( $post );
+
+		// Build final output
+		$output = $this->buildOutput( $post, $content );
+
+		// Write to file
+		file_put_contents( $this->outputFile, $output );
+
+		$this->cli->msg( "\n✓ Episode fetched successfully!\n", 'green' );
+		$this->cli->msg( "Output file: {$this->outputFile}\n\n", 'cyan' );
+
+		// Open file if requested
+		if ( $this->openAfterFetch ) {
+			$this->openFile();
+		}
+	}
+}
+
+try {
+	$cmd = new HisiFetchCommand( $cli );
+	$cmd->run();
+} catch ( \Exception $e ) {
+	$cli->err( "\n{$e->getMessage()}\n" );
+	exit( 1 );
+}
