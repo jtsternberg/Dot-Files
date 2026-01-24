@@ -270,6 +270,9 @@ fpath=(/Users/JT/.docker/completions $fpath)
 # compinit
 # End of Docker CLI completions
 
+# buddy-cli completions, https://github.com/jtsternberg/buddy-cli
+fpath=(~/.buddy-cli/completions $fpath)
+
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
