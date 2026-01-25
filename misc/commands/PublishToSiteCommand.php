@@ -6,6 +6,7 @@ class PublishToSiteCommand extends SiteCommand {
 	protected $title;
 	protected $contentFile = '/tmp/draftpost.md';
 	protected $status = 'draft';
+	protected $statusExplicitlySet = false;
 	protected $postContent = '';
 	protected $disableMarkdown = false;
 	protected $extractTitle = false;
@@ -31,7 +32,10 @@ class PublishToSiteCommand extends SiteCommand {
 		}
 
 		$this->contentFile = $cli->getFlag( 'contentFile' ) ?: $this->contentFile;
-		$this->status = $cli->getFlag( 'status' ) ?: $this->status;
+		if ( $cli->getFlag( 'status' ) ) {
+			$this->status = $cli->getFlag( 'status' );
+			$this->statusExplicitlySet = true;
+		}
 
 		// Handle postId - can be numeric ID or slug
 		$postIdentifier = $cli->getFlag( 'postId' ) ?: null;
@@ -230,8 +234,12 @@ class PublishToSiteCommand extends SiteCommand {
 		$payload = array_merge( [
 			'title' => $title,
 			'content' => json_decode( $content ),
-			'status' => $this->status
 		], $additionalPayload );
+
+		// Only include status for new posts or when explicitly set
+		if ( ! $this->isUpdate() || $this->statusExplicitlySet ) {
+			$payload['status'] = $this->status;
+		}
 
 		// Use 200 for update, 201 for create
 		return $this->executeRequest( $url, 'POST', $payload, $this->isUpdate() ? 200 : 201 );
