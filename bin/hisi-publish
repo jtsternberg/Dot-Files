@@ -21,7 +21,7 @@ $helpyHelperton
 	->setSampleUsage( '<contentFile> --postId=ID [--title=TITLE] [--status=STATUS] [--disableMarkdown]' )
 	->buildDocs( [
 		'<contentFile>'        => 'Path to content file (required)',
-		'--postId=ID|SLUG'     => 'Episode ID or slug to update (required)',
+		'--postId=ID|SLUG'     => 'Episode ID or slug to update (or use frontmatter id)',
 		'--title=TITLE'        => 'Episode title (optional, extracted from H1 if not provided)',
 		'--status=STATUS'      => 'Episode status: draft, publish, pending, private, etc. (optional)',
 		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
@@ -40,12 +40,6 @@ if ( empty( $contentFileArg ) ) {
 	exit( 1 );
 }
 
-// Require postId for updates
-if ( ! $cli->getFlag( 'postId' ) ) {
-	$cli->err( "\nError: --postId is required for updating episodes.\n" );
-	$cli->msg( $helpyHelperton->getHelp() );
-	exit( 1 );
-}
 
 class HisiPublishCommand extends PublishToSiteCommand {
 
@@ -109,6 +103,14 @@ class HisiPublishCommand extends PublishToSiteCommand {
 
 		// Strip YAML frontmatter if present
 		$this->stripFrontmatter();
+
+		// Use frontmatter id as fallback for postId
+		$this->maybeSetPostIdFromFrontmatter();
+
+		// Require postId for updates
+		if ( ! $this->isUpdate() ) {
+			throw new \Exception( "Error: --postId is required for updating episodes (or include 'id' in frontmatter)." );
+		}
 
 		// Extract title from first line if enabled
 		$this->maybeExtractTitle();
