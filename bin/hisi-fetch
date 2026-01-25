@@ -23,6 +23,7 @@ $helpyHelperton
 		'--postId=ID|SLUG'   => 'Episode ID or slug to fetch (alternative to positional argument)',
 		'--outputFile=FILE'  => 'Path to save content (defaults to /tmp/fetchedepisode.md)',
 		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
+		'--stripTags'        => 'Strip HTML tags without Markdown equivalents (default: preserve)',
 		'--open'             => 'Open the file in default editor after fetching',
 	] );
 
