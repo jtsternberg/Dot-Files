@@ -14,6 +14,7 @@ class FetchFromSiteCommand extends SiteCommand {
 	protected $postSlug;
 	protected $outputFile = '/tmp/fetchedpost.md';
 	protected $convertToMarkdown = true;
+	protected $stripTags = false;
 	protected $openAfterFetch = false;
 
 	public function __construct( $cli ) {
@@ -35,6 +36,7 @@ class FetchFromSiteCommand extends SiteCommand {
 
 		$this->outputFile = $cli->getFlag( 'outputFile' ) ?: $this->outputFile;
 		$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
+		$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
 		$this->openAfterFetch = $cli->hasFlag( 'open' );
 	}
 
@@ -89,7 +91,7 @@ class FetchFromSiteCommand extends SiteCommand {
 	 */
 	protected function convertHtmlToMarkdown( string $html ): string {
 		$converter = new HtmlConverter( [
-			'strip_tags' => true,
+			'strip_tags' => $this->stripTags,
 			'hard_break' => true,
 		] );
 

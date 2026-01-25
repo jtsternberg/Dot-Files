@@ -26,6 +26,7 @@ $helpyHelperton
 		'--postId=ID|SLUG'   => 'Post ID or slug to fetch (alternative to positional argument)',
 		'--outputFile=FILE'  => 'Path to save content (defaults to /tmp/fetchedpost.md)',
 		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
+		'--stripTags'        => 'Strip HTML tags without Markdown equivalents (default: preserve)',
 		'--open'             => 'Open the file in default editor after fetching',
 		'--browse'           => 'Browse categories to select a post',
 		'--flushCache'       => 'Flush cached taxonomy terms and fetch fresh data',
@@ -59,6 +60,7 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 
 			$this->outputFile = $cli->getFlag( 'outputFile' ) ?: '/tmp/fetchedpost.md';
 			$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
+			$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
 			$this->openAfterFetch = $cli->hasFlag( 'open' );
 		} else {
 			// Normal flow - require postId
