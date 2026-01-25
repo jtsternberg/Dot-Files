@@ -90,12 +90,69 @@ class FetchFromSiteCommand extends SiteCommand {
 	 * @return string
 	 */
 	protected function convertHtmlToMarkdown( string $html ): string {
+		// Extract elements that should be preserved as raw HTML (e.g., embeds)
+		$preserved = [];
+		$html = $this->extractPreservedElements( $html, $preserved );
+
 		$converter = new HtmlConverter( [
-			'strip_tags' => $this->stripTags,
-			'hard_break' => true,
+			'strip_tags'        => $this->stripTags,
+			'hard_break'        => true,
+			'preserve_comments' => ! empty( $preserved ),
 		] );
 
-		return $converter->convert( $html );
+		$markdown = $converter->convert( $html );
+
+		// Restore preserved elements
+		return $this->restorePreservedElements( $markdown, $preserved );
+	}
+
+	/**
+	 * Elements to preserve as raw HTML during markdown conversion.
+	 *
+	 * @return array
+	 */
+	protected function getPreservedElements(): array {
+		return [ 'figure' ];
+	}
+
+	/**
+	 * Extract elements that should be preserved as raw HTML.
+	 *
+	 * @param string $html
+	 * @param array &$preserved Array to store extracted elements
+	 * @return string HTML with placeholders
+	 */
+	protected function extractPreservedElements( string $html, array &$preserved ): string {
+		$tags = $this->getPreservedElements();
+		if ( empty( $tags ) ) {
+			return $html;
+		}
+
+		foreach ( $tags as $tag ) {
+			// Match opening tag with any attributes, content, and closing tag
+			$pattern = '#(<' . $tag . '[\s>].*?</' . $tag . '>)#is';
+			$html = preg_replace_callback( $pattern, function( $matches ) use ( &$preserved, $tag ) {
+				$placeholder = '<!--PRESERVED_' . strtoupper( $tag ) . '_' . count( $preserved ) . '-->';
+				$preserved[ $placeholder ] = $matches[1];
+				return $placeholder;
+			}, $html );
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Restore preserved elements from placeholders.
+	 *
+	 * @param string $markdown
+	 * @param array $preserved
+	 * @return string
+	 */
+	protected function restorePreservedElements( string $markdown, array $preserved ): string {
+		foreach ( $preserved as $placeholder => $html ) {
+			$markdown = str_replace( $placeholder, $html, $markdown );
+		}
+		return $markdown;
 	}
 
 	/**
