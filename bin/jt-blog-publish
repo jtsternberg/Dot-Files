@@ -25,7 +25,7 @@ $helpyHelperton
 		'--title=TITLE'        => 'Blog post title (optional, extracted from H1 if not provided)',
 		'--status=STATUS'      => 'Post status: draft, publish, pending, private, etc. (defaults to draft)',
 		'--categoryId=ID'      => 'Category term ID to assign (skips interactive selection)',
-		'--postId=ID|SLUG'     => 'Post ID or slug to update (updates existing post, can change status)',
+		'--postId=ID|SLUG'     => 'Post ID or slug to update (or use frontmatter id)',
 		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
 		'--flushCache'         => 'Flush cached taxonomy terms and fetch fresh data',
 	] );
@@ -51,7 +51,6 @@ class BlogPublishCommand extends PublishToSiteCommand {
 	protected $flushCache = false;
 	protected $categoryId = null;
 	protected $allTermsCache = null;
-	protected $isUpdate = false;
 
 	public function __construct( $cli, $contentFileArg ) {
 		// Set contentFile before parent constructor
@@ -61,7 +60,6 @@ class BlogPublishCommand extends PublishToSiteCommand {
 		// Check for flush cache flag
 		$this->flushCache = $cli->hasFlag( 'flushCache' );
 		$this->categoryId = $cli->getFlag( 'categoryId' );
-		$this->isUpdate = ! empty( $cli->getFlag( 'postId' ) );
 	}
 
 	/**
@@ -80,7 +78,7 @@ class BlogPublishCommand extends PublishToSiteCommand {
 	 */
 	protected function publishToSite( string $title, string $content, array $additionalPayload = [] ): array {
 		// Determine category IDs: skip fetch when updating unless explicitly provided
-		if ( $this->isUpdate && empty( $this->categoryId ) ) {
+		if ( $this->isUpdate() && empty( $this->categoryId ) ) {
 			$categoryIds = [];
 		} elseif ( ! empty( $this->categoryId ) ) {
 			$categoryIds = [ (int) $this->categoryId ];

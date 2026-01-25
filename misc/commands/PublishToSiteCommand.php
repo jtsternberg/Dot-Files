@@ -2,6 +2,8 @@
 
 namespace JT\CLI\Commands;
 
+use Symfony\Component\Yaml\Yaml;
+
 class PublishToSiteCommand extends SiteCommand {
 	protected $title;
 	protected $contentFile = '/tmp/draftpost.md';
@@ -12,6 +14,7 @@ class PublishToSiteCommand extends SiteCommand {
 	protected $extractTitle = false;
 	protected $postId = null;
 	protected $postSlug = null;
+	protected $frontmatter = [];
 
 	public function __construct( $cli ) {
 		parent::__construct( $cli );
@@ -160,6 +163,7 @@ class PublishToSiteCommand extends SiteCommand {
 	/**
 	 * Strip YAML frontmatter from content if present.
 	 * Frontmatter is delimited by --- at the start and end.
+	 * Parsed frontmatter is stored in $this->frontmatter.
 	 *
 	 * @return bool True if frontmatter was stripped, false otherwise
 	 */
@@ -173,10 +177,46 @@ class PublishToSiteCommand extends SiteCommand {
 			return false;
 		}
 
-		// Find the closing delimiter and remove everything up to and including it
-		if ( preg_match( '/^---\s*\n.*?\n---\s*\n?/s', $this->postContent, $matches ) ) {
+		// Find the closing delimiter and extract frontmatter content
+		if ( preg_match( '/^---\s*\n(.*?)\n---\s*\n?/s', $this->postContent, $matches ) ) {
+			// Parse simple YAML key: value pairs
+			$this->frontmatter = $this->parseYaml( $matches[1] );
+
 			$this->postContent = substr( $this->postContent, strlen( $matches[0] ) );
 			$this->postContent = ltrim( $this->postContent );
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Parse YAML content.
+	 *
+	 * @param string $yaml Raw YAML content
+	 * @return array Parsed data
+	 */
+	protected function parseYaml( string $yaml ): array {
+		return Yaml::parse( $yaml ) ?: [];
+	}
+
+	/**
+	 * Use frontmatter 'id' as fallback for postId if not already set.
+	 *
+	 * @return bool True if postId was set from frontmatter, false otherwise
+	 */
+	protected function maybeSetPostIdFromFrontmatter(): bool {
+		if ( ! empty( $this->postId ) || ! empty( $this->postSlug ) ) {
+			return false;
+		}
+
+		if ( ! empty( $this->frontmatter['id'] ) ) {
+			$id = $this->frontmatter['id'];
+			if ( is_numeric( $id ) ) {
+				$this->postId = (int) $id;
+			} else {
+				$this->postSlug = $id;
+			}
 			return true;
 		}
 
@@ -267,6 +307,9 @@ class PublishToSiteCommand extends SiteCommand {
 
 		// Strip YAML frontmatter if present
 		$this->stripFrontmatter();
+
+		// Use frontmatter id as fallback for postId
+		$this->maybeSetPostIdFromFrontmatter();
 
 		// Extract title from first line if enabled
 		$this->maybeExtractTitle();
