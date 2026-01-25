@@ -206,8 +206,10 @@ class PublishToSiteCommand extends SiteCommand {
 		file_put_contents( $tmpFile, $this->postContent );
 
 		// Convert markdown to HTML
+		// Convert markdown to HTML using file output to avoid buffer truncation
 		$escapedFile = escapeshellarg( $tmpFile );
-		$html = `marked -i $escapedFile`;
+		shell_exec( "marked -i $escapedFile -o $escapedFile" );
+		$html = file_get_contents( $tmpFile );
 
 		// Clean up temporary file
 		unlink( $tmpFile );
