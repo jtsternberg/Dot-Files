@@ -182,6 +182,7 @@ class FetchFromSiteCommand extends SiteCommand {
 			'id'        => $post['id'] ?? null,
 			'slug'      => $post['slug'] ?? null,
 			'title'     => html_entity_decode( $post['title']['rendered'] ?? '', ENT_QUOTES, 'UTF-8' ),
+			'date'      => $post['date'] ?? null,
 			'permalink' => $post['link'] ?? null,
 		];
 
