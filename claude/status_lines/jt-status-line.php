@@ -81,34 +81,131 @@ function get_git_status() {
 }
 
 /**
- * Get recent prompts from session data.
+ * Get context usage from transcript file.
  *
- * @param string $session_id The Claude Code session ID
+ * @param string $transcript_path Path to the session transcript JSONL file
+ * @param int $max_context Maximum context window size
+ * @return array [context_length, percentage] where context_length is total tokens used
+ */
+function get_context_usage($transcript_path, $max_context) {
+    $baseline = 20000; // System prompt (~3k) + tools (~15k) + memory + overhead
+
+    if (!file_exists($transcript_path)) {
+        $pct = (int)(($baseline * 100) / $max_context);
+        return [$baseline, $pct, true]; // true = estimate
+    }
+
+    $last_usage = null;
+    $handle = fopen($transcript_path, 'r');
+    if (!$handle) {
+        $pct = (int)(($baseline * 100) / $max_context);
+        return [$baseline, $pct, true];
+    }
+
+    while (($line = fgets($handle)) !== false) {
+        $entry = json_decode($line, true);
+        if ($entry === null) continue;
+
+        // Skip sidechain and error messages
+        if (!empty($entry['isSidechain']) || !empty($entry['isApiErrorMessage'])) {
+            continue;
+        }
+
+        // Look for messages with usage data
+        if (isset($entry['message']['usage'])) {
+            $last_usage = $entry['message']['usage'];
+        }
+    }
+    fclose($handle);
+
+    if ($last_usage) {
+        $context_length = ($last_usage['input_tokens'] ?? 0)
+            + ($last_usage['cache_read_input_tokens'] ?? 0)
+            + ($last_usage['cache_creation_input_tokens'] ?? 0);
+        $pct = (int)(($context_length * 100) / $max_context);
+        $pct = min($pct, 100);
+        return [$context_length, $pct, false];
+    }
+
+    $pct = (int)(($baseline * 100) / $max_context);
+    return [$baseline, $pct, true];
+}
+
+/**
+ * Generate a visual context bar.
+ *
+ * @param int $percentage Context usage percentage (0-100)
+ * @param bool $is_estimate Whether this is an estimate
+ * @param int $max_k Max context in thousands
+ * @return string Formatted context bar with colors
+ */
+function get_context_bar($percentage, $is_estimate, $max_k) {
+    $bar_width = 10;
+    $bar = '';
+
+    // Color codes
+    $c_accent = "\033[38;5;74m";   // blue
+    $c_empty = "\033[38;5;238m";   // dark gray
+    $c_reset = "\033[0m";
+
+    for ($i = 0; $i < $bar_width; $i++) {
+        $bar_start = $i * 10;
+        $progress = $percentage - $bar_start;
+
+        if ($progress >= 8) {
+            $bar .= $c_accent . '█' . $c_reset;
+        } elseif ($progress >= 3) {
+            $bar .= $c_accent . '▄' . $c_reset;
+        } else {
+            $bar .= $c_empty . '░' . $c_reset;
+        }
+    }
+
+    $prefix = $is_estimate ? '~' : '';
+    return $bar . ' ' . getMsg("{$prefix}{$percentage}% of {$max_k}k", 'dark_gray');
+}
+
+/**
+ * Get recent prompts from transcript file.
+ *
+ * @param string $transcript_path Path to the session transcript JSONL file
  * @param int $count Maximum number of prompts to return (default 3)
  * @return array [prompts_array, error_message] where prompts are in reverse chronological order
  */
-function get_prompts($session_id, $count = 3) {
-    $session_file = ".claude/data/sessions/{$session_id}.json";
-
-    if (!file_exists($session_file)) {
-        return [[], "Session file {$session_file} does not exist"];
+function get_prompts($transcript_path, $count = 3) {
+    if (!file_exists($transcript_path)) {
+        return [[], "Transcript file does not exist"];
     }
 
-    $json_content = file_get_contents($session_file);
-    $session_data = json_decode($json_content, true);
-
-    if ($session_data === null) {
-        return [[], "Error reading session file"];
+    $prompts = [];
+    $handle = fopen($transcript_path, 'r');
+    if (!$handle) {
+        return [[], "Could not open transcript file"];
     }
 
-    $prompts = $session_data['prompts'] ?? [];
+    while (($line = fgets($handle)) !== false) {
+        $entry = json_decode($line, true);
+        if ($entry === null) continue;
+
+        // Look for user messages with text content
+        if (($entry['type'] ?? '') === 'user') {
+            $content = $entry['message']['content'] ?? [];
+            if (is_array($content) && !empty($content)) {
+                $first = $content[0];
+                if (is_array($first) && ($first['type'] ?? '') === 'text' && isset($first['text'])) {
+                    $prompts[] = $first['text'];
+                }
+            }
+        }
+    }
+    fclose($handle);
+
     if (!empty($prompts)) {
-        // Return last $count prompts (most recent first)
         $recent_prompts = array_slice($prompts, -$count);
         return [array_reverse($recent_prompts), null];
     }
 
-    return [[], "No prompts in session"];
+    return [[], "No prompts in transcript"];
 }
 
 /**
@@ -144,9 +241,15 @@ function generate_status_line($input_data) {
         $parts[] = getMsg($git_info, 'green');
     }
 
+    // Context bar
+    $transcript_path = $input_data['transcript_path'] ?? '';
+    $max_context = $input_data['context_window']['context_window_size'] ?? 200000;
+    $max_k = (int)($max_context / 1000);
+    list($context_length, $pct, $is_estimate) = get_context_usage($transcript_path, $max_context);
+    $parts[] = get_context_bar($pct, $is_estimate, $max_k);
+
     // Recent prompts
-    $session_id = $input_data['session_id'] ?? 'unknown';
-    list($prompts, $error) = get_prompts($session_id, 3);
+    list($prompts, $error) = get_prompts($transcript_path, 3);
 
     if ($error || empty($prompts)) {
         // Show fallback message
