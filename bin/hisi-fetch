@@ -17,11 +17,12 @@ $helpyHelperton
 	->setScriptName( 'hisi-fetch' )
 	->setPrefix( '' )
 	->setDescription( 'Fetches an episode from howiseeit.click and saves it locally.' )
-	->setSampleUsage( '<episode-id|slug> [--outputFile=FILE] [--rawHtml] [--open]' )
+	->setSampleUsage( '<episode-id|slug|file.md> [--outputFile=FILE] [--rawHtml] [--open]' )
 	->buildDocs( [
 		'<episode-id|slug>'  => 'Episode ID or slug to fetch (required)',
+		'<file.md>'          => 'Markdown file with frontmatter id (updates in-place)',
 		'--postId=ID|SLUG'   => 'Episode ID or slug to fetch (alternative to positional argument)',
-		'--outputFile=FILE'  => 'Path to save content (defaults to /tmp/fetchedepisode.md)',
+		'--outputFile=FILE'  => 'Path to save content (defaults to input file or /tmp/fetchedepisode.md)',
 		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
 		'--stripTags'        => 'Strip HTML tags without Markdown equivalents (default: preserve)',
 		'--open'             => 'Open the file in default editor after fetching',

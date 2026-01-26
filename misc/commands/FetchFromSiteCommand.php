@@ -3,6 +3,7 @@
 namespace JT\CLI\Commands;
 
 use League\HTMLToMarkdown\HtmlConverter;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Base class for fetching posts from WordPress sites via REST API.
@@ -16,6 +17,8 @@ class FetchFromSiteCommand extends SiteCommand {
 	protected $convertToMarkdown = true;
 	protected $stripTags = false;
 	protected $openAfterFetch = false;
+	protected $frontmatter = [];
+	protected $inputFile = null;
 
 	public function __construct( $cli ) {
 		parent::__construct( $cli );
@@ -27,17 +30,67 @@ class FetchFromSiteCommand extends SiteCommand {
 			throw new \Exception( "Error: Post ID or slug is required. Pass as --postId=ID or as first argument." );
 		}
 
-		// If numeric, treat as ID; otherwise treat as slug
-		if ( is_numeric( $postIdentifier ) ) {
+		// Check if input is a markdown file with frontmatter
+		$outputFileExplicit = $cli->getFlag( 'outputFile' );
+
+		if ( $this->isMarkdownFile( $postIdentifier ) ) {
+			$this->inputFile = $postIdentifier;
+			$this->parseInputFile();
+
+			// Use input file as output unless explicitly overridden
+			if ( ! $outputFileExplicit ) {
+				$this->outputFile = $this->inputFile;
+			}
+		} elseif ( is_numeric( $postIdentifier ) ) {
 			$this->postId = (int) $postIdentifier;
 		} else {
 			$this->postSlug = $postIdentifier;
 		}
 
-		$this->outputFile = $cli->getFlag( 'outputFile' ) ?: $this->outputFile;
+		if ( $outputFileExplicit ) {
+			$this->outputFile = $outputFileExplicit;
+		}
+
 		$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
 		$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
 		$this->openAfterFetch = $cli->hasFlag( 'open' );
+	}
+
+	/**
+	 * Check if the identifier looks like a markdown file path.
+	 */
+	protected function isMarkdownFile( string $identifier ): bool {
+		// Must end with .md and exist as a file
+		return preg_match( '/\.md$/i', $identifier ) && file_exists( $identifier );
+	}
+
+	/**
+	 * Parse the input markdown file to extract frontmatter and post ID.
+	 */
+	protected function parseInputFile(): void {
+		$content = file_get_contents( $this->inputFile );
+
+		// Check if content starts with frontmatter delimiter
+		if ( ! preg_match( '/^---\s*\n/', $content ) ) {
+			throw new \Exception( "Error: Markdown file has no frontmatter. Cannot extract post ID." );
+		}
+
+		// Find the closing delimiter and extract frontmatter content
+		if ( preg_match( '/^---\s*\n(.*?)\n---\s*\n?/s', $content, $matches ) ) {
+			$this->frontmatter = Yaml::parse( $matches[1] ) ?: [];
+		}
+
+		// Extract id from frontmatter
+		if ( empty( $this->frontmatter['id'] ) ) {
+			throw new \Exception( "Error: Markdown file frontmatter has no 'id' field." );
+		}
+
+		$id = $this->frontmatter['id'];
+		if ( is_numeric( $id ) ) {
+			$this->postId = (int) $id;
+		} else {
+			$this->postSlug = $id;
+		}
 	}
 
 	/**
