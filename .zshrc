@@ -86,6 +86,7 @@ alias cctail='node ~/.claude/hooks/tail-session.js'
 # cctail 1 -s 2           # Tail subagent #2
 
 # Claude Code...
+alias ch='claude --chrome'
 alias claudecatchup='claude "/catchup"'
 alias claudecreatepr='claude "/create-pr"'
 alias claudecreateissue='claude "/create-github-issue"'
@@ -242,6 +243,9 @@ zstyle :bracketed-paste-magic paste-finish pastefinish
 source ~/.dotfiles/zsh-custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 source $ZSH/oh-my-zsh.sh
+
+# Override composer plugin's 'c' alias
+alias c='claude'
 
 # https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
