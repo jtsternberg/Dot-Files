@@ -62,7 +62,7 @@ class PublishToSiteCommand extends SiteCommand {
 		$baseUrl = parent::resolveRestUrl();
 		$url = rtrim( $baseUrl, '/' ) . '?slug=' . urlencode( $slug ) . '&status=any';
 
-		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
 			throw new \Exception( "Error: No post found with slug '{$slug}'" );
@@ -283,8 +283,7 @@ class PublishToSiteCommand extends SiteCommand {
 			$payload['status'] = $this->status;
 		}
 
-		// Use 200 for update, 201 for create
-		return $this->executeRequest( $url, 'POST', $payload, $this->isUpdate() ? 200 : 201 );
+		return $this->executeRequest( $url, 'POST', $payload );
 	}
 
 	public function run(): void {

@@ -72,7 +72,7 @@ class BlogDeleteCommand extends SiteCommand {
 		$baseUrl = $this->resolveRestUrl();
 		$url = rtrim( $baseUrl, '/' ) . '?slug=' . urlencode( $slug ) . '&status=any';
 
-		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
 			throw new \Exception( "Error: No post found with slug '{$slug}'" );
@@ -92,7 +92,7 @@ class BlogDeleteCommand extends SiteCommand {
 			$url .= '?force=true';
 		}
 
-		return $this->executeRequest( $url, 'DELETE', null, 200 );
+		return $this->executeRequest( $url, 'DELETE' );
 	}
 
 	public function run(): void {

@@ -61,7 +61,7 @@ class HisiFetchCommand extends FetchFromSiteCommand {
 		$baseUrl = $this->resolveRestUrl();
 		$url = rtrim( $baseUrl, '/' ) . '?slug=' . urlencode( $slug ) . '&status=any';
 
-		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
 			throw new \Exception( "Error: No episode found with slug '{$slug}'" );
@@ -77,7 +77,7 @@ class HisiFetchCommand extends FetchFromSiteCommand {
 		$baseUrl = $this->resolveRestUrl();
 		$url = rtrim( $baseUrl, '/' ) . '/' . $postId . '?_embed=wp:term';
 
-		return $this->executeRequest( $url, 'GET', null, 200 );
+		return $this->executeRequest( $url, 'GET' );
 	}
 
 	public function run(): void {
