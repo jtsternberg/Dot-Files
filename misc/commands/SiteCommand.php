@@ -84,11 +84,10 @@ abstract class SiteCommand {
 	 * @param string $url Full URL to request
 	 * @param string $method HTTP method (GET, POST, PUT, DELETE)
 	 * @param array|null $payload Request body for POST/PUT (will be JSON encoded)
-	 * @param int $expectedCode Expected HTTP response code (default 200)
 	 * @return array Decoded JSON response
 	 * @throws \Exception On request failure
 	 */
-	protected function executeRequest( string $url, string $method = 'GET', ?array $payload = null, int $expectedCode = 200 ): array {
+	protected function executeRequest( string $url, string $method = 'GET', ?array $payload = null ): array {
 		if ( empty( $this->username ) || empty( $this->password ) ) {
 			throw new \Exception( "Error: Username and password must be set before making requests" );
 		}
@@ -119,14 +118,14 @@ abstract class SiteCommand {
 		curl_setopt_array( $ch, $options );
 
 		$response = curl_exec( $ch );
-		$httpCode = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
-		curl_close( $ch );
+		$httpCode = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
 
-		if ( $httpCode !== $expectedCode ) {
+		// Accept any 2XX status code as success
+		if ( $httpCode < 200 || $httpCode >= 300 ) {
 			throw new \Exception( "Error: Request failed. HTTP $httpCode\nResponse: $response" );
 		}
 
-		return json_decode( $response, true );
+		return json_decode( $response, true ) ?? [];
 	}
 
 	/**

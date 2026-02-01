@@ -108,7 +108,7 @@ class FetchFromSiteCommand extends SiteCommand {
 		}
 		$url .= '?slug=' . urlencode( $slug ) . '&status=any';
 
-		$posts = $this->executeRequest( $url, 'GET', null, 200 );
+		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
 			throw new \Exception( "Error: No post found with slug '{$slug}'" );
@@ -133,7 +133,7 @@ class FetchFromSiteCommand extends SiteCommand {
 		}
 		$url .= '/' . $postId . '?_embed=wp:term';
 
-		return $this->executeRequest( $url, 'GET', null, 200 );
+		return $this->executeRequest( $url, 'GET' );
 	}
 
 	/**
