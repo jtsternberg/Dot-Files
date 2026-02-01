@@ -33,3 +33,4 @@ vendor
 
 # Ignore bookmarklets
 *.bookmarklet.js
+.claude/settings.local.json
