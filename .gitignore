@@ -34,3 +34,6 @@ vendor
 # Ignore bookmarklets
 *.bookmarklet.js
 .claude/settings.local.json
+
+# bv (beads viewer) local config and caches
+.bv/
