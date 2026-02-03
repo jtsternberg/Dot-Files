@@ -297,3 +297,10 @@ test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell
 
 # Added by Antigravity
 export PATH="/Users/JT/.antigravity/antigravity/bin:$PATH"
+
+# bun completions
+[ -s "/Users/JT/.bun/_bun" ] && source "/Users/JT/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
