@@ -15,16 +15,13 @@ function log_status_line($input_data, $status_line_output, $error_message = null
         mkdir($log_dir, 0755, true);
     }
 
-    $log_file = $log_dir . '/status_line.json';
+    $log_file = $log_dir . '/status_line.jsonl';
 
-    // Read existing log data or initialize empty array
-    $log_data = [];
-    if (file_exists($log_file)) {
-        $json_content = file_get_contents($log_file);
-        $decoded = json_decode($json_content, true);
-        if ($decoded !== null) {
-            $log_data = $decoded;
-        }
+    // Rolling trim: keep last 500 entries when file exceeds 2MB
+    if (file_exists($log_file) && filesize($log_file) > 2 * 1024 * 1024) {
+        $lines = file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $kept = array_slice($lines, -500);
+        file_put_contents($log_file, implode("\n", $kept) . "\n", LOCK_EX);
     }
 
     // Create log entry
@@ -39,11 +36,8 @@ function log_status_line($input_data, $status_line_output, $error_message = null
         $log_entry['error'] = $error_message;
     }
 
-    // Append the log entry
-    $log_data[] = $log_entry;
-
-    // Write back to file with formatting
-    file_put_contents($log_file, json_encode($log_data, JSON_PRETTY_PRINT));
+    // Append single JSON line (O(1) memory, no read required)
+    file_put_contents($log_file, json_encode($log_entry) . "\n", FILE_APPEND | LOCK_EX);
 }
 
 /**
