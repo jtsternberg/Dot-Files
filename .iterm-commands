@@ -18,11 +18,6 @@ iterm_local_shell_cmd() {
 	localshellupdater $SCRIPT_PATH $DESTINATION_PATH $CMD
 }
 
-
-
-
-
-
 # Get the LocalWP site script path for the current project path.
 #
 # Usage:
