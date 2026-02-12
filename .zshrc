@@ -11,6 +11,9 @@ ZSH_THEME="jt"
 vdebuglog="$HOME/vagrant/log/debug.log"
 dwlog="$HOME/Sites/dsgnwrks.pro/wp-content/debug.log"
 
+# Iterm commands
+source ~/.dotfiles/.iterm-commands
+
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
 alias vup="cd ~/vagrant && vagrant up && flash && say 'vagrant is up'"
 alias valt="cd ~/vagrant && vagrant halt && flash && say 'vagrant is halted'"
@@ -41,7 +44,6 @@ alias pubkey='more ~/.ssh/id_rsa.pub | pbcopy | printf '\''=> Public key copied 
 alias hidedotfiles='defaults write com.apple.finder AppleShowAllFiles -bool false &amp;&amp; killall Finder'
 alias showdotfiles='defaults write com.apple.finder AppleShowAllFiles -bool true &amp;&amp; killall Finder'
 # Random commit message
-alias yolo='git commit -am "$(curl -s https://whatthecommit.com/index.txt)"'
 alias mysqlstart="sudo /usr/local/mysql/support-files/mysql.server start"
 alias mysqlstop="sudo /usr/local/mysql/support-files/mysql.server stop"
 alias groot='cd `git rev-parse --show-cdup`'
@@ -87,6 +89,7 @@ alias cctail='node ~/.claude/hooks/tail-session.js'
 
 # Claude Code...
 alias ch='claude --chrome'
+alias yolo='claude --dangerously-skip-permissions'
 alias claudecatchup='claude "/catchup"'
 alias claudecreatepr='claude "/create-pr"'
 alias claudecreateissue='claude "/create-github-issue"'
@@ -120,9 +123,6 @@ alias loadrvm='[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm"'
 # Potentially to try in the future:
 # https://github.com/creationix/nvm/issues/539#issuecomment-245791291
 # alias loadnvm='[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
-
-# Iterm commands
-source ~/.dotfiles/.iterm-commands
 
 # Make sure composer uses the Brew version of PHP.
 # alias composer="/usr/local/Cellar/php/7.3.11/bin/php  /usr/local/bin/composer"
