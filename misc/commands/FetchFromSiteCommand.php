@@ -103,7 +103,7 @@ class FetchFromSiteCommand extends SiteCommand {
 	protected function resolveSlugToId( string $slug ): int {
 		$baseUrl = $this->resolveRestUrl();
 		$url = rtrim( $baseUrl, '/' );
-		if ( ! preg_match( '/\/posts\/?$/', $url ) ) {
+		if ( ! preg_match( '#/(?:posts|pages)/?$#', $url ) ) {
 			$url .= '/posts';
 		}
 		$url .= '?slug=' . urlencode( $slug ) . '&status=any';
@@ -126,9 +126,9 @@ class FetchFromSiteCommand extends SiteCommand {
 	protected function fetchPost( int $postId ): array {
 		$baseUrl = $this->resolveRestUrl();
 
-		// Ensure URL ends with posts endpoint and add post ID
+		// Ensure URL ends with posts/pages endpoint and add ID
 		$url = rtrim( $baseUrl, '/' );
-		if ( ! preg_match( '/\/posts\/?$/', $url ) ) {
+		if ( ! preg_match( '#/(?:posts|pages)/?$#', $url ) ) {
 			$url .= '/posts';
 		}
 		$url .= '/' . $postId . '?_embed=wp:term';

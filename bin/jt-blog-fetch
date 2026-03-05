@@ -19,17 +19,18 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName( 'jt-blog-fetch' )
 	->setPrefix( '' )
-	->setDescription( 'Fetches a blog post from jtsternberg.com and saves it locally.' )
-	->setSampleUsage( '[post-id|file.md] [--outputFile=FILE] [--rawHtml] [--browse] [--flushCache] [--open]' )
+	->setDescription( 'Fetches a blog post or page from jtsternberg.com and saves it locally.' )
+	->setSampleUsage( '[post-id|file.md] [--outputFile=FILE] [--rawHtml] [--browse] [--page] [--flushCache] [--open]' )
 	->buildDocs( [
-		'[post-id|slug]'     => 'Post ID or slug to fetch (optional if using --browse)',
+		'[post-id|slug]'     => 'Post/page ID or slug to fetch (optional if using --browse)',
 		'[file.md]'          => 'Markdown file with frontmatter id (updates in-place)',
-		'--postId=ID|SLUG'   => 'Post ID or slug to fetch (alternative to positional argument)',
+		'--postId=ID|SLUG'   => 'Post/page ID or slug to fetch (alternative to positional argument)',
 		'--outputFile=FILE'  => 'Path to save content (defaults to input file or /tmp/fetchedpost.md)',
 		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
 		'--stripTags'        => 'Strip HTML tags without Markdown equivalents (default: preserve)',
 		'--open'             => 'Open the file in default editor after fetching',
-		'--browse'           => 'Browse categories to select a post',
+		'--browse'           => 'Browse categories to select a post (or list pages if --page)',
+		'--page'             => 'Fetch from pages endpoint instead of posts',
 		'--flushCache'       => 'Flush cached taxonomy terms and fetch fresh data',
 	] );
 
@@ -44,11 +45,13 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 
 	protected $flushCache = false;
 	protected $browse = false;
+	protected $fetchPages = false;
 	protected $allTermsCache = null;
 
 	public function __construct( $cli ) {
 		$this->browse = $cli->hasFlag( 'browse' );
 		$this->flushCache = $cli->hasFlag( 'flushCache' );
+		$this->fetchPages = $cli->hasFlag( 'page' );
 
 		// If browsing, we'll set postId later after selection
 		if ( $this->browse ) {
@@ -70,12 +73,13 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 	}
 
 	/**
-	 * Override to add REST URL with /posts endpoint.
+	 * Override to add REST URL with /posts or /pages endpoint.
 	 */
 	protected function getRestUrl(): ?string {
 		$baseUrl = parent::getRestUrl();
 		if ( $baseUrl ) {
-			return rtrim( $baseUrl, '/' ) . '/posts';
+			$endpoint = $this->fetchPages ? 'pages' : 'posts';
+			return rtrim( $baseUrl, '/' ) . '/' . $endpoint;
 		}
 		return null;
 	}
@@ -156,9 +160,69 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 	}
 
 	/**
-	 * Browse categories and select a post to fetch.
+	 * Fetch all pages for browse mode.
+	 */
+	protected function fetchPagesList(): array {
+		$baseUrl = $this->resolveRestUrl();
+		$url = rtrim( $baseUrl, '/' ) . '?per_page=100';
+		$credentials = $this->buildBasicAuthHeader();
+
+		$ch = curl_init( $url );
+		curl_setopt_array( $ch, [
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_HTTPHEADER => [
+				"Authorization: Basic $credentials",
+				'Content-Type: application/json',
+			],
+		] );
+
+		$response = curl_exec( $ch );
+		$httpCode = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+
+		if ( $httpCode !== 200 ) {
+			throw new \Exception( "Error: Failed to fetch pages. HTTP $httpCode" );
+		}
+
+		return json_decode( $response, true ) ?: [];
+	}
+
+	/**
+	 * Browse pages and select one to fetch.
+	 */
+	protected function browseAndSelectPage(): ?int {
+		$this->cli->msg( "\nFetching pages...\n", 'yellow', '' );
+		$pages = $this->fetchPagesList();
+
+		if ( empty( $pages ) ) {
+			$this->cli->msg( "No pages found.\n", 'red' );
+			return null;
+		}
+
+		$this->cli->msg( "\nPages:\n", 'cyan', false );
+		$pageList = $this->displayPosts( $pages );
+
+		$selection = $this->cli->ask( "\nSelect page 1-" . count( $pageList ) . " (or 'q' to quit): " );
+		if ( empty( $selection ) || strtolower( $selection ) === 'q' ) {
+			return null;
+		}
+
+		$index = (int) $selection - 1;
+		if ( ! isset( $pageList[ $index ] ) ) {
+			$this->cli->err( "\nInvalid selection\n" );
+			return null;
+		}
+
+		return $pageList[ $index ]['id'];
+	}
+
+	/**
+	 * Browse categories (posts) or list pages and select one to fetch.
 	 */
 	protected function browseAndSelectPost(): ?int {
+		if ( $this->fetchPages ) {
+			return $this->browseAndSelectPage();
+		}
+
 		$this->cli->msg( "\nFetching categories...\n", 'yellow', '' );
 		$termsByParent = $this->fetchAllCategoryTerms();
 
@@ -215,7 +279,8 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 	}
 
 	public function run(): void {
-		$this->cli->msg( "Fetching blog post from jtsternberg.com...\n", 'yellow' );
+		$type = $this->fetchPages ? 'page' : 'post';
+		$this->cli->msg( "Fetching blog {$type} from jtsternberg.com...\n", 'yellow' );
 
 		// Load environment variables
 		$this->loadEnv();
@@ -234,13 +299,14 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 		}
 
 		// Resolve slug to ID if needed
+		$type = $this->fetchPages ? 'page' : 'post';
 		if ( ! empty( $this->postSlug ) ) {
-			$this->cli->msg( "Looking up post by slug: {$this->postSlug}...\n" );
+			$this->cli->msg( "Looking up {$type} by slug: {$this->postSlug}...\n" );
 			$this->postId = $this->resolveSlugToId( $this->postSlug );
 		}
 
-		// Fetch the post
-		$this->cli->msg( "\nFetching post ID: {$this->postId}...\n" );
+		// Fetch the content
+		$this->cli->msg( "\nFetching {$type} ID: {$this->postId}...\n" );
 		$post = $this->fetchPost( $this->postId );
 
 		$title = html_entity_decode( $post['title']['rendered'] ?? 'Untitled' );
@@ -258,7 +324,7 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 		// Write to file
 		file_put_contents( $this->outputFile, $output );
 
-		$this->cli->msg( "\n✓ Post fetched successfully!\n", 'green' );
+		$this->cli->msg( "\n✓ " . ucfirst( $type ) . " fetched successfully!\n", 'green' );
 		$this->cli->msg( "Output file: {$this->outputFile}\n\n", 'cyan' );
 
 		// Open file if requested
