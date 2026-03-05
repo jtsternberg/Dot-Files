@@ -304,3 +304,9 @@ export PATH="/Users/JT/.antigravity/antigravity/bin:$PATH"
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
+
+alias claude-mem='bun "/Users/JT/.claude/plugins/cache/thedotmack/claude-mem/10.5.2/scripts/worker-service.cjs"'
+
+# Claude Code Upgrade: LSP
+# https://karanbansal.in/blog/claude-code-lsp/
+export ENABLE_LSP_TOOL=1
