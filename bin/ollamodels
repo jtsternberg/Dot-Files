@@ -12,13 +12,18 @@ namespace JT;
 # (/Volumes/AI-LAB/ollama/models). Removes any existing symlink first.
 #
 # Usage:
-# ollamodels [local|sd|auto]
+# ollamodels [local|sd|auto|installwatcher|removewatcher]
 #
 # Examples:
 # ollamodels           # Auto: use SD if mounted, else local
 # ollamodels auto      # Same as above
 # ollamodels sd        # Switch to portable drive
 # ollamodels local     # Switch to local ~/.ollama-local-models
+#
+# A macOS LaunchAgent can watch /Volumes and auto-switch whenever the
+# AI-LAB drive is mounted or ejected:
+# ollamodels installwatcher   # Install and load the LaunchAgent
+# ollamodels removewatcher    # Unload and remove the LaunchAgent
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -29,9 +34,11 @@ $helpyHelperton
 	->setDescription('Switch Ollama models storage between local and portable SD drive.')
 	->setSampleUsage('[local|sd|auto]')
 	->buildDocs([
-		'[local]' => 'Use local storage (~/.ollama-local-models)',
-		'[sd]'    => 'Use portable drive (/Volumes/AI-LAB/ollama/models)',
-		'[auto]'  => 'Use SD if mounted, otherwise local (default when no arg)',
+		'[local]'         => 'Use local storage (~/.ollama-local-models)',
+		'[sd]'            => 'Use portable drive (/Volumes/AI-LAB/ollama/models)',
+		'[auto]'          => 'Use SD if mounted, otherwise local (default when no arg)',
+		'[installwatcher]'=> 'Install macOS LaunchAgent to auto-switch on mount/eject',
+		'[removewatcher]' => 'Remove the LaunchAgent',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -89,6 +96,72 @@ switch (strtolower($sub)) {
 			$ok = switchTo($cli, $symlink, $localPath, 'local (auto)');
 		}
 		break;
+	case 'installwatcher':
+		$plistLabel = 'com.jt.ollamodels-watcher';
+		$plistDir   = $home . '/Library/LaunchAgents';
+		$plistPath  = $plistDir . '/' . $plistLabel . '.plist';
+		$scriptPath = realpath(__FILE__);
+
+		if (file_exists($plistPath)) {
+			$cli->msg('LaunchAgent already installed at ' . $plistPath, 'yellow');
+			$cli->msg('Run "ollamodels removewatcher" first to reinstall.');
+			exit(0);
+		}
+
+		$plistXml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>{$plistLabel}</string>
+	<key>WatchPaths</key>
+	<array>
+		<string>/Volumes</string>
+	</array>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{$scriptPath}</string>
+		<string>auto</string>
+		<string>--silent</string>
+	</array>
+</dict>
+</plist>
+XML;
+
+		if (!is_dir($plistDir)) {
+			@mkdir($plistDir, 0755, true);
+		}
+
+		if (!file_put_contents($plistPath, $plistXml)) {
+			$cli->exitErr("Failed to write {$plistPath}");
+		}
+
+		exec('launchctl load ' . escapeshellarg($plistPath) . ' 2>&1', $out, $ret);
+		if ($ret !== 0) {
+			$cli->exitErr('launchctl load failed: ' . implode("\n", $out));
+		}
+
+		$cli->successMsg("LaunchAgent installed and loaded.");
+		$cli->msg("Ollama models will auto-switch when drives are mounted/ejected.");
+		break;
+
+	case 'removewatcher':
+		$plistLabel = 'com.jt.ollamodels-watcher';
+		$plistPath  = $home . '/Library/LaunchAgents/' . $plistLabel . '.plist';
+
+		if (!file_exists($plistPath)) {
+			$cli->msg('LaunchAgent not installed.', 'yellow');
+			exit(0);
+		}
+
+		exec('launchctl unload ' . escapeshellarg($plistPath) . ' 2>&1', $out, $ret);
+		@unlink($plistPath);
+
+		$cli->successMsg("LaunchAgent removed.");
+		break;
+
 	default:
 		$cli->err("Unknown target: {$sub}");
 		$cli->msg($helpyHelperton->getHelp());
