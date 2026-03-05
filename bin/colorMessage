@@ -15,7 +15,7 @@
 # `$ colors demo` // Demos all colors.
 #
 # Usage:
-# colors [color] [message]
+# colors [color] [message] [newLine]
 # =============================================================================
 
 $cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
@@ -29,6 +29,7 @@ if ( 'demo' === $cli->getArg( 1 ) ) {
 		'red',
 		'green',
 		'yellow',
+		'orange',
 		'blue',
 		'magenta',
 		'cyan',
@@ -59,7 +60,8 @@ if ( 'demo' === $cli->getArg( 1 ) ) {
 	exit(0);
 }
 
-echo $cli->getMsg( $cli->getArg( 2 ), $cli->getArg( 1 ), false );
+$newLine = (bool) $cli->getArg( 3 );
+echo $cli->getMsg( $cli->getArg( 2 ), $cli->getArg( 1 ), $newLine );
 exit(0);
 
 
