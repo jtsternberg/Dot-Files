@@ -62,12 +62,10 @@ function switchTo(\JT\CLI\Helpers $cli, string $symlink, string $target, string 
 		return false;
 	}
 
-	if (file_exists($symlink)) {
-		if (is_link($symlink)) {
-			@unlink($symlink);
-		} else {
-			$cli->exitErr("{$symlink} exists and is not a symlink. Remove or rename it first.");
-		}
+	if (is_link($symlink)) {
+		@unlink($symlink);
+	} elseif (file_exists($symlink)) {
+		$cli->exitErr("{$symlink} exists and is not a symlink. Remove or rename it first.");
 	}
 
 	if (!@symlink($target, $symlink)) {
@@ -108,6 +106,8 @@ switch (strtolower($sub)) {
 			exit(0);
 		}
 
+		$phpBin = PHP_BINARY;
+
 		$plistXml = <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -122,6 +122,7 @@ switch (strtolower($sub)) {
 	</array>
 	<key>ProgramArguments</key>
 	<array>
+		<string>{$phpBin}</string>
 		<string>{$scriptPath}</string>
 		<string>auto</string>
 		<string>--silent</string>
