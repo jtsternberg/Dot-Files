@@ -1,0 +1,98 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Switch Ollama models storage location (local vs portable SD).
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Updates the ~/.ollama-models symlink (where Ollama expects models) to point
+# at either local storage (~/.ollama-local-models) or the portable drive
+# (/Volumes/AI-LAB/ollama/models). Removes any existing symlink first.
+#
+# Usage:
+# ollamodels [local|sd|auto]
+#
+# Examples:
+# ollamodels           # Auto: use SD if mounted, else local
+# ollamodels auto      # Same as above
+# ollamodels sd        # Switch to portable drive
+# ollamodels local     # Switch to local ~/.ollama-local-models
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('ollamodels')
+	->setDescription('Switch Ollama models storage between local and portable SD drive.')
+	->setSampleUsage('[local|sd|auto]')
+	->buildDocs([
+		'[local]' => 'Use local storage (~/.ollama-local-models)',
+		'[sd]'    => 'Use portable drive (/Volumes/AI-LAB/ollama/models)',
+		'[auto]'  => 'Use SD if mounted, otherwise local (default when no arg)',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+$home = getenv('HOME') ?: $cli->convertPathToAbsolute('~');
+$symlink = $home . '/.ollama-models';
+$localPath = $home . '/.ollama-local-models';
+$sdPath = '/Volumes/AI-LAB/ollama/models';
+
+$sub = $cli->getArg(1);
+if ($sub === '' || $sub === null) {
+	$sub = 'auto';
+}
+
+function switchTo(\JT\CLI\Helpers $cli, string $symlink, string $target, string $label): bool {
+	if (!is_dir($target)) {
+		$cli->err("Target not found or not a directory: {$target}");
+		return false;
+	}
+
+	if (file_exists($symlink)) {
+		if (is_link($symlink)) {
+			@unlink($symlink);
+		} else {
+			$cli->exitErr("{$symlink} exists and is not a symlink. Remove or rename it first.");
+		}
+	}
+
+	if (!@symlink($target, $symlink)) {
+		$cli->exitErr("Failed to create symlink: {$symlink} -> {$target}");
+	}
+
+	$cli->successMsg("Ollama models → {$label}: {$target}");
+	return true;
+}
+
+$ok = true;
+switch (strtolower($sub)) {
+	case 'local':
+		$ok = switchTo($cli, $symlink, $localPath, 'local');
+		break;
+	case 'sd':
+		$ok = switchTo($cli, $symlink, $sdPath, 'SD');
+		break;
+	case 'auto':
+		if (is_dir($sdPath) && is_readable($sdPath)) {
+			$ok = switchTo($cli, $symlink, $sdPath, 'SD (auto)');
+		} else {
+			if (!$cli->isSilent()) {
+				$cli->msg('SD not mounted, using local.', 'yellow');
+			}
+			$ok = switchTo($cli, $symlink, $localPath, 'local (auto)');
+		}
+		break;
+	default:
+		$cli->err("Unknown target: {$sub}");
+		$cli->msg($helpyHelperton->getHelp());
+		exit(1);
+}
+
+exit($ok ? 0 : 1);
