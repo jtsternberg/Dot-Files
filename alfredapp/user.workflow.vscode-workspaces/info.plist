@@ -36,7 +36,7 @@
 			<key>config</key>
 			<dict>
 				<key>openwith</key>
-				<string></string>
+				<string>/Applications/Cursor.app</string>
 				<key>sourcefile</key>
 				<string>{query}</string>
 			</dict>
