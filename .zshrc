@@ -265,6 +265,9 @@ then
   FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
 fi
 
+# snip CLI (https://github.com/jtsternberg/snippets-cli) completions
+fpath=(~/.zsh/completions $fpath)
+
 # The next lines enables shell command completion for Stripe
 fpath=(~/.stripe $fpath)
 
