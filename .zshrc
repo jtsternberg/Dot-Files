@@ -280,6 +280,9 @@ fpath=(/Users/JT/.docker/completions $fpath)
 # buddy-cli completions, https://github.com/jtsternberg/buddy-cli
 fpath=(~/.buddy-cli/completions $fpath)
 
+# 1Password CLI completions
+eval "$(op completion zsh)"; compdef _op op
+
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
