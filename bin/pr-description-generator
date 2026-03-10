@@ -24,11 +24,12 @@ $helpyHelperton
 	->setScriptName('pr-description-generator')
 	->setPrefix('')
 	->setDescription('Generates a prompt for an AI to create a GitHub Pull Request description based on the current branch\'s changes compared to the main branch.')
-	->setSampleUsage('[--output=FILE] [--ignore=FILE1,FILE2,FILE3] [--base=BRANCH] [--summary] [--truncate=N] [--maxDocLines=N] [--smart[=THRESHOLD]] [--lineCount] [--verbose] [--prompt[=FILE]]')
+	->setSampleUsage('[--output=FILE] [--ignore=FILE1,FILE2,FILE3] [--base=BRANCH] [--staged] [--summary] [--truncate=N] [--maxDocLines=N] [--smart[=THRESHOLD]] [--lineCount] [--verbose] [--prompt[=FILE]]')
 	->buildDocs([
 		'--output=FILE'              => 'Save the generated prompt to the specified file',
 		'--ignore=FILE1,FILE2,FILE3' => 'Comma-separated list of files to ignore in the diff output',
 		'--base=BRANCH'              => 'Base branch to compare against (defaults to main/master)',
+		'--staged'                   => 'Use staged (cached) changes instead of branch comparison',
 		'--summary'                  => 'Output summary mode: commit messages + file stats, no diffs',
 		'--truncate=N'               => 'Truncate diffs to N lines per commit (default: 100)',
 		'--maxDocLines=N'            => 'Auto-truncate documentation files over N lines (default: false, 0 = ignore docs diffs)',
@@ -60,6 +61,7 @@ class PRDescriptionGenerator {
 	protected $binaryExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.pdf', '.zip', '.tar', '.gz', '.woff', '.woff2', '.ttf', '.eot'];
 	protected $testPatterns = ['/test/', '/tests/', '/__tests__/', '/spec/', '.test.', '.spec.', 'Test.php', 'Test.js'];
 	protected $skippedFiles = []; // Track skipped files per commit
+	protected $stagedMode = false;
 
 	public function __construct(CLI\Helpers $cli) {
 		$this->cli = $cli;
@@ -69,6 +71,7 @@ class PRDescriptionGenerator {
 		$this->currentBranch = $this->git->currentBranch();
 
 		// Handle mode flags
+		$this->stagedMode = $cli->hasFlag('staged');
 		$this->summaryMode = $cli->hasFlag('summary');
 		$this->lineCountOnly = $cli->hasFlag('lineCount');
 		if ( $this->lineCountOnly ) {
@@ -115,8 +118,10 @@ class PRDescriptionGenerator {
 			return;
 		}
 
-		$commits = $this->getCommitsWithDiffs();
-		$files = $this->git->getChangedFiles($this->baseBranch, $this->currentBranch);
+		$commits = $this->getDiffs();
+		$files = $this->stagedMode
+			? trim((string) `git diff --cached --name-status`)
+			: $this->git->getChangedFiles($this->baseBranch, $this->currentBranch);
 
 		$prompt = $this->createPrompt($commits, $files);
 
@@ -140,8 +145,11 @@ class PRDescriptionGenerator {
 	protected function handleSmartMode() {
 		// Try full mode first
 		$this->smartMode = false; // Disable smart mode to prevent recursion
-		$commits = $this->getCommitsWithDiffs();
-		$files = $this->git->getChangedFiles($this->baseBranch, $this->currentBranch);
+
+		$commits = $this->getDiffs();
+		$files = $this->stagedMode
+			? trim((string) `git diff --cached --name-status`)
+			: $this->git->getChangedFiles($this->baseBranch, $this->currentBranch);
 		$prompt = $this->createPrompt($commits, $files);
 		$lineCount = substr_count($prompt, "\n") + 1;
 
@@ -160,7 +168,7 @@ class PRDescriptionGenerator {
 
 		// Try maxDocLines mode
 		$this->maxDocLines = 100;
-		$commits = $this->getCommitsWithDiffs();
+		$commits = $this->getDiffs();
 		$prompt = $this->createPrompt($commits, $files);
 		$lineCount = substr_count($prompt, "\n") + 1;
 		if ($this->cli->isVerbose()) {
@@ -176,7 +184,7 @@ class PRDescriptionGenerator {
 
 		// Try truncated mode
 		$this->truncateLines = 100;
-		$commits = $this->getCommitsWithDiffs();
+		$commits = $this->getDiffs();
 		$prompt = $this->createPrompt($commits, $files);
 		$lineCount = substr_count($prompt, "\n") + 1;
 
@@ -195,7 +203,7 @@ class PRDescriptionGenerator {
 		// Fall back to summary mode
 		$this->summaryMode = true;
 		$this->truncateLines = 0;
-		$commits = $this->getCommitsWithDiffs();
+		$commits = $this->getDiffs();
 		$prompt = $this->createPrompt($commits, $files);
 
 		$lineCount = substr_count($prompt, "\n") + 1;
@@ -259,6 +267,25 @@ class PRDescriptionGenerator {
 			}
 		}
 		return $commits;
+	}
+
+	protected function getDiffs() {
+		return $this->stagedMode ? $this->getStagedDiff() : $this->getCommitsWithDiffs();
+	}
+
+	protected function getStagedDiff() {
+		if ($this->summaryMode) {
+			$diff = trim((string) `git diff --cached --stat=,,40 --no-color`);
+		} else {
+			$fullDiff = trim((string) `git diff --cached --no-color --ignore-all-space --ignore-space-change`);
+			$diff = $this->filterignoredFiles($fullDiff);
+		}
+
+		if (empty($diff)) {
+			return [];
+		}
+
+		return ['staged' => $diff];
 	}
 
 	protected function filterignoredFiles($diff) {
@@ -395,12 +422,16 @@ class PRDescriptionGenerator {
 	}
 
 	protected function createPrompt($commits, $files) {
-		$output = <<<EOT
-## Branch Information
-- Current Branch: `{$this->currentBranch}`
-- Compared to: `{$this->baseBranch}`
+		$header = $this->stagedMode
+			? "## Staged Changes\n- Branch: `{$this->currentBranch}`"
+			: "## Branch Information\n- Current Branch: `{$this->currentBranch}`\n- Compared to: `{$this->baseBranch}`";
 
-## Commits
+		$diffLabel = $this->stagedMode ? 'Staged Diff' : 'Commits';
+
+		$output = <<<EOT
+{$header}
+
+## {$diffLabel}
 
 {$this->formatCommits($commits)}
 
