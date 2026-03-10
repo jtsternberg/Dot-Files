@@ -287,6 +287,9 @@ eval "$(op completion zsh)"; compdef _op op
 autoload -Uz compinit
 compinit
 
+# drplr CLI (https://github.com/jtsternberg/drplr) completions
+eval "$(drplr completions zsh)"
+
 [[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path zsh)"
 
 # The next line updates PATH for the Google Cloud SDK.
