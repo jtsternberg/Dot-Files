@@ -1,78 +1,177 @@
-#!/bin/bash
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Create a commit from currently staged files using Ollama.
+# By Justin Sternberg <me@jtsternberg.com>
 #
-# Create a commit from currently staged files using Ollama
+# Version 0.1.0
 #
-# Usage: auto-commit-ollama [context] [--model MODEL] [--say] [--noprint] [--debug]
+# Generates a commit message from staged changes using a local Ollama model,
+# then creates the commit automatically.
 #
-# Arguments:
-#   context      Optional. Suggested commit message or context for the commit
-#   --model      Optional. Ollama model to use (default from ~/.config/auto-commit-ollama/config)
-#   --say        Optional. Speak the result using macOS say command
-#   --noprint    Optional. Suppress printing the result
-#   --debug      Optional. Save the full prompt to /tmp/auto-commit-ollama-debug.txt
-#
-# Examples:
-#   auto-commit-ollama
-#   auto-commit-ollama "Fix login validation bug"
-#   auto-commit-ollama --model mistral
-#   auto-commit-ollama "Refactored auth" --model codellama --say
-#
+# Usage:
+# auto-commit-ollama [context] [options]
+# auto-commit-ollama --help
+# =============================================================================
 
-# Load config
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/auto-commit-ollama"
-CONFIG_FILE="$CONFIG_DIR/config"
-if [[ -f "$CONFIG_FILE" ]]; then
-  source "$CONFIG_FILE"
-fi
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
 
-CONTEXT=""
-MODEL="${MODEL:-qwen3-coder}"
-SAY_RESULT=false
-PRINT_RESULT=true
-DEBUG=false
+$helpyHelperton
+	->setScriptName('auto-commit-ollama')
+	->setPrefix('')
+	->setDescription('Generate a commit message from staged changes using a local Ollama model and create the commit.')
+	->setSampleUsage('[context] [--model=MODEL] [--retry] [--debug] [--say] [--noprint]')
+	->buildDocs([
+		'context'       => 'Suggested commit message or context for the commit',
+		'--model=MODEL' => 'Ollama model to use (default from ~/.config/auto-commit-ollama/config)',
+		'--retry'       => 'Analyze the last commit, reset it, and retry with corrective context',
+		'--debug'       => 'Save the full prompt to /tmp/auto-commit-ollama-debug.txt',
+		'--say'         => 'Speak the result using macOS say command',
+		'--noprint'     => 'Suppress printing the result',
+	]);
 
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --model)
-      MODEL="$2"
-      shift 2
-      ;;
-    --say)
-      SAY_RESULT=true
-      shift
-      ;;
-    --noprint)
-      PRINT_RESULT=false
-      shift
-      ;;
-    --debug)
-      DEBUG=true
-      shift
-      ;;
-    *)
-      if [[ -z "$CONTEXT" ]]; then
-        CONTEXT="$1"
-      fi
-      shift
-      ;;
-  esac
-done
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
 
-# Check for staged changes
-if [[ -z "$(git diff --cached --name-only)" ]]; then
-  colorMessage red "Error: No staged changes found. Stage files with 'git add' first." 1
-  exit 1
-fi
+class AutoCommitOllama {
+	protected $cli;
+	protected $git;
+	protected $model;
+	protected $context;
+	protected $debug = false;
+	protected $sayResult = false;
+	protected $printResult = true;
+	protected $ollamaUrl = 'http://localhost:11434/api/chat';
+	protected $retryDiffLines = 50;
+	protected $debugFile = '/tmp/auto-commit-ollama-debug.txt';
 
-# Get recent commit messages for style reference
-RECENT_COMMITS=$(git log --format="%h %s%n%b" -5 2>/dev/null)
+	public function __construct(CLI\Helpers $cli) {
+		$this->cli = $cli;
+		$this->git = $cli->git;
 
-# Get structured diff context from pr-description-generator
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CHANGE_CONTEXT=$("$SCRIPT_DIR/pr-description-generator" --staged --smart)
+		// Load config file
+		$configDir = getenv('XDG_CONFIG_HOME') ?: (getenv('HOME') . '/.config');
+		$configFile = $configDir . '/auto-commit-ollama/config';
+		$configModel = 'qwen3-coder';
+		if (file_exists($configFile)) {
+			$config = parse_ini_file($configFile);
+			if (!empty($config['MODEL'])) {
+				$configModel = $config['MODEL'];
+			}
+		}
 
-# Build the prompt
-SYSTEM_PROMPT="You are a commit message generator. Output ONLY the commit message, nothing else. The subject line (first line) must be plain text — no markdown, no prefixes like ## or *, no backticks, no quotes. Keep it under 72 characters, starting with a lowercase verb (e.g. add, fix, update, refactor).
+		$this->model = $cli->getFlag('model', $configModel);
+		$this->context = $cli->getArg(1) ?: '';
+		$this->debug = $cli->hasFlag('debug');
+		$this->sayResult = $cli->hasFlag('say');
+		$this->printResult = !$cli->hasFlag('noprint');
+	}
+
+	public function run() {
+		// Handle --retry
+		if ($this->cli->hasFlag('retry')) {
+			$this->handleRetry();
+		}
+
+		// Check for staged changes
+		$stagedFiles = trim((string) shell_exec('git diff --cached --name-only'));
+		if (empty($stagedFiles)) {
+			$this->cli->err('Error: No staged changes found. Stage files with \'git add\' first.');
+			exit(1);
+		}
+
+		// Get recent commit messages for style reference
+		$recentCommits = trim((string) shell_exec('git log --format="%h %s%n%b" -5 2>/dev/null'));
+
+		// Get structured diff context from pr-description-generator
+		$scriptDir = dirname(__FILE__);
+		$changeContext = trim((string) shell_exec("'$scriptDir/pr-description-generator' --staged --smart 2>/dev/null"));
+
+		// Build prompts
+		$systemPrompt = $this->buildSystemPrompt($recentCommits);
+		$userPrompt = $changeContext;
+
+		if (!empty($this->context)) {
+			$userPrompt .= "\n\nContext from the developer: {$this->context}";
+		}
+
+		// Debug output
+		if ($this->debug) {
+			$debugContent = "=== MODEL ===\n{$this->model}\n\n"
+				. "=== SYSTEM PROMPT ===\n{$systemPrompt}\n\n"
+				. "=== USER PROMPT ===\n{$userPrompt}\n";
+			file_put_contents($this->debugFile, $debugContent);
+			$this->cli->msg("Debug: prompt saved to {$this->debugFile}", 'yellow');
+		}
+
+		// Call Ollama
+		$commitMsg = $this->callOllama($systemPrompt, $userPrompt);
+
+		if (empty($commitMsg)) {
+			$this->cli->err('Error: Failed to get a commit message from Ollama.');
+			exit(1);
+		}
+
+		// Create the commit
+		$result = $this->cli->getCommandOutputAndExitCode("git commit -m " . escapeshellarg($commitMsg));
+
+		if ($result['exitCode'] !== 0) {
+			$this->cli->err('Error: git commit failed.');
+			if (!empty($result['error'])) {
+				$this->cli->err($result['error']);
+			}
+			exit(1);
+		}
+
+		$commitHash = trim((string) shell_exec('git log -1 --pretty=format:"%h"'));
+
+		if ($this->printResult) {
+			echo "\n";
+			$this->cli->msg("Commit {$commitHash}:", 'green');
+			echo $commitMsg . "\n";
+		}
+
+		if ($this->sayResult) {
+			exec('say ' . escapeshellarg("Committed: $commitMsg"));
+		}
+	}
+
+	protected function handleRetry() {
+		$lastMsg = trim((string) shell_exec('git log -1 --pretty=format:"%B"'));
+		$lastDiff = trim((string) shell_exec("git diff HEAD~1 HEAD | head -n {$this->retryDiffLines}"));
+
+		$this->cli->msg('Analyzing last commit for retry...', 'yellow');
+
+		$retrySystem = 'You are a commit message critic. Given a commit message and its diff, briefly explain what is wrong with the message and suggest how it should be corrected. Output ONLY the correction guidance — no pleasantries, no preamble. Be specific and concise.';
+		$retryUser = "Commit message:\n{$lastMsg}\n\nDiff (truncated):\n{$lastDiff}";
+
+		$guidance = $this->callOllama($retrySystem, $retryUser);
+
+		if (empty($guidance)) {
+			$this->cli->err('Error: Failed to get retry analysis from Ollama.');
+			exit(1);
+		}
+
+		$this->cli->msg('Retry guidance:', 'cyan');
+		echo $guidance . "\n\n";
+
+		// Reset the last commit, keeping changes staged
+		exec('git reset --soft HEAD~1');
+
+		// Append retry context
+		if (!empty($this->context)) {
+			$this->context .= ". Retry correction: {$guidance}";
+		} else {
+			$this->context = "Retry correction: {$guidance}";
+		}
+	}
+
+	protected function buildSystemPrompt($recentCommits) {
+		return "You are a commit message generator. Output ONLY the commit message, nothing else. The subject line (first line) must be plain text — no markdown, no prefixes like ## or *, no backticks, no quotes. Keep it under 72 characters, starting with a lowercase verb (e.g. add, fix, update, refactor).
 
 The body (after a blank line) may use bullet points or other formatting.
 
@@ -85,77 +184,57 @@ The body should briefly list or explain each distinct change. Keep it concise �
 
 Here are recent commits from this repo. Match their style:
 <recent-commits>
-$RECENT_COMMITS
-</recent-commits>"
+{$recentCommits}
+</recent-commits>";
+	}
 
-USER_PROMPT="$CHANGE_CONTEXT"
+	protected function callOllama($systemPrompt, $userPrompt) {
+		$payload = json_encode([
+			'model' => $this->model,
+			'stream' => false,
+			'messages' => [
+				['role' => 'system', 'content' => $systemPrompt],
+				['role' => 'user', 'content' => $userPrompt],
+			],
+		]);
 
-if [[ -n "$CONTEXT" ]]; then
-  USER_PROMPT="$USER_PROMPT
+		$ch = curl_init($this->ollamaUrl);
+		curl_setopt_array($ch, [
+			CURLOPT_POST => true,
+			CURLOPT_POSTFIELDS => $payload,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+			CURLOPT_TIMEOUT => 300,
+		]);
 
-Context from the developer: $CONTEXT"
-fi
+		$response = curl_exec($ch);
+		$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		$curlError = curl_error($ch);
+		curl_close($ch);
 
-# Debug: save prompt to /tmp
-if [[ "$DEBUG" == true ]]; then
-  DEBUG_FILE="/tmp/auto-commit-ollama-debug.txt"
-  {
-    echo "=== MODEL ==="
-    echo "$MODEL"
-    echo ""
-    echo "=== SYSTEM PROMPT ==="
-    echo "$SYSTEM_PROMPT"
-    echo ""
-    echo "=== USER PROMPT ==="
-    echo "$USER_PROMPT"
-  } > "$DEBUG_FILE"
-  colorMessage yellow "Debug: prompt saved to $DEBUG_FILE" 1
-fi
+		if (!empty($curlError)) {
+			$this->cli->err("Error connecting to Ollama: {$curlError}");
+			$this->cli->err('Is Ollama running?');
+			exit(1);
+		}
 
-# Call Ollama API
-RESPONSE=$(curl -s http://localhost:11434/api/chat -d "$(jq -n \
-  --arg model "$MODEL" \
-  --arg system "$SYSTEM_PROMPT" \
-  --arg user "$USER_PROMPT" \
-  '{
-    model: $model,
-    stream: false,
-    messages: [
-      { role: "system", content: $system },
-      { role: "user", content: $user }
-    ]
-  }')")
+		$data = json_decode($response, true);
 
-# Extract the commit message
-COMMIT_MSG=$(echo "$RESPONSE" | jq -r '.message.content // empty')
+		if (!empty($data['error'])) {
+			$this->cli->err("Error from Ollama: {$data['error']}");
+			exit(1);
+		}
 
-if [[ -z "$COMMIT_MSG" ]]; then
-  ERROR=$(echo "$RESPONSE" | jq -r '.error // empty')
-  if [[ -n "$ERROR" ]]; then
-    colorMessage red "Error from Ollama: $ERROR" 1
-  else
-    colorMessage red "Error: Failed to get a response from Ollama. Is it running?" 1
-  fi
-  exit 1
-fi
+		return $data['message']['content'] ?? '';
+	}
+}
 
-# Create the commit
-git commit -m "$COMMIT_MSG"
-COMMIT_EXIT=$?
+$committer = new AutoCommitOllama($cli);
+try {
+	$committer->run();
+} catch (\Exception $e) {
+	$cli->err($e->getMessage());
+	exit(1);
+}
 
-if [[ $COMMIT_EXIT -ne 0 ]]; then
-  colorMessage red "Error: git commit failed." 1
-  exit 1
-fi
-
-COMMIT_HASH=$(git log -1 --pretty=format:"%h")
-
-if [[ "$PRINT_RESULT" == true ]]; then
-  echo ""
-  colorMessage green "Commit $COMMIT_HASH:" 1
-  echo "$COMMIT_MSG"
-fi
-
-if [[ "$SAY_RESULT" == true ]]; then
-  say "Committed: $COMMIT_MSG"
-fi
+exit(0);
