@@ -22,14 +22,15 @@ $helpyHelperton
 	->setScriptName('auto-commit-ollama')
 	->setPrefix('')
 	->setDescription('Generate a commit message from staged changes using a local Ollama model and create the commit.')
-	->setSampleUsage('[context] [--model=MODEL] [--retry] [--debug] [--say] [--noprint]')
+	->setSampleUsage('[context] [--model=MODEL] [--retry[=HASH]] [--retryReason=REASON] [--debug] [--say] [--noprint]')
 	->buildDocs([
-		'context'       => 'Suggested commit message or context for the commit',
-		'--model=MODEL' => 'Ollama model to use (default from ~/.config/auto-commit-ollama/config)',
-		'--retry'       => 'Analyze the last commit, reset it, and retry with corrective context',
-		'--debug'       => 'Save the full prompt to /tmp/auto-commit-ollama-debug.txt',
-		'--say'         => 'Speak the result using macOS say command',
-		'--noprint'     => 'Suppress printing the result',
+		'context'              => 'Suggested commit message or context for the commit',
+		'--model=MODEL'        => 'Ollama model to use (default from ~/.config/auto-commit-ollama/config)',
+		'--retry[=HASH]'       => 'Regenerate commit message for HASH (default: HEAD) and amend it',
+		'--retryReason=REASON' => 'Skip Ollama analysis and provide the correction reason directly (use with --retry)',
+		'--debug'              => 'Save the full prompt to /tmp/auto-commit-ollama-debug.txt',
+		'--say'                => 'Speak the result using macOS say command',
+		'--noprint'            => 'Suppress printing the result',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -75,6 +76,7 @@ class AutoCommitOllama {
 		// Handle --retry
 		if ($this->cli->hasFlag('retry')) {
 			$this->handleRetry();
+			return;
 		}
 
 		// Check for staged changes
@@ -99,6 +101,82 @@ class AutoCommitOllama {
 			$userPrompt .= "\n\nContext from the developer: {$this->context}";
 		}
 
+		// Generate and commit
+		$commitMsg = $this->generate($systemPrompt, $userPrompt);
+		$this->commit($commitMsg);
+	}
+
+	protected function handleRetry() {
+		$commitRef = $this->cli->getFlag('retry');
+		// If --retry was passed without a value, default to HEAD
+		$commitRef = (empty($commitRef) || $commitRef === true) ? 'HEAD' : $commitRef;
+
+		// Resolve to full hash for safety
+		$fullHash = trim((string) shell_exec('git rev-parse ' . escapeshellarg($commitRef) . ' 2>/dev/null'));
+		if (empty($fullHash)) {
+			$this->cli->err("Error: Could not resolve commit '{$commitRef}'.");
+			exit(1);
+		}
+
+		$shortHash = trim((string) shell_exec('git rev-parse --short ' . escapeshellarg($fullHash)));
+		$oldMsg = trim((string) shell_exec('git log -1 --pretty=format:"%B" ' . escapeshellarg($fullHash)));
+		$diff = trim((string) shell_exec("git diff {$fullHash}~1 {$fullHash} | head -n {$this->retryDiffLines}"));
+
+		$this->cli->msg("Analyzing commit {$shortHash} for retry...", 'yellow');
+
+		$retrySystem = 'You are a commit message critic. Given a commit message and its diff, briefly explain what is wrong with the message and suggest how it should be corrected. Output ONLY the correction guidance — no pleasantries, no preamble. Be specific and concise.';
+
+		$retryReason = $this->cli->getFlag('retryReason');
+		if (!empty($retryReason)) {
+			$retrySystem .= "\n\nThe developer has noted the following issue: {$retryReason}";
+      $this->cli->msg("Retry reason given: {$retryReason}", 'cyan');
+		}
+
+		$retryUser = "Commit message:\n{$oldMsg}\n\nDiff (truncated):\n{$diff}";
+
+		$guidance = $this->callOllama($retrySystem, $retryUser);
+
+		if (empty($guidance)) {
+			$this->cli->err('Error: Failed to get retry analysis from Ollama.');
+			exit(1);
+		}
+
+		$this->cli->msg('Retry guidance:', 'cyan');
+		echo $guidance . "\n\n";
+
+		// Get recent commits for style reference
+		$recentCommits = trim((string) shell_exec('git log --format="%h %s%n%b" -5 2>/dev/null'));
+
+		// Now generate a new message with the guidance as context
+		$systemPrompt = $this->buildSystemPrompt($recentCommits);
+		$userPrompt = "Diff:\n{$diff}";
+
+		$context = "Retry correction: {$guidance}";
+		if (!empty($this->context)) {
+			$context = "{$this->context}. {$context}";
+		}
+		$userPrompt .= "\n\nContext from the developer: {$context}";
+
+		$newMsg = $this->generate($systemPrompt, $userPrompt);
+
+		// Amend the commit message
+		$isHead = ($fullHash === trim((string) shell_exec('git rev-parse HEAD')));
+		if ($isHead) {
+			$result = $this->cli->getCommandOutputAndExitCode('git commit --amend -m ' . escapeshellarg($newMsg));
+			if ($result['exitCode'] !== 0) {
+				$this->cli->err('Error: git commit --amend failed.');
+				exit(1);
+			}
+			$this->cli->msg("Amended {$shortHash}:", 'green');
+			echo $newMsg . "\n";
+		} else {
+			echo "\n";
+			$this->cli->msg("New message for {$shortHash}:", 'green');
+			echo $newMsg . "\n";
+		}
+	}
+
+	protected function generate($systemPrompt, $userPrompt) {
 		// Debug output
 		if ($this->debug) {
 			$debugContent = "=== MODEL ===\n{$this->model}\n\n"
@@ -116,8 +194,11 @@ class AutoCommitOllama {
 			exit(1);
 		}
 
-		// Create the commit
-		$result = $this->cli->getCommandOutputAndExitCode("git commit -m " . escapeshellarg($commitMsg));
+		return $commitMsg;
+	}
+
+	protected function commit($commitMsg) {
+		$result = $this->cli->getCommandOutputAndExitCode('git commit -m ' . escapeshellarg($commitMsg));
 
 		if ($result['exitCode'] !== 0) {
 			$this->cli->err('Error: git commit failed.');
@@ -137,36 +218,6 @@ class AutoCommitOllama {
 
 		if ($this->sayResult) {
 			exec('say ' . escapeshellarg("Committed: $commitMsg"));
-		}
-	}
-
-	protected function handleRetry() {
-		$lastMsg = trim((string) shell_exec('git log -1 --pretty=format:"%B"'));
-		$lastDiff = trim((string) shell_exec("git diff HEAD~1 HEAD | head -n {$this->retryDiffLines}"));
-
-		$this->cli->msg('Analyzing last commit for retry...', 'yellow');
-
-		$retrySystem = 'You are a commit message critic. Given a commit message and its diff, briefly explain what is wrong with the message and suggest how it should be corrected. Output ONLY the correction guidance — no pleasantries, no preamble. Be specific and concise.';
-		$retryUser = "Commit message:\n{$lastMsg}\n\nDiff (truncated):\n{$lastDiff}";
-
-		$guidance = $this->callOllama($retrySystem, $retryUser);
-
-		if (empty($guidance)) {
-			$this->cli->err('Error: Failed to get retry analysis from Ollama.');
-			exit(1);
-		}
-
-		$this->cli->msg('Retry guidance:', 'cyan');
-		echo $guidance . "\n\n";
-
-		// Reset the last commit, keeping changes staged
-		exec('git reset --soft HEAD~1');
-
-		// Append retry context
-		if (!empty($this->context)) {
-			$this->context .= ". Retry correction: {$guidance}";
-		} else {
-			$this->context = "Retry correction: {$guidance}";
 		}
 	}
 
@@ -208,9 +259,8 @@ Here are recent commits from this repo. Match their style:
 		]);
 
 		$response = curl_exec($ch);
-		$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 		$curlError = curl_error($ch);
-		curl_close($ch);
+		unset($ch);
 
 		if (!empty($curlError)) {
 			$this->cli->err("Error connecting to Ollama: {$curlError}");
