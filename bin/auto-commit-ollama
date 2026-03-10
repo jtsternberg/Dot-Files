@@ -1,0 +1,161 @@
+#!/bin/bash
+#
+# Create a commit from currently staged files using Ollama
+#
+# Usage: auto-commit-ollama [context] [--model MODEL] [--say] [--noprint] [--debug]
+#
+# Arguments:
+#   context      Optional. Suggested commit message or context for the commit
+#   --model      Optional. Ollama model to use (default from ~/.config/auto-commit-ollama/config)
+#   --say        Optional. Speak the result using macOS say command
+#   --noprint    Optional. Suppress printing the result
+#   --debug      Optional. Save the full prompt to /tmp/auto-commit-ollama-debug.txt
+#
+# Examples:
+#   auto-commit-ollama
+#   auto-commit-ollama "Fix login validation bug"
+#   auto-commit-ollama --model mistral
+#   auto-commit-ollama "Refactored auth" --model codellama --say
+#
+
+# Load config
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/auto-commit-ollama"
+CONFIG_FILE="$CONFIG_DIR/config"
+if [[ -f "$CONFIG_FILE" ]]; then
+  source "$CONFIG_FILE"
+fi
+
+CONTEXT=""
+MODEL="${MODEL:-qwen3-coder}"
+SAY_RESULT=false
+PRINT_RESULT=true
+DEBUG=false
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --model)
+      MODEL="$2"
+      shift 2
+      ;;
+    --say)
+      SAY_RESULT=true
+      shift
+      ;;
+    --noprint)
+      PRINT_RESULT=false
+      shift
+      ;;
+    --debug)
+      DEBUG=true
+      shift
+      ;;
+    *)
+      if [[ -z "$CONTEXT" ]]; then
+        CONTEXT="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+# Check for staged changes
+if [[ -z "$(git diff --cached --name-only)" ]]; then
+  colorMessage red "Error: No staged changes found. Stage files with 'git add' first." 1
+  exit 1
+fi
+
+# Get recent commit messages for style reference
+RECENT_COMMITS=$(git log --format="%h %s%n%b" -5 2>/dev/null)
+
+# Get structured diff context from pr-description-generator
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CHANGE_CONTEXT=$("$SCRIPT_DIR/pr-description-generator" --staged --smart)
+
+# Build the prompt
+SYSTEM_PROMPT="You are a commit message generator. Output ONLY the commit message, nothing else. The subject line (first line) must be plain text — no markdown, no prefixes like ## or *, no backticks, no quotes. Keep it under 72 characters, starting with a lowercase verb (e.g. add, fix, update, refactor).
+
+The body (after a blank line) may use bullet points or other formatting.
+
+You MUST add a commit body (separated by a blank line from the subject) when:
+- Changes span multiple files with different purposes
+- The subject line alone cannot describe all the changes
+- The why behind the change is not obvious from the diff
+
+The body should briefly list or explain each distinct change. Keep it concise — use bullet points if multiple changes are involved. A simple single-purpose change does not need a body.
+
+Here are recent commits from this repo. Match their style:
+<recent-commits>
+$RECENT_COMMITS
+</recent-commits>"
+
+USER_PROMPT="$CHANGE_CONTEXT"
+
+if [[ -n "$CONTEXT" ]]; then
+  USER_PROMPT="$USER_PROMPT
+
+Context from the developer: $CONTEXT"
+fi
+
+# Debug: save prompt to /tmp
+if [[ "$DEBUG" == true ]]; then
+  DEBUG_FILE="/tmp/auto-commit-ollama-debug.txt"
+  {
+    echo "=== MODEL ==="
+    echo "$MODEL"
+    echo ""
+    echo "=== SYSTEM PROMPT ==="
+    echo "$SYSTEM_PROMPT"
+    echo ""
+    echo "=== USER PROMPT ==="
+    echo "$USER_PROMPT"
+  } > "$DEBUG_FILE"
+  colorMessage yellow "Debug: prompt saved to $DEBUG_FILE" 1
+fi
+
+# Call Ollama API
+RESPONSE=$(curl -s http://localhost:11434/api/chat -d "$(jq -n \
+  --arg model "$MODEL" \
+  --arg system "$SYSTEM_PROMPT" \
+  --arg user "$USER_PROMPT" \
+  '{
+    model: $model,
+    stream: false,
+    messages: [
+      { role: "system", content: $system },
+      { role: "user", content: $user }
+    ]
+  }')")
+
+# Extract the commit message
+COMMIT_MSG=$(echo "$RESPONSE" | jq -r '.message.content // empty')
+
+if [[ -z "$COMMIT_MSG" ]]; then
+  ERROR=$(echo "$RESPONSE" | jq -r '.error // empty')
+  if [[ -n "$ERROR" ]]; then
+    colorMessage red "Error from Ollama: $ERROR" 1
+  else
+    colorMessage red "Error: Failed to get a response from Ollama. Is it running?" 1
+  fi
+  exit 1
+fi
+
+# Create the commit
+git commit -m "$COMMIT_MSG"
+COMMIT_EXIT=$?
+
+if [[ $COMMIT_EXIT -ne 0 ]]; then
+  colorMessage red "Error: git commit failed." 1
+  exit 1
+fi
+
+COMMIT_HASH=$(git log -1 --pretty=format:"%h")
+
+if [[ "$PRINT_RESULT" == true ]]; then
+  echo ""
+  colorMessage green "Commit $COMMIT_HASH:" 1
+  echo "$COMMIT_MSG"
+fi
+
+if [[ "$SAY_RESULT" == true ]]; then
+  say "Committed: $COMMIT_MSG"
+fi
