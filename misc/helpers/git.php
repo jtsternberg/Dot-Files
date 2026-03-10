@@ -54,7 +54,7 @@ class Git {
 	 * @return string
 	 */
 	public function lastCommitMessage() {
-		return trim( shell_exec( "git reflog --pretty=format:'%s [%h, %cN, %ad]' -1" ) );
+		return trim( (string) shell_exec( "git reflog --pretty=format:'%s [%h, %cN, %ad]' -1" ) );
 	}
 
 	/**
@@ -95,7 +95,7 @@ class Git {
 	 * @return string
 	 */
 	public function getMainBranch() {
-		return trim( shell_exec( "git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1" ) );
+		return trim( (string) shell_exec( "git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1" ) );
 	}
 
 	/**
@@ -106,7 +106,7 @@ class Git {
 	 * @return string
 	 */
 	public function currentBranch() {
-		return trim( shell_exec( "git rev-parse --abbrev-ref HEAD" ) );
+		return trim( (string) shell_exec( "git rev-parse --abbrev-ref HEAD" ) );
 	}
 
 	/**
@@ -352,33 +352,33 @@ class Git {
 	 */
 	public function getRepoUrl() {
 		// Try to get the URL from the current branch's upstream remote
-		$upstream = trim( shell_exec( "git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null" ) );
+		$upstream = trim( (string) shell_exec( "git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null" ) );
 
 		if ( $upstream && strpos( $upstream, '/' ) !== false ) {
 			$remote = explode( '/', $upstream )[0];
-			$url = trim( shell_exec( "git remote get-url {$remote} 2>/dev/null" ) );
+			$url = trim( (string) shell_exec( "git remote get-url {$remote} 2>/dev/null" ) );
 			if ( $url ) {
 				return $url;
 			}
 		}
 
 		// Fallback 1: Try origin remote
-		$url = trim( shell_exec( "git remote get-url origin 2>/dev/null" ) );
+		$url = trim( (string) shell_exec( "git remote get-url origin 2>/dev/null" ) );
 		if ( $url ) {
 			return $url;
 		}
 
 		// Fallback 2: Get the first available remote
-		$remotes = explode( "\n", trim( shell_exec( "git remote 2>/dev/null" ) ) );
+		$remotes = explode( "\n", trim( (string) shell_exec( "git remote 2>/dev/null" ) ) );
 		if ( ! empty( $remotes[0] ) ) {
-			$url = trim( shell_exec( "git remote get-url {$remotes[0]} 2>/dev/null" ) );
+			$url = trim( (string) shell_exec( "git remote get-url {$remotes[0]} 2>/dev/null" ) );
 			if ( $url ) {
 				return $url;
 			}
 		}
 
 		// Fallback 3: Try git config
-		$url = trim( shell_exec( "git config --get remote.origin.url 2>/dev/null" ) );
+		$url = trim( (string) shell_exec( "git config --get remote.origin.url 2>/dev/null" ) );
 		if ( $url ) {
 			return $url;
 		}
