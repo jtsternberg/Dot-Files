@@ -6,8 +6,8 @@
 	; List all aliases
 	la = "!git config -l | grep alias | cut -c 7-"
 
-	; Get main branch
-	getmain = "!git branch -rl '*/HEAD' | rev | cut -d/ -f1 | rev | head -1"
+	; Get main branch (uses remote show when origin/HEAD not set)
+	getmain = "!f() { b=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null) && echo ${b#refs/remotes/origin/}; [ -z \"$b\" ] && git remote show origin 2>/dev/null | grep 'HEAD branch' | cut -d' ' -f5; }; f"
 	setmain = "!git remote set-head origin -a"
 
 
