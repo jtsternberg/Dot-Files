@@ -1,0 +1,225 @@
+#!/usr/bin/env php
+<?php
+
+// Upload images to WordPress media library and optionally set as featured image.
+
+namespace JT\CLI;
+
+require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+$cli = getCli( $argv );
+
+use JT\CLI\Commands\SiteCommand;
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'jt-blog-media' )
+	->setPrefix( '' )
+	->setDescription( 'Upload an image to the WordPress media library.' )
+	->setSampleUsage( '<image-file> [--postId=ID|SLUG|FILE.md] [--alt="Alt text"] [--title="Title"]' )
+	->buildDocs( [
+		'<image-file>'           => 'Path to image file (required)',
+		'--postId=ID|SLUG|FILE'  => 'Post ID, slug, or .md file (sets image as featured)',
+		'--alt="text"'           => 'Alt text for the image',
+		'--title="text"'         => 'Media title (defaults to filename)',
+		'--help'                 => 'Show this help',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+// Get image file from first argument
+$imageFileArg = $cli->getArg( 1 );
+if ( empty( $imageFileArg ) ) {
+	$cli->err( "\nError: Image file path is required as first argument.\n" );
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 1 );
+}
+
+class BlogMediaCommand extends SiteCommand {
+
+	protected $imageFile;
+	protected $postId;
+	protected $altText;
+	protected $mediaTitle;
+
+	protected static $contentTypes = [
+		'jpg'  => 'image/jpeg',
+		'jpeg' => 'image/jpeg',
+		'png'  => 'image/png',
+		'gif'  => 'image/gif',
+		'webp' => 'image/webp',
+		'svg'  => 'image/svg+xml',
+	];
+
+	public function __construct( $cli, string $imageFileArg ) {
+		parent::__construct( $cli );
+
+		$this->imageFile  = $imageFileArg;
+		$this->postId     = $cli->getFlag( 'postId' ) ?: '';
+		$this->altText    = $cli->getFlag( 'alt' ) ?: '';
+		$this->mediaTitle = $cli->getFlag( 'title' ) ?: '';
+	}
+
+	/**
+	 * Detect content type from file extension.
+	 */
+	protected function detectContentType( string $filename ): string {
+		$ext = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+
+		if ( ! isset( self::$contentTypes[ $ext ] ) ) {
+			throw new \Exception( "Error: Unsupported image type: .{$ext}" );
+		}
+
+		return self::$contentTypes[ $ext ];
+	}
+
+	/**
+	 * Resolve postId from a .md file's frontmatter.
+	 */
+	protected function resolvePostId(): void {
+		if ( empty( $this->postId ) ) {
+			return;
+		}
+
+		// If postId points to a .md file, extract id from frontmatter
+		if ( str_ends_with( $this->postId, '.md' ) ) {
+			if ( ! file_exists( $this->postId ) ) {
+				throw new \Exception( "Error: Markdown file not found: {$this->postId}" );
+			}
+
+			$contents = file_get_contents( $this->postId );
+			if ( preg_match( '/^id:\s*(.+)$/m', $contents, $matches ) ) {
+				$this->postId = trim( $matches[1] );
+			} else {
+				throw new \Exception( "Error: No 'id' found in frontmatter of {$this->postId}" );
+			}
+		}
+	}
+
+	/**
+	 * Upload the image file to WordPress media library.
+	 */
+	protected function uploadImage( string $filename, string $contentType ): array {
+		$baseUrl     = $this->resolveRestUrl();
+		$url         = rtrim( $baseUrl, '/' ) . '/media';
+		$credentials = $this->buildBasicAuthHeader();
+
+		$ch = curl_init( $url );
+		curl_setopt_array( $ch, [
+			CURLOPT_POST           => true,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_HTTPHEADER     => [
+				"Authorization: Basic {$credentials}",
+				"Content-Disposition: attachment; filename={$filename}",
+				"Content-Type: {$contentType}",
+			],
+			CURLOPT_POSTFIELDS => file_get_contents( $this->imageFile ),
+		] );
+
+		$response = curl_exec( $ch );
+		$httpCode = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+		curl_close( $ch );
+
+		$result = json_decode( $response, true );
+
+		if ( $httpCode < 200 || $httpCode >= 300 || empty( $result['id'] ) ) {
+			$errorMsg = $result['message'] ?? 'Unknown error';
+			throw new \Exception( "Error: Upload failed: {$errorMsg}" );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Update media metadata (alt text, title).
+	 */
+	protected function updateMediaMeta( int $mediaId ): void {
+		if ( empty( $this->altText ) && empty( $this->mediaTitle ) ) {
+			return;
+		}
+
+		$baseUrl = $this->resolveRestUrl();
+		$url     = rtrim( $baseUrl, '/' ) . '/media/' . $mediaId;
+
+		$payload = [];
+		if ( ! empty( $this->altText ) ) {
+			$payload['alt_text'] = $this->altText;
+		}
+		if ( ! empty( $this->mediaTitle ) ) {
+			$payload['title'] = $this->mediaTitle;
+		}
+
+		$this->executeRequest( $url, 'POST', $payload );
+		$this->cli->msg( "Updated media metadata.\n", 'green' );
+	}
+
+	/**
+	 * Set media as featured image on a post.
+	 */
+	protected function setFeaturedImage( int $mediaId ): void {
+		if ( empty( $this->postId ) ) {
+			return;
+		}
+
+		$this->cli->msg( "Setting as featured image on post {$this->postId}...\n", 'yellow' );
+
+		$baseUrl = $this->resolveRestUrl();
+		$url     = rtrim( $baseUrl, '/' ) . '/posts/' . $this->postId;
+
+		$result = $this->executeRequest( $url, 'POST', [
+			'featured_media' => $mediaId,
+		] );
+
+		if ( (int) ( $result['featured_media'] ?? 0 ) === $mediaId ) {
+			$postTitle = $result['title']['raw'] ?? $result['title']['rendered'] ?? 'Unknown';
+			$this->cli->msg( "Featured image set on \"{$postTitle}\"\n", 'green' );
+		} else {
+			$errorMsg = $result['message'] ?? 'Unknown error';
+			throw new \Exception( "Error: Failed to set featured image: {$errorMsg}" );
+		}
+	}
+
+	public function run(): void {
+		// Validate image file
+		if ( ! file_exists( $this->imageFile ) ) {
+			throw new \Exception( "Error: File not found: {$this->imageFile}" );
+		}
+
+		$filename    = basename( $this->imageFile );
+		$contentType = $this->detectContentType( $filename );
+
+		// Load environment and credentials
+		$this->loadEnv();
+		$this->setCredentials();
+
+		// Resolve postId from .md frontmatter if needed
+		$this->resolvePostId();
+
+		// Upload
+		$this->cli->msg( "Uploading {$filename}...\n", 'yellow' );
+		$result   = $this->uploadImage( $filename, $contentType );
+		$mediaId  = (int) $result['id'];
+		$mediaUrl = $result['source_url'] ?? '';
+
+		$this->cli->msg( "Uploaded! Media ID: {$mediaId}\n", 'green' );
+		$this->cli->msg( "URL: {$mediaUrl}\n", 'cyan' );
+
+		// Update metadata
+		$this->updateMediaMeta( $mediaId );
+
+		// Set as featured image
+		$this->setFeaturedImage( $mediaId );
+	}
+}
+
+try {
+	$cmd = new BlogMediaCommand( $cli, $imageFileArg );
+	$cmd->run();
+} catch ( \Exception $e ) {
+	$cli->err( "\n{$e->getMessage()}\n" );
+	exit( 1 );
+}
