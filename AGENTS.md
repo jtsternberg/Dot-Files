@@ -100,6 +100,11 @@ $helpyHelperton
 - Exit 0 for success, 1 for error
 - Colors: red=errors, green=success, yellow=info/warning
 
+## Content Conversion Tools
+
+- `html-to-markdown <file.html>` - Convert HTML to Markdown (outputs to stdout)
+- `marked <file.md>` - Convert Markdown to HTML (outputs to stdout)
+
 ## Shell Configuration
 
 - `.zshrc` - Main shell config, loads Oh My Zsh with custom plugins
