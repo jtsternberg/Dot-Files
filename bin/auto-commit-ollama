@@ -25,7 +25,7 @@ $helpyHelperton
 	->setSampleUsage('[context] [--model=MODEL] [--retry[=HASH]] [--retryReason=REASON] [--debug] [--say] [--noprint]')
 	->buildDocs([
 		'context'              => 'Suggested commit message or context for the commit',
-		'--model=MODEL'        => 'Ollama model to use (default from ~/.config/auto-commit-ollama/config)',
+		'--model=MODEL'        => 'Ollama model to use (default: auto-detected from storage location via config)',
 		'--retry[=HASH]'       => 'Regenerate commit message for HASH (default: HEAD) and amend it',
 		'--retryReason=REASON' => 'Skip Ollama analysis and provide the correction reason directly (use with --retry)',
 		'--debug'              => 'Save the full prompt to /tmp/auto-commit-ollama-debug.txt',
@@ -57,14 +57,13 @@ class AutoCommitOllama {
 		// Load config file
 		$configDir = getenv('XDG_CONFIG_HOME') ?: (getenv('HOME') . '/.config');
 		$configFile = $configDir . '/auto-commit-ollama/config';
-		$configModel = 'qwen3-coder';
+		$config = [];
 		if (file_exists($configFile)) {
-			$config = parse_ini_file($configFile);
-			if (!empty($config['MODEL'])) {
-				$configModel = $config['MODEL'];
-			}
+			$config = parse_ini_file($configFile) ?: [];
 		}
 
+		// Detect storage location from ~/.ollama-models symlink
+		$configModel = $this->resolveModel($config);
 		$this->model = $cli->getFlag('model', $configModel);
 		$this->context = $cli->getArg(1) ?: '';
 		$this->debug = $cli->hasFlag('debug');
@@ -276,6 +275,34 @@ Here are recent commits from this repo. Match their style:
 		}
 
 		return $data['message']['content'] ?? '';
+	}
+
+	/**
+	 * Resolve the model to use based on storage location.
+	 *
+	 * Checks where ~/.ollama-models points and uses the matching config key:
+	 *   - SD card: MODEL_SD (falls back to MODEL)
+	 *   - Local:   MODEL_LOCAL (falls back to MODEL)
+	 *   - Default: MODEL or 'qwen3-coder'
+	 */
+	protected function resolveModel(array $config) {
+		$home = getenv('HOME') ?: $this->cli->convertPathToAbsolute('~');
+		$symlink = $home . '/.ollama-models';
+		$sdPath = '/Volumes/AI-LAB/ollama/models';
+		$defaultModel = $config['MODEL'] ?? 'qwen3-coder';
+
+		if (is_link($symlink)) {
+			$target = readlink($symlink);
+
+			if (strpos($target, $sdPath) === 0) {
+				return $config['MODEL_SD'] ?? $defaultModel;
+			}
+
+			// Any other target is treated as local
+			return $config['MODEL_LOCAL'] ?? $defaultModel;
+		}
+
+		return $defaultModel;
 	}
 }
 
