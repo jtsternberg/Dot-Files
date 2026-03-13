@@ -141,12 +141,16 @@ class DirMap {
 
 		$this->helpers->msg( sprintf( "\n%s (%d):\n", $msg, count( $display ) ), 'green' );
 
+		$cyan  = $this->helpers->color( 'cyan' );
+		$gray  = $this->helpers->color( 'dark_gray' );
+		$reset = $this->helpers->color( 'none' );
+
 		foreach ( $display as $key => $dir ) {
 			$shortDir = 0 === strpos( $dir, $home )
 				? '~' . substr( $dir, strlen( $home ) )
 				: $dir;
 			$padding = str_repeat( ' ', $maxKey - strlen( $key ) );
-			$this->helpers->msg( sprintf( "  %s%s  =>  %s", $key, $padding, $shortDir ) );
+			echo sprintf( "  %s%s%s%s  =>  %s%s%s\n", $cyan, $key, $reset, $padding, $gray, $shortDir, $reset );
 		}
 
 		$this->helpers->msg( '' );
