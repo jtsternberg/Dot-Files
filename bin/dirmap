@@ -7,7 +7,7 @@ namespace JT;
 # By Justin Sternberg <me@jtsternberg.com>
 # https://github.com/jtsternberg/Dot-Files/blob/master/bin/dirmap
 #
-# Version 0.1.0
+# Version 0.2.0
 #
 # Stores shortcuts for directories (a map) to a json file in the user dir.
 #
@@ -23,9 +23,6 @@ class DirMap {
 	protected $dirs = [
 		'' => '~/',
 	];
-
-	protected $addHelp = "Two argumens are accepted, the directory map key (alias), which is required, and the actual path (will default to the current directory if empty). E.g.\n   dirmap add mysites ~/Sites\n";
-	protected $removeHelp = "The directory map key (alias) argumen is required. E.g.\n   dirmap remove mysites\n";
 
 	protected $helpers;
 	public $hd = '';
@@ -46,10 +43,6 @@ class DirMap {
 	}
 
 	public function get() {
-		if ( $this->helpers->hasFlags( [ 'help' ], [ 'h' ] ) ) {
-			return $this->help();
-		}
-
 		$key = $this->helpers->getArg( 1, '' );
 
 		if ( ! empty( $key ) && ! isset( $this->dirs[ $key ] ) ) {
@@ -71,7 +64,8 @@ class DirMap {
 
 	public function add( $args ) {
 		if ( empty( $args[2] ) ) {
-			$this->helpers->err( "\n" . $this->addHelp );
+			$this->helpers->err( "\nThe directory map key (alias) is required." );
+			$this->helpers->msg( "E.g. dirmap add mysites ~/Sites\n" );
 			exit(1);
 		}
 
@@ -96,7 +90,8 @@ class DirMap {
 
 	public function remove( $args ) {
 		if ( empty( $args[2] ) ) {
-			$this->helpers->err( "\n" . $this->removeHelp );
+			$this->helpers->err( "\nThe directory map key (alias) is required." );
+			$this->helpers->msg( "E.g. dirmap remove mysites\n" );
 			exit(1);
 		}
 
@@ -145,33 +140,6 @@ class DirMap {
 
 		return $this;
 	}
-
-	public function help( $key = null ) {
-		$this->helpers->msg( "\n`dirmap` help:\n", 'green' );
-		$indent = '   ';
-		$doubleIndent = str_repeat( $indent, 2 );
-		$this->helpers->msg( "\n{$indent}(get):", 'green' );
-		$this->helpers->msg( $doubleIndent . "- Simply pass the directory map key (alias) as the first argument. E.g.\n{$doubleIndent}dirmap mysites\n{$doubleIndent}- Or, to use in another script:\n{$doubleIndent}cd \"`dirmap mysites`\"\n", 'green' );
-
-		// echo "\n";
-
-		$this->helpers->msg( "\n{$indent}add:", 'green' );
-		$this->helpers->msg( $doubleIndent . '- ' .str_replace( '   ', $doubleIndent, $this->addHelp ), 'green' );
-
-		$this->helpers->msg( "\n{$indent}remove:", 'green' );
-		$this->helpers->msg( $doubleIndent . '- ' .str_replace( '   ', $doubleIndent, $this->removeHelp ), 'green' );
-
-
-		$this->helpers->msg( "\n{$indent}list:", 'green' );
-		$this->helpers->msg( $doubleIndent . "- Outputs the stored directory map for reference. Use --keys (-k) flag to output only the map keys.\n", 'green' );
-
-		$this->helpers->msg( "\n{$indent}help:", 'green' );
-		$this->helpers->msg( $doubleIndent . "- This help text.\n", 'green' );
-
-		echo "\n";
-
-		$this->list();
-	}
 }
 
 function commands( DirMap $dirmap ) {
@@ -183,16 +151,48 @@ function commands( DirMap $dirmap ) {
 	return $methods;
 }
 
-$helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
-$dirmap  = new DirMap( $helpers );
-$command = $helpers->getArg( 1, '' );
+$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'dirmap' )
+	->setDescription( 'Stores shortcuts for directories (a map), making it easier to bookmark and navigate to directories on the drive.' )
+	->setupDefaultCommand( [
+		'<key>' => 'The directory map key (alias) to navigate to.',
+	] )
+	->setup( 'dirmap', [
+		'add' => [
+			'<key> [<path>]',
+			'Add a new directory mapping. Path defaults to current directory if omitted.',
+			'<key>    The alias for this directory',
+			'<path>   The directory path (defaults to current directory)',
+		],
+		'remove' => [
+			'<key>',
+			'Remove an existing directory mapping.',
+			'<key>   The alias to remove',
+		],
+		'list' => [
+			'[--keys|-k]',
+			'Output the stored directory map.',
+			'-k, --keys   Output only the map keys',
+		],
+	] );
+
+$dirmap  = new DirMap( $cli );
+$command = $cli->getArg( 1, '' );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp( $command ) );
+	exit( 0 );
+}
 
 if ( 'commands' === $command ) {
 	exit( implode("\n", commands( $dirmap ) ) );
 }
 
 if ( is_callable( [ $dirmap, $command ] ) ) {
-	return $dirmap->{$command}( $helpers->args );
+	return $dirmap->{$command}( $cli->args );
 }
 
 $dirmap->get();
