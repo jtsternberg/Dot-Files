@@ -271,6 +271,41 @@ Here are recent commits from this repo. Match their style:
 
 		if (!empty($data['error'])) {
 			$this->cli->err("Error from Ollama: {$data['error']}");
+
+			// Detect model-not-found errors and provide actionable guidance
+			if (stripos($data['error'], 'model') !== false && (
+				stripos($data['error'], 'not found') !== false
+				|| stripos($data['error'], 'does not exist') !== false
+				|| stripos($data['error'], 'unknown') !== false
+			)) {
+				$this->cli->err('');
+				$this->cli->msg("Requested model: {$this->model}", 'yellow');
+
+				// Show available models
+				$available = trim((string) shell_exec('ollama list 2>/dev/null'));
+				if (!empty($available)) {
+					$this->cli->msg("\nAvailable models (ollama list):", 'cyan');
+					echo $available . "\n";
+				} else {
+					$this->cli->msg('No models found. Pull one with: ollama pull <model>', 'yellow');
+				}
+
+				// Show storage location context
+				$home = getenv('HOME') ?: $this->cli->convertPathToAbsolute('~');
+				$symlink = $home . '/.ollama-models';
+				if (is_link($symlink)) {
+					$target = readlink($symlink);
+					$this->cli->msg("\nModels storage: {$target}", 'cyan');
+					$this->cli->msg('Switch with: ollamodels [local|sd]', 'cyan');
+				}
+
+				$this->cli->err("\nTo fix:");
+				$this->cli->err("  1. Pull the model:   ollama pull {$this->model}");
+				$this->cli->err("  2. Use a different model: auto-commit-ollama --model=<name>");
+				$this->cli->err("  3. Update config:    ~/.config/auto-commit-ollama/config");
+				$this->cli->err("     (MODEL, MODEL_LOCAL, MODEL_SD)");
+			}
+
 			exit(1);
 		}
 
