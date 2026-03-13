@@ -89,9 +89,9 @@ class DirMap {
 		$dirs[ $key ] = $path;
 		$this->dirs[ $key ] = $path;
 
-		$this
-			->updateFile( $dirs )
-			->outputMap( $dirs );
+		$this->updateFile( $dirs );
+
+		$this->helpers->msg( sprintf( "\nAdded: %s => %s\n", $key, $path ), 'green' );
 	}
 
 	public function remove( $args ) {
@@ -110,7 +110,8 @@ class DirMap {
 		unset( $this->dirs[ $key ] );
 
 		$this->updateFile( $dirs );
-		$this->outputMap( $dirs );
+
+		$this->helpers->msg( sprintf( "\nRemoved: %s\n", $key ), 'green' );
 	}
 
 	public function list() {
