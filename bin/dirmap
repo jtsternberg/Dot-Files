@@ -125,18 +125,31 @@ class DirMap {
 	}
 
 	protected function outputMap( $dirs, $msg = 'Directory map updated' ) {
-		$map = [];
+		// Filter out the empty default key for display.
+		$display = [];
 		foreach ( $dirs as $key => $dir ) {
 			if ( '' === $key ) {
-				$key = '(default)';
+				continue;
 			}
-			$map[] = "$key\n--->| $dir";
+			$display[ $key ] = $dir;
 		}
 
-		$map[] = "(default)\n--->| ~/";
+		ksort( $display );
 
-		$this->helpers->msg( sprintf( "\n$msg (%d):", count( $map ) ), 'green' );
-		$this->helpers->msg( "\n" . implode( "\n\n", $map ) . "\n\n" );
+		$maxKey = max( array_map( 'strlen', array_keys( $display ) ) );
+		$home = $this->hd;
+
+		$this->helpers->msg( sprintf( "\n%s (%d):\n", $msg, count( $display ) ), 'green' );
+
+		foreach ( $display as $key => $dir ) {
+			$shortDir = 0 === strpos( $dir, $home )
+				? '~' . substr( $dir, strlen( $home ) )
+				: $dir;
+			$padding = str_repeat( ' ', $maxKey - strlen( $key ) );
+			$this->helpers->msg( sprintf( "  %s%s  =>  %s", $key, $padding, $shortDir ) );
+		}
+
+		$this->helpers->msg( '' );
 
 		return $this;
 	}
