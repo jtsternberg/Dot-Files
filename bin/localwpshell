@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 #
-# localshell
+# localwpshell
 #
 # Sets up the LocalWP environment for the current directory and optionally
 # runs a command. Works from anywhere inside a LocalWP site tree.
 #
+# Handles symlinked site directories (e.g. app/public -> ~/Sites/mysite)
+# by resolving real paths when the direct match fails.
+#
 # Usage:
-#   localshell                # Load env + show info
-#   localshell wp plugin list # Run a command with LocalWP's PHP/MySQL/etc.
-#   localshell --silent ...   # Quiet mode (or use silentlocalshell)
+#   localwpshell                # Load env + show info
+#   localwpshell wp plugin list # Run a command with LocalWP's PHP/MySQL/etc.
+#   localwpshell --silent ...   # Quiet mode (or use silentlocalwpshell)
 
 # Handle --silent / -shh flag
 if [[ "$1" == "--silent" || "$1" == "-shh" ]]; then
@@ -43,7 +46,24 @@ if [ -f "$SITES_JSON" ]; then
 		LOCALWP_SHELL="$HOME/Library/Application Support/Local/ssh-entry/${SITE_ID}.sh"
 		msg "Found LocalWP site ID: $SITE_ID"
 	else
-		msg "No LocalWP site found for path: $CURRENT_PROJECT_PATH"
+		msg "No direct LocalWP site match for path: $CURRENT_PROJECT_PATH"
+		# Maybe pwd is inside a symlinked directory (e.g. app/public -> ~/Sites/mysite).
+		# Resolve each site's app/public to its real path and compare.
+		REAL_PROJECT_PATH=$(cd "$CURRENT_PROJECT_PATH" 2>/dev/null && pwd -P)
+		if [ -n "$REAL_PROJECT_PATH" ] && command -v jq >/dev/null 2>&1; then
+			while IFS=$'\t' read -r sid spath; do
+				# Expand ~ to $HOME
+				spath="${spath/#\~/$HOME}"
+				# Resolve the app/public symlink if it exists
+				RESOLVED=$(cd "$spath/app/public" 2>/dev/null && pwd -P)
+				if [ "$RESOLVED" = "$REAL_PROJECT_PATH" ]; then
+					SITE_ID="$sid"
+					LOCALWP_SHELL="$HOME/Library/Application Support/Local/ssh-entry/${SITE_ID}.sh"
+					msg "Found LocalWP site ID via symlink resolution: $SITE_ID"
+					break
+				fi
+			done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.path)"' "$SITES_JSON")
+		fi
 	fi
 else
 	msg "LocalWP sites.json not found at: $SITES_JSON"
