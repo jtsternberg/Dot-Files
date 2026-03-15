@@ -1,11 +1,1 @@
-#!/usr/bin/env bash
-#
-# wplocal
-#
-# Shortcut for running WP-CLI commands through LocalWP's environment.
-#
-# Usage:
-#   wplocal plugin list
-#   wplocal search-replace 'old.test' 'new.test'
-
-exec silentlocalwpshell wp "$@"
+/Users/JT/Code/claude-plugins/plugins/localwp-shell/scripts/wplocal
