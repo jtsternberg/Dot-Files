@@ -1,5 +1,5 @@
 # Set PATH, MANPATH, etc., for Homebrew.
-eval "$(/opt/homebrew/bin/brew shellenv)"
+[[ -f /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
 # As of 2/24/23, this command evaluates to:
 # ```
 # export HOMEBREW_PREFIX="/opt/homebrew";

@@ -58,7 +58,7 @@ alias brewupdate="brew update && brew upgrade && brew cleanup && brew cask clean
 alias vlc="/Applications/VLC.app/Contents/MacOS/VLC"
 
 # t tasks https://github.com/sjl/t
-alias t="python $HOME/.dotfiles/t/t.py --task-dir $HOME/Dropbox/t-tasks --list tasks"
+alias t="python3 $HOME/.dotfiles/t/t.py --task-dir $HOME/Dropbox/t-tasks --list tasks"
 alias tedit="open $HOME/Dropbox/t-tasks/tasks"
 
 # Show your basic terminal text colors for terminal preferences change.
