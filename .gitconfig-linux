@@ -1,6 +1,18 @@
 ; Linux-specific git configuration
 ; Loaded via [include] path = ~/.gitconfig-local (symlinked by symdotfiles)
 
+[diff]
+	tool = meld
+
+[difftool "meld"]
+	cmd = meld \"$LOCAL\" \"$REMOTE\"
+
+[merge]
+	tool = meld
+
+[mergetool "meld"]
+	cmd = meld \"$LOCAL\" \"$BASE\" \"$REMOTE\" --output \"$MERGED\"
+
 ; Uncomment and set whichever credential helper is available on this machine:
 ; [credential]
 ; 	helper = /usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret
