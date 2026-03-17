@@ -24,7 +24,7 @@ Personal dotfiles for [jtsternberg](https://github.com/jtsternberg). Originally 
 ### 1. Clone the repo
 
 ```bash
-git clone git@github.com:jtsternberg/dot-Files.git ~/.dotfiles
+git clone git@github.com:jtsternberg/Dot-Files.git ~/.dotfiles
 cd ~/.dotfiles
 ```
 
