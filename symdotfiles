@@ -67,6 +67,8 @@ $ignore = array(
 	'online-check.sh',
 	'misc',
 	'.zshrc.pre-oh-my-zsh',
+	'.gitconfig-macos',   // platform-specific; symlinked as ~/.gitconfig-local
+	'.gitconfig-linux',   // platform-specific; symlinked as ~/.gitconfig-local
 );
 $ignore_begins = array(
 	'.',
@@ -136,6 +138,36 @@ foreach( $files as $index => $file ) {
 	}
 
 	do_notice( '    '. $moved .' ' . $newfile, false, false );
+}
+
+// Symlink platform-specific gitconfig to ~/.gitconfig-local
+if ( ! $dirs_only ) {
+	$os = PHP_OS_FAMILY; // 'Darwin' on macOS, 'Linux' on Linux
+	$platform_gitconfig = $working_dir . '/.gitconfig-' . ( $os === 'Darwin' ? 'macos' : 'linux' );
+	$gitconfig_local = $destination_dir . '.gitconfig-local';
+
+	do_notice( "Symlinking platform gitconfig ($os)", true, "\n" );
+
+	if ( file_exists( $platform_gitconfig ) ) {
+		if ( file_exists( $gitconfig_local ) || is_link( $gitconfig_local ) ) {
+			if ( ! $hard ) {
+				do_notice( "    : $gitconfig_local exists, skipping (use 'hard' to overwrite)", false, false );
+			} else {
+				if ( ! $testrun ) {
+					unlink( $gitconfig_local );
+					symlink( $platform_gitconfig, $gitconfig_local );
+				}
+				do_notice( "    : $gitconfig_local -> $platform_gitconfig", false, false );
+			}
+		} else {
+			if ( ! $testrun ) {
+				symlink( $platform_gitconfig, $gitconfig_local );
+			}
+			do_notice( "    : $gitconfig_local -> $platform_gitconfig", false, false );
+		}
+	} else {
+		do_notice( "    : No platform gitconfig found at $platform_gitconfig", false, false );
+	}
 }
 
 function do_notice( $text, $before = true, $after = true ) {

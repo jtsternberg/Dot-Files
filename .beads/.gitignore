@@ -5,6 +5,10 @@ dolt-access.lock
 # Runtime files
 bd.sock
 bd.sock.startlock
+dolt-server.lock
+dolt-server.log
+dolt-server.pid
+dolt-server.port
 sync-state.json
 last-touched
 

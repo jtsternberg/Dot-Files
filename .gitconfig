@@ -1,6 +1,10 @@
 [include]
     path = ~/.dotfiles/private/additional_config ;
 
+; Platform-specific config (macOS or Linux) — symlinked by symdotfiles
+[include]
+    path = ~/.gitconfig-local
+
 ; Custom
 [alias]
 	; List all aliases
@@ -264,10 +268,11 @@
 [core]
 	editor = cursor --wait
 	symlinks = true
-	excludesfile = /Users/JT/.gitignore_global
+	excludesfile = ~/.gitignore_global
 	autocrlf = false
 	whitespace = cr-at-eol
 	pager = less -r
+	untrackedCache = true
 
 [submodule]
 	fetchJobs = 4
@@ -324,41 +329,13 @@
 ; 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
 ; 	trustExitCode = true
 
-[credential]
-	helper = osxkeychain
-
-; [mergetool "sourcetree"]
-; 	cmd = /usr/local/bin/ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
-; 	trustExitCode = true
-
-[difftool "sourcetree"]
-	cmd = /usr/local/bin/ksdiff -w \"$LOCAL\" \"$REMOTE\"
-	path =
-
-; [difftool "Kaleidoscope"]
-; [difftool "Kaleidoscope"]
-; 	cmd = ksdiff-wrapper git \"$LOCAL\" \"$REMOTE\"
-
 [difftool]
 	prompt = false
-; [mergetool "Kaleidoscope"]
-; 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
-; 	trustexitcode = true
 [mergetool]
 	prompt = false
 
 [diff]
-    tool = Kaleidoscope
 	renameLimit = 3475
-[difftool "Kaleidoscope"]
-  cmd = ksdiff --partial-changeset --relative-path \"$MERGED\" -- \"$LOCAL\" \"$REMOTE\"
-[merge]
-    tool = Kaleidoscope
-[mergetool "Kaleidoscope"]
-  cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
-  trustExitCode = true
-[safe]
-	directory = /private/etc/apache2
 [filter "lfs"]
 	smudge = git-lfs smudge -- %f
 	process = git-lfs filter-process

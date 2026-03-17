@@ -1,0 +1,7 @@
+; Linux-specific git configuration
+; Loaded via [include] path = ~/.gitconfig-local (symlinked by symdotfiles)
+
+; Uncomment and set whichever credential helper is available on this machine:
+; [credential]
+; 	helper = /usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret
+; 	helper = store
