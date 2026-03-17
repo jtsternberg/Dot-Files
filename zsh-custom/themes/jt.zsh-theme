@@ -1,26 +1,5 @@
 # vim:ft=zsh ts=2 sw=2 sts=2
-#
-# agnoster's Theme - https://gist.github.com/3712874
-# A Powerline-inspired theme for ZSH
-#
-# # README
-#
-# In order for this theme to render correctly, you will need a
-# [Powerline-patched font](https://gist.github.com/1595572).
-#
-# In addition, I recommend the
-# [Solarized theme](https://github.com/altercation/solarized/) and, if you're
-# using it on Mac OS X, [iTerm 2](http://www.iterm2.com/) over Terminal.app -
-# it has significantly better color fidelity.
-#
-# # Goals
-#
-# The aim of this theme is to only show you *relevant* information. Like most
-# prompts, it will only show git information when in a git working directory.
-# However, it goes a step further: everything from the current user and
-# hostname to whether the last call exited with an error to whether background
-# jobs are running in this shell will all be displayed automatically when
-# appropriate.
+# jt theme - Powerline-style prompt. Needs a Powerline-patched font.
 
 ### Segment drawing
 # A few utility functions to make it easy and re-usable to draw segmented prompts
@@ -69,7 +48,7 @@ prompt_context() {
 
 # Git: branch/detached head, dirty status
 prompt_git() {
-  local ref dirty mode repo_path
+  local ref dirty repo_path
   repo_path=$(git rev-parse --git-dir 2>/dev/null)
 
   if $(git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
@@ -81,24 +60,12 @@ prompt_git() {
       prompt_segment green black
     fi
 
-    # I don't find this stuff helpful.
-    # if [[ -e "${repo_path}/BISECT_LOG" ]]; then
-    #   mode=" <B>"
-    # elif [[ -e "${repo_path}/MERGE_HEAD" ]]; then
-    #   mode=" >M<"
-    # elif [[ -e "${repo_path}/rebase" || -e "${repo_path}/rebase-apply" || -e "${repo_path}/rebase-merge" || -e "${repo_path}/../.dotest" ]]; then
-    #   mode=" >R>"
-    # fi
-    mode=""
-
     if [[ -f "${repo_path}/description" ]]; then
       git_desc=$(head -n 1 "${repo_path}/description")
 
       if [[ $git_desc == *"nnamed repository"* ]]; then
         desc=""
       else
-        # desc=`"${git_desc}" | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g'`
-        # desc=$git_desc | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g'
         desc="$(echo $git_desc | sed -e 's/^[[:space:]]*//' | sed 's/ *$//g') "
       fi
     else
@@ -116,7 +83,7 @@ prompt_git() {
     zstyle ':vcs_info:*' formats ' %u%c'
     zstyle ':vcs_info:*' actionformats ' %u%c'
     vcs_info
-    echo -n "${desc}${ref/refs\/heads\// }${vcs_info_msg_0_%% }${mode}"
+    echo -n "${desc}${ref/refs\/heads\// }${vcs_info_msg_0_%% }"
   fi
 }
 
@@ -138,24 +105,6 @@ prompt_status() {
 
   [[ -n "$symbols" ]] && prompt_segment black default "$symbols"
 }
-
-# function battery_charge {
-#   echo `~/bin/batcharge.py`
-# }
-
-# function prompt_online() {
-#   OFFLINE="Offline"
-#   ONLINE="Online"
-#   ping -c 1 -q google.com >/dev/null 2>&1 && echo %{$fg[green]%}$ONLINE%{$reset_color%} || echo %{$fg[red]%}$OFFLINE%{$reset_color%}
-# }
-
-
-viewdiff () {
-  if (( $# == 0 ))
-  then echo usage: viewdiff FILENAME; fi
-  for i; do vimdiff -R <(svn cat "$1") "$1"; done
-}
-
 
 ## Main prompt
 build_prompt() {
