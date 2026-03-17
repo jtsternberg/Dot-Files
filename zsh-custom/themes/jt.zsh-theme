@@ -39,20 +39,21 @@ prompt_end() {
 
 # Context: user@hostname (who am I and where am I)
 prompt_context() {
-  local user=`whoami`
-
-  if [[ "$user" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
-    prompt_segment black default "%(!.%{%F{yellow}%}.)$user@%m"
+  if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
+    prompt_segment black default "%(!.%{%F{yellow}%}.)$USER@%m"
   fi
 }
 
-# Git: branch/detached head, dirty status
+# Git: branch/detached head, dirty status (standalone: no OMZ git plugin required)
+prompt_jt_git_dirty() {
+  [[ -n $(git status --porcelain 2>/dev/null) ]] && echo "1"
+}
 prompt_git() {
   local ref dirty repo_path
-  repo_path=$(git rev-parse --git-dir 2>/dev/null)
 
-  if $(git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
-    dirty=$(parse_git_dirty)
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    repo_path=$(git rev-parse --git-dir 2>/dev/null)
+    dirty=$(parse_git_dirty 2>/dev/null || prompt_jt_git_dirty)
     ref=$(git symbolic-ref HEAD 2> /dev/null) || ref="➦ $(git show-ref --head -s --abbrev |head -n1 2> /dev/null)"
     if [[ -n $dirty ]]; then
       prompt_segment yellow black
@@ -72,16 +73,6 @@ prompt_git() {
       desc=""
     fi
 
-    setopt promptsubst
-    autoload -Uz vcs_info
-
-    zstyle ':vcs_info:*' enable git
-    zstyle ':vcs_info:*' get-revision true
-    zstyle ':vcs_info:*' check-for-changes true
-    zstyle ':vcs_info:*' stagedstr '✚'
-    zstyle ':vcs_info:git:*' unstagedstr '●'
-    zstyle ':vcs_info:*' formats ' %u%c'
-    zstyle ':vcs_info:*' actionformats ' %u%c'
     vcs_info
     echo -n "${desc}${ref/refs\/heads\// }${vcs_info_msg_0_%% }"
   fi
@@ -115,5 +106,16 @@ build_prompt() {
   prompt_git
   prompt_end
 }
+
+# One-time vcs_info setup (not per-prompt)
+setopt promptsubst
+autoload -Uz vcs_info
+zstyle ':vcs_info:*' enable git
+zstyle ':vcs_info:*' get-revision true
+zstyle ':vcs_info:*' check-for-changes true
+zstyle ':vcs_info:*' stagedstr '✚'
+zstyle ':vcs_info:git:*' unstagedstr '●'
+zstyle ':vcs_info:*' formats ' %u%c'
+zstyle ':vcs_info:*' actionformats ' %u%c'
 
 PROMPT='%{%f%b%k%}$(build_prompt) '
