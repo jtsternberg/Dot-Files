@@ -37,6 +37,8 @@ PATH=$PATH:/opt/homebrew/libexec/gnubin:/usr/local/bin:
 export PATH=$PATH
 
 export EDITOR='cursor -w'
+# Override on machines without cursor
+command -v cursor &>/dev/null || export EDITOR='vim'
 export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl -w'
 
 export WP_TESTS_DIR=/tmp/wordpress/tests

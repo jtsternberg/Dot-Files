@@ -35,8 +35,6 @@ alias testsdebug="echo 'hello :)' > /tmp/wordpress/wp-content/debug.log && clear
 autoload -U zmv
 alias mmv='noglob zmv -W'
 alias mmvn='noglob zmv -W -n'
-alias copysshkey='pbcopy < ~/.ssh/id_rsa.pub'
-alias myip='curl ifconfig.me -v | pbcopy'
 alias ql='qlmanage -p'
 alias gifs='~/Sites/wpengine/gifs'
 alias mergeall='git mergetool -t Kaleidoscope'
@@ -207,10 +205,8 @@ plugins=(
 	gitfast # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/gitfast
 	npm
 	zsh-syntax-highlighting
-	brew
 	colorize
 	composer
-	macos # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/macos
 	z
 	zsh-autosuggestions
 	colored-man-pages
@@ -227,6 +223,13 @@ SAVEHIST=10000
 setopt appendhistory
 # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/fzf
 # export FZF_BASE=/opt/homebrew/opt/fzf
+
+# Load platform-specific config (before omz so plugins can be added)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  test -f "$HOME/.dotfiles/.macoszshrc" && source "$HOME/.dotfiles/.macoszshrc"
+else
+  test -f "$HOME/.dotfiles/.linuxzshrc" && source "$HOME/.dotfiles/.linuxzshrc"
+fi
 
 ### Fix slowness of pastes with zsh-syntax-highlighting.zsh
 # https://gist.github.com/magicdude4eva/2d4748f8ef3e6bf7b1591964c201c1ab

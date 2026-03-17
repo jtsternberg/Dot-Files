@@ -1,0 +1,17 @@
+# Linux-specific shell configuration
+# Sourced by .zshrc on Linux only
+
+# Clipboard (requires xclip: sudo apt install xclip)
+alias pbcopy='xclip -selection clipboard'
+alias pbpaste='xclip -selection clipboard -o'
+alias copysshkey='cat ~/.ssh/id_rsa.pub | pbcopy'
+alias myip='curl ifconfig.me -v | pbcopy'
+alias pubkey='cat ~/.ssh/id_rsa.pub | pbcopy && printf "=> Public key copied to clipboard.\n"'
+
+# macOS command equivalents
+alias say='espeak -v en'
+alias open='xdg-open'
+
+# Open new terminal tab (gnome-terminal)
+alias newtab='gnome-terminal &'
+alias nt='gnome-terminal &'
