@@ -6,16 +6,28 @@ Personal dotfiles for [jtsternberg](https://github.com/jtsternberg). Originally 
 
 ## Prerequisites
 
+These are required for the dotfiles to install and load correctly.
+
+| Tool | Why |
+|---|---|
+| `git` | Clone the repo and manage submodules |
+| `zsh` | The shell everything is configured for |
+| `php` | `symdotfiles` installer and all `bin/` scripts are PHP |
+| Oh My Zsh | Hardcoded in `.zshrc` — https://ohmyz.sh/#install |
+
 ### macOS
 
-- **Homebrew** — https://brew.sh
-- **Oh My Zsh** — https://ohmyz.sh/#install
-- Then: `brew install git php zsh`
+```bash
+brew install git php zsh
+```
 
 ### Linux (Ubuntu/Debian)
 
-- **Oh My Zsh** — https://ohmyz.sh/#install (say "no" when asked to change default shell — do it after)
-- Then: `sudo apt update && sudo apt install -y git php-cli zsh curl xclip espeak`
+```bash
+sudo apt update && sudo apt install -y git php-cli zsh curl
+```
+
+> After installing Oh My Zsh, say **no** when it asks to change your default shell — do it manually after symlinking (step 5).
 
 ---
 
@@ -59,7 +71,7 @@ chsh -s $(which zsh)
 
 ## Platform-Specific Tools
 
-These tools are referenced in the shell config and should be installed on any machine.
+These tools are referenced in aliases and shell config. The shell will load fine without them — broken aliases will just fail when called.
 
 ### 1Password CLI (`op`)
 
@@ -85,6 +97,12 @@ https://github.com/junegunn/fzf?tab=readme-ov-file#installation
 
 **macOS:** `brew install tree`
 **Linux:** `sudo apt install tree`
+
+### Linux clipboard + speech (`pbcopy`, `say` aliases)
+
+```bash
+sudo apt install xclip espeak
+```
 
 ---
 
