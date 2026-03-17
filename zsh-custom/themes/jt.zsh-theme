@@ -157,19 +157,6 @@ prompt_status() {
 #   ping -c 1 -q google.com >/dev/null 2>&1 && echo %{$fg[green]%}$ONLINE%{$reset_color%} || echo %{$fg[red]%}$OFFLINE%{$reset_color%}
 # }
 
-# Output list of t tasks:
-# https://github.com/sjl/t#put-your-task-count-in-your-bash-prompt
-function prompt_tasks() {
-  COUNT=$(t | wc -l | sed -e's/ *//')
-
-  if [[ $COUNT -gt 5 ]]; then
-    prompt_segment red white "[$COUNT]"
-  elif [[ $COUNT -lt 3 ]]; then
-    prompt_segment green black "[$COUNT]"
-  else
-    prompt_segment yellow black "[$COUNT]"
-  fi
-}
 
 viewdiff () {
   if (( $# == 0 ))
@@ -181,7 +168,6 @@ viewdiff () {
 ## Main prompt
 build_prompt() {
   RETVAL=$?
-  prompt_tasks
   prompt_status
   prompt_virtualenv
   prompt_context
