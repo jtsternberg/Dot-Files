@@ -78,9 +78,27 @@ prompt_git() {
   fi
 }
 
-# Dir: current working directory
+# Dir: current working directory (shortens deep paths: ~/a/b/...N.../parent/current)
+JT_PROMPT_PATH_LEADING=${JT_PROMPT_PATH_LEADING:-3}   # segments to keep at start (incl. ~)
+JT_PROMPT_PATH_TRAILING=${JT_PROMPT_PATH_TRAILING:-2} # segments to keep at end
+JT_PROMPT_PATH_MAX_LEN=${JT_PROMPT_PATH_MAX_LEN:-50}  # only shorten when longer than this
+prompt_jt_short_path() {
+  local pwd_display="${PWD/#$HOME/~}"
+  local -a segments
+  segments=("${(s:/:)pwd_display}")
+  local n=${#segments[@]}
+  local need=$(( JT_PROMPT_PATH_LEADING + JT_PROMPT_PATH_TRAILING + 1 ))
+  if (( n < need )) || (( ${#pwd_display} <= JT_PROMPT_PATH_MAX_LEN )); then
+    echo -n "$pwd_display"
+    return
+  fi
+  local removed=$(( n - JT_PROMPT_PATH_LEADING - JT_PROMPT_PATH_TRAILING ))
+  local leading="${(j:/:)segments[1,$JT_PROMPT_PATH_LEADING]}"
+  local trailing="${(j:/:)segments[-$JT_PROMPT_PATH_TRAILING,-1]}"
+  echo -n "${leading}/‹‹${removed}››/${trailing}"
+}
 prompt_dir() {
-  prompt_segment blue black '%~'
+  prompt_segment blue black "$(prompt_jt_short_path)"
 }
 
 # Status:
