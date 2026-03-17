@@ -171,17 +171,12 @@ function prompt_tasks() {
   fi
 }
 
-function prompt_local_host_name() {
-  echo %{$fg[blue]%}%n%{$reset_color%}%{$fg[red]%}@%{$reset_color%}%{$fg[blue]%}%m%{$reset_color%}
-}
-
 viewdiff () {
   if (( $# == 0 ))
   then echo usage: viewdiff FILENAME; fi
   for i; do vimdiff -R <(svn cat "$1") "$1"; done
 }
 
-RPROMPT='$(prompt_local_host_name)'
 
 ## Main prompt
 build_prompt() {
