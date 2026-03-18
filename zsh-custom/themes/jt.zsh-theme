@@ -101,6 +101,44 @@ prompt_dir() {
   prompt_segment blue black "$(prompt_jt_short_path)"
 }
 
+# Dirmap: show the shortest matching dirmap key for the current directory
+# Cache parsed dirmap so we only shell out to PHP when the file changes.
+typeset -gA _jt_dirmap=()
+typeset -g  _jt_dirmap_mtime=""
+
+_jt_dirmap_reload() {
+  local mapfile="$HOME/.dirmap.json"
+  [[ -f "$mapfile" ]] || return
+  local mtime
+  mtime=$(command stat -f '%m' "$mapfile" 2>/dev/null || command stat -c '%Y' "$mapfile" 2>/dev/null)
+  [[ "$mtime" == "$_jt_dirmap_mtime" ]] && return
+  _jt_dirmap_mtime="$mtime"
+  _jt_dirmap=()
+  local key val
+  while IFS='=' read -r key val; do
+    [[ -z "$key" ]] && continue
+    val="${val/#\~/$HOME}"
+    _jt_dirmap[$key]="$val"
+  done < <(php -r '
+    $d = json_decode(file_get_contents("'"$mapfile"'"), true);
+    foreach ($d as $k => $v) { if ($k !== "") echo "$k=$v\n"; }
+  ')
+}
+
+prompt_dirmap() {
+  _jt_dirmap_reload
+  (( ${#_jt_dirmap} )) || return
+  local best="" key val
+  for key val in "${(@kv)_jt_dirmap}"; do
+    if [[ "$PWD" == "$val" ]]; then
+      if [[ -z "$best" || ${#key} -lt ${#best} ]]; then
+        best="$key"
+      fi
+    fi
+  done
+  [[ -n "$best" ]] && prompt_segment magenta white "$best"
+}
+
 # Status:
 # - was there an error
 # - am I root
@@ -120,6 +158,7 @@ build_prompt() {
   RETVAL=$?
   prompt_status
   prompt_context
+  prompt_dirmap
   prompt_dir
   prompt_git
   prompt_end
