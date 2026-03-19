@@ -50,6 +50,7 @@ alias bell='echo "\a"'
 alias alldone='flash && say "all done"'
 alias threebell='bell; sleep 0.25; bell; sleep 0.25; bell'
 alias rmbrokensymlinks='find -L . -type l -delete'
+# List files in long format, show all files and sort by modification time, reverse order
 alias lsn='ls -latr'
 alias structure='tree -I "node_modules" -L 3'
 alias pls='sudo $(fc -ln -1)'
