@@ -64,6 +64,18 @@ echo "==> Running build script inside container..."
 "$DOCKER_CMD" cp "${SCRIPT_DIR}/${BUILD_SCRIPT}" "${CONTAINER_NAME}:/root/${BUILD_SCRIPT}"
 "$DOCKER_CMD" exec -t "${CONTAINER_NAME}" bash "/root/${BUILD_SCRIPT}"
 
+# Git was compiled with --prefix=/opt/toolchain (the container's mount point),
+# so its hardcoded exec-path is /opt/toolchain/libexec/git-core/. On the host
+# the files actually live at /share/Public/toolchain/libexec/git-core/.
+# Without this symlink, SSH-based git operations (clone, push, pull) fail with
+# "cannot run pack-objects: No such file or directory".
+EXEC_PATH="/opt/toolchain/libexec/git-core"
+if [ ! -e "${EXEC_PATH}" ]; then
+	echo "==> Creating exec-path symlink: ${EXEC_PATH} -> ${TOOLCHAIN_DIR}/libexec/git-core"
+	mkdir -p "$(dirname "${EXEC_PATH}")"
+	ln -s "${TOOLCHAIN_DIR}/libexec/git-core" "${EXEC_PATH}"
+fi
+
 # Verify the binary works on the host
 if "${TOOLCHAIN_DIR}/bin/git" --version &>/dev/null; then
 	echo ""

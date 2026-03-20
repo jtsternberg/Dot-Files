@@ -51,6 +51,42 @@ export PATH="/share/Public/toolchain/bin:$PATH"
 
 No containers run after installation — git runs natively on QTS.
 
+### SSH git operations (clone/push/pull)
+
+Git is compiled inside the container with `--prefix=/opt/toolchain` (the
+container's mount point), so its hardcoded `exec-path` is
+`/opt/toolchain/libexec/git-core/`. On the host, those files actually live at
+`/share/Public/toolchain/libexec/git-core/`.
+
+Without a symlink bridging these paths, remote git operations over SSH fail:
+
+```
+error: cannot run pack-objects: No such file or directory
+fatal: git upload-pack: unable to fork git-pack-objects
+```
+
+The install script creates this symlink automatically:
+
+```
+/opt/toolchain/libexec/git-core -> /share/Public/toolchain/libexec/git-core
+```
+
+If you hit this error after a manual install or QTS update that wiped the
+symlink, recreate it:
+
+```bash
+sudo mkdir -p /opt/toolchain/libexec
+sudo ln -s /share/Public/toolchain/libexec/git-core /opt/toolchain/libexec/git-core
+```
+
+You'll also want `git-upload-pack` and `git-receive-pack` on the default PATH
+so SSH can find them:
+
+```bash
+sudo ln -s /share/Public/toolchain/bin/git-upload-pack /usr/bin/git-upload-pack
+sudo ln -s /share/Public/toolchain/bin/git-receive-pack /usr/bin/git-receive-pack
+```
+
 ### Upgrading
 
 Just run the script again with a newer version number. The new build overwrites
