@@ -283,6 +283,9 @@ fpath=(~/.buddy-cli/completions $fpath)
 # 1Password CLI completions
 eval "$(op completion zsh)"; compdef _op op
 
+# https://pages.tobi.lutke.com/try/
+eval "$(try init ~/src/tries)"
+
 # To refresh: rm -f ~/.zcompdump; compinit
 autoload -Uz compinit
 compinit
