@@ -29,6 +29,7 @@ $helpyHelperton
 		'--page'               => 'Publish to pages endpoint instead of posts (no categories)',
 		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
 		'--flushCache'         => 'Flush cached taxonomy terms and fetch fresh data',
+		'--url=DOMAIN'         => 'Target a different site (e.g. coaching.jtsternberg.com)',
 	] );
 
 if ( $helpyHelperton->batSignal ) {

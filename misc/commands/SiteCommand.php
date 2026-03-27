@@ -19,6 +19,16 @@ abstract class SiteCommand {
 	public function __construct( Helpers $cli ) {
 		$this->cli = $cli;
 		$this->restUrl = $cli->getFlag( 'restUrl' );
+
+		// Support --url shorthand: domain name -> full REST URL
+		if ( ! $this->restUrl ) {
+			$url = $cli->getFlag( 'url' );
+			if ( $url ) {
+				$url = preg_replace( '#^https?://#', '', $url );
+				$url = rtrim( $url, '/' );
+				$this->restUrl = "https://{$url}/wp-json/wp/v2/";
+			}
+		}
 	}
 
 	/**

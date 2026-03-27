@@ -21,7 +21,9 @@ trait CategoryTaxonomyTrait {
 	 * @return string Cache file path
 	 */
 	protected function getCacheFilePath( $key ): string {
-		return sys_get_temp_dir() . "/jts_category_cache_{$key}.json";
+		$site = parse_url( $this->resolveRestUrl(), PHP_URL_HOST ) ?: 'default';
+		$site = str_replace( '.', '_', $site );
+		return sys_get_temp_dir() . "/jts_category_cache_{$site}_{$key}.json";
 	}
 
 	/**

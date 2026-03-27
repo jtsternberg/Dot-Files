@@ -32,6 +32,7 @@ $helpyHelperton
 		'--browse'           => 'Browse categories to select a post (or list pages if --page)',
 		'--page'             => 'Fetch from pages endpoint instead of posts',
 		'--flushCache'       => 'Flush cached taxonomy terms and fetch fresh data',
+		'--url=DOMAIN'       => 'Target a different site (e.g. coaching.jtsternberg.com)',
 	] );
 
 if ( $helpyHelperton->batSignal ) {
@@ -280,7 +281,8 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 
 	public function run(): void {
 		$type = $this->fetchPages ? 'page' : 'post';
-		$this->cli->msg( "Fetching blog {$type} from jtsternberg.com...\n", 'yellow' );
+		$site = $this->restUrl ? parse_url( $this->restUrl, PHP_URL_HOST ) : 'jtsternberg.com';
+		$this->cli->msg( "Fetching blog {$type} from {$site}...\n", 'yellow' );
 
 		// Load environment variables
 		$this->loadEnv();

@@ -22,6 +22,7 @@ $helpyHelperton
 		'<post-id|slug>'  => 'Post or page ID or slug to delete (required)',
 		'--force'         => 'Permanently delete (bypass trash)',
 		'--page'          => 'Delete from pages endpoint instead of posts',
+		'--url=DOMAIN'    => 'Target a different site (e.g. coaching.jtsternberg.com)',
 	] );
 
 if ( $helpyHelperton->batSignal ) {
@@ -107,7 +108,8 @@ class BlogDeleteCommand extends SiteCommand {
 	public function run(): void {
 		$label = ucfirst( $this->getEntityLabel() );
 		$intro = $this->isPage ? 'page' : 'blog post';
-		$this->cli->msg( "Deleting {$intro} from jtsternberg.com...\n", 'yellow' );
+		$site = $this->restUrl ? parse_url( $this->restUrl, PHP_URL_HOST ) : 'jtsternberg.com';
+		$this->cli->msg( "Deleting {$intro} from {$site}...\n", 'yellow' );
 
 		// Load environment variables
 		$this->loadEnv();

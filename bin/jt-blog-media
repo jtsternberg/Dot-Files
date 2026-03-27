@@ -23,6 +23,7 @@ $helpyHelperton
 		'--postId=ID|SLUG|FILE'  => 'Post ID, slug, or .md file (sets image as featured)',
 		'--alt="text"'           => 'Alt text for the image',
 		'--title="text"'         => 'Media title (defaults to filename)',
+		'--url=DOMAIN'           => 'Target a different site (e.g. coaching.jtsternberg.com)',
 		'--help'                 => 'Show this help',
 	] );
 
