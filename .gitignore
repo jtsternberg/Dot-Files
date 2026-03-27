@@ -47,3 +47,8 @@ id_ed25519
 # bv (beads viewer) local config and caches
 .bv/
 .beads/backup/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
