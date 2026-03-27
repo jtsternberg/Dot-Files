@@ -33,7 +33,8 @@ PATH=$PATH:/usr/local/sbin
 PATH=$PATH:~/.dotfiles/git
 PATH=$PATH:~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin
 PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
-PATH=$PATH=/opt/homebrew/opt/coreutils/libexec/gnubin
+# GNU coreutils (Linux-flavored ls, cp, date, sort, etc.) — can cause subtle issues with macOS-native scripts
+# PATH=$PATH:/opt/homebrew/opt/coreutils/libexec/gnubin
 PATH=$PATH:/opt/homebrew/share/zsh/site-functions
 PATH=$PATH:/opt/homebrew/libexec/gnubin:/usr/local/bin:
 export PATH=$PATH
