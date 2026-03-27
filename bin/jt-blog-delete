@@ -16,11 +16,12 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName( 'jt-blog-delete' )
 	->setPrefix( '' )
-	->setDescription( 'Deletes a blog post from jtsternberg.com.' )
-	->setSampleUsage( '<post-id|slug> [--force]' )
+	->setDescription( 'Deletes a blog post or page from jtsternberg.com.' )
+	->setSampleUsage( '<post-id|slug> [--force] [--page]' )
 	->buildDocs( [
-		'<post-id|slug>'  => 'Post ID or slug to delete (required)',
+		'<post-id|slug>'  => 'Post or page ID or slug to delete (required)',
 		'--force'         => 'Permanently delete (bypass trash)',
+		'--page'          => 'Delete from pages endpoint instead of posts',
 	] );
 
 if ( $helpyHelperton->batSignal ) {
@@ -33,15 +34,17 @@ class BlogDeleteCommand extends SiteCommand {
 	protected $postId;
 	protected $postSlug;
 	protected $force = false;
+	protected $isPage = false;
 
 	public function __construct( $cli ) {
+		$this->isPage = $cli->hasFlag( 'page' );
 		parent::__construct( $cli );
 
 		// Get post ID/slug from flag or positional argument
 		$postIdentifier = $cli->getFlag( 'postId' ) ?: $cli->getArg( 1 );
 
 		if ( empty( $postIdentifier ) ) {
-			throw new \Exception( "Error: Post ID or slug is required." );
+			throw new \Exception( "Error: Post or page ID or slug is required." );
 		}
 
 		// If numeric, treat as ID; otherwise treat as slug
@@ -54,19 +57,24 @@ class BlogDeleteCommand extends SiteCommand {
 		$this->force = $cli->hasFlag( 'force' );
 	}
 
+	protected function getEntityLabel(): string {
+		return $this->isPage ? 'page' : 'post';
+	}
+
 	/**
-	 * Override to add REST URL with /posts endpoint.
+	 * Override to add REST URL with /posts or /pages endpoint.
 	 */
 	protected function getRestUrl(): ?string {
 		$baseUrl = parent::getRestUrl();
 		if ( $baseUrl ) {
-			return rtrim( $baseUrl, '/' ) . '/posts';
+			$resource = $this->isPage ? 'pages' : 'posts';
+			return rtrim( $baseUrl, '/' ) . '/' . $resource;
 		}
 		return null;
 	}
 
 	/**
-	 * Resolve a post slug to its ID.
+	 * Resolve a post or page slug to its ID.
 	 */
 	protected function resolveSlugToId( string $slug ): int {
 		$baseUrl = $this->resolveRestUrl();
@@ -75,14 +83,15 @@ class BlogDeleteCommand extends SiteCommand {
 		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
-			throw new \Exception( "Error: No post found with slug '{$slug}'" );
+			$label = $this->getEntityLabel();
+			throw new \Exception( "Error: No {$label} found with slug '{$slug}'" );
 		}
 
 		return (int) $posts[0]['id'];
 	}
 
 	/**
-	 * Delete the post.
+	 * Delete the post or page.
 	 */
 	protected function deletePost(): array {
 		$baseUrl = $this->resolveRestUrl();
@@ -96,7 +105,9 @@ class BlogDeleteCommand extends SiteCommand {
 	}
 
 	public function run(): void {
-		$this->cli->msg( "Deleting blog post from jtsternberg.com...\n", 'yellow' );
+		$label = ucfirst( $this->getEntityLabel() );
+		$intro = $this->isPage ? 'page' : 'blog post';
+		$this->cli->msg( "Deleting {$intro} from jtsternberg.com...\n", 'yellow' );
 
 		// Load environment variables
 		$this->loadEnv();
@@ -106,21 +117,21 @@ class BlogDeleteCommand extends SiteCommand {
 
 		// Resolve slug to ID if needed
 		if ( ! empty( $this->postSlug ) ) {
-			$this->cli->msg( "Looking up post by slug: {$this->postSlug}...\n" );
+			$this->cli->msg( "Looking up {$this->getEntityLabel()} by slug: {$this->postSlug}...\n" );
 			$this->postId = $this->resolveSlugToId( $this->postSlug );
 		}
 
-		$this->cli->msg( "Deleting post ID: {$this->postId}...\n" );
+		$this->cli->msg( "Deleting {$this->getEntityLabel()} ID: {$this->postId}...\n" );
 
 		$result = $this->deletePost();
 
 		$title = $result['title']['rendered'] ?? $result['title']['raw'] ?? null;
 
 		if ( $this->force ) {
-			$msg = $title ? "Post permanently deleted: {$title}" : "Post permanently deleted.";
+			$msg = $title ? "{$label} permanently deleted: {$title}" : "{$label} permanently deleted.";
 			$this->cli->msg( "\n✓ {$msg}\n", 'green' );
 		} else {
-			$msg = $title ? "Post moved to trash: {$title}" : "Post moved to trash.";
+			$msg = $title ? "{$label} moved to trash: {$title}" : "{$label} moved to trash.";
 			$this->cli->msg( "\n✓ {$msg}\n", 'green' );
 		}
 	}

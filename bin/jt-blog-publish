@@ -19,13 +19,14 @@ $helpyHelperton
 	->setScriptName( 'jt-blog-publish' )
 	->setPrefix( '' )
 	->setDescription( 'Publishes or updates content on jtsternberg.com.' )
-	->setSampleUsage( '<contentFile> [--title=TITLE] [--status=STATUS] [--categoryId=ID] [--postId=ID] [--disableMarkdown] [--flushCache]' )
+	->setSampleUsage( '<contentFile> [--title=TITLE] [--status=STATUS] [--categoryId=ID] [--postId=ID] [--page] [--disableMarkdown] [--flushCache]' )
 	->buildDocs( [
 		'<contentFile>'        => 'Path to content file (required)',
 		'--title=TITLE'        => 'Blog post title (optional, extracted from H1 if not provided)',
 		'--status=STATUS'      => 'Post status: draft, publish, pending, private, etc. (defaults to draft)',
-		'--categoryId=ID'      => 'Category term ID to assign (skips interactive selection)',
-		'--postId=ID|SLUG'     => 'Post ID or slug to update (or use frontmatter id)',
+		'--categoryId=ID'      => 'Category term ID to assign (skips interactive selection; ignored for pages)',
+		'--postId=ID|SLUG'     => 'Post or page ID or slug to update (or use frontmatter id)',
+		'--page'               => 'Publish to pages endpoint instead of posts (no categories)',
 		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
 		'--flushCache'         => 'Flush cached taxonomy terms and fetch fresh data',
 	] );
@@ -51,10 +52,12 @@ class BlogPublishCommand extends PublishToSiteCommand {
 	protected $flushCache = false;
 	protected $categoryId = null;
 	protected $allTermsCache = null;
+	protected $isPage = false;
 
 	public function __construct( $cli, $contentFileArg ) {
 		// Set contentFile before parent constructor
 		$this->contentFile = $contentFileArg;
+		$this->isPage = $cli->hasFlag( 'page' );
 		parent::__construct( $cli );
 
 		// Check for flush cache flag
@@ -62,21 +65,30 @@ class BlogPublishCommand extends PublishToSiteCommand {
 		$this->categoryId = $cli->getFlag( 'categoryId' );
 	}
 
+	protected function getEntityLabel(): string {
+		return $this->isPage ? 'page' : 'post';
+	}
+
 	/**
-	 * Override to add REST URL with /posts endpoint.
+	 * Override to add REST URL with /posts or /pages endpoint.
 	 */
 	protected function getRestUrl(): ?string {
 		$baseUrl = parent::getRestUrl();
 		if ( $baseUrl ) {
-			return rtrim( $baseUrl, '/' ) . '/posts';
+			$resource = $this->isPage ? 'pages' : 'posts';
+			return rtrim( $baseUrl, '/' ) . '/' . $resource;
 		}
 		return null;
 	}
 
 	/**
-	 * Override to add category selection before publishing.
+	 * Override to add category selection before publishing (posts only).
 	 */
 	protected function publishToSite( string $title, string $content, array $additionalPayload = [] ): array {
+		if ( $this->isPage ) {
+			return parent::publishToSite( $title, $content, $additionalPayload );
+		}
+
 		// Determine category IDs: skip fetch when updating unless explicitly provided
 		if ( $this->isUpdate() && empty( $this->categoryId ) ) {
 			$categoryIds = [];

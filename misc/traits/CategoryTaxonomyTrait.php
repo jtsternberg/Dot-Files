@@ -72,8 +72,8 @@ trait CategoryTaxonomyTrait {
 	protected function getCategoriesUrl(): string {
 		$baseUrl = $this->resolveRestUrl();
 		$baseUrl = rtrim( $baseUrl, '/' );
-		// Remove /posts if present to get base API URL
-		$baseUrl = preg_replace( '/\/posts\/?$/', '', $baseUrl );
+		// Remove /posts or /pages if present to get base API URL
+		$baseUrl = preg_replace( '#/(posts|pages)/?$#', '', $baseUrl );
 		return $baseUrl . '/categories';
 	}
 

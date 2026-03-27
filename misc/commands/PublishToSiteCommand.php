@@ -65,7 +65,7 @@ class PublishToSiteCommand extends SiteCommand {
 		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
-			throw new \Exception( "Error: No post found with slug '{$slug}'" );
+			throw new \Exception( "Error: No {$this->getEntityLabel()} found with slug '{$slug}'" );
 		}
 
 		return (int) $posts[0]['id'];
@@ -205,6 +205,13 @@ class PublishToSiteCommand extends SiteCommand {
 	 *
 	 * @return bool True if postId was set from frontmatter, false otherwise
 	 */
+	/**
+	 * Singular label for user-facing messages and errors (e.g. "post", "page").
+	 */
+	protected function getEntityLabel(): string {
+		return 'post';
+	}
+
 	protected function maybeSetPostIdFromFrontmatter(): bool {
 		if ( ! empty( $this->postId ) || ! empty( $this->postSlug ) ) {
 			return false;
@@ -287,7 +294,7 @@ class PublishToSiteCommand extends SiteCommand {
 	}
 
 	public function run(): void {
-		$this->cli->msg( "Publishing post to site...\n", 'yellow' );
+		$this->cli->msg( "Publishing {$this->getEntityLabel()} to site...\n", 'yellow' );
 
 		// Load environment variables
 		$this->loadEnv();
@@ -297,7 +304,7 @@ class PublishToSiteCommand extends SiteCommand {
 
 		// Resolve slug to ID if needed
 		if ( ! empty( $this->postSlug ) ) {
-			$this->cli->msg( "Looking up post by slug: {$this->postSlug}...\n" );
+			$this->cli->msg( "Looking up {$this->getEntityLabel()} by slug: {$this->postSlug}...\n" );
 			$this->postId = $this->resolveSlugToId( $this->postSlug );
 			$this->postSlug = null; // Clear slug now that we have ID
 		}
@@ -354,7 +361,8 @@ class PublishToSiteCommand extends SiteCommand {
 		$editUrl = $protocol . '://' . $hostname . '/wp-admin/post.php?post=' . $result['id'] . '&action=edit';
 
 		$action = $this->isUpdate() ? 'updated' : 'created';
-		$this->cli->msg( "\n✓ Post $action successfully!\n", 'green' );
+		$entity = ucfirst( $this->getEntityLabel() );
+		$this->cli->msg( "\n✓ {$entity} $action successfully!\n", 'green' );
 		$this->cli->msg( "Edit URL: $editUrl\n\n", 'cyan' );
 	}
 }
