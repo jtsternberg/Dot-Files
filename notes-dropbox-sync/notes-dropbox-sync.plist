@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS launchd service for notes-dropbox-sync.
+  Acts as a helper to the Obsidian remotely-save plugin — keeps Notes synced
+  to Dropbox even when Obsidian isn't running, so changes made by other tools
+  (git, CLI, the Telegram bot) still make it to the cloud.
+
+  Prerequisites:
+    brew install fswatch
+
+  Setup (macOS only — run once):
+    cp ~/.dotfiles/notes-dropbox-sync.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/notes-dropbox-sync.plist
+    launchctl start notes-dropbox-sync
+
+  Check status:
+    launchctl list | grep notes-dropbox-sync
+
+  Stop/unload:
+    launchctl unload ~/Library/LaunchAgents/notes-dropbox-sync.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>notes-dropbox-sync</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>-l</string>
+		<string>-c</string>
+		<string>~/.dotfiles/bin/notes-dropbox-sync</string>
+	</array>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<key>KeepAlive</key>
+	<true/>
+
+	<key>StandardOutPath</key>
+	<string>/tmp/notes-dropbox-sync.log</string>
+
+	<key>StandardErrorPath</key>
+	<string>/tmp/notes-dropbox-sync.error.log</string>
+</dict>
+</plist>

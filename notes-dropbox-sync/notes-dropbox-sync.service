@@ -1,0 +1,28 @@
+# Linux systemd user service for notes-dropbox-sync.
+# Acts as a helper to the Obsidian remotely-save plugin — keeps Notes synced
+# to Dropbox even when Obsidian isn't running, so changes made by other tools
+# (git, CLI, the Telegram bot) still make it to the cloud.
+#
+# For macOS, use notes-dropbox-sync.plist (launchd) instead.
+#
+# Setup (Linux only — run once):
+#   1. Symlink this file:
+#        ln -s ~/.dotfiles/notes-dropbox-sync.service ~/.config/systemd/user/
+#   2. Reload and enable:
+#        systemctl --user daemon-reload
+#        systemctl --user enable --now notes-dropbox-sync
+#   3. Verify:
+#        systemctl --user status notes-dropbox-sync
+
+[Unit]
+Description=Sync Notes to Dropbox (remotely-save helper)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.dotfiles/bin/notes-dropbox-sync
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

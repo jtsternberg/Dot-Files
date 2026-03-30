@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# =============================================================================
+# notes-dropbox-sync
+# Cross-platform helper for the Obsidian remotely-save plugin. When Obsidian
+# isn't running, remotely-save can't sync — this script fills the gap by
+# watching ~/Documents/Notes for changes and rsyncing to the Dropbox folder
+# that remotely-save uses, so the Dropbox daemon can push changes to the cloud.
+#
+# Works on macOS and Linux.
+#
+# Prerequisites:
+#   macOS:  brew install fswatch
+#   Linux:  sudo apt install inotify-tools
+#   Both:   Dropbox daemon running, vault at ~/Documents/Notes
+#
+# Setup:
+#   macOS (launchd) — run once:
+#     cp ~/.dotfiles/notes-dropbox-sync.plist ~/Library/LaunchAgents/
+#     launchctl load ~/Library/LaunchAgents/notes-dropbox-sync.plist
+#     launchctl start notes-dropbox-sync
+#
+#   Linux (systemd) — run once:
+#     ln -s ~/.dotfiles/notes-dropbox-sync.service ~/.config/systemd/user/
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now notes-dropbox-sync
+#
+# Usage:
+#   notes-dropbox-sync        (run directly, or via launchd/systemd)
+# =============================================================================
+
+SOURCE="$HOME/Documents/Notes"
+
+# Detect Dropbox root — newer macOS moves it to CloudStorage
+if [[ -d "$HOME/Library/CloudStorage/Dropbox" ]]; then
+	DROPBOX_ROOT="$HOME/Library/CloudStorage/Dropbox"
+elif [[ -d "$HOME/Dropbox" ]]; then
+	DROPBOX_ROOT="$HOME/Dropbox"
+else
+	echo "Dropbox folder not found." >&2
+	exit 1
+fi
+
+DEST="$DROPBOX_ROOT/Apps/remotely-save/Notes"
+
+do_sync() {
+	rsync -a --delete \
+		--exclude='.git' \
+		--exclude='.claude' \
+		--exclude='.fb-review-profile' \
+		--exclude='.mcp.json' \
+		"$SOURCE/" "$DEST/"
+	echo "Synced to Dropbox: $(date)"
+}
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+	if ! command -v fswatch &>/dev/null; then
+		echo "fswatch not found. Install via Homebrew: brew install fswatch" >&2
+		exit 1
+	fi
+	echo "Watching $SOURCE for changes (macOS/fswatch)..."
+	fswatch -r "$SOURCE" | while read -r; do
+		sleep 2  # debounce
+		do_sync
+	done
+else
+	if ! command -v inotifywait &>/dev/null; then
+		echo "inotifywait not found. Install via: sudo apt install inotify-tools" >&2
+		exit 1
+	fi
+	echo "Watching $SOURCE for changes (Linux/inotifywait)..."
+	while true; do
+		inotifywait -r -q -e close_write,create,delete,move "$SOURCE"
+		sleep 2  # debounce
+		do_sync
+	done
+fi
