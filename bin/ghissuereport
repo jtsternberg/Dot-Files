@@ -37,10 +37,11 @@ show_help() {
 Usage: ghissuereport [last-week|<start> <end>] [options]
 
 Automates the weekly L10 scorecard workflow:
-  1. Fetches closed issues for the date range via ghissuecounts
-  2. Queries estimated + actual days via gh-get-issue-days.sh
-  3. Produces a deduplicated markdown list of issues missing estimates
-  4. Copies it to clipboard, ready for Slack
+  1. Fetches created issue count for the date range
+  2. Fetches closed issues for the date range via ghissuecounts
+  3. Queries estimated + actual days via gh-get-issue-days.sh
+  4. Produces a deduplicated markdown list of issues missing estimates
+  5. Copies it to clipboard, ready for Slack
 
 Options:
   --ignore-labels=<labels>       Comma-separated labels to exclude
@@ -89,7 +90,15 @@ if [[ ! -x "$DAYS_SCRIPT" ]]; then
 	exit 1
 fi
 
-# ── Step 1: Get closed issue counts ──────────────────────────────────────────
+# ── Step 1: Get created issue counts ─────────────────────────────────────────
+
+echo -e "\033[33mFetching created issues...\033[0m"
+
+ALL_CREATED=$(ghissuecounts "${DATE_ARGS[@]}" -shh --aggregated \
+	--ignore-labels="$IGNORE_LABELS")
+echo "Created issues: $ALL_CREATED"
+
+# ── Step 2: Get closed issue counts ─────────────────────────────────────────
 
 echo -e "\033[33mFetching closed issues...\033[0m"
 
@@ -103,7 +112,7 @@ END_DATE=$(echo "$RESULT" | jq -r '.end')
 
 echo "Closed issues: $AGGREGATED ($START_DATE to $END_DATE)"
 
-# ── Step 2: Run estimate + actual for each repo ─────────────────────────────
+# ── Step 3: Run estimate + actual for each repo ─────────────────────────────
 
 ESTIMATE_MISSING=$(mktemp)
 ACTUAL_MISSING=$(mktemp)
@@ -145,7 +154,7 @@ while IFS= read -r repo_json; do
 
 done < <(echo "$RESULT" | jq -c '.repos[] | select(.count > 0)')
 
-# ── Step 3: Deduplicate and write markdown ───────────────────────────────────
+# ── Step 4: Deduplicate and write markdown ───────────────────────────────────
 
 OUTPUT_FILE="/tmp/issues-without-estimates.md"
 DATE_FMT=$(date +"%-m/%-d/%y")
@@ -158,10 +167,11 @@ DATE_FMT=$(date +"%-m/%-d/%y")
 
 MISSING_COUNT=$(grep -c '^\- \[ \]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
 
-# ── Step 4: Summary ─────────────────────────────────────────────────────────
+# ── Step 5: Summary ─────────────────────────────────────────────────────────
 
 echo ""
 echo -e "\033[32m===== SUMMARY =====\033[0m"
+echo "Created issues:      $ALL_CREATED"
 echo "Closed issues:       $AGGREGATED"
 echo "Total Days (Est):    $TOTAL_ESTIMATE"
 echo "Total Days (Actual): $TOTAL_ACTUAL"
@@ -179,5 +189,5 @@ fi
 
 # Audio feedback
 if [[ "$NO_SAY" != true ]] && command -v say &>/dev/null; then
-	say "$AGGREGATED closed issues. $MISSING_COUNT missing estimates." &
+	say "$ALL_CREATED created, $AGGREGATED closed. $MISSING_COUNT missing estimates." &
 fi
