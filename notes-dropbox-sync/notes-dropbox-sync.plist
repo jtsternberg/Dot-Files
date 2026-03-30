@@ -34,6 +34,12 @@
 		<string>~/.dotfiles/bin/notes-dropbox-sync</string>
 	</array>
 
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+
 	<key>RunAtLoad</key>
 	<true/>
 
