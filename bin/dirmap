@@ -7,7 +7,7 @@ namespace JT;
 # By Justin Sternberg <me@jtsternberg.com>
 # https://github.com/jtsternberg/Dot-Files/blob/master/bin/dirmap
 #
-# Version 0.2.0
+# Version 0.3.0
 #
 # Stores shortcuts for directories (a map) to a json file in the user dir.
 #
@@ -16,6 +16,8 @@ namespace JT;
 # dirmap add <key> <path>
 # dirmap remove <key>
 # dirmap <key>
+# dirmap get <key>
+# dirmap list [--json|-j]
 # =============================================================================
 
 class DirMap {
@@ -110,6 +112,10 @@ class DirMap {
 	}
 
 	public function list() {
+		if ( $this->helpers->hasFlags( [ 'json' ], [ 'j' ] ) ) {
+			exit( file_get_contents( $this->source ) );
+		}
+
 		if ( $this->helpers->hasFlags( [ 'keys' ], [ 'k' ] ) ) {
 			exit( implode("\n", array_keys( $this->dirs ) ) );
 		}
@@ -189,10 +195,16 @@ $helpyHelperton
 			'Remove an existing directory mapping.',
 			'<key>   The alias to remove',
 		],
+		'get' => [
+			'<key>',
+			'Get the path for a directory map key (same as `dirmap <key>`).',
+			'<key>   The alias to look up',
+		],
 		'list' => [
-			'[--keys|-k]',
+			'[--keys|-k] [--json|-j]',
 			'Output the stored directory map.',
 			'-k, --keys   Output only the map keys',
+			'-j, --json   Output raw JSON (pipe-friendly, no colors)',
 		],
 	] );
 
@@ -206,6 +218,12 @@ if ( $helpyHelperton->batSignal ) {
 
 if ( 'commands' === $command ) {
 	exit( implode("\n", commands( $dirmap ) ) );
+}
+
+if ( 'get' === $command ) {
+	// Shift so get() reads the key from the right position.
+	array_splice( $cli->args, 1, 1 );
+	return $dirmap->get();
 }
 
 if ( is_callable( [ $dirmap, $command ] ) ) {
