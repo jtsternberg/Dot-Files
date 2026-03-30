@@ -6,6 +6,8 @@ This file provides guidance to LLM Agents like Claude Code (claude.ai/code) and 
 
 This is a personal dotfiles repository that provides shell configuration, CLI utilities, and development tools. Files are symlinked to `$HOME` using `symdotfiles`.
 
+**This repo is used on both macOS and Linux/Ubuntu.** Any change to shared config files (`.zshrc`, `.gitconfig`, paths, aliases, etc.) must work on both platforms — or be gated behind a platform check. Never hardcode macOS-only paths (e.g. `/Users/JT/`, `/opt/homebrew/`) or Linux-only paths in shared files.
+
 ## Key Directories
 
 - `bin/` - CLI scripts (mostly PHP, some shell scripts)
@@ -112,6 +114,32 @@ $helpyHelperton
 - `.gitconfig` - Git aliases and configuration
 - `.git-functions` - Shell functions for git operations
 
+### Platform-Specific Git Config
+
+`.gitconfig` includes `~/.gitconfig-local` unconditionally. `symdotfiles` automatically symlinks it to the right platform file based on OS:
+
+- `.gitconfig-macos` → `~/.gitconfig-local` on macOS (Kaleidoscope, osxkeychain, macOS safe dirs)
+- `.gitconfig-linux` → `~/.gitconfig-local` on Linux (credential helper, Linux-specific settings)
+
+**Rule:** macOS-only git settings (Kaleidoscope, osxkeychain, `/private/` safe dirs) belong in `.gitconfig-macos`. Linux-only settings belong in `.gitconfig-linux`. Shared settings go in `.gitconfig`.
+
+### Platform-Specific ZSH Config
+
+`.zshrc` detects the OS and sources a platform-specific file before loading Oh My Zsh:
+
+```zsh
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  source ~/.dotfiles/.macoszshrc   # macOS-only config
+else
+  source ~/.dotfiles/.linuxzshrc   # Linux/Ubuntu-only config
+fi
+```
+
+- `.macoszshrc` - macOS-specific aliases, paths (Homebrew, `/Users/JT/`), and tools
+- `.linuxzshrc` - Linux/Ubuntu-specific aliases, paths, and tools
+
+**Rule:** macOS-only tools (e.g. `pbcopy`, `open`, `say`, `osxkeychain`, Homebrew paths) belong in `.macoszshrc`. Linux-only tools belong in `.linuxzshrc`. Shared config goes in `.zshrc`.
+
 ## Symlink Management
 
 Run `php symdotfiles` from this directory to create symlinks in `$HOME`. Options:
@@ -161,7 +189,7 @@ bd sync               # Sync with git
 - If push fails, resolve and retry until it succeeds
 
 
-<!-- BEGIN BEADS INTEGRATION -->
+<!-- BEGIN BEADS INTEGRATION v:1 profile:full hash:d4f96305 -->
 ## Issue Tracking with bd (beads)
 
 **IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
@@ -169,7 +197,7 @@ bd sync               # Sync with git
 ### Why bd?
 
 - Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Auto-syncs to JSONL for version control
+- Git-friendly: Dolt-powered version control with native sync
 - Agent-optimized: JSON output, ready work detection, discovered-from links
 - Prevents duplicate tracking systems and confusion
 
@@ -191,7 +219,7 @@ bd create "Issue title" --description="What this issue is about" -p 1 --deps dis
 **Claim and update:**
 
 ```bash
-bd update bd-42 --status in_progress --json
+bd update <id> --claim --json
 bd update bd-42 --priority 1 --json
 ```
 
@@ -220,7 +248,7 @@ bd close bd-42 --reason "Completed" --json
 ### Workflow for AI Agents
 
 1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task**: `bd update <id> --status in_progress`
+2. **Claim your task atomically**: `bd update <id> --claim`
 3. **Work on it**: Implement, test, document
 4. **Discover new work?** Create linked issue:
    - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
@@ -228,10 +256,10 @@ bd close bd-42 --reason "Completed" --json
 
 ### Auto-Sync
 
-bd automatically syncs with git:
+bd automatically syncs via Dolt:
 
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
+- Each write auto-commits to Dolt history
+- Use `bd dolt push`/`bd dolt pull` for remote sync
 - No manual export/import needed!
 
 ### Important Rules
@@ -245,5 +273,31 @@ bd automatically syncs with git:
 - ❌ Do NOT duplicate tracking systems
 
 For more details, see README.md and docs/QUICKSTART.md.
+
+## Landing the Plane (Session Completion)
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd dolt push
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
 
 <!-- END BEADS INTEGRATION -->
