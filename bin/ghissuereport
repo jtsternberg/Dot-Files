@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# =============================================================================
+# GitHub Issue Days Report
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Wraps ghissuecounts + gh-get-issue-days.sh to automate the weekly L10
+# scorecard workflow: fetches estimated and actual days for closed issues,
+# sums totals, and produces a deduplicated markdown list of issues missing
+# estimates — ready to paste into Slack.
+#
+# Usage:
+#   ghissuereport [last-week|<start> <end>] [options]
+#
+# Options:
+#   --ignore-labels=<labels>       Labels to exclude (default: documentation,wontfix)
+#   --ignore-assignees=<users>     Assignees to exclude (default: cemhurturk,amacattack)
+#   --days-script=<path>           Path to gh-get-issue-days.sh
+#   --no-clipboard                 Don't copy to clipboard
+#   --no-say                       Don't use text-to-speech
+#   -h, --help                     Show this help
+# =============================================================================
+
+set -euo pipefail
+
+# Defaults
+DAYS_SCRIPT="${GH_ISSUE_DAYS_SCRIPT:-$HOME/Sites/lindris-monorepo/bin/gh-get-issue-days.sh}"
+IGNORE_LABELS="documentation,wontfix"
+IGNORE_ASSIGNEES="cemhurturk,amacattack"
+NO_CLIPBOARD=false
+NO_SAY=false
+DATE_ARGS=()
+
+show_help() {
+	cat <<'HELPTEXT'
+Usage: ghissuereport [last-week|<start> <end>] [options]
+
+Automates the weekly L10 scorecard workflow:
+  1. Fetches closed issues for the date range via ghissuecounts
+  2. Queries estimated + actual days via gh-get-issue-days.sh
+  3. Produces a deduplicated markdown list of issues missing estimates
+  4. Copies it to clipboard, ready for Slack
+
+Options:
+  --ignore-labels=<labels>       Comma-separated labels to exclude
+                                 (default: documentation,wontfix)
+  --ignore-assignees=<users>     Comma-separated assignees to exclude
+                                 (default: cemhurturk,amacattack)
+  --days-script=<path>           Path to gh-get-issue-days.sh
+                                 (default: ~/Sites/lindris-monorepo/bin/gh-get-issue-days.sh
+                                  or $GH_ISSUE_DAYS_SCRIPT env var)
+  --no-clipboard                 Don't copy output to clipboard
+  --no-say                       Don't use text-to-speech announcements
+  -h, --help                     Show this help
+
+Examples:
+  ghissuereport                          # Last week (Mon-Sun)
+  ghissuereport last-week                # Same thing, explicitly
+  ghissuereport 2025-08-03 2025-08-09    # Custom date range
+HELPTEXT
+}
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		--ignore-labels=*) IGNORE_LABELS="${1#*=}"; shift ;;
+		--ignore-assignees=*) IGNORE_ASSIGNEES="${1#*=}"; shift ;;
+		--days-script=*) DAYS_SCRIPT="${1#*=}"; shift ;;
+		--no-clipboard) NO_CLIPBOARD=true; shift ;;
+		--no-say) NO_SAY=true; shift ;;
+		-h|--help) show_help; exit 0 ;;
+		--*) echo "Unknown option: $1" >&2; exit 1 ;;
+		*) DATE_ARGS+=("$1"); shift ;;
+	esac
+done
+
+# Default to last-week if no date args
+if [[ ${#DATE_ARGS[@]} -eq 0 ]]; then
+	DATE_ARGS=("last-week")
+fi
+
+# Verify days script exists
+if [[ ! -x "$DAYS_SCRIPT" ]]; then
+	echo "Error: gh-get-issue-days.sh not found (or not executable) at:" >&2
+	echo "  $DAYS_SCRIPT" >&2
+	echo "" >&2
+	echo "Set GH_ISSUE_DAYS_SCRIPT env var or use --days-script=<path>" >&2
+	exit 1
+fi
+
+# ── Step 1: Get closed issue counts ──────────────────────────────────────────
+
+echo -e "\033[33mFetching closed issues...\033[0m"
+
+RESULT=$(ghissuecounts "${DATE_ARGS[@]}" --closed --json --ids \
+	--ignore-labels="$IGNORE_LABELS" \
+	--ignore-assignees="$IGNORE_ASSIGNEES")
+
+AGGREGATED=$(echo "$RESULT" | jq -r '.aggregated')
+START_DATE=$(echo "$RESULT" | jq -r '.start')
+END_DATE=$(echo "$RESULT" | jq -r '.end')
+
+echo "Closed issues: $AGGREGATED ($START_DATE to $END_DATE)"
+
+# ── Step 2: Run estimate + actual for each repo ─────────────────────────────
+
+ESTIMATE_MISSING=$(mktemp)
+ACTUAL_MISSING=$(mktemp)
+trap 'rm -f "$ESTIMATE_MISSING" "$ACTUAL_MISSING"' EXIT
+
+TOTAL_ESTIMATE=0
+TOTAL_ACTUAL=0
+
+while IFS= read -r repo_json; do
+	repo=$(echo "$repo_json" | jq -r '.repo')
+	issues=$(echo "$repo_json" | jq -r '.issues | join(", ")')
+
+	echo -e "\n\033[36m$repo\033[0m ($issues)"
+
+	# ── Estimate run ──
+	OUTPUT=$("$DAYS_SCRIPT" "$repo" "$issues" 2>&1 || true)
+
+	# Extract total (line after "Total Days (Estimate):")
+	total=$(echo "$OUTPUT" | awk '/^Total Days \(Estimate\)/{getline; gsub(/^[[:space:]]+|[[:space:]]+$/,""); print}')
+	if [[ -n "$total" && "$total" != "0" ]]; then
+		TOTAL_ESTIMATE=$(echo "$TOTAL_ESTIMATE + $total" | bc)
+	fi
+	echo "  Estimate: $total days"
+
+	# Extract missing-estimate lines
+	echo "$OUTPUT" | awk '/^Issues without Days \(Estimate\)/{flag=1; next} /^$/{flag=0} flag && /^- \[ \]/' >> "$ESTIMATE_MISSING"
+
+	# ── Actual run ──
+	OUTPUT=$("$DAYS_SCRIPT" "$repo" "$issues" --actual 2>&1 || true)
+
+	total=$(echo "$OUTPUT" | awk '/^Total Days \(Actual\)/{getline; gsub(/^[[:space:]]+|[[:space:]]+$/,""); print}')
+	if [[ -n "$total" && "$total" != "0" ]]; then
+		TOTAL_ACTUAL=$(echo "$TOTAL_ACTUAL + $total" | bc)
+	fi
+	echo "  Actual:   $total days"
+
+	# Extract missing-actual lines
+	echo "$OUTPUT" | awk '/^Issues without Days \(Actual\)/{flag=1; next} /^$/{flag=0} flag && /^- \[ \]/' >> "$ACTUAL_MISSING"
+
+done < <(echo "$RESULT" | jq -c '.repos[] | select(.count > 0)')
+
+# ── Step 3: Deduplicate and write markdown ───────────────────────────────────
+
+OUTPUT_FILE="/tmp/issues-without-estimates.md"
+DATE_FMT=$(date +"%-m/%-d/%y")
+
+{
+	echo "# Issues without estimates - $DATE_FMT"
+	echo ""
+	cat "$ESTIMATE_MISSING" "$ACTUAL_MISSING" | sort -t']' -k2 -u
+} > "$OUTPUT_FILE"
+
+MISSING_COUNT=$(grep -c '^\- \[ \]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+
+# ── Step 4: Summary ─────────────────────────────────────────────────────────
+
+echo ""
+echo -e "\033[32m===== SUMMARY =====\033[0m"
+echo "Closed issues:       $AGGREGATED"
+echo "Total Days (Est):    $TOTAL_ESTIMATE"
+echo "Total Days (Actual): $TOTAL_ACTUAL"
+echo "Missing estimates:   $MISSING_COUNT issues"
+echo ""
+echo -e "\033[33m── /tmp/issues-without-estimates.md ──\033[0m"
+cat "$OUTPUT_FILE"
+
+# Copy to clipboard
+if [[ "$NO_CLIPBOARD" != true ]] && command -v pbcopy &>/dev/null; then
+	pbcopy < "$OUTPUT_FILE"
+	echo ""
+	echo -e "\033[32mCopied to clipboard!\033[0m"
+fi
+
+# Audio feedback
+if [[ "$NO_SAY" != true ]] && command -v say &>/dev/null; then
+	say "$AGGREGATED closed issues. $MISSING_COUNT missing estimates." &
+fi
