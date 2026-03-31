@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 # =============================================================================
 # notes-dropbox-sync
-# Cross-platform helper for the Obsidian remotely-save plugin. When Obsidian
-# isn't running, remotely-save can't sync — this script fills the gap by
-# watching ~/Documents/Notes for changes and rsyncing to the Dropbox folder
-# that remotely-save uses, so the Dropbox daemon can push changes to the cloud.
+# Cross-platform 2-way sync helper for the Obsidian remotely-save plugin.
+# When Obsidian isn't running, remotely-save can't sync — this fills the gap:
+#
+#   Notes → Dropbox: picks up changes from git, CLI, or the Telegram bot
+#   Dropbox → Notes: picks up changes made on mobile, then commits to git
+#
+# Loop prevention: each sync direction stamps a lock file. The other watcher
+# checks the lock and skips if the event is just an echo of our own sync.
 #
 # Works on macOS and Linux.
 #
 # Prerequisites:
 #   macOS:  brew install fswatch
 #   Linux:  sudo apt install inotify-tools
-#   Both:   Dropbox daemon running, vault at ~/Documents/Notes
+#   Both:   Dropbox daemon running, Obsidian vault at ~/Documents/Notes
 #
 # Setup:
 #   macOS (launchd) — run once:
-#     cp ~/.dotfiles/notes-dropbox-sync.plist ~/Library/LaunchAgents/
+#     cp ~/.dotfiles/notes-dropbox-sync/notes-dropbox-sync.plist ~/Library/LaunchAgents/
 #     launchctl load ~/Library/LaunchAgents/notes-dropbox-sync.plist
 #     launchctl start notes-dropbox-sync
 #
 #   Linux (systemd) — run once:
-#     ln -s ~/.dotfiles/notes-dropbox-sync.service ~/.config/systemd/user/
+#     ln -s ~/.dotfiles/notes-dropbox-sync/notes-dropbox-sync.service ~/.config/systemd/user/
 #     systemctl --user daemon-reload
 #     systemctl --user enable --now notes-dropbox-sync
 #
@@ -29,6 +33,11 @@
 # =============================================================================
 
 SOURCE="$HOME/Documents/Notes"
+COOLDOWN=10  # seconds to suppress echo direction after a sync
+
+# Lock files — one per direction
+LOCK_N2D="/tmp/notes-dropbox-sync-n2d"  # written when Notes→Dropbox fires
+LOCK_D2N="/tmp/notes-dropbox-sync-d2n"  # written when Dropbox→Notes fires
 
 # Detect Dropbox root — newer macOS moves it to CloudStorage
 if [[ -d "$HOME/Library/CloudStorage/Dropbox" ]]; then
@@ -42,35 +51,123 @@ fi
 
 DEST="$DROPBOX_ROOT/Apps/remotely-save/Notes"
 
-do_sync() {
+is_recent() {
+	local lockfile="$1"
+	[[ -f "$lockfile" ]] || return 1
+	local last now
+	last=$(cat "$lockfile")
+	now=$(date +%s)
+	(( now - last < COOLDOWN ))
+}
+
+sync_notes_to_dropbox() {
+	date +%s > "$LOCK_N2D"
 	rsync -a --delete \
 		--exclude='.git' \
 		--exclude='.claude' \
 		--exclude='.fb-review-profile' \
 		--exclude='.mcp.json' \
 		"$SOURCE/" "$DEST/"
-	echo "Synced to Dropbox: $(date)"
+	echo "Notes→Dropbox synced: $(date)"
 }
+
+sync_dropbox_to_notes() {
+	date +%s > "$LOCK_D2N"
+	rsync -a --delete \
+		--exclude='.git' \
+		--exclude='.claude' \
+		--exclude='.fb-review-profile' \
+		--exclude='.mcp.json' \
+		"$DEST/" "$SOURCE/"
+	echo "Dropbox→Notes synced: $(date)"
+
+	# Commit any changes to git
+	cd "$SOURCE" || return
+	if [ -n "$(git status --porcelain)" ]; then
+		git add -A
+		git commit -m "sync: notes from phone via dropbox"
+		git push
+		echo "Git commit + push complete: $(date)"
+	fi
+}
+
+watch_notes() {
+	echo "Watching Notes ($SOURCE)..."
+	while true; do
+		inotifywait -r -q -e close_write,create,delete,move \
+			--exclude '(\.git|\.obsidian)' \
+			"$SOURCE"
+		sleep 2  # debounce
+		if is_recent "$LOCK_D2N"; then
+			echo "Notes watcher: skipping (Dropbox→Notes was recent, avoiding echo)"
+		else
+			echo "Notes watcher: change detected, syncing Notes→Dropbox"
+			sync_notes_to_dropbox
+		fi
+	done
+}
+
+watch_dropbox() {
+	echo "Watching Dropbox ($DEST)..."
+	while true; do
+		inotifywait -r -q -e close_write,create,delete,move "$DEST"
+		sleep 2  # debounce
+		if is_recent "$LOCK_N2D"; then
+			echo "Dropbox watcher: skipping (Notes→Dropbox was recent, avoiding echo)"
+		else
+			echo "Dropbox watcher: change detected, syncing Dropbox→Notes"
+			sync_dropbox_to_notes
+		fi
+	done
+}
+
+watch_notes_mac() {
+	echo "Watching Notes ($SOURCE)..."
+	fswatch -r "$SOURCE" | while read -r; do
+		sleep 2  # debounce
+		if is_recent "$LOCK_D2N"; then
+			echo "Notes watcher: skipping (Dropbox→Notes was recent, avoiding echo)"
+		else
+			echo "Notes watcher: change detected, syncing Notes→Dropbox"
+			sync_notes_to_dropbox
+		fi
+	done
+}
+
+watch_dropbox_mac() {
+	echo "Watching Dropbox ($DEST)..."
+	fswatch -r "$DEST" | while read -r; do
+		sleep 2  # debounce
+		if is_recent "$LOCK_N2D"; then
+			echo "Dropbox watcher: skipping (Notes→Dropbox was recent, avoiding echo)"
+		else
+			echo "Dropbox watcher: change detected, syncing Dropbox→Notes"
+			sync_dropbox_to_notes
+		fi
+	done
+}
+
+cleanup() {
+	echo "Shutting down..."
+	kill 0
+	exit 0
+}
+trap cleanup SIGINT SIGTERM
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	if ! command -v fswatch &>/dev/null; then
 		echo "fswatch not found. Install via Homebrew: brew install fswatch" >&2
 		exit 1
 	fi
-	echo "Watching $SOURCE for changes (macOS/fswatch)..."
-	fswatch -r "$SOURCE" | while read -r; do
-		sleep 2  # debounce
-		do_sync
-	done
+	watch_notes_mac &
+	watch_dropbox_mac &
 else
 	if ! command -v inotifywait &>/dev/null; then
 		echo "inotifywait not found. Install via: sudo apt install inotify-tools" >&2
 		exit 1
 	fi
-	echo "Watching $SOURCE for changes (Linux/inotifywait)..."
-	while true; do
-		inotifywait -r -q -e close_write,create,delete,move "$SOURCE"
-		sleep 2  # debounce
-		do_sync
-	done
+	watch_notes &
+	watch_dropbox &
 fi
+
+wait

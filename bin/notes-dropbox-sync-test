@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# =============================================================================
+# notes-dropbox-sync-test
+# Tests the 2-way sync loop-prevention logic using two temp directories.
+# Simulates the Notes <-> Dropbox sync without touching real data.
+#
+# Usage:
+#   notes-dropbox-sync-test
+# =============================================================================
+
+COOLDOWN=5  # seconds to suppress the echo direction after a sync
+
+DIR_A="/tmp/notes-sync-test/source"  # simulates ~/Documents/Notes
+DIR_B="/tmp/notes-sync-test/dest"    # simulates ~/Dropbox/Apps/remotely-save/Notes
+LOCK_A="/tmp/notes-sync-test/lock_a2b"  # written when A→B fires
+LOCK_B="/tmp/notes-sync-test/lock_b2a"  # written when B→A fires
+LOG="/tmp/notes-sync-test/sync.log"
+
+mkdir -p "$DIR_A" "$DIR_B"
+> "$LOG"
+
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+
+is_recent() {
+	local lockfile="$1"
+	[[ -f "$lockfile" ]] || return 1
+	local last now
+	last=$(cat "$lockfile")
+	now=$(date +%s)
+	(( now - last < COOLDOWN ))
+}
+
+sync_a_to_b() {
+	date +%s > "$LOCK_A"
+	rsync -a --delete "$DIR_A/" "$DIR_B/"
+	log "A→B synced"
+}
+
+sync_b_to_a() {
+	date +%s > "$LOCK_B"
+	rsync -a --delete "$DIR_B/" "$DIR_A/"
+	log "B→A synced"
+}
+
+watch_a() {
+	log "Watching A ($DIR_A)..."
+	while true; do
+		inotifywait -r -q -e close_write,create,delete,move "$DIR_A"
+		sleep 1  # debounce
+		if is_recent "$LOCK_B"; then
+			log "A watcher: skipping (B→A sync was recent, avoiding echo)"
+		else
+			log "A watcher: change detected, syncing A→B"
+			sync_a_to_b
+		fi
+	done
+}
+
+watch_b() {
+	log "Watching B ($DIR_B)..."
+	while true; do
+		inotifywait -r -q -e close_write,create,delete,move "$DIR_B"
+		sleep 1  # debounce
+		if is_recent "$LOCK_A"; then
+			log "B watcher: skipping (A→B sync was recent, avoiding echo)"
+		else
+			log "B watcher: change detected, syncing B→A"
+			sync_b_to_a
+		fi
+	done
+}
+
+cleanup() {
+	log "Shutting down..."
+	kill 0
+	exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# Start both watchers in background
+watch_a &
+watch_b &
+
+log "=== Test setup complete ==="
+log "DIR_A = $DIR_A  (simulates Notes)"
+log "DIR_B = $DIR_B  (simulates Dropbox)"
+log "Log   = $LOG"
+log ""
+log "Try these tests in another terminal:"
+log "  echo 'hello' > $DIR_A/test.md       # should sync A→B, B watcher should skip"
+log "  echo 'from phone' > $DIR_B/phone.md  # should sync B→A, A watcher should skip"
+log ""
+log "Press Ctrl+C to stop."
+
+wait
