@@ -7,7 +7,9 @@
     },
     "autoload": {
         "psr-4": {
-            "JT\\CLI\\": "misc/"
+            "JT\\CLI\\": "misc/",
+            "JT\\CLI\\Commands\\": "misc/commands/",
+            "JT\\CLI\\Traits\\": "misc/traits/"
         },
         "files": [
             "misc/bootstrap.php"
