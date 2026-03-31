@@ -28,9 +28,21 @@
 #     systemctl --user daemon-reload
 #     systemctl --user enable --now notes-dropbox-sync
 #
+# Configuration (~/.config/notes-dropbox-sync/config):
+#   SYNC_NOTES_TO_DROPBOX=true   # watch Notes, push to Dropbox
+#   SYNC_DROPBOX_TO_NOTES=true   # watch Dropbox, pull into Notes + git commit
+#   Both default to true if unset. Set to "false" to disable a direction.
+#
 # Usage:
 #   notes-dropbox-sync        (run directly, or via launchd/systemd)
 # =============================================================================
+
+# Defaults — override per-machine via config file
+SYNC_NOTES_TO_DROPBOX=true
+SYNC_DROPBOX_TO_NOTES=true
+
+CONFIG="$HOME/.config/notes-dropbox-sync/config"
+[[ -f "$CONFIG" ]] && source "$CONFIG"
 
 SOURCE="$HOME/Documents/Notes"
 COOLDOWN=10  # seconds to suppress echo direction after a sync
@@ -158,20 +170,27 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
+if [[ "$SYNC_NOTES_TO_DROPBOX" != "true" && "$SYNC_DROPBOX_TO_NOTES" != "true" ]]; then
+	echo "Both sync directions disabled in $CONFIG — nothing to do." >&2
+	exit 1
+fi
+
+echo "Sync config: Notes→Dropbox=$SYNC_NOTES_TO_DROPBOX, Dropbox→Notes=$SYNC_DROPBOX_TO_NOTES"
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	if ! command -v fswatch &>/dev/null; then
 		echo "fswatch not found. Install via Homebrew: brew install fswatch" >&2
 		exit 1
 	fi
-	watch_notes_mac &
-	watch_dropbox_mac &
+	[[ "$SYNC_NOTES_TO_DROPBOX" == "true" ]] && watch_notes_mac &
+	[[ "$SYNC_DROPBOX_TO_NOTES" == "true" ]] && watch_dropbox_mac &
 else
 	if ! command -v inotifywait &>/dev/null; then
 		echo "inotifywait not found. Install via: sudo apt install inotify-tools" >&2
 		exit 1
 	fi
-	watch_notes &
-	watch_dropbox &
+	[[ "$SYNC_NOTES_TO_DROPBOX" == "true" ]] && watch_notes &
+	[[ "$SYNC_DROPBOX_TO_NOTES" == "true" ]] && watch_dropbox &
 fi
 
 wait
