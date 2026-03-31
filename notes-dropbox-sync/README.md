@@ -47,6 +47,8 @@ tail -f /tmp/notes-dropbox-sync.error.log
 
 ### Linux (systemd)
 
+**1. Install and start the service:**
+
 ```bash
 ln -s ~/.dotfiles/notes-dropbox-sync/notes-dropbox-sync.service ~/.config/systemd/user/
 systemctl --user daemon-reload
@@ -57,6 +59,23 @@ systemctl --user enable --now notes-dropbox-sync
 ```bash
 systemctl --user status notes-dropbox-sync
 ```
+
+**View logs:**
+```bash
+journalctl --user -u notes-dropbox-sync -f
+```
+
+**Stop / restart:**
+```bash
+systemctl --user stop notes-dropbox-sync
+systemctl --user restart notes-dropbox-sync
+```
+
+**Troubleshooting:**
+
+- If `inotifywait` is missing: `sudo apt install inotify-tools`
+- The service auto-restarts on failure (`RestartSec=5`) — check logs if it keeps cycling
+- Dropbox must be installed and running; the service watches `~/Dropbox/Apps/remotely-save/Notes`
 
 ## Files
 
