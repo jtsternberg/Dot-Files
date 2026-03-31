@@ -39,6 +39,16 @@ COOLDOWN=10  # seconds to suppress echo direction after a sync
 LOCK_N2D="/tmp/notes-dropbox-sync-n2d"  # written when Notes→Dropbox fires
 LOCK_D2N="/tmp/notes-dropbox-sync-d2n"  # written when Dropbox→Notes fires
 
+# Common rsync excludes
+EXCLUDES=(
+	--exclude='.git'
+	--exclude='.claude'
+	--exclude='.fb-review-profile'
+	--exclude='.mcp.json'
+	--exclude='.DS_Store'
+	--exclude='*.orig'
+)
+
 # Detect Dropbox root — newer macOS moves it to CloudStorage
 if [[ -d "$HOME/Library/CloudStorage/Dropbox" ]]; then
 	DROPBOX_ROOT="$HOME/Library/CloudStorage/Dropbox"
@@ -62,22 +72,16 @@ is_recent() {
 
 sync_notes_to_dropbox() {
 	date +%s > "$LOCK_N2D"
-	rsync -a --delete \
-		--exclude='.git' \
-		--exclude='.claude' \
-		--exclude='.fb-review-profile' \
-		--exclude='.mcp.json' \
+	rsync -rlt --delete --no-perms \
+		"${EXCLUDES[@]}" \
 		"$SOURCE/" "$DEST/"
 	echo "Notes→Dropbox synced: $(date)"
 }
 
 sync_dropbox_to_notes() {
 	date +%s > "$LOCK_D2N"
-	rsync -a --delete \
-		--exclude='.git' \
-		--exclude='.claude' \
-		--exclude='.fb-review-profile' \
-		--exclude='.mcp.json' \
+	rsync -rlt --delete --no-perms \
+		"${EXCLUDES[@]}" \
 		"$DEST/" "$SOURCE/"
 	echo "Dropbox→Notes synced: $(date)"
 

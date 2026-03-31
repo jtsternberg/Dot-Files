@@ -44,6 +44,9 @@ id_ed25519
 *.bookmarklet.js
 .claude/settings.local.json
 
+# Compiled launcher binary (build locally per machine)
+notes-dropbox-sync/notes-dropbox-sync-launcher
+
 # bv (beads viewer) local config and caches
 .bv/
 .beads/backup/

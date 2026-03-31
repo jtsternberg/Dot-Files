@@ -5,11 +5,15 @@
   to Dropbox even when Obsidian isn't running, so changes made by other tools
   (git, CLI, the Telegram bot) still make it to the cloud.
 
+  Full setup instructions in README.md. Quick reference:
+
   Prerequisites:
     brew install fswatch
+    cc -O2 -o notes-dropbox-sync-launcher notes-dropbox-sync-launcher.c
+    Grant Full Disk Access to the compiled launcher binary.
 
-  Setup (macOS only — run once):
-    cp ~/.dotfiles/notes-dropbox-sync.plist ~/Library/LaunchAgents/
+  Install (run once):
+    cp ~/.dotfiles/notes-dropbox-sync/notes-dropbox-sync.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/notes-dropbox-sync.plist
     launchctl start notes-dropbox-sync
 
@@ -29,16 +33,9 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>-l</string>
 		<string>-c</string>
-		<string>~/.dotfiles/bin/notes-dropbox-sync</string>
+		<string>exec "$HOME/.dotfiles/notes-dropbox-sync/notes-dropbox-sync-launcher"</string>
 	</array>
-
-	<key>EnvironmentVariables</key>
-	<dict>
-		<key>PATH</key>
-		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-	</dict>
 
 	<key>RunAtLoad</key>
 	<true/>
