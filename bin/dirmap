@@ -17,6 +17,7 @@ namespace JT;
 # dirmap remove <key>
 # dirmap <key>
 # dirmap get <key>
+# dirmap identify [<path>]
 # dirmap list [--json|-j]
 # =============================================================================
 
@@ -111,6 +112,42 @@ class DirMap {
 		$this->helpers->msg( sprintf( "\nRemoved: %s\n", $key ), 'green' );
 	}
 
+	public function identify( $args ) {
+		array_shift( $args );
+		array_shift( $args );
+		$path = ! empty( $args ) ? implode( ' ', $args ) : $this->helpers->wd;
+
+		if ( '.' === $path ) {
+			$path = $this->helpers->wd;
+		}
+
+		$path = str_replace( '~', $this->hd, $path );
+		$path = rtrim( $path, '/' );
+
+		$best = '';
+		foreach ( $this->dirs as $key => $dir ) {
+			if ( '' === $key ) {
+				continue;
+			}
+
+			$resolved = str_replace( '~', $this->hd, $dir );
+			$resolved = rtrim( $resolved, '/' );
+
+			if ( $resolved === $path ) {
+				if ( empty( $best ) || strlen( $key ) < strlen( $best ) ) {
+					$best = $key;
+				}
+			}
+		}
+
+		if ( empty( $best ) ) {
+			$this->helpers->err( sprintf( "\nNo dirmap key found for: '%s'\n", $path ), false );
+			exit( 1 );
+		}
+
+		exit( $best );
+	}
+
 	public function list() {
 		if ( $this->helpers->hasFlags( [ 'json' ], [ 'j' ] ) ) {
 			exit( file_get_contents( $this->source ) );
@@ -199,6 +236,11 @@ $helpyHelperton
 			'<key>',
 			'Get the path for a directory map key (same as `dirmap <key>`).',
 			'<key>   The alias to look up',
+		],
+		'identify' => [
+			'[<path>]',
+			'Show the dirmap key for a directory. Defaults to the current directory.',
+			'<path>   The directory path to identify (defaults to current directory)',
 		],
 		'list' => [
 			'[--keys|-k] [--json|-j]',
