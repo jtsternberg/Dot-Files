@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Generate a Markdown transcript from a Claude Code session.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Chains claude-code-transcripts (HTML generation) with html-to-markdown
+# (conversion + combine) to produce a single .md transcript file.
+#
+# Examples:
+#   claude-transcript-md session.jsonl                    # outputs to /tmp/session.md
+#   claude-transcript-md session.jsonl -o transcript.md
+#   claude-transcript-md session.jsonl -o ~/transcripts/
+#
+# Usage:
+#   claude-transcript-md <jsonl-file> [-o <output-path>] [--repo <owner/name>]
+# =============================================================================
+
+set -euo pipefail
+
+usage() {
+	cat <<'EOF'
+Usage: claude-transcript-md <jsonl-file> [-o <output-path>] [--repo <owner/name>]
+
+Arguments:
+  <jsonl-file>          Path to a Claude Code .jsonl session file
+
+Options:
+  -o, --output <path>   Output .md file or directory. If a directory, the file
+                        is named after the session. Defaults to /tmp/.
+  --repo <owner/name>   GitHub repo for commit links (auto-detected if omitted)
+  -h, --help            Show this help message
+
+Examples:
+  claude-transcript-md session.jsonl
+  claude-transcript-md session.jsonl -o transcript.md
+  claude-transcript-md session.jsonl -o ~/transcripts/
+  claude-transcript-md session.jsonl --repo jtsternberg/dotfiles
+EOF
+	exit 0
+}
+
+# ── Parse args ──────────────────────────────────────────────────────────────
+
+JSONL_FILE=""
+OUTPUT=""
+REPO_FLAG=""
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		-h|--help) usage ;;
+		-o|--output) OUTPUT="$2"; shift 2 ;;
+		--repo) REPO_FLAG="--repo $2"; shift 2 ;;
+		-*) echo "Unknown option: $1" >&2; exit 1 ;;
+		*)
+			if [[ -z "$JSONL_FILE" ]]; then
+				JSONL_FILE="$1"
+			else
+				echo "Unexpected argument: $1" >&2; exit 1
+			fi
+			shift
+			;;
+	esac
+done
+
+if [[ -z "$JSONL_FILE" ]]; then
+	echo "Error: No JSONL file specified." >&2
+	echo "Run 'claude-transcript-md --help' for usage." >&2
+	exit 1
+fi
+
+if [[ ! -f "$JSONL_FILE" ]]; then
+	echo "Error: File not found: $JSONL_FILE" >&2
+	exit 1
+fi
+
+# ── Check dependencies ──────────────────────────────────────────────────────
+
+for cmd in claude-code-transcripts html-to-markdown; do
+	if ! command -v "$cmd" &>/dev/null; then
+		echo "Error: '$cmd' not found in PATH." >&2
+		exit 1
+	fi
+done
+
+# ── Generate HTML transcript to temp dir ────────────────────────────────────
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+echo "Generating HTML transcript..." >&2
+# shellcheck disable=SC2086
+claude-code-transcripts json "$JSONL_FILE" -o "$TMPDIR" $REPO_FLAG >&2
+
+# Find the actual output directory (claude-code-transcripts creates a subdirectory)
+HTML_DIR=$(find "$TMPDIR" -name "index.html" -maxdepth 2 -exec dirname {} \; | head -1)
+
+if [[ -z "$HTML_DIR" || ! -d "$HTML_DIR" ]]; then
+	echo "Error: HTML generation failed — no index.html found." >&2
+	exit 1
+fi
+
+# ── Convert HTML → combined Markdown ────────────────────────────────────────
+
+# Derive a sensible name from the jsonl filename
+SESSION_NAME=$(basename "$JSONL_FILE" .jsonl)
+
+if [[ -z "$OUTPUT" ]]; then
+	# No output specified — write to /tmp
+	MD_FILE="/tmp/${SESSION_NAME}.md"
+elif [[ -d "$OUTPUT" || "$OUTPUT" == */ ]]; then
+	# Output is a directory — create named file inside it
+	mkdir -p "$OUTPUT"
+	MD_FILE="${OUTPUT%/}/${SESSION_NAME}.md"
+else
+	# Output is an explicit file path
+	mkdir -p "$(dirname "$OUTPUT")"
+	MD_FILE="$OUTPUT"
+fi
+
+html-to-markdown "$HTML_DIR" "$MD_FILE" --combine --yes
+
+echo >&2
+echo "Output: $MD_FILE" >&2

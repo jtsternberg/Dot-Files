@@ -8,7 +8,7 @@ namespace JT;
 # Version 0.1.0
 #
 # Converts HTML content to Markdown format using league/html-to-markdown.
-# Can read from a file or stdin, and output to a file or stdout.
+# Can read from a file, directory, or stdin, and output to a file or stdout.
 #
 # Examples:
 # html-to-markdown input.html
@@ -16,9 +16,12 @@ namespace JT;
 # cat input.html | html-to-markdown
 # html-to-markdown input.html --preserve-comments
 # html-to-markdown input.html --no-strip-tags --no-hard-break
+# html-to-markdown ./html-dir/                    # creates .md for each .html
+# html-to-markdown ./html-dir/ --combine           # merges all into one .md
+# html-to-markdown ./html-dir/ output.md --combine  # merges into output.md
 #
 # Usage (`html-to-markdown -h`):
-# html-to-markdown [<input-file>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support]
+# html-to-markdown [<input-file-or-dir>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support] [--combine]
 # =============================================================================
 
 require_once dirname( __DIR__ ) . '/vendor/autoload.php';
@@ -29,10 +32,11 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('html-to-markdown')
 	->setDescription('Convert HTML content to Markdown format')
-	->setSampleUsage('[<input-file>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support]')
+	->setSampleUsage('[<input-file-or-dir>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support] [--combine]')
 	->buildDocs([
-		'[<input-file>]'            => 'Input HTML file. If omitted, reads from stdin.',
-		'[<output-file>]'           => 'Output Markdown file. If omitted, writes to stdout.',
+		'[<input-file-or-dir>]'     => 'Input HTML file or directory. If a directory, converts all .html files. If omitted, reads from stdin.',
+		'[<output-file>]'           => 'Output Markdown file. If omitted and input is a file, writes to stdout. If omitted and input is a dir, creates .md files alongside each .html.',
+		'--combine'                 => 'When input is a directory, combine all HTML files into a single Markdown file (auto-detects sequential naming or falls back to date order)',
 		'--replace'                 => 'Overwrite the input file with the converted output (no output file needed)',
 		'--no-strip-tags'           => 'Disable stripping HTML tags without Markdown equivalents (enabled by default)',
 		'--no-hard-break'           => 'Disable hard breaks (use two spaces + newline instead of just newline). Hard breaks enabled by default',
@@ -57,6 +61,12 @@ class HtmlToMarkdownCommand {
 		$inputFile = $this->cli->getArg(1);
 		$outputFile = $this->cli->getArg(2);
 
+		// Directory mode
+		if ($inputFile && is_dir($inputFile)) {
+			$this->runDirectory(rtrim($inputFile, '/'), $outputFile);
+			return;
+		}
+
 		// --replace flag uses input file as output
 		if ($this->cli->hasFlags('replace') && $inputFile && !$outputFile) {
 			$outputFile = $inputFile;
@@ -73,6 +83,128 @@ class HtmlToMarkdownCommand {
 
 		// Write output
 		$this->writeOutput($markdown, $outputFile);
+	}
+
+	private function runDirectory(string $dir, ?string $outputFile): void {
+		$htmlFiles = glob($dir . '/*.html');
+		if (empty($htmlFiles)) {
+			$this->cli->exitErr("No .html files found in: {$dir}\n", 1);
+		}
+
+		// Sort files intelligently
+		$htmlFiles = $this->sortHtmlFiles($htmlFiles);
+
+		$options = $this->buildConverterOptions();
+		$combine = $this->cli->hasFlags('combine');
+
+		if ($combine) {
+			$this->runCombined($htmlFiles, $options, $outputFile, $dir);
+		} else {
+			$this->runIndividual($htmlFiles, $options, $outputFile);
+		}
+	}
+
+	/**
+	 * Sort HTML files using sequential naming if detected, otherwise by modification time.
+	 */
+	private function sortHtmlFiles(array $files): array {
+		// Check if filenames look sequential (contain numbers in a pattern)
+		$hasSequentialNames = $this->detectSequentialNaming($files);
+
+		if ($hasSequentialNames) {
+			// Natural sort handles "page-001", "page-002", "page-010" correctly
+			usort($files, function ($a, $b) {
+				return strnatcasecmp(basename($a), basename($b));
+			});
+		} else {
+			// Fall back to modification time
+			usort($files, function ($a, $b) {
+				return filemtime($a) <=> filemtime($b);
+			});
+		}
+
+		return $files;
+	}
+
+	/**
+	 * Detect if files follow a sequential naming pattern (e.g. page-001, chapter-2, 01-intro).
+	 */
+	private function detectSequentialNaming(array $files): bool {
+		if (count($files) < 2) {
+			return false;
+		}
+
+		$numberedCount = 0;
+		foreach ($files as $file) {
+			$name = pathinfo($file, PATHINFO_FILENAME);
+			// Match names containing a sequence of digits (page-001, 02-chapter, part3, etc.)
+			if (preg_match('/\d{2,}/', $name) || preg_match('/[-_]\d+$/', $name) || preg_match('/^\d+[-_]/', $name)) {
+				$numberedCount++;
+			}
+		}
+
+		// If the majority of files have sequential-looking names, treat as sequential
+		return $numberedCount >= (count($files) * 0.5);
+	}
+
+	private function runCombined(array $htmlFiles, array $options, ?string $outputFile, string $dir): void {
+		$allMarkdown = [];
+
+		foreach ($htmlFiles as $file) {
+			$html = file_get_contents($file);
+			if ($html === false) {
+				$this->cli->err("Failed to read: {$file}\n");
+				continue;
+			}
+
+			$markdown = $this->convertToMarkdown($html, $options);
+			if (trim($markdown) !== '') {
+				$allMarkdown[] = $markdown;
+			}
+
+			if (!$this->cli->isSilent()) {
+				$this->cli->msg("  Converted: " . basename($file) . "\n", 'cyan');
+			}
+		}
+
+		$combined = implode("\n\n---\n\n", $allMarkdown);
+
+		// Default output filename for combine mode: directory name + .md
+		if (!$outputFile) {
+			$outputFile = $dir . '/' . basename($dir) . '.md';
+		}
+
+		$this->writeOutput($combined, $outputFile);
+	}
+
+	private function runIndividual(array $htmlFiles, array $options, ?string $outputDir): void {
+		$count = 0;
+
+		foreach ($htmlFiles as $file) {
+			$html = file_get_contents($file);
+			if ($html === false) {
+				$this->cli->err("Failed to read: {$file}\n");
+				continue;
+			}
+
+			$markdown = $this->convertToMarkdown($html, $options);
+
+			// Output file: same name with .md extension
+			$mdFile = $outputDir
+				? rtrim($outputDir, '/') . '/' . pathinfo($file, PATHINFO_FILENAME) . '.md'
+				: preg_replace('/\.html?$/i', '.md', $file);
+
+			file_put_contents($mdFile, $markdown);
+			$count++;
+
+			if (!$this->cli->isSilent()) {
+				$this->cli->msg("  Converted: " . basename($file) . " → " . basename($mdFile) . "\n", 'cyan');
+			}
+		}
+
+		if (!$this->cli->isSilent()) {
+			$this->cli->msg("Converted {$count} file(s) to Markdown.\n", 'green');
+		}
 	}
 
 	private function readInput(?string $inputFile): string {
