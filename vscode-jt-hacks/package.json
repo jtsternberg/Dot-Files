@@ -1,0 +1,30 @@
+{
+	"name": "jt-hacks",
+	"displayName": "JT Hacks",
+	"description": "Personal Cursor/VS Code utilities (local, not published).",
+	"version": "0.0.1",
+	"publisher": "jtsternberg",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onCommand:jt-hacks.openMarkdownInMacDown",
+		"onCommand:jt-hacks.openMarkdownInClearly"
+	],
+	"main": "./extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "jt-hacks.openMarkdownInMacDown",
+				"title": "JT: Open Markdown in MacDown"
+			},
+			{
+				"command": "jt-hacks.openMarkdownInClearly",
+				"title": "JT: Open Markdown in Clearly"
+			}
+		]
+	}
+}
