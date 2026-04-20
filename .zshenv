@@ -50,3 +50,4 @@ export NVM_DIR="$HOME/.nvm"
 # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # This loads nvm
 # Run this command to configure your shell:
 # eval $(docker-machine env)
+export PATH="$HOME/.docker/bin:$PATH"
