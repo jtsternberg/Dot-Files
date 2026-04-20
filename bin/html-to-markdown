@@ -32,12 +32,12 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('html-to-markdown')
 	->setDescription('Convert HTML content to Markdown format')
-	->setSampleUsage('[<input-file-or-dir>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support] [--combine]')
+	->setSampleUsage('[<input-file-or-dir>] [<output-file>] [--no-strip-tags] [--no-hard-break] [--header-style=<style>] [--remove-nodes=<nodes>] [--preserve-comments] [--strip-placeholder-links] [--autolinks] [--list-item-style=<char>] [--disable-table-support] [--combine] [--replace]')
 	->buildDocs([
 		'[<input-file-or-dir>]'     => 'Input HTML file or directory. If a directory, converts all .html files. If omitted, reads from stdin.',
 		'[<output-file>]'           => 'Output Markdown file. If omitted and input is a file, writes to stdout. If omitted and input is a dir, creates .md files alongside each .html.',
 		'--combine'                 => 'When input is a directory, combine all HTML files into a single Markdown file (auto-detects sequential naming or falls back to date order)',
-		'--replace'                 => 'Overwrite the input file with the converted output (no output file needed)',
+		'--replace'                 => 'Write a .md file next to the input and remove the .html/.htm (no output file needed)',
 		'--no-strip-tags'           => 'Disable stripping HTML tags without Markdown equivalents (enabled by default)',
 		'--no-hard-break'           => 'Disable hard breaks (use two spaces + newline instead of just newline). Hard breaks enabled by default',
 		'--header-style=<style>'    => 'Header style: "atx" for # Header or "setext" for === Header (default: atx)',
@@ -60,16 +60,24 @@ class HtmlToMarkdownCommand {
 	public function run(): void {
 		$inputFile = $this->cli->getArg(1);
 		$outputFile = $this->cli->getArg(2);
+		$replaceSourceFile = null;
 
 		// Directory mode
 		if ($inputFile && is_dir($inputFile)) {
+			if ($this->cli->hasFlags('replace')) {
+				$this->cli->exitErr("--replace only applies to a single HTML file, not a directory.\n", 1);
+			}
 			$this->runDirectory(rtrim($inputFile, '/'), $outputFile);
 			return;
 		}
 
-		// --replace flag uses input file as output
+		// --replace: write sibling .md and remove the source .html/.htm
 		if ($this->cli->hasFlags('replace') && $inputFile && !$outputFile) {
-			$outputFile = $inputFile;
+			if (!preg_match('/\.html?$/i', $inputFile)) {
+				$this->cli->exitErr("--replace requires an input file with a .html or .htm extension.\n", 1);
+			}
+			$outputFile = preg_replace('/\.html?$/i', '.md', $inputFile);
+			$replaceSourceFile = $inputFile;
 		}
 
 		// Read HTML input
@@ -82,7 +90,7 @@ class HtmlToMarkdownCommand {
 		$markdown = $this->convertToMarkdown($html, $options);
 
 		// Write output
-		$this->writeOutput($markdown, $outputFile);
+		$this->writeOutput($markdown, $outputFile, $replaceSourceFile);
 	}
 
 	private function runDirectory(string $dir, ?string $outputFile): void {
@@ -434,11 +442,17 @@ class HtmlToMarkdownCommand {
 		return $escapeRegexReplacement[$string];
 	}
 
-	private function writeOutput(string $markdown, ?string $outputFile): void {
+	private function writeOutput(string $markdown, ?string $outputFile, ?string $replaceSourceFile = null): void {
 		if ($outputFile) {
 			// Check if output file already exists
 			if (file_exists($outputFile)) {
-				if (!$this->cli->confirm("Output file already exists: {$outputFile}\nDo you want to overwrite? [y/n]")) {
+				if ($replaceSourceFile !== null) {
+					$prompt = "Markdown file already exists: {$outputFile}\n"
+						. "Do you want to replace it with the converted .md file? [y/n]";
+				} else {
+					$prompt = "Output file already exists: {$outputFile}\nDo you want to overwrite? [y/n]";
+				}
+				if (!$this->cli->confirm($prompt)) {
 					exit(1);
 				}
 			}
@@ -456,8 +470,22 @@ class HtmlToMarkdownCommand {
 				exit(1);
 			}
 
+			if ($replaceSourceFile !== null && $replaceSourceFile !== $outputFile && file_exists($replaceSourceFile)) {
+				if (!unlink($replaceSourceFile)) {
+					$this->cli->err("Wrote {$outputFile} but failed to remove the HTML file: {$replaceSourceFile}\n");
+					exit(1);
+				}
+			}
+
 			if (!$this->cli->isSilent()) {
-				$this->cli->msg("Converted HTML to Markdown: {$outputFile}\n", 'green');
+				if ($replaceSourceFile !== null) {
+					$this->cli->msg(
+						"Converted and replaced " . basename($replaceSourceFile) . " → " . basename($outputFile) . "\n",
+						'green'
+					);
+				} else {
+					$this->cli->msg("Converted HTML to Markdown: {$outputFile}\n", 'green');
+				}
 			}
 		} else {
 			// Write to stdout
