@@ -1,0 +1,48 @@
+{
+    "gemma4:26b-nvfp4": {
+        "when": "Fast-context chat model (MLX works for gemma). Use when you want to paste big text and get quick answers. NOT a coding-agent replacement.",
+        "speed": "558 tok/s prompt eval (5x GGUF), 41 tok/s decode",
+        "tags": [
+            "chat",
+            "mlx",
+            "fast-prompt",
+            "gemma"
+        ]
+    },
+    "llama3.1:8b": {
+        "when": "General chat fallback when you want a non-MLX / non-Gemma flavor. 14 months old; keep only if you have prompts tuned to llama3.",
+        "speed": "42 tok/s GGUF",
+        "tags": [
+            "chat",
+            "general",
+            "older",
+            "fallback"
+        ]
+    },
+    "qwen2.5-coder:1.5b": {
+        "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
+        "speed": "152 tok/s GGUF (best prompt-eval: 276 tok/s)",
+        "tags": [
+            "cron",
+            "tiny",
+            "fast"
+        ]
+    },
+    "qwen2.5-coder:7b": {
+        "when": "Fast coder fallback when qwen3-coder feels heavy.",
+        "speed": "58 tok/s GGUF",
+        "tags": [
+            "coding",
+            "fallback"
+        ]
+    },
+    "qwen3-coder:latest": {
+        "when": "Primary coding agent (aider/pi). Tool-calling strong; decode fast.",
+        "speed": "72 tok/s decode, 110 tok/s prompt eval (GGUF)",
+        "tags": [
+            "coding",
+            "agent",
+            "primary"
+        ]
+    }
+}

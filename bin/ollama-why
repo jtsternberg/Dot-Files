@@ -1,0 +1,211 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Annotate `ollama list` with notes about when/why/how to use each model.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Shows `ollama list` with a column of your own notes about when to use each
+# model. Notes live in ~/.ollama-why.json so they sync with your dotfiles if
+# you symlink that file.
+#
+# Examples:
+# ollama-why                                              # show annotated list
+# ollama-why set qwen3-coder:latest "Primary coding agent"
+# ollama-why set gemma4:26b-nvfp4 --when="General chat" --speed="MoE, 4B active"
+# ollama-why rm llama3.1:8b                               # remove a note
+# ollama-why rm gemma4:31b --delete-model                 # remove note AND run `ollama rm`
+# ollama-why notes                                        # show raw notes JSON
+#
+# Usage (`ollama-why -h`):
+# ollama-why [<command>] [<model>] [<note>] [--when=<text>] [--speed=<text>] [--tags=<csv>]
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('ollama-why')
+	->setDescription('Annotate `ollama list` with your own notes about when to use each model')
+	->setSampleUsage('[set|rm|notes|path] [<model>] [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>]')
+	->buildDocs([
+		'(no command)'    => 'Show `ollama list` with a WHEN column populated from your notes',
+		'set <model> ...' => 'Add or update a note. Positional: `ollama-why set <model> "quick when-text"`',
+		'rm <model>'      => 'Remove a note (use --delete-model to also `ollama rm` the model)',
+		'notes'           => 'Print raw notes JSON (for editing / piping)',
+		'path'            => 'Print the path to the notes file (~/.ollama-why.json)',
+		'--when=<text>'   => 'When/why to use this model',
+		'--speed=<text>'  => 'Speed note (e.g. "~120 tok/s MLX", "MoE 3B active")',
+		'--tags=<csv>'    => 'Comma-separated tags (e.g. "coding,agent,mlx")',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp($cli->getArg(1)));
+	exit(0);
+}
+
+define('JT\\OLLAMA_WHY_FILE', $_SERVER['HOME'] . '/.ollama-why.json');
+
+$cmd = $cli->getArg(1);
+
+switch ($cmd) {
+	case 'set':   cmd_set($cli); break;
+	case 'rm':    cmd_rm($cli); break;
+	case 'notes': cmd_notes($cli); break;
+	case 'path':  echo OLLAMA_WHY_FILE . "\n"; break;
+	case null:
+	case '':      cmd_list($cli); break;
+	default:
+		$cli->exitErr("Unknown command: {$cmd}. Run `ollama-why -h`.", 1);
+}
+
+function load_notes(): array {
+	if (!file_exists(OLLAMA_WHY_FILE)) {
+		return [];
+	}
+	$raw = file_get_contents(OLLAMA_WHY_FILE);
+	$data = json_decode($raw, true);
+	return is_array($data) ? $data : [];
+}
+
+function save_notes(array $notes): void {
+	ksort($notes);
+	file_put_contents(
+		OLLAMA_WHY_FILE,
+		json_encode($notes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
+	);
+}
+
+function cmd_set($cli): void {
+	$model = $cli->getArg(2);
+	if (!$model) {
+		$cli->exitErr('Missing <model>. Usage: ollama-why set <model> [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>]', 1);
+	}
+	$notes = load_notes();
+	$entry = $notes[$model] ?? [];
+
+	// Positional shorthand: `ollama-why set foo "Primary coder"` = --when="Primary coder"
+	$positional = $cli->getArg(3);
+	if ($positional && !$cli->hasFlag('when')) {
+		$entry['when'] = $positional;
+	}
+
+	foreach (['when', 'speed'] as $k) {
+		$v = $cli->getFlag($k);
+		if ($v !== null && $v !== false) {
+			$entry[$k] = $v;
+		}
+	}
+	$tags = $cli->getFlag('tags');
+	if ($tags !== null && $tags !== false) {
+		$entry['tags'] = array_map('trim', array_filter(explode(',', $tags)));
+	}
+
+	if (!$entry) {
+		$cli->exitErr('Nothing to set. Provide a when-text or --when/--speed/--tags.', 1);
+	}
+
+	$notes[$model] = $entry;
+	save_notes($notes);
+	$cli->successMsg("Saved note for {$model}");
+	foreach ($entry as $k => $v) {
+		$val = is_array($v) ? implode(',', $v) : $v;
+		$cli->msg("  {$k}: {$val}", 'cyan');
+	}
+}
+
+function cmd_rm($cli): void {
+	$model = $cli->getArg(2);
+	if (!$model) {
+		$cli->exitErr('Missing <model>. Usage: ollama-why rm <model> [--delete-model]', 1);
+	}
+	$notes = load_notes();
+	$had_note = isset($notes[$model]);
+	if ($had_note) {
+		unset($notes[$model]);
+		save_notes($notes);
+		$cli->successMsg("Removed note for {$model}");
+	} else {
+		$cli->msg("No note found for {$model}", 'yellow');
+	}
+
+	if ($cli->hasFlag('delete-model')) {
+		$cli->msg("Running: ollama rm {$model}", 'cyan');
+		$output = [];
+		$code = 0;
+		exec('ollama rm ' . escapeshellarg($model) . ' 2>&1', $output, $code);
+		foreach ($output as $line) {
+			echo $line . "\n";
+		}
+		if ($code === 0) {
+			$cli->successMsg("Deleted model {$model}");
+		} else {
+			$cli->exitErr("`ollama rm` failed with exit code {$code}", $code);
+		}
+	} elseif (!$had_note) {
+		// Nothing to do; no note and no --delete-model
+		exit(1);
+	}
+}
+
+function cmd_notes($cli): void {
+	echo file_exists(OLLAMA_WHY_FILE) ? file_get_contents(OLLAMA_WHY_FILE) : "{}\n";
+}
+
+function cmd_list($cli): void {
+	$output = [];
+	$code = 0;
+	exec('ollama list 2>&1', $output, $code);
+	if ($code !== 0) {
+		$cli->exitErr("`ollama list` failed:\n" . implode("\n", $output), $code);
+	}
+
+	$notes = load_notes();
+	$seen_models = [];
+
+	// Header (preserve ollama's) + WHEN column
+	$header = array_shift($output);
+	$cli->msg(rtrim($header) . '    WHEN', 'white');
+
+	foreach ($output as $line) {
+		$line = rtrim($line);
+		if ($line === '') continue;
+		// Columns are space-separated; first col is NAME
+		if (!preg_match('/^(\S+)\s+/', $line, $m)) {
+			echo $line . "\n";
+			continue;
+		}
+		$model = $m[1];
+		$seen_models[$model] = true;
+		$note = $notes[$model] ?? null;
+
+		if ($note) {
+			$when = $note['when'] ?? '';
+			echo $line . '    ' . $cli->color('green') . $when . $cli->color('none') . "\n";
+			$indent = str_repeat(' ', 70);
+			if (!empty($note['speed'])) {
+				$cli->msg($indent . '    speed: ' . $note['speed'], 'cyan');
+			}
+			if (!empty($note['tags'])) {
+				$cli->msg($indent . '    tags: ' . implode(', ', $note['tags']), 'magenta');
+			}
+		} else {
+			echo $line . '    ' . $cli->color('yellow') . '(no note — run: ollama-why set ' . $model . ' "...")' . $cli->color('none') . "\n";
+		}
+	}
+
+	// Surface orphaned notes (model no longer installed)
+	$orphans = array_diff_key($notes, $seen_models);
+	if ($orphans) {
+		echo "\n";
+		$cli->msg('Orphaned notes (models no longer installed):', 'yellow');
+		foreach ($orphans as $model => $note) {
+			$when = $note['when'] ?? '';
+			$cli->msg("  {$model}    {$when}", 'red');
+		}
+		$cli->msg('Tip: `ollama-why rm <model>` to clean up.', 'yellow');
+	}
+}
