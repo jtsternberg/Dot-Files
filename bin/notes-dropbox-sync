@@ -40,6 +40,11 @@
 # Defaults — override per-machine via config file
 SYNC_NOTES_TO_DROPBOX=true
 SYNC_DROPBOX_TO_NOTES=true
+DELETE_GRACE=30  # seconds to wait before propagating Dropbox→Notes deletions
+                 # (covers transient MOVED_FROM windows from remotely-save/Dropbox writes)
+MAX_DELETE=3     # refuse Dropbox→Notes sync that would delete more than this many files
+                 # (safety brake: bulk phone deletions are rare; large counts almost always
+                 # mean Dropbox state is glitched, not user intent)
 
 CONFIG="$HOME/.config/notes-dropbox-sync/config"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
@@ -92,9 +97,56 @@ sync_notes_to_dropbox() {
 
 sync_dropbox_to_notes() {
 	date +%s > "$LOCK_D2N"
-	rsync -rlt --delete --no-perms \
+
+	# Pass 1 — copy/update only. NEVER delete on this pass; if Dropbox is mid-write
+	# (MOVED_FROM without yet-arrived MOVED_TO) we don't want to amplify it into Notes.
+	rsync -rlt --no-perms \
 		"${EXCLUDES[@]}" \
 		"$DEST/" "$SOURCE/"
+	date +%s > "$LOCK_D2N"
+
+	# Are there any deletion candidates? (files in Notes that aren't in Dropbox)
+	local pending
+	pending=$(rsync -rlt --delete --dry-run --no-perms \
+		"${EXCLUDES[@]}" \
+		"$DEST/" "$SOURCE/" 2>/dev/null \
+		| grep -c '^deleting ')
+
+	if (( pending > MAX_DELETE )); then
+		echo "Dropbox→Notes: REFUSING to delete $pending file(s); exceeds MAX_DELETE=$MAX_DELETE. Investigate Dropbox state. Skipping deletion pass." >&2
+	elif (( pending > 0 )); then
+		echo "Dropbox→Notes: $pending deletion(s) pending; waiting ${DELETE_GRACE}s grace period to confirm..."
+		# Slice the sleep so we keep LOCK_D2N fresh (well under COOLDOWN=$COOLDOWN)
+		# Otherwise the Notes watcher could see pass 1's writes as "not echo" and
+		# fight us during the grace window.
+		local elapsed=0 step=5
+		while (( elapsed < DELETE_GRACE )); do
+			sleep "$step"
+			elapsed=$(( elapsed + step ))
+			date +%s > "$LOCK_D2N"
+		done
+
+		# Re-check: did the missing files reappear in Dropbox during the grace window?
+		local pending_after
+		pending_after=$(rsync -rlt --delete --dry-run --no-perms \
+			"${EXCLUDES[@]}" \
+			"$DEST/" "$SOURCE/" 2>/dev/null \
+			| grep -c '^deleting ')
+
+		if (( pending_after == 0 )); then
+			echo "Dropbox→Notes: deletion candidates reappeared in Dropbox; no deletions needed."
+		elif (( pending_after > MAX_DELETE )); then
+			echo "Dropbox→Notes: REFUSING to delete $pending_after file(s) after grace window; exceeds MAX_DELETE=$MAX_DELETE. Skipping deletion pass." >&2
+		else
+			echo "Dropbox→Notes: confirming $pending_after deletion(s) after grace window."
+			date +%s > "$LOCK_D2N"
+			rsync -rlt --delete --no-perms \
+				"${EXCLUDES[@]}" \
+				"$DEST/" "$SOURCE/"
+		fi
+	fi
+
+	date +%s > "$LOCK_D2N"
 	echo "Dropbox→Notes synced: $(date)"
 
 	# Commit any changes to git
