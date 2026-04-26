@@ -45,6 +45,8 @@ DELETE_GRACE=30  # seconds to wait before propagating Dropbox→Notes deletions
 MAX_DELETE=3     # refuse Dropbox→Notes sync that would delete more than this many files
                  # (safety brake: bulk phone deletions are rare; large counts almost always
                  # mean Dropbox state is glitched, not user intent)
+DROPBOX_QUIESCENT_TIMEOUT=60  # max seconds to wait for `dropbox status` = "Up to date"
+                              # before each rsync. Linux-only; no-op without the CLI.
 
 CONFIG="$HOME/.config/notes-dropbox-sync/config"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
@@ -87,7 +89,37 @@ is_recent() {
 	(( now - last < COOLDOWN ))
 }
 
+# Wait until the Dropbox daemon reports a fully-synced state before letting
+# rsync touch the shared folder. Linux-only — macOS Dropbox has no CLI.
+# No-op (returns 0 silently) if `dropbox` is missing or the daemon is down,
+# since Phase 1 grace + max-delete still protect us from transient states.
+wait_for_dropbox_quiescent() {
+	command -v dropbox >/dev/null 2>&1 || return 0
+
+	local deadline status
+	deadline=$(( $(date +%s) + DROPBOX_QUIESCENT_TIMEOUT ))
+	while (( $(date +%s) < deadline )); do
+		status=$(dropbox status 2>/dev/null | head -1)
+		case "$status" in
+			"Up to date"|"Idle"|"")
+				return 0
+				;;
+			*"isn't running"*|*"not running"*)
+				echo "Dropbox daemon not running — proceeding without quiescent gate" >&2
+				return 0
+				;;
+		esac
+		sleep 2
+	done
+
+	echo "Dropbox did not reach quiescent state within ${DROPBOX_QUIESCENT_TIMEOUT}s (last status: '$status') — proceeding anyway" >&2
+	return 1
+}
+
 sync_notes_to_dropbox() {
+	# Don't write into Dropbox while it's mid-download from cloud — we'd race
+	# the daemon and could clobber an in-flight sync of an updated file.
+	wait_for_dropbox_quiescent
 	date +%s > "$LOCK_N2D"
 	rsync -rlt --delete --no-perms \
 		"${EXCLUDES[@]}" \
@@ -96,6 +128,10 @@ sync_notes_to_dropbox() {
 }
 
 sync_dropbox_to_notes() {
+	# Wait for Dropbox to finish any in-flight downloads before reading.
+	# Without this, a MOVED_FROM during a delete-then-recreate write looks
+	# identical to a real deletion. With this, we read a coherent view.
+	wait_for_dropbox_quiescent
 	date +%s > "$LOCK_D2N"
 
 	# Pass 1 — copy/update only. NEVER delete on this pass; if Dropbox is mid-write
@@ -138,6 +174,9 @@ sync_dropbox_to_notes() {
 		elif (( pending_after > MAX_DELETE )); then
 			echo "Dropbox→Notes: REFUSING to delete $pending_after file(s) after grace window; exceeds MAX_DELETE=$MAX_DELETE. Skipping deletion pass." >&2
 		else
+			# One more quiescent check before we actually delete — defends against
+			# a sync that started during the grace window and hasn't finished.
+			wait_for_dropbox_quiescent
 			echo "Dropbox→Notes: confirming $pending_after deletion(s) after grace window."
 			date +%s > "$LOCK_D2N"
 			rsync -rlt --delete --no-perms \
