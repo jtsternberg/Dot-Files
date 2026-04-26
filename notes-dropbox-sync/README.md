@@ -94,6 +94,93 @@ The rsync excludes files that don't belong in the cloud copy:
 - `*.orig` — merge/conflict artifacts
 - `.fb-review-profile`, `.mcp.json` — local config
 
+## How sync robustness works
+
+The naïve version of this script (just `inotifywait` → `rsync --delete`) loses
+data. The Dropbox daemon and the [remotely-save](https://github.com/remotely-save/remotely-save)
+plugin both write files via "delete-then-recreate" or atomic-rename patterns,
+which surface to inotify as a `MOVED_FROM` event followed (sometimes much
+later) by a matching `MOVED_TO`. If `rsync --delete` runs in that gap, it
+sees a "missing" file in Dropbox and faithfully deletes it from Notes.
+
+This script defends against that with three layered checks before any
+deletion is propagated:
+
+### Layer 1 — Dropbox quiescent gate (Linux only)
+
+Before any rsync runs (in either direction), the script polls
+`dropbox status` until it reports `Up to date` or `Idle`. If Dropbox is
+mid-sync, we wait. Hard-capped by `DROPBOX_QUIESCENT_TIMEOUT` (default 60s)
+to avoid hanging if the CLI itself hangs or the daemon dies.
+
+This alone catches the original bug: a missing file due to a mid-flight
+write shows up as `Syncing 1 file...`, and we wait for the daemon to
+finish before rsync ever inspects the folder.
+
+macOS Dropbox doesn't ship a CLI, so on macOS this layer is a no-op (the
+two layers below still apply). If `dropbox` isn't installed on Linux
+either, the layer also no-ops.
+
+### Layer 2 — Two-pass copy/delete with grace window
+
+The Dropbox→Notes direction never deletes on its first rsync pass. It
+runs in two phases:
+
+1. **Copy/update pass** — picks up new files and edits. No `--delete`.
+   Cannot lose data.
+2. **Dry-run check** — does rsync want to delete anything?
+3. If yes: **wait `DELETE_GRACE` seconds** (default 30s), then run a
+   second dry-run. If the "missing" files reappeared in Dropbox during
+   the grace window (the original bug pattern), no deletions happen.
+   The cross-direction lock is refreshed every 5s during the wait so
+   the Notes watcher correctly treats concurrent activity as echo.
+4. **Delete pass** — only the files still missing after the grace
+   window get deleted.
+
+### Layer 3 — `MAX_DELETE` safety brake
+
+If more than `MAX_DELETE` files (default 3) would be removed in a single
+sync cycle, the deletion pass is **skipped entirely** — the copy/update
+already happened, but no files are removed. A loud diagnostic line goes
+to the journal/log so you can investigate.
+
+Phone-driven deletions of 4+ files at once are essentially never
+legitimate; a glitched Dropbox state, a bad cloud sync, or a runaway
+plugin is far more likely. This layer accepts the trade-off of leaving
+stale files behind in exchange for never losing notes en masse. Real
+bulk deletions can be done by hand.
+
+### Configuration
+
+All three layers are tunable via `~/.config/notes-dropbox-sync/config`:
+
+```sh
+# Sync direction toggles (default: both true)
+SYNC_NOTES_TO_DROPBOX=true
+SYNC_DROPBOX_TO_NOTES=true
+
+# Robustness knobs
+DROPBOX_QUIESCENT_TIMEOUT=60   # Layer 1 (Linux): max poll wait, seconds
+DELETE_GRACE=30                # Layer 2: grace window before propagating deletions
+MAX_DELETE=3                   # Layer 3: refuse to delete more than this many files at once
+```
+
+Bump `DELETE_GRACE` if you have a slow network or large incoming syncs.
+Raise `MAX_DELETE` if you genuinely want bulk mobile deletions to
+propagate without manual intervention.
+
+### Recovering from a past deletion
+
+If an earlier version of the script (before these defenses landed) lost
+a note, it's still in `~/Documents/Notes/.git`. Find the deleting
+commit and the one immediately before it:
+
+```bash
+cd ~/Documents/Notes
+git log --diff-filter=D -- 'path/to/lost-note.md'   # finds the deletion commit
+git show <commit-before-deletion>:'path/to/lost-note.md' > 'path/to/lost-note.md'
+```
+
 ## Why a launcher?
 
 macOS requires Full Disk Access (FDA) to read/write Dropbox's `~/Library/CloudStorage/` path. FDA is granted per-binary, but shell scripts aren't binaries — they're interpreted by bash, so macOS sees bash as the process. Granting FDA to `/bin/bash` is too broad.
