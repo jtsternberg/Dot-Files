@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# =============================================================================
+# test-gemini-key
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Tests a Gemini API key stored in 1Password by issuing a minimal
+# generateContent request and reporting success/failure.
+#
+# Usage:
+#   test-gemini-key <vault> <item> [--field=password] [--model=gemini-2.5-flash]
+#   test-gemini-key --key=<api-key> [--model=gemini-2.5-flash]
+#   test-gemini-key <api-key>       [--model=gemini-2.5-flash]   # auto-detected
+# =============================================================================
+
+set -u
+
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+RESET=$'\033[0m'
+
+err()     { printf '%s%s%s\n' "$RED" "$*" "$RESET" >&2; }
+info()    { printf '%s%s%s\n' "$YELLOW" "$*" "$RESET"; }
+success() { printf '%s%s%s\n' "$GREEN" "$*" "$RESET"; }
+
+usage() {
+	cat <<'EOF'
+test-gemini-key — Test a Gemini API key stored in 1Password.
+
+USAGE:
+  test-gemini-key <vault> <item> [--field=<label>] [--model=<name>]
+  test-gemini-key --key=<api-key> [--model=<name>]
+  test-gemini-key <api-key>       [--model=<name>]
+
+ARGUMENTS:
+  <vault>    1Password vault name or ID
+  <item>     1Password item name or ID within that vault
+  <api-key>  A literal Gemini API key (auto-detected: starts with "AIza")
+
+OPTIONS:
+  --key=<value>     Pass the API key directly (bypasses 1Password)
+  --field=<label>   1P field label to read (default: password)
+  --model=<name>    Gemini model to test (default: gemini-2.5-flash)
+  -h, --help        Show this help
+
+REQUIREMENTS:
+  - 1Password CLI (`op`) installed and signed in
+  - `curl` and `jq` available on PATH
+
+EXIT CODES:
+  0  success (HTTP 200 from Gemini)
+  1  failure (missing deps, bad key, non-200 response, etc.)
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+	usage
+	exit 1
+fi
+
+vault=""
+item=""
+field="password"
+model="gemini-2.5-flash"
+key=""
+positional=()
+
+for arg in "$@"; do
+	case "$arg" in
+		-h|--help)
+			usage
+			exit 0
+			;;
+		--key=*)
+			key="${arg#--key=}"
+			;;
+		--field=*)
+			field="${arg#--field=}"
+			;;
+		--model=*)
+			model="${arg#--model=}"
+			;;
+		--*)
+			err "Unknown flag: $arg"
+			exit 1
+			;;
+		*)
+			positional+=("$arg")
+			;;
+	esac
+done
+
+# Auto-detect a single positional that looks like a Gemini key.
+if [[ -z "$key" && ${#positional[@]} -eq 1 && "${positional[0]}" == AIza* ]]; then
+	key="${positional[0]}"
+	positional=()
+fi
+
+if [[ -z "$key" ]]; then
+	if [[ ${#positional[@]} -lt 2 ]]; then
+		err "Missing required arguments: <vault> <item> (or pass --key=<value>)"
+		echo
+		usage
+		exit 1
+	fi
+	vault="${positional[0]}"
+	item="${positional[1]}"
+fi
+
+required_cmds=(curl jq)
+if [[ -z "$key" ]]; then
+	required_cmds+=(op)
+fi
+
+for cmd in "${required_cmds[@]}"; do
+	if ! command -v "$cmd" >/dev/null 2>&1; then
+		err "Required command not found: $cmd"
+		case "$cmd" in
+			op)   err "Install the 1Password CLI: https://developer.1password.com/docs/cli/get-started/" ;;
+			jq)   err "Install jq (e.g. 'brew install jq' or 'apt install jq')" ;;
+			curl) err "Install curl" ;;
+		esac
+		exit 1
+	fi
+done
+
+if [[ -z "$key" ]]; then
+	if ! op account get >/dev/null 2>&1; then
+		err "1Password CLI is not signed in. Run: eval \$(op signin)"
+		exit 1
+	fi
+
+	info "Reading key from 1Password (vault=$vault, item=$item, field=$field)..."
+	key="$(op item get "$item" --vault "$vault" --fields "label=$field" --reveal 2>/dev/null || true)"
+
+	if [[ -z "$key" ]]; then
+		err "Failed to read a non-empty value from 1Password."
+		err "Verify the vault, item, and field exist and the field is not empty."
+		exit 1
+	fi
+else
+	info "Using API key passed directly (length=${#key})."
+fi
+
+info "Testing model: $model"
+
+response_file="$(mktemp -t gemini-test.XXXXXX)"
+trap 'rm -f "$response_file"' EXIT
+
+http_code="$(curl -sS \
+	-o "$response_file" \
+	-w "%{http_code}" \
+	"https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}" \
+	-H 'Content-Type: application/json' \
+	-d '{"contents":[{"parts":[{"text":"Reply with the single word: pong"}]}]}')"
+
+if [[ "$http_code" == "200" ]]; then
+	reply="$(jq -r '.candidates[0].content.parts[0].text // empty' "$response_file" 2>/dev/null)"
+	if [[ -z "$reply" ]]; then
+		reply="(no text in response)"
+	fi
+	success "✓ Gemini API key works (HTTP 200, model=$model)"
+	success "  Reply: $reply"
+	exit 0
+fi
+
+err "✗ Gemini request failed (HTTP $http_code)"
+err "Response body:"
+cat "$response_file" >&2
+echo >&2
+exit 1
