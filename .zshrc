@@ -85,6 +85,7 @@ alias cctail='node ~/.claude/hooks/tail-session.js'
 # Claude Code...
 alias ch='claude --chrome'
 alias yolo='claude --dangerously-skip-permissions'
+alias yr='claude --dangerously-skip-permissions --resume'
 alias claudecatchup='claude "/catchup"'
 alias claudecreatepr='claude "/create-pr"'
 alias claudecreateissue='claude "/create-github-issue"'
