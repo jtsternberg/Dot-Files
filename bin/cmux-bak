@@ -60,7 +60,7 @@ class CmuxBak {
 
 	public function run() {
 		$result = shell_exec('cmux ping 2>/dev/null');
-		if (trim($result) !== 'PONG') {
+		if (trim((string) $result) !== 'PONG') {
 			$this->cli->exitErr('cmux is not reachable. Is cmux running?');
 		}
 
