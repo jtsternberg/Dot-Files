@@ -1,0 +1,504 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Backup and restore cmux workspace/session state
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Saves all cmux workspaces, panes, and surfaces to ~/.config/cmux/bak.json,
+# capturing each terminal's CWD and any active Claude Code session ID.
+#
+# On restore, audits existing workspaces against the backup and only acts on
+# what's missing: resumes dead Claude sessions in existing workspaces, and
+# recreates workspaces that are gone entirely.
+#
+# Session IDs are resolved by reading ~/.claude/sessions/<pid>.json and
+# mapping PIDs to TTYs — no screen-scraping required.
+#
+# Usage:
+# cmux-bak [--restore] [--file <path>] [--dry-run] [--verbose]
+# =============================================================================
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+BAK_DEFAULT = Path.home() / ".config" / "cmux" / "bak.json"
+SESSIONS_DIR = Path.home() / ".claude" / "sessions"
+
+
+def log(msg):
+    print(f"[cmux-bak] {msg}", file=sys.stderr)
+
+
+def err(msg):
+    print(f"[cmux-bak] ERROR: {msg}", file=sys.stderr)
+
+
+def run_cmux(*args, timeout=10):
+    result = subprocess.run(["cmux", *args], capture_output=True, text=True, timeout=timeout)
+    return result
+
+
+def get_cmux_tree():
+    result = run_cmux("tree", "--all", "--json")
+    if result.returncode != 0:
+        err(f"cmux tree failed: {result.stderr.strip()}")
+        sys.exit(1)
+    return json.loads(result.stdout)
+
+
+def get_cwd_for_pid(pid):
+    """Get the cwd of a process via lsof."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            parts = line.split(None, 8)
+            if len(parts) >= 5 and parts[3] == "cwd":
+                return parts[-1]
+    except Exception:
+        pass
+    return None
+
+
+def get_cwd_for_tty(tty):
+    """Get cwd of the foreground process on a TTY."""
+    if not tty:
+        return None
+    try:
+        result = subprocess.run(
+            ["ps", "-t", tty, "-o", "pid=,stat="],
+            capture_output=True, text=True, timeout=5
+        )
+        pid = None
+        # Prefer foreground process (stat contains +)
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and "+" in parts[1]:
+                pid = parts[0].strip()
+                break
+        if not pid:
+            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+            if lines:
+                pid = lines[0].split()[0]
+        if pid:
+            return get_cwd_for_pid(pid)
+    except Exception:
+        pass
+    return None
+
+
+def pid_is_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def get_tty_for_pid(pid):
+    """Get the TTY device name for a PID."""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "tty="],
+            capture_output=True, text=True, timeout=5
+        )
+        tty = result.stdout.strip()
+        return tty if tty and tty != "??" else None
+    except Exception:
+        return None
+
+
+def load_claude_sessions():
+    """
+    Load all active Claude sessions from ~/.claude/sessions/<pid>.json.
+    Returns dict: tty -> {session_id, cwd, status, pid}
+    """
+    sessions_by_tty = {}
+
+    if not SESSIONS_DIR.exists():
+        return sessions_by_tty
+
+    for f in SESSIONS_DIR.glob("*.json"):
+        try:
+            pid_str = f.stem
+            if not pid_str.isdigit():
+                continue
+            pid = int(pid_str)
+            if not pid_is_alive(pid):
+                continue
+            data = json.loads(f.read_text())
+            tty = get_tty_for_pid(pid)
+            if tty:
+                sessions_by_tty[tty] = {
+                    "session_id": data.get("sessionId"),
+                    "cwd": data.get("cwd"),
+                    "status": data.get("status"),
+                    "pid": pid,
+                }
+        except Exception:
+            continue
+
+    return sessions_by_tty
+
+
+def iter_surfaces(tree):
+    """Yield (workspace, pane, surface) tuples from a cmux tree."""
+    for window in tree.get("windows", []):
+        for ws in window.get("workspaces", []):
+            for pane in ws.get("panes", []):
+                for surf in pane.get("surfaces", []):
+                    yield ws, pane, surf
+
+
+# ─── BACKUP ──────────────────────────────────────────────────────────────────
+
+def do_backup(bak_file, verbose=False):
+    log("Scanning cmux state...")
+
+    tree = get_cmux_tree()
+    claude_sessions = load_claude_sessions()
+
+    if verbose:
+        log(f"  Found {len(claude_sessions)} active Claude sessions")
+
+    workspaces_data = []
+
+    for window in tree.get("windows", []):
+        for ws in window.get("workspaces", []):
+            ws_data = {
+                "title": ws.get("title", ""),
+                "ref": ws.get("ref", ""),
+                "description": ws.get("description"),
+                "panes": [],
+            }
+
+            for pane in ws.get("panes", []):
+                pane_data = {
+                    "ref": pane.get("ref", ""),
+                    "index": pane.get("index", 0),
+                    "surfaces": [],
+                }
+
+                for surf in pane.get("surfaces", []):
+                    surf_ref = surf.get("ref", "")
+                    title = surf.get("title", "")
+                    surf_type = surf.get("type", "terminal")
+                    tty = surf.get("tty", "")
+                    url = surf.get("url")
+
+                    if verbose:
+                        log(f"  {surf_ref} [{ws_data['title'][:20]}] {title[:40]}")
+
+                    cwd = None
+                    session_id = None
+
+                    if surf_type == "terminal" and tty:
+                        session = claude_sessions.get(tty)
+                        if session:
+                            session_id = session["session_id"]
+                            cwd = session["cwd"]
+                            if verbose:
+                                log(f"    → Claude session {session_id} cwd={cwd}")
+                        else:
+                            cwd = get_cwd_for_tty(tty)
+                            if verbose and cwd:
+                                log(f"    → cwd={cwd}")
+
+                    pane_data["surfaces"].append({
+                        "ref": surf_ref,
+                        "title": title,
+                        "type": surf_type,
+                        "tty": tty,
+                        "url": url,
+                        "cwd": cwd,
+                        "claude_session_id": session_id,
+                        "index_in_pane": surf.get("index_in_pane", 0),
+                    })
+
+                ws_data["panes"].append(pane_data)
+
+            workspaces_data.append(ws_data)
+
+    backup = {
+        "version": 1,
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "workspaces": workspaces_data,
+    }
+
+    bak_file.parent.mkdir(parents=True, exist_ok=True)
+    bak_file.write_text(json.dumps(backup, indent=2))
+
+    ws_count = len(workspaces_data)
+    surf_count = sum(
+        len(p["surfaces"])
+        for ws in workspaces_data
+        for p in ws["panes"]
+    )
+    session_count = sum(
+        1
+        for ws in workspaces_data
+        for p in ws["panes"]
+        for s in p["surfaces"]
+        if s.get("claude_session_id")
+    )
+
+    log(f"Saved {ws_count} workspaces, {surf_count} surfaces, {session_count} Claude sessions → {bak_file}")
+
+
+# ─── RESTORE ─────────────────────────────────────────────────────────────────
+
+def send_to_surface(surface_ref, workspace_ref, text, dry_run=False, label=None):
+    if label:
+        log(f"    → {label}")
+    if not dry_run:
+        run_cmux("send", "--surface", surface_ref, "--workspace", workspace_ref, text)
+
+
+def do_restore(bak_file, dry_run=False, verbose=False):
+    if not bak_file.exists():
+        err(f"Backup file not found: {bak_file}")
+        err("Run cmux-bak first to create a backup.")
+        sys.exit(1)
+
+    backup = json.loads(bak_file.read_text())
+    log(f"Backup from: {backup.get('timestamp', 'unknown')}")
+    if dry_run:
+        log("(dry run — no changes will be made)")
+    log("")
+
+    tree = get_cmux_tree()
+    claude_sessions = load_claude_sessions()  # Currently alive sessions
+
+    # Build map: tty → session_id for alive sessions (to detect what's already running)
+    alive_ttys = set(claude_sessions.keys())
+
+    # Build map: workspace title → workspace data (current)
+    current_ws_by_title = {}
+    for ws, pane, surf in iter_surfaces(tree):
+        title = ws.get("title", "")
+        if title not in current_ws_by_title:
+            current_ws_by_title[title] = ws
+
+    # Also build surface map per workspace: tty → surface ref + workspace ref
+    current_surf_by_tty = {}
+    for ws, pane, surf in iter_surfaces(tree):
+        tty = surf.get("tty", "")
+        if tty:
+            current_surf_by_tty[tty] = {
+                "surface_ref": surf.get("ref", ""),
+                "workspace_ref": ws.get("ref", ""),
+                "pane_ref": pane.get("ref", ""),
+                "title": surf.get("title", ""),
+                "tty": tty,
+            }
+
+    for bak_ws in backup.get("workspaces", []):
+        ws_title = bak_ws.get("title", "")
+        log(f"Workspace: '{ws_title}'")
+
+        if ws_title in current_ws_by_title:
+            current_ws = current_ws_by_title[ws_title]
+            current_ws_ref = current_ws.get("ref", "")
+            log(f"  ✓ Exists as {current_ws_ref}")
+
+            # Build title→surface map for current workspace
+            current_surfs_by_title = {}
+            for pane in current_ws.get("panes", []):
+                for surf in pane.get("surfaces", []):
+                    current_surfs_by_title[surf.get("title", "")] = {
+                        "ref": surf.get("ref", ""),
+                        "pane_ref": pane.get("ref", ""),
+                        "tty": surf.get("tty", ""),
+                        "type": surf.get("type", "terminal"),
+                    }
+
+            for bak_pane in bak_ws.get("panes", []):
+                for bak_surf in bak_pane.get("surfaces", []):
+                    surf_title = bak_surf.get("title", "")
+                    bak_session_id = bak_surf.get("claude_session_id")
+                    bak_cwd = bak_surf.get("cwd", "")
+                    surf_type = bak_surf.get("type", "terminal")
+
+                    if surf_type != "terminal" or not bak_session_id:
+                        # Nothing to restore for browser surfaces or non-Claude terminals
+                        continue
+
+                    # Find the surface in the current workspace by title
+                    current_surf = current_surfs_by_title.get(surf_title)
+
+                    if current_surf:
+                        surf_ref = current_surf["ref"]
+                        tty = current_surf["tty"]
+                        log(f"  Surface '{surf_title[:45]}'")
+
+                        if tty in alive_ttys:
+                            existing = claude_sessions[tty]
+                            if existing["session_id"] == bak_session_id:
+                                log(f"    ✓ Same Claude session already running")
+                            else:
+                                log(f"    ✓ Different Claude session running ({existing['session_id'][:8]}…), leaving it")
+                        else:
+                            log(f"    ✗ Claude not running — resuming {bak_session_id}")
+                            if bak_cwd:
+                                send_to_surface(
+                                    surf_ref, current_ws_ref,
+                                    f"cd {bak_cwd}\n",
+                                    dry_run=dry_run,
+                                    label=f"cd {bak_cwd}",
+                                )
+                                if not dry_run:
+                                    time.sleep(0.3)
+                            send_to_surface(
+                                surf_ref, current_ws_ref,
+                                f"claude --resume {bak_session_id}\n",
+                                dry_run=dry_run,
+                                label=f"claude --resume {bak_session_id}",
+                            )
+                    else:
+                        log(f"  Surface '{surf_title[:45]}'")
+                        log(f"    ✗ Not found in current workspace (skipping)")
+
+        else:
+            log(f"  ✗ Not found — creating workspace")
+
+            # Get cwd from first surface
+            first_cwd = next(
+                (s["cwd"] for p in bak_ws.get("panes", []) for s in p["surfaces"] if s.get("cwd")),
+                None,
+            )
+
+            cmd = ["cmux", "new-workspace", "--name", ws_title]
+            if first_cwd:
+                cmd += ["--cwd", first_cwd]
+
+            if verbose:
+                log(f"    $ {' '.join(cmd)}")
+
+            if not dry_run:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    log(f"    WARNING: failed to create workspace: {result.stderr.strip()}")
+                    continue
+                time.sleep(0.5)
+
+                # Re-fetch tree to find the new workspace
+                new_tree = get_cmux_tree()
+                new_ws = next(
+                    (ws for ws, _, _ in iter_surfaces(new_tree) if ws.get("title") == ws_title),
+                    None,
+                )
+                if not new_ws:
+                    log(f"    WARNING: could not find newly created workspace '{ws_title}'")
+                    continue
+
+                new_ws_ref = new_ws.get("ref", "")
+                log(f"    Created as {new_ws_ref}")
+
+                # Process surfaces
+                first_pane_ref = new_ws["panes"][0]["ref"] if new_ws.get("panes") else None
+                first_surf_ref = (
+                    new_ws["panes"][0]["surfaces"][0]["ref"]
+                    if new_ws.get("panes") and new_ws["panes"][0].get("surfaces")
+                    else None
+                )
+
+                for pane_idx, bak_pane in enumerate(bak_ws.get("panes", [])):
+                    for surf_idx, bak_surf in enumerate(bak_pane.get("surfaces", [])):
+                        bak_cwd = bak_surf.get("cwd", "")
+                        bak_session_id = bak_surf.get("claude_session_id")
+                        surf_type = bak_surf.get("type", "terminal")
+                        surf_url = bak_surf.get("url")
+
+                        if pane_idx == 0 and surf_idx == 0:
+                            # Use the auto-created first surface
+                            target_ref = first_surf_ref
+                            target_ws_ref = new_ws_ref
+                        else:
+                            # Create additional surfaces
+                            if surf_type == "browser" and surf_url:
+                                r = run_cmux("new-surface", "--type", "browser",
+                                             "--workspace", new_ws_ref, "--url", surf_url)
+                            elif first_pane_ref:
+                                r = run_cmux("new-surface", "--type", "terminal",
+                                             "--pane", first_pane_ref, "--workspace", new_ws_ref)
+                            else:
+                                continue
+                            time.sleep(0.4)
+
+                            # Find the newly created surface (last in workspace)
+                            refreshed = get_cmux_tree()
+                            refreshed_ws = next(
+                                (ws for ws, _, _ in iter_surfaces(refreshed)
+                                 if ws.get("ref") == new_ws_ref),
+                                None,
+                            )
+                            if not refreshed_ws or not refreshed_ws.get("panes"):
+                                continue
+                            all_surfs = [
+                                s for p in refreshed_ws["panes"] for s in p.get("surfaces", [])
+                            ]
+                            target_ref = all_surfs[-1]["ref"] if all_surfs else None
+                            target_ws_ref = new_ws_ref
+
+                        if not target_ref:
+                            continue
+
+                        if bak_cwd and not (pane_idx == 0 and surf_idx == 0 and first_cwd):
+                            send_to_surface(target_ref, target_ws_ref, f"cd {bak_cwd}\n")
+                            time.sleep(0.3)
+
+                        if bak_session_id:
+                            log(f"    → Resuming Claude session {bak_session_id}")
+                            send_to_surface(
+                                target_ref, target_ws_ref,
+                                f"claude --resume {bak_session_id}\n",
+                            )
+            else:
+                surfs = [s for p in bak_ws.get("panes", []) for s in p.get("surfaces", [])]
+                sessions = [s for s in surfs if s.get("claude_session_id")]
+                log(f"    Would create workspace with {len(surfs)} surface(s), {len(sessions)} Claude session(s)")
+
+    log("")
+    log("Restore complete.")
+
+
+# ─── MAIN ────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="cmux-bak",
+        description="Backup and restore cmux workspace/session state",
+    )
+    parser.add_argument("--restore", "-r", action="store_true",
+                        help="Restore from backup (audits existing state first)")
+    parser.add_argument("--file", "-f", type=Path, default=BAK_DEFAULT,
+                        help=f"Backup file path (default: {BAK_DEFAULT})")
+    parser.add_argument("--dry-run", "-n", action="store_true",
+                        help="Show what would be done without doing it")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Show detailed progress")
+    args = parser.parse_args()
+
+    # Verify cmux is reachable
+    result = subprocess.run(["cmux", "ping"], capture_output=True, text=True, timeout=5)
+    if result.returncode != 0:
+        err("cmux is not reachable. Is cmux running?")
+        sys.exit(1)
+
+    if args.restore:
+        do_restore(args.file, dry_run=args.dry_run, verbose=args.verbose)
+    else:
+        do_backup(args.file, verbose=args.verbose)
+
+
+if __name__ == "__main__":
+    main()
