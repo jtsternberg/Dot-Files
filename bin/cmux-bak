@@ -246,12 +246,31 @@ class CmuxBak {
 						$currentSurf = $currentSurfByTitle[$surfTitle] ?? null;
 
 						if (!$currentSurf) {
-							$this->cli->msg('    ✗ Not found in current workspace (skipping)', 'yellow');
-							continue;
+							$this->cli->msg('    ✗ Not found in current workspace', 'yellow');
+
+							if ($this->dryRun) {
+								$this->cli->msg('    (dry run — would prompt to open new surface or skip)', 'cyan');
+								continue;
+							}
+
+							$choice = $this->askSurfaceNotFound($surfTitle, $bakCwd, $sessionId);
+							if ($choice === 'skip') {
+								$this->cli->msg('    Skipped.', 'cyan');
+								continue;
+							}
+
+							// Open a new surface in the workspace and target it
+							$surfRef = $this->openNewSurfaceInWorkspace($currentWsRef, $currentWs);
+							if (!$surfRef) {
+								$this->cli->err('    Failed to create new surface, skipping.');
+								continue;
+							}
+							$this->cli->msg("    → Opened new surface {$surfRef}", 'green');
+							$currentSurf = ['ref' => $surfRef, 'tty' => ''];
 						}
 
 						$surfRef = $currentSurf['ref'];
-						$tty     = $currentSurf['tty'];
+						$tty     = $currentSurf['tty'] ?? '';
 
 						if (in_array($tty, $aliveTtys, true)) {
 							$existing = $aliveSessions[$tty];
@@ -553,6 +572,62 @@ class CmuxBak {
 			}
 		}
 		return $surfs;
+	}
+
+	/**
+	 * Prompt the user when a backed-up surface can't be matched by title.
+	 * Returns 'new' or 'skip'.
+	 */
+	protected function askSurfaceNotFound(string $surfTitle, string $cwd, string $sessionId) {
+		$short = substr($sessionId, 0, 8);
+		$label = substr($surfTitle, 0, 50);
+		$this->cli->msg("    Session: {$short}… | cwd: {$cwd}", 'cyan');
+		$this->cli->msg('    What would you like to do?', 'cyan');
+		$this->cli->msg('      [n] Open a new surface in this workspace and resume the session');
+		$this->cli->msg('      [s] Skip');
+
+		while (true) {
+			$answer = strtolower(trim($this->cli->ask('    Choice [n/s]: ')));
+			if ($answer === 'n' || $answer === 'new') {
+				return 'new';
+			}
+			if ($answer === 's' || $answer === 'skip' || $answer === '') {
+				return 'skip';
+			}
+			$this->cli->msg('    Please enter n or s.', 'yellow');
+		}
+	}
+
+	/**
+	 * Create a new terminal surface in an existing workspace and return its ref.
+	 * Adds to the first pane if one exists, otherwise creates a new pane.
+	 */
+	protected function openNewSurfaceInWorkspace(string $wsRef, array $currentWs) {
+		$firstPaneRef = $currentWs['panes'][0]['ref'] ?? null;
+
+		$cmd = 'cmux new-surface --type terminal --workspace ' . escapeshellarg($wsRef);
+		if ($firstPaneRef) {
+			$cmd .= ' --pane ' . escapeshellarg($firstPaneRef);
+		}
+
+		shell_exec($cmd . ' 2>/dev/null');
+		usleep(500000);
+
+		// Find the newly created surface (last in the workspace)
+		$newTree = $this->getCmuxTree();
+		$newWs   = $this->findWorkspaceByRef($newTree, $wsRef);
+		if (!$newWs) {
+			return null;
+		}
+
+		$allSurfs = [];
+		foreach ($newWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $s) {
+				$allSurfs[] = $s['ref'];
+			}
+		}
+
+		return $allSurfs ? end($allSurfs) : null;
 	}
 }
 
