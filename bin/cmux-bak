@@ -216,16 +216,22 @@ class CmuxBak {
 				$currentWsRef = $currentWs['ref'] ?? '';
 				$this->cli->msg("  ✓ Exists as {$currentWsRef}", 'green');
 
-				// Map surface title → surface data within this workspace
+				// Map surface title → surface data within this workspace.
+				// Index by both raw title and normalized title (spinner prefix stripped)
+				// so matches survive Claude Code changing ✳ ↔ ⠂⠒⠐… between backup and restore.
 				$currentSurfByTitle = [];
 				foreach ($currentWs['panes'] ?? [] as $pane) {
 					foreach ($pane['surfaces'] ?? [] as $surf) {
-						$currentSurfByTitle[$surf['title'] ?? ''] = [
+						$data = [
 							'ref'      => $surf['ref'] ?? '',
 							'pane_ref' => $pane['ref'] ?? '',
 							'tty'      => $surf['tty'] ?? '',
 							'type'     => $surf['type'] ?? 'terminal',
 						];
+						$raw        = $surf['title'] ?? '';
+						$normalized = $this->normalizeTitle($raw);
+						$currentSurfByTitle[$raw]        = $data;
+						$currentSurfByTitle[$normalized] = $data;
 					}
 				}
 
@@ -243,7 +249,9 @@ class CmuxBak {
 						$label = substr($surfTitle, 0, 45);
 						$this->cli->msg("  Surface '{$label}'");
 
-						$currentSurf = $currentSurfByTitle[$surfTitle] ?? null;
+						$currentSurf = $currentSurfByTitle[$surfTitle]
+							?? $currentSurfByTitle[$this->normalizeTitle($surfTitle)]
+							?? null;
 
 						if (!$currentSurf) {
 							$this->cli->msg('    ✗ Not found in current workspace', 'yellow');
@@ -551,6 +559,16 @@ class CmuxBak {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Strip the leading status indicator that Claude Code prepends to terminal titles.
+	 * Claude uses spinner chars (⠂⠒⠐…) while active and ✳ when idle — these change
+	 * between backup time and restore time, so we normalize them away for matching.
+	 */
+	protected function normalizeTitle(string $title): string {
+		// Strip any leading non-ASCII characters (the icon) plus following whitespace
+		return preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title);
 	}
 
 	protected function firstCwdFromBakWs(array $bakWs) {
