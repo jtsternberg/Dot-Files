@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+#!/usr/bin/env php
+<?php
+namespace JT;
 # =============================================================================
 # Backup and restore cmux workspace/session state
 # By Justin Sternberg <me@jtsternberg.com>
@@ -8,497 +10,558 @@
 # Saves all cmux workspaces, panes, and surfaces to ~/.config/cmux/bak.json,
 # capturing each terminal's CWD and any active Claude Code session ID.
 #
-# On restore, audits existing workspaces against the backup and only acts on
-# what's missing: resumes dead Claude sessions in existing workspaces, and
-# recreates workspaces that are gone entirely.
+# Session IDs come from ~/.claude/sessions/<pid>.json — no screen-scraping.
 #
-# Session IDs are resolved by reading ~/.claude/sessions/<pid>.json and
-# mapping PIDs to TTYs — no screen-scraping required.
+# On --restore, audits existing workspaces by name and only acts on what's
+# missing: resumes dead Claude sessions in existing workspaces, and recreates
+# workspaces that are gone entirely.
 #
 # Usage:
-# cmux-bak [--restore] [--file <path>] [--dry-run] [--verbose]
+# cmux-bak [--restore] [--file=<path>] [--dry-run] [--verbose]
 # =============================================================================
 
-import argparse
-import json
-import os
-import subprocess
-import sys
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-
-BAK_DEFAULT = Path.home() / ".config" / "cmux" / "bak.json"
-SESSIONS_DIR = Path.home() / ".claude" / "sessions"
-
-
-def log(msg):
-    print(f"[cmux-bak] {msg}", file=sys.stderr)
-
-
-def err(msg):
-    print(f"[cmux-bak] ERROR: {msg}", file=sys.stderr)
-
-
-def run_cmux(*args, timeout=10):
-    result = subprocess.run(["cmux", *args], capture_output=True, text=True, timeout=timeout)
-    return result
-
-
-def get_cmux_tree():
-    result = run_cmux("tree", "--all", "--json")
-    if result.returncode != 0:
-        err(f"cmux tree failed: {result.stderr.strip()}")
-        sys.exit(1)
-    return json.loads(result.stdout)
-
-
-def get_cwd_for_pid(pid):
-    """Get the cwd of a process via lsof."""
-    try:
-        result = subprocess.run(
-            ["lsof", "-p", str(pid)],
-            capture_output=True, text=True, timeout=5
-        )
-        for line in result.stdout.splitlines():
-            parts = line.split(None, 8)
-            if len(parts) >= 5 and parts[3] == "cwd":
-                return parts[-1]
-    except Exception:
-        pass
-    return None
-
-
-def get_cwd_for_tty(tty):
-    """Get cwd of the foreground process on a TTY."""
-    if not tty:
-        return None
-    try:
-        result = subprocess.run(
-            ["ps", "-t", tty, "-o", "pid=,stat="],
-            capture_output=True, text=True, timeout=5
-        )
-        pid = None
-        # Prefer foreground process (stat contains +)
-        for line in result.stdout.splitlines():
-            parts = line.split()
-            if len(parts) >= 2 and "+" in parts[1]:
-                pid = parts[0].strip()
-                break
-        if not pid:
-            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-            if lines:
-                pid = lines[0].split()[0]
-        if pid:
-            return get_cwd_for_pid(pid)
-    except Exception:
-        pass
-    return None
-
-
-def pid_is_alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
-
-
-def get_tty_for_pid(pid):
-    """Get the TTY device name for a PID."""
-    try:
-        result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "tty="],
-            capture_output=True, text=True, timeout=5
-        )
-        tty = result.stdout.strip()
-        return tty if tty and tty != "??" else None
-    except Exception:
-        return None
-
-
-def load_claude_sessions():
-    """
-    Load all active Claude sessions from ~/.claude/sessions/<pid>.json.
-    Returns dict: tty -> {session_id, cwd, status, pid}
-    """
-    sessions_by_tty = {}
-
-    if not SESSIONS_DIR.exists():
-        return sessions_by_tty
-
-    for f in SESSIONS_DIR.glob("*.json"):
-        try:
-            pid_str = f.stem
-            if not pid_str.isdigit():
-                continue
-            pid = int(pid_str)
-            if not pid_is_alive(pid):
-                continue
-            data = json.loads(f.read_text())
-            tty = get_tty_for_pid(pid)
-            if tty:
-                sessions_by_tty[tty] = {
-                    "session_id": data.get("sessionId"),
-                    "cwd": data.get("cwd"),
-                    "status": data.get("status"),
-                    "pid": pid,
-                }
-        except Exception:
-            continue
-
-    return sessions_by_tty
-
-
-def iter_surfaces(tree):
-    """Yield (workspace, pane, surface) tuples from a cmux tree."""
-    for window in tree.get("windows", []):
-        for ws in window.get("workspaces", []):
-            for pane in ws.get("panes", []):
-                for surf in pane.get("surfaces", []):
-                    yield ws, pane, surf
-
-
-# ─── BACKUP ──────────────────────────────────────────────────────────────────
-
-def do_backup(bak_file, verbose=False):
-    log("Scanning cmux state...")
-
-    tree = get_cmux_tree()
-    claude_sessions = load_claude_sessions()
-
-    if verbose:
-        log(f"  Found {len(claude_sessions)} active Claude sessions")
-
-    workspaces_data = []
-
-    for window in tree.get("windows", []):
-        for ws in window.get("workspaces", []):
-            ws_data = {
-                "title": ws.get("title", ""),
-                "ref": ws.get("ref", ""),
-                "description": ws.get("description"),
-                "panes": [],
-            }
-
-            for pane in ws.get("panes", []):
-                pane_data = {
-                    "ref": pane.get("ref", ""),
-                    "index": pane.get("index", 0),
-                    "surfaces": [],
-                }
-
-                for surf in pane.get("surfaces", []):
-                    surf_ref = surf.get("ref", "")
-                    title = surf.get("title", "")
-                    surf_type = surf.get("type", "terminal")
-                    tty = surf.get("tty", "")
-                    url = surf.get("url")
-
-                    if verbose:
-                        log(f"  {surf_ref} [{ws_data['title'][:20]}] {title[:40]}")
-
-                    cwd = None
-                    session_id = None
-
-                    if surf_type == "terminal" and tty:
-                        session = claude_sessions.get(tty)
-                        if session:
-                            session_id = session["session_id"]
-                            cwd = session["cwd"]
-                            if verbose:
-                                log(f"    → Claude session {session_id} cwd={cwd}")
-                        else:
-                            cwd = get_cwd_for_tty(tty)
-                            if verbose and cwd:
-                                log(f"    → cwd={cwd}")
-
-                    pane_data["surfaces"].append({
-                        "ref": surf_ref,
-                        "title": title,
-                        "type": surf_type,
-                        "tty": tty,
-                        "url": url,
-                        "cwd": cwd,
-                        "claude_session_id": session_id,
-                        "index_in_pane": surf.get("index_in_pane", 0),
-                    })
-
-                ws_data["panes"].append(pane_data)
-
-            workspaces_data.append(ws_data)
-
-    backup = {
-        "version": 1,
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "workspaces": workspaces_data,
-    }
-
-    bak_file.parent.mkdir(parents=True, exist_ok=True)
-    bak_file.write_text(json.dumps(backup, indent=2))
-
-    ws_count = len(workspaces_data)
-    surf_count = sum(
-        len(p["surfaces"])
-        for ws in workspaces_data
-        for p in ws["panes"]
-    )
-    session_count = sum(
-        1
-        for ws in workspaces_data
-        for p in ws["panes"]
-        for s in p["surfaces"]
-        if s.get("claude_session_id")
-    )
-
-    log(f"Saved {ws_count} workspaces, {surf_count} surfaces, {session_count} Claude sessions → {bak_file}")
-
-
-# ─── RESTORE ─────────────────────────────────────────────────────────────────
-
-def send_to_surface(surface_ref, workspace_ref, text, dry_run=False, label=None):
-    if label:
-        log(f"    → {label}")
-    if not dry_run:
-        run_cmux("send", "--surface", surface_ref, "--workspace", workspace_ref, text)
-
-
-def do_restore(bak_file, dry_run=False, verbose=False):
-    if not bak_file.exists():
-        err(f"Backup file not found: {bak_file}")
-        err("Run cmux-bak first to create a backup.")
-        sys.exit(1)
-
-    backup = json.loads(bak_file.read_text())
-    log(f"Backup from: {backup.get('timestamp', 'unknown')}")
-    if dry_run:
-        log("(dry run — no changes will be made)")
-    log("")
-
-    tree = get_cmux_tree()
-    claude_sessions = load_claude_sessions()  # Currently alive sessions
-
-    # Build map: tty → session_id for alive sessions (to detect what's already running)
-    alive_ttys = set(claude_sessions.keys())
-
-    # Build map: workspace title → workspace data (current)
-    current_ws_by_title = {}
-    for ws, pane, surf in iter_surfaces(tree):
-        title = ws.get("title", "")
-        if title not in current_ws_by_title:
-            current_ws_by_title[title] = ws
-
-    # Also build surface map per workspace: tty → surface ref + workspace ref
-    current_surf_by_tty = {}
-    for ws, pane, surf in iter_surfaces(tree):
-        tty = surf.get("tty", "")
-        if tty:
-            current_surf_by_tty[tty] = {
-                "surface_ref": surf.get("ref", ""),
-                "workspace_ref": ws.get("ref", ""),
-                "pane_ref": pane.get("ref", ""),
-                "title": surf.get("title", ""),
-                "tty": tty,
-            }
-
-    for bak_ws in backup.get("workspaces", []):
-        ws_title = bak_ws.get("title", "")
-        log(f"Workspace: '{ws_title}'")
-
-        if ws_title in current_ws_by_title:
-            current_ws = current_ws_by_title[ws_title]
-            current_ws_ref = current_ws.get("ref", "")
-            log(f"  ✓ Exists as {current_ws_ref}")
-
-            # Build title→surface map for current workspace
-            current_surfs_by_title = {}
-            for pane in current_ws.get("panes", []):
-                for surf in pane.get("surfaces", []):
-                    current_surfs_by_title[surf.get("title", "")] = {
-                        "ref": surf.get("ref", ""),
-                        "pane_ref": pane.get("ref", ""),
-                        "tty": surf.get("tty", ""),
-                        "type": surf.get("type", "terminal"),
-                    }
-
-            for bak_pane in bak_ws.get("panes", []):
-                for bak_surf in bak_pane.get("surfaces", []):
-                    surf_title = bak_surf.get("title", "")
-                    bak_session_id = bak_surf.get("claude_session_id")
-                    bak_cwd = bak_surf.get("cwd", "")
-                    surf_type = bak_surf.get("type", "terminal")
-
-                    if surf_type != "terminal" or not bak_session_id:
-                        # Nothing to restore for browser surfaces or non-Claude terminals
-                        continue
-
-                    # Find the surface in the current workspace by title
-                    current_surf = current_surfs_by_title.get(surf_title)
-
-                    if current_surf:
-                        surf_ref = current_surf["ref"]
-                        tty = current_surf["tty"]
-                        log(f"  Surface '{surf_title[:45]}'")
-
-                        if tty in alive_ttys:
-                            existing = claude_sessions[tty]
-                            if existing["session_id"] == bak_session_id:
-                                log(f"    ✓ Same Claude session already running")
-                            else:
-                                log(f"    ✓ Different Claude session running ({existing['session_id'][:8]}…), leaving it")
-                        else:
-                            log(f"    ✗ Claude not running — resuming {bak_session_id}")
-                            if bak_cwd:
-                                send_to_surface(
-                                    surf_ref, current_ws_ref,
-                                    f"cd {bak_cwd}\n",
-                                    dry_run=dry_run,
-                                    label=f"cd {bak_cwd}",
-                                )
-                                if not dry_run:
-                                    time.sleep(0.3)
-                            send_to_surface(
-                                surf_ref, current_ws_ref,
-                                f"claude --resume {bak_session_id}\n",
-                                dry_run=dry_run,
-                                label=f"claude --resume {bak_session_id}",
-                            )
-                    else:
-                        log(f"  Surface '{surf_title[:45]}'")
-                        log(f"    ✗ Not found in current workspace (skipping)")
-
-        else:
-            log(f"  ✗ Not found — creating workspace")
-
-            # Get cwd from first surface
-            first_cwd = next(
-                (s["cwd"] for p in bak_ws.get("panes", []) for s in p["surfaces"] if s.get("cwd")),
-                None,
-            )
-
-            cmd = ["cmux", "new-workspace", "--name", ws_title]
-            if first_cwd:
-                cmd += ["--cwd", first_cwd]
-
-            if verbose:
-                log(f"    $ {' '.join(cmd)}")
-
-            if not dry_run:
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    log(f"    WARNING: failed to create workspace: {result.stderr.strip()}")
-                    continue
-                time.sleep(0.5)
-
-                # Re-fetch tree to find the new workspace
-                new_tree = get_cmux_tree()
-                new_ws = next(
-                    (ws for ws, _, _ in iter_surfaces(new_tree) if ws.get("title") == ws_title),
-                    None,
-                )
-                if not new_ws:
-                    log(f"    WARNING: could not find newly created workspace '{ws_title}'")
-                    continue
-
-                new_ws_ref = new_ws.get("ref", "")
-                log(f"    Created as {new_ws_ref}")
-
-                # Process surfaces
-                first_pane_ref = new_ws["panes"][0]["ref"] if new_ws.get("panes") else None
-                first_surf_ref = (
-                    new_ws["panes"][0]["surfaces"][0]["ref"]
-                    if new_ws.get("panes") and new_ws["panes"][0].get("surfaces")
-                    else None
-                )
-
-                for pane_idx, bak_pane in enumerate(bak_ws.get("panes", [])):
-                    for surf_idx, bak_surf in enumerate(bak_pane.get("surfaces", [])):
-                        bak_cwd = bak_surf.get("cwd", "")
-                        bak_session_id = bak_surf.get("claude_session_id")
-                        surf_type = bak_surf.get("type", "terminal")
-                        surf_url = bak_surf.get("url")
-
-                        if pane_idx == 0 and surf_idx == 0:
-                            # Use the auto-created first surface
-                            target_ref = first_surf_ref
-                            target_ws_ref = new_ws_ref
-                        else:
-                            # Create additional surfaces
-                            if surf_type == "browser" and surf_url:
-                                r = run_cmux("new-surface", "--type", "browser",
-                                             "--workspace", new_ws_ref, "--url", surf_url)
-                            elif first_pane_ref:
-                                r = run_cmux("new-surface", "--type", "terminal",
-                                             "--pane", first_pane_ref, "--workspace", new_ws_ref)
-                            else:
-                                continue
-                            time.sleep(0.4)
-
-                            # Find the newly created surface (last in workspace)
-                            refreshed = get_cmux_tree()
-                            refreshed_ws = next(
-                                (ws for ws, _, _ in iter_surfaces(refreshed)
-                                 if ws.get("ref") == new_ws_ref),
-                                None,
-                            )
-                            if not refreshed_ws or not refreshed_ws.get("panes"):
-                                continue
-                            all_surfs = [
-                                s for p in refreshed_ws["panes"] for s in p.get("surfaces", [])
-                            ]
-                            target_ref = all_surfs[-1]["ref"] if all_surfs else None
-                            target_ws_ref = new_ws_ref
-
-                        if not target_ref:
-                            continue
-
-                        if bak_cwd and not (pane_idx == 0 and surf_idx == 0 and first_cwd):
-                            send_to_surface(target_ref, target_ws_ref, f"cd {bak_cwd}\n")
-                            time.sleep(0.3)
-
-                        if bak_session_id:
-                            log(f"    → Resuming Claude session {bak_session_id}")
-                            send_to_surface(
-                                target_ref, target_ws_ref,
-                                f"claude --resume {bak_session_id}\n",
-                            )
-            else:
-                surfs = [s for p in bak_ws.get("panes", []) for s in p.get("surfaces", [])]
-                sessions = [s for s in surfs if s.get("claude_session_id")]
-                log(f"    Would create workspace with {len(surfs)} surface(s), {len(sessions)} Claude session(s)")
-
-    log("")
-    log("Restore complete.")
-
-
-# ─── MAIN ────────────────────────────────────────────────────────────────────
-
-def main():
-    parser = argparse.ArgumentParser(
-        prog="cmux-bak",
-        description="Backup and restore cmux workspace/session state",
-    )
-    parser.add_argument("--restore", "-r", action="store_true",
-                        help="Restore from backup (audits existing state first)")
-    parser.add_argument("--file", "-f", type=Path, default=BAK_DEFAULT,
-                        help=f"Backup file path (default: {BAK_DEFAULT})")
-    parser.add_argument("--dry-run", "-n", action="store_true",
-                        help="Show what would be done without doing it")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Show detailed progress")
-    args = parser.parse_args()
-
-    # Verify cmux is reachable
-    result = subprocess.run(["cmux", "ping"], capture_output=True, text=True, timeout=5)
-    if result.returncode != 0:
-        err("cmux is not reachable. Is cmux running?")
-        sys.exit(1)
-
-    if args.restore:
-        do_restore(args.file, dry_run=args.dry_run, verbose=args.verbose)
-    else:
-        do_backup(args.file, verbose=args.verbose)
-
-
-if __name__ == "__main__":
-    main()
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('cmux-bak')
+	->setDescription('Backup and restore cmux workspace/session state.')
+	->setSampleUsage('[--restore] [--file=<path>] [--dry-run] [--verbose]')
+	->buildDocs([
+		'--restore'      => 'Restore from backup, auditing existing workspaces first',
+		'--file=<path>'  => 'Backup file path (default: ~/.config/cmux/bak.json)',
+		'--dry-run'      => 'Show what would be done without making changes',
+		'--verbose'      => 'Show detailed progress',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+class CmuxBak {
+
+	const BAK_DEFAULT = '~/.config/cmux/bak.json';
+	const SESSIONS_DIR = '~/.claude/sessions';
+
+	protected $cli;
+	protected $bakFile;
+	protected $dryRun;
+	protected $verbose;
+
+	public function __construct($cli) {
+		$this->cli     = $cli;
+		$this->dryRun  = $cli->hasFlag('dry-run');
+		$this->verbose = $cli->isVerbose();
+
+		$file          = $cli->getFlag('file', self::BAK_DEFAULT);
+		$this->bakFile = $this->cli->convertPathToAbsolute($file);
+	}
+
+	public function run() {
+		$result = shell_exec('cmux ping 2>/dev/null');
+		if (trim($result) !== 'PONG') {
+			$this->cli->exitErr('cmux is not reachable. Is cmux running?');
+		}
+
+		if ($this->cli->hasFlag('restore')) {
+			$this->restore();
+		} else {
+			$this->backup();
+		}
+	}
+
+	// ── Backup ────────────────────────────────────────────────────────────────
+
+	protected function backup() {
+		$this->cli->msg('Scanning cmux state...', 'yellow');
+
+		$tree = $this->getCmuxTree();
+		$claudeSessions = $this->loadClaudeSessions();
+
+		if ($this->verbose) {
+			$this->cli->msg('  Found ' . count($claudeSessions) . ' active Claude sessions', 'cyan');
+		}
+
+		$workspacesData = [];
+
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$wsData = [
+					'title'       => $ws['title'] ?? '',
+					'ref'         => $ws['ref'] ?? '',
+					'description' => $ws['description'] ?? null,
+					'panes'       => [],
+				];
+
+				foreach ($ws['panes'] ?? [] as $pane) {
+					$paneData = [
+						'ref'      => $pane['ref'] ?? '',
+						'index'    => $pane['index'] ?? 0,
+						'surfaces' => [],
+					];
+
+					foreach ($pane['surfaces'] ?? [] as $surf) {
+						$surfRef  = $surf['ref'] ?? '';
+						$title    = $surf['title'] ?? '';
+						$type     = $surf['type'] ?? 'terminal';
+						$tty      = $surf['tty'] ?? '';
+						$url      = $surf['url'] ?? null;
+						$cwd      = null;
+						$sessionId = null;
+
+						if ($this->verbose) {
+							$this->cli->msg(
+								"  {$surfRef} [{$wsData['title']}] " . substr($title, 0, 40),
+								'cyan'
+							);
+						}
+
+						if ($type === 'terminal' && $tty) {
+							$session = $claudeSessions[$tty] ?? null;
+							if ($session) {
+								$sessionId = $session['session_id'];
+								$cwd       = $session['cwd'];
+								if ($this->verbose) {
+									$short = substr($sessionId, 0, 8);
+									$this->cli->msg("    → Claude session {$short}… cwd={$cwd}", 'green');
+								}
+							} else {
+								$cwd = $this->getCwdForTty($tty);
+								if ($this->verbose && $cwd) {
+									$this->cli->msg("    → cwd={$cwd}");
+								}
+							}
+						}
+
+						$paneData['surfaces'][] = [
+							'ref'               => $surfRef,
+							'title'             => $title,
+							'type'              => $type,
+							'tty'               => $tty,
+							'url'               => $url,
+							'cwd'               => $cwd,
+							'claude_session_id' => $sessionId,
+							'index_in_pane'     => $surf['index_in_pane'] ?? 0,
+						];
+					}
+
+					$wsData['panes'][] = $paneData;
+				}
+
+				$workspacesData[] = $wsData;
+			}
+		}
+
+		$backup = [
+			'version'    => 1,
+			'timestamp'  => gmdate('Y-m-d\TH:i:s\Z'),
+			'workspaces' => $workspacesData,
+		];
+
+		$dir = dirname($this->bakFile);
+		if (!is_dir($dir)) {
+			mkdir($dir, 0755, true);
+		}
+
+		file_put_contents($this->bakFile, json_encode($backup, JSON_PRETTY_PRINT));
+
+		$wsCount   = count($workspacesData);
+		$surfCount = array_sum(array_map(function($ws) {
+			return array_sum(array_map(fn($p) => count($p['surfaces']), $ws['panes']));
+		}, $workspacesData));
+		$sessCount = array_sum(array_map(function($ws) {
+			return array_sum(array_map(function($p) {
+				return count(array_filter($p['surfaces'], fn($s) => !empty($s['claude_session_id'])));
+			}, $ws['panes']));
+		}, $workspacesData));
+
+		$this->cli->successMsg(
+			"Saved {$wsCount} workspaces, {$surfCount} surfaces, {$sessCount} Claude sessions → {$this->bakFile}"
+		);
+	}
+
+	// ── Restore ───────────────────────────────────────────────────────────────
+
+	protected function restore() {
+		if (!file_exists($this->bakFile)) {
+			$this->cli->exitErr("Backup file not found: {$this->bakFile}\nRun cmux-bak first.");
+		}
+
+		$backup = json_decode(file_get_contents($this->bakFile), true);
+		$this->cli->msg('Backup from: ' . ($backup['timestamp'] ?? 'unknown'), 'yellow');
+		if ($this->dryRun) {
+			$this->cli->msg('(dry run — no changes will be made)', 'cyan');
+		}
+		$this->cli->lineBreak();
+
+		$tree           = $this->getCmuxTree();
+		$aliveSessions  = $this->loadClaudeSessions();
+		$aliveTtys      = array_keys($aliveSessions);
+
+		// Map workspace title → workspace data (current)
+		$currentWsByTitle = [];
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$currentWsByTitle[$ws['title'] ?? ''] = $ws;
+			}
+		}
+
+		foreach ($backup['workspaces'] ?? [] as $bakWs) {
+			$wsTitle = $bakWs['title'] ?? '';
+			$this->cli->msg("Workspace: '{$wsTitle}'");
+
+			if (isset($currentWsByTitle[$wsTitle])) {
+				$currentWs    = $currentWsByTitle[$wsTitle];
+				$currentWsRef = $currentWs['ref'] ?? '';
+				$this->cli->msg("  ✓ Exists as {$currentWsRef}", 'green');
+
+				// Map surface title → surface data within this workspace
+				$currentSurfByTitle = [];
+				foreach ($currentWs['panes'] ?? [] as $pane) {
+					foreach ($pane['surfaces'] ?? [] as $surf) {
+						$currentSurfByTitle[$surf['title'] ?? ''] = [
+							'ref'      => $surf['ref'] ?? '',
+							'pane_ref' => $pane['ref'] ?? '',
+							'tty'      => $surf['tty'] ?? '',
+							'type'     => $surf['type'] ?? 'terminal',
+						];
+					}
+				}
+
+				foreach ($bakWs['panes'] ?? [] as $bakPane) {
+					foreach ($bakPane['surfaces'] ?? [] as $bakSurf) {
+						$surfTitle  = $bakSurf['title'] ?? '';
+						$sessionId  = $bakSurf['claude_session_id'] ?? null;
+						$bakCwd     = $bakSurf['cwd'] ?? '';
+						$surfType   = $bakSurf['type'] ?? 'terminal';
+
+						if ($surfType !== 'terminal' || !$sessionId) {
+							continue;
+						}
+
+						$label = substr($surfTitle, 0, 45);
+						$this->cli->msg("  Surface '{$label}'");
+
+						$currentSurf = $currentSurfByTitle[$surfTitle] ?? null;
+
+						if (!$currentSurf) {
+							$this->cli->msg('    ✗ Not found in current workspace (skipping)', 'yellow');
+							continue;
+						}
+
+						$surfRef = $currentSurf['ref'];
+						$tty     = $currentSurf['tty'];
+
+						if (in_array($tty, $aliveTtys, true)) {
+							$existing = $aliveSessions[$tty];
+							if ($existing['session_id'] === $sessionId) {
+								$this->cli->msg('    ✓ Same Claude session already running', 'green');
+							} else {
+								$short = substr($existing['session_id'], 0, 8);
+								$this->cli->msg("    ✓ Different Claude session running ({$short}…), leaving it", 'cyan');
+							}
+						} else {
+							$short = substr($sessionId, 0, 8);
+							$this->cli->msg("    ✗ Claude not running — resuming {$short}…", 'yellow');
+							if ($bakCwd) {
+								$this->sendToSurface($surfRef, $currentWsRef, "cd {$bakCwd}\n", "cd {$bakCwd}");
+								if (!$this->dryRun) {
+									usleep(300000);
+								}
+							}
+							$this->sendToSurface(
+								$surfRef, $currentWsRef,
+								"claude --resume {$sessionId}\n",
+								"claude --resume {$short}…"
+							);
+						}
+					}
+				}
+
+			} else {
+				$this->cli->msg('  ✗ Not found — creating workspace', 'yellow');
+
+				$firstCwd = $this->firstCwdFromBakWs($bakWs);
+
+				$cmd = 'cmux new-workspace --name ' . escapeshellarg($wsTitle);
+				if ($firstCwd) {
+					$cmd .= ' --cwd ' . escapeshellarg($firstCwd);
+				}
+
+				if ($this->verbose) {
+					$this->cli->msg("  \$ {$cmd}");
+				}
+
+				if ($this->dryRun) {
+					$surfs   = $this->allSurfacesFromBakWs($bakWs);
+					$sessions = array_filter($surfs, fn($s) => !empty($s['claude_session_id']));
+					$sc = count($surfs);
+					$ss = count($sessions);
+					$this->cli->msg("    Would create with {$sc} surface(s), {$ss} Claude session(s)");
+					continue;
+				}
+
+				$result = $this->cli->getCommandOutputAndExitCode($cmd);
+				if ($result['exitCode'] !== 0) {
+					$this->cli->err("    Failed to create workspace: " . $result['error']);
+					continue;
+				}
+
+				usleep(500000);
+
+				// Re-fetch tree to find the new workspace
+				$newTree = $this->getCmuxTree();
+				$newWs   = $this->findWorkspaceByTitle($newTree, $wsTitle);
+
+				if (!$newWs) {
+					$this->cli->err("    Could not find newly created workspace '{$wsTitle}'");
+					continue;
+				}
+
+				$newWsRef      = $newWs['ref'];
+				$firstPaneRef  = $newWs['panes'][0]['ref'] ?? null;
+				$firstSurfRef  = $newWs['panes'][0]['surfaces'][0]['ref'] ?? null;
+				$this->cli->msg("    Created as {$newWsRef}", 'green');
+
+				foreach ($bakWs['panes'] ?? [] as $paneIdx => $bakPane) {
+					foreach ($bakPane['surfaces'] ?? [] as $surfIdx => $bakSurf) {
+						$bakCwd    = $bakSurf['cwd'] ?? '';
+						$sessionId = $bakSurf['claude_session_id'] ?? null;
+						$surfType  = $bakSurf['type'] ?? 'terminal';
+						$surfUrl   = $bakSurf['url'] ?? null;
+
+						if ($paneIdx === 0 && $surfIdx === 0) {
+							$targetRef   = $firstSurfRef;
+							$targetWsRef = $newWsRef;
+						} else {
+							$targetRef = $this->createSurface($newWsRef, $firstPaneRef, $surfType, $surfUrl);
+							if (!$targetRef) {
+								continue;
+							}
+							$targetWsRef = $newWsRef;
+						}
+
+						if (!$targetRef) {
+							continue;
+						}
+
+						// Only cd if it wasn't handled via --cwd on workspace creation
+						if ($bakCwd && !($paneIdx === 0 && $surfIdx === 0 && $firstCwd)) {
+							$this->sendToSurface($targetRef, $targetWsRef, "cd {$bakCwd}\n");
+							usleep(300000);
+						}
+
+						if ($sessionId) {
+							$short = substr($sessionId, 0, 8);
+							$this->cli->msg("    → Resuming Claude session {$short}…");
+							$this->sendToSurface($targetRef, $targetWsRef, "claude --resume {$sessionId}\n");
+						}
+					}
+				}
+			}
+
+			$this->cli->lineBreak();
+		}
+
+		$this->cli->successMsg('Restore complete.');
+	}
+
+	// ── Helpers ───────────────────────────────────────────────────────────────
+
+	protected function getCmuxTree() {
+		$output = shell_exec('cmux tree --all --json 2>/dev/null');
+		if (!$output) {
+			$this->cli->exitErr('cmux tree returned no output.');
+		}
+		$tree = json_decode($output, true);
+		if (!$tree) {
+			$this->cli->exitErr('Failed to parse cmux tree JSON.');
+		}
+		return $tree;
+	}
+
+	/**
+	 * Load all active Claude sessions from ~/.claude/sessions/<pid>.json.
+	 * Returns array keyed by tty: [ tty => [session_id, cwd, status, pid] ]
+	 */
+	protected function loadClaudeSessions() {
+		$sessionsDir = $this->cli->convertPathToAbsolute(self::SESSIONS_DIR);
+		$sessions    = [];
+
+		if (!is_dir($sessionsDir)) {
+			return $sessions;
+		}
+
+		foreach (glob($sessionsDir . '/*.json') ?: [] as $file) {
+			$pid = pathinfo($file, PATHINFO_FILENAME);
+			if (!ctype_digit($pid)) {
+				continue;
+			}
+			if (!$this->pidIsAlive((int) $pid)) {
+				continue;
+			}
+			$data = json_decode(file_get_contents($file), true);
+			if (!$data) {
+				continue;
+			}
+			$tty = $this->getTtyForPid((int) $pid);
+			if ($tty) {
+				$sessions[$tty] = [
+					'session_id' => $data['sessionId'] ?? null,
+					'cwd'        => $data['cwd'] ?? null,
+					'status'     => $data['status'] ?? null,
+					'pid'        => (int) $pid,
+				];
+			}
+		}
+
+		return $sessions;
+	}
+
+	protected function pidIsAlive(int $pid) {
+		if (function_exists('posix_kill')) {
+			return posix_kill($pid, 0);
+		}
+		exec("kill -0 {$pid} 2>/dev/null", $out, $code);
+		return $code === 0;
+	}
+
+	protected function getTtyForPid(int $pid) {
+		$tty = trim((string) shell_exec("ps -p {$pid} -o tty= 2>/dev/null"));
+		return ($tty && $tty !== '??') ? $tty : null;
+	}
+
+	protected function getCwdForTty(string $tty) {
+		$psOut = shell_exec("ps -t {$tty} -o pid=,stat= 2>/dev/null");
+		$pid   = null;
+
+		// Prefer foreground process (stat contains +)
+		foreach (explode("\n", trim((string) $psOut)) as $line) {
+			$parts = preg_split('/\s+/', trim($line));
+			if (count($parts) >= 2 && strpos($parts[1], '+') !== false) {
+				$pid = $parts[0];
+				break;
+			}
+		}
+
+		if (!$pid) {
+			$lines = array_filter(explode("\n", trim((string) $psOut)));
+			if ($lines) {
+				$pid = preg_split('/\s+/', trim(reset($lines)))[0];
+			}
+		}
+
+		if (!$pid) {
+			return null;
+		}
+
+		$lsofOut = shell_exec("lsof -p {$pid} 2>/dev/null");
+		foreach (explode("\n", (string) $lsofOut) as $line) {
+			// Fields: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+			$parts = preg_split('/\s+/', $line, 9);
+			if (isset($parts[3]) && $parts[3] === 'cwd') {
+				return $parts[8] ?? null;
+			}
+		}
+
+		return null;
+	}
+
+	protected function sendToSurface(string $surfRef, string $wsRef, string $text, string $label = '') {
+		if ($label) {
+			$this->cli->msg("    → {$label}");
+		}
+		if (!$this->dryRun) {
+			shell_exec(
+				'cmux send --surface ' . escapeshellarg($surfRef)
+				. ' --workspace ' . escapeshellarg($wsRef)
+				. ' ' . escapeshellarg($text)
+				. ' 2>/dev/null'
+			);
+		}
+	}
+
+	protected function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url) {
+		$cmd = 'cmux new-surface --type ' . escapeshellarg($type)
+			. ' --workspace ' . escapeshellarg($wsRef);
+
+		if ($type === 'browser' && $url) {
+			$cmd .= ' --url ' . escapeshellarg($url);
+		} elseif ($paneRef) {
+			$cmd .= ' --pane ' . escapeshellarg($paneRef);
+		}
+
+		shell_exec($cmd . ' 2>/dev/null');
+		usleep(400000);
+
+		// Find the last surface in the workspace (the one we just created)
+		$newTree = $this->getCmuxTree();
+		$newWs   = $this->findWorkspaceByRef($newTree, $wsRef);
+		if (!$newWs) {
+			return null;
+		}
+
+		$allSurfs = [];
+		foreach ($newWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $s) {
+				$allSurfs[] = $s['ref'];
+			}
+		}
+
+		return $allSurfs ? end($allSurfs) : null;
+	}
+
+	protected function findWorkspaceByTitle(array $tree, string $title) {
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				if (($ws['title'] ?? '') === $title) {
+					return $ws;
+				}
+			}
+		}
+		return null;
+	}
+
+	protected function findWorkspaceByRef(array $tree, string $ref) {
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				if (($ws['ref'] ?? '') === $ref) {
+					return $ws;
+				}
+			}
+		}
+		return null;
+	}
+
+	protected function firstCwdFromBakWs(array $bakWs) {
+		foreach ($bakWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				if (!empty($surf['cwd'])) {
+					return $surf['cwd'];
+				}
+			}
+		}
+		return null;
+	}
+
+	protected function allSurfacesFromBakWs(array $bakWs) {
+		$surfs = [];
+		foreach ($bakWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				$surfs[] = $surf;
+			}
+		}
+		return $surfs;
+	}
+}
+
+try {
+	$cmd = new CmuxBak($cli);
+	$cmd->run();
+} catch (\Exception $e) {
+	$cli->err($e->getMessage());
+	exit(1);
+}
+
+exit(0);
