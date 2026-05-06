@@ -117,14 +117,21 @@ class CmuxBak {
 							);
 						}
 
+						$skipPerms = false;
+						$model     = null;
+
 						if ($type === 'terminal' && $tty) {
 							$session = $claudeSessions[$tty] ?? null;
 							if ($session) {
 								$sessionId = $session['session_id'];
 								$cwd       = $session['cwd'];
+								$skipPerms = $session['skip_perms'] ?? false;
+								$model     = $session['model'] ?? null;
 								if ($this->verbose) {
 									$short = substr($sessionId, 0, 8);
-									$this->cli->msg("    → Claude session {$short}… cwd={$cwd}", 'green');
+									$flags = $skipPerms ? ' --dangerously-skip-permissions' : '';
+									$flags .= $model ? " --model={$model}" : '';
+									$this->cli->msg("    → Claude session {$short}… cwd={$cwd}{$flags}", 'green');
 								}
 							} else {
 								$cwd = $this->getCwdForTty($tty);
@@ -135,14 +142,16 @@ class CmuxBak {
 						}
 
 						$paneData['surfaces'][] = [
-							'ref'               => $surfRef,
-							'title'             => $title,
-							'type'              => $type,
-							'tty'               => $tty,
-							'url'               => $url,
-							'cwd'               => $cwd,
-							'claude_session_id' => $sessionId,
-							'index_in_pane'     => $surf['index_in_pane'] ?? 0,
+							'ref'                        => $surfRef,
+							'title'                      => $title,
+							'type'                       => $type,
+							'tty'                        => $tty,
+							'url'                        => $url,
+							'cwd'                        => $cwd,
+							'claude_session_id'          => $sessionId,
+							'claude_skip_permissions'    => $skipPerms,
+							'claude_model'               => $model,
+							'index_in_pane'              => $surf['index_in_pane'] ?? 0,
 						];
 					}
 
@@ -241,6 +250,8 @@ class CmuxBak {
 						$sessionId  = $bakSurf['claude_session_id'] ?? null;
 						$bakCwd     = $bakSurf['cwd'] ?? '';
 						$surfType   = $bakSurf['type'] ?? 'terminal';
+						$skipPerms  = $bakSurf['claude_skip_permissions'] ?? false;
+						$model      = $bakSurf['claude_model'] ?? null;
 
 						if ($surfType !== 'terminal' || !$sessionId) {
 							continue;
@@ -297,10 +308,11 @@ class CmuxBak {
 									usleep(300000);
 								}
 							}
+							$resumeCmd = $this->buildResumeCommand($sessionId, $skipPerms, $model);
 							$this->sendToSurface(
 								$surfRef, $currentWsRef,
-								"claude --resume {$sessionId}\n",
-								"claude --resume {$short}…"
+								"{$resumeCmd}\n",
+								$resumeCmd
 							);
 						}
 					}
@@ -380,9 +392,10 @@ class CmuxBak {
 						}
 
 						if ($sessionId) {
-							$short = substr($sessionId, 0, 8);
-							$this->cli->msg("    → Resuming Claude session {$short}…");
-							$this->sendToSurface($targetRef, $targetWsRef, "claude --resume {$sessionId}\n");
+							$short      = substr($sessionId, 0, 8);
+							$resumeCmd  = $this->buildResumeCommand($sessionId, $skipPerms, $model);
+							$this->cli->msg("    → {$resumeCmd}");
+							$this->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
 						}
 					}
 				}
@@ -435,10 +448,12 @@ class CmuxBak {
 			$tty = $this->getTtyForPid((int) $pid);
 			if ($tty) {
 				$sessions[$tty] = [
-					'session_id' => $data['sessionId'] ?? null,
-					'cwd'        => $data['cwd'] ?? null,
-					'status'     => $data['status'] ?? null,
-					'pid'        => (int) $pid,
+					'session_id'   => $data['sessionId'] ?? null,
+					'cwd'          => $data['cwd'] ?? null,
+					'status'       => $data['status'] ?? null,
+					'pid'          => (int) $pid,
+					'skip_perms'   => $this->processHasFlag((int) $pid, '--dangerously-skip-permissions'),
+					'model'        => $this->processGetFlag((int) $pid, '--model'),
 				];
 			}
 		}
@@ -566,6 +581,32 @@ class CmuxBak {
 	 * Claude uses spinner chars (⠂⠒⠐…) while active and ✳ when idle — these change
 	 * between backup time and restore time, so we normalize them away for matching.
 	 */
+	protected function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model): string {
+		$cmd = 'claude';
+		if ($skipPerms) {
+			$cmd .= ' --dangerously-skip-permissions';
+		}
+		$cmd .= " --resume {$sessionId}";
+		if ($model) {
+			$cmd .= " --model={$model}";
+		}
+		return $cmd;
+	}
+
+	protected function processHasFlag(int $pid, string $flag): bool {
+		$args = trim((string) shell_exec("ps -p {$pid} -o args= 2>/dev/null"));
+		return strpos($args, $flag) !== false;
+	}
+
+	protected function processGetFlag(int $pid, string $flag): ?string {
+		$args = trim((string) shell_exec("ps -p {$pid} -o args= 2>/dev/null"));
+		// Match --flag=value or --flag value
+		if (preg_match('/' . preg_quote($flag, '/') . '[=\s]+(\S+)/', $args, $m)) {
+			return $m[1];
+		}
+		return null;
+	}
+
 	protected function normalizeTitle(string $title): string {
 		// Strip any leading non-ASCII characters (the icon) plus following whitespace
 		return preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title);
