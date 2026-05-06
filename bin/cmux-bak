@@ -447,13 +447,17 @@ class CmuxBak {
 			}
 			$tty = $this->getTtyForPid((int) $pid);
 			if ($tty) {
+				$sessionId = $data['sessionId'] ?? null;
+				$cwd       = $data['cwd'] ?? null;
+				$jsonl     = $this->readSessionJsonl($sessionId, $cwd);
+
 				$sessions[$tty] = [
-					'session_id'   => $data['sessionId'] ?? null,
-					'cwd'          => $data['cwd'] ?? null,
+					'session_id'   => $sessionId,
+					'cwd'          => $cwd,
 					'status'       => $data['status'] ?? null,
 					'pid'          => (int) $pid,
-					'skip_perms'   => $this->processHasFlag((int) $pid, '--dangerously-skip-permissions'),
-					'model'        => $this->processGetFlag((int) $pid, '--model'),
+					'skip_perms'   => $jsonl['permission_mode'] === 'bypassPermissions',
+					'model'        => $jsonl['model'],
 				];
 			}
 		}
@@ -593,18 +597,45 @@ class CmuxBak {
 		return $cmd;
 	}
 
-	protected function processHasFlag(int $pid, string $flag): bool {
-		$args = trim((string) shell_exec("ps -p {$pid} -o args= 2>/dev/null"));
-		return strpos($args, $flag) !== false;
-	}
+	/**
+	 * Read the last permission-mode and model from a session's JSONL transcript.
+	 * These reflect the state at the end of the conversation, not just launch flags.
+	 */
+	protected function readSessionJsonl(?string $sessionId, ?string $cwd): array {
+		$result = ['permission_mode' => null, 'model' => null];
 
-	protected function processGetFlag(int $pid, string $flag): ?string {
-		$args = trim((string) shell_exec("ps -p {$pid} -o args= 2>/dev/null"));
-		// Match --flag=value or --flag value
-		if (preg_match('/' . preg_quote($flag, '/') . '[=\s]+(\S+)/', $args, $m)) {
-			return $m[1];
+		if (!$sessionId || !$cwd) {
+			return $result;
 		}
-		return null;
+
+		// Claude encodes the project dir by replacing / and . with -
+		$projectKey = str_replace(['/', '.'], '-', $cwd);
+		$claudeDir  = $this->cli->convertPathToAbsolute('~/.claude');
+		$jsonlPath  = "{$claudeDir}/projects/{$projectKey}/{$sessionId}.jsonl";
+
+		if (!file_exists($jsonlPath)) {
+			return $result;
+		}
+
+		$handle = fopen($jsonlPath, 'r');
+		while (($line = fgets($handle)) !== false) {
+			$entry = json_decode($line, true);
+			if (!$entry || !isset($entry['type'])) {
+				continue;
+			}
+			if ($entry['type'] === 'permission-mode' && isset($entry['permissionMode'])) {
+				$result['permission_mode'] = $entry['permissionMode'];
+			}
+			if ($entry['type'] === 'assistant'
+				&& isset($entry['message']['model'])
+				&& $entry['message']['model'] !== '<synthetic>'
+			) {
+				$result['model'] = $entry['message']['model'];
+			}
+		}
+		fclose($handle);
+
+		return $result;
 	}
 
 	protected function normalizeTitle(string $title): string {
