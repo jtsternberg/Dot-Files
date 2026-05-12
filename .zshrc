@@ -64,7 +64,8 @@ alias wpbackup='date="`date +%m%d%Y`" && wp db export backup-"$date".sql'
 alias gethooks="$HOME/.dotfiles/bin/gethooks/gethooks"
 alias newtab="open -a iTerm ."
 alias nt="open -a iTerm ."
-alias code="cursor"
+# alias code="cursor"
+alias cursor="code"
 alias lg="lazygit"
 alias ghv="gh repo view --web"
 alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'
