@@ -344,3 +344,5 @@
 [user]
 	email = justin@dsgnwrks.pro
 	name = Justin Sternberg
+[http]
+	postBuffer = 524288000
