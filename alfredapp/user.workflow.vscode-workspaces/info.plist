@@ -36,7 +36,7 @@
 			<key>config</key>
 			<dict>
 				<key>openwith</key>
-				<string>/Applications/Cursor.app</string>
+				<string>/Applications/Visual Studio Code.app</string>
 				<key>sourcefile</key>
 				<string>{query}</string>
 			</dict>
