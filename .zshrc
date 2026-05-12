@@ -261,6 +261,10 @@ function gi() { curl https://www.gitignore.io/api/$@  >> .gitignore;}
 # And .claude/skills/terminal-title
 export CLAUDE_TITLE_PREFIX="🤖"
 
+# Kill idle agent-browser sessions after 10 minutes
+# re: https://awesomemotive.slack.com/archives/C05E7N3SKEZ/p1778509535656589
+export AGENT_BROWSER_IDLE_TIMEOUT_MS=600000
+
 # https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
 if type brew &>/dev/null
 then
