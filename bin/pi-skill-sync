@@ -38,7 +38,7 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('pi-skill-sync')
 	->setDescription('Register a Claude Code skill into Pi\'s settings.json `skills` array (by reference; no copy).')
-	->setSampleUsage('<search-term-or-path> [--parent] [--project] [--desc] [--dry-run] [-y]')
+	->setSampleUsage('<search-term-or-path> [--parent] [--project] [--desc] [--use-cache] [--dry-run] [-y]')
 	->buildDocs([
 		'<search-term>'    => 'Substring (case-insensitive) matched against skill dir name and frontmatter `name:`',
 		'<absolute-path>'  => 'Path to a skill dir containing SKILL.md (or a `skills/` parent dir with --parent)',
@@ -46,6 +46,7 @@ $helpyHelperton
 		'--project'        => 'Write to ./.pi/settings.json instead of ~/.pi/settings.json',
 		'--desc'           => 'Also search inside SKILL.md descriptions (shown as a secondary section)',
 		'--dry-run'        => 'Show the proposed change without writing',
+		'--use-cache'      => 'Register the cache path verbatim instead of resolving to a local marketplace source',
 		'-y, --yes'        => 'Autoconfirm prompts',
 		'-v, --verbose'    => 'Verbose output',
 		'--silent'         => 'Suppress decoration / prompts (still writes)',
@@ -124,12 +125,18 @@ function discover_skills(): array {
 		foreach ($skillMds as $skillMd) {
 			$dir = dirname($skillMd);
 			$frontmatter = parse_frontmatter($skillMd);
+			$label = source_label_for($dir, $rootInfo);
+			$localSource = resolve_local_source($dir);
+			if ($localSource !== null) {
+				$label .= ' (local source available)';
+			}
 			$skills[] = [
-				'dir'         => $dir,
-				'dirname'     => basename($dir),
-				'name'        => $frontmatter['name'] ?? basename($dir),
-				'description' => $frontmatter['description'] ?? '',
-				'source'      => source_label_for($dir, $rootInfo),
+				'dir'          => $dir,
+				'dirname'      => basename($dir),
+				'name'         => $frontmatter['name'] ?? basename($dir),
+				'description'  => $frontmatter['description'] ?? '',
+				'source'       => $label,
+				'source_path'  => $localSource,
 			];
 		}
 	}
@@ -177,6 +184,69 @@ function source_label_for(string $skillDir, array $rootInfo): string {
 	$rel = substr($skillDir, strlen($rootInfo['root']) + 1);
 	$relParts = explode('/', $rel);
 	return 'plugin:' . ($relParts[0] ?? '?');
+}
+
+/**
+ * If $skillDir lives under ~/.claude/plugins/cache/ AND its marketplace is a
+ * local "directory" source AND the equivalent source path exists on disk with
+ * a SKILL.md, return that source path. Otherwise null. Silent on any failure
+ * (missing/unparseable known_marketplaces.json, missing source dir, etc.).
+ */
+function resolve_local_source(string $skillDir): ?string {
+	$cacheRoot = $_SERVER['HOME'] . '/.claude/plugins/cache/';
+	if (strpos($skillDir, $cacheRoot) !== 0) {
+		return null;
+	}
+	$rel = substr($skillDir, strlen($cacheRoot));
+	$parts = explode('/', $rel);
+	// Expect: <marketplace>/<plugin>/<version>/skills/<skill>[/...]
+	$skillsIdx = array_search('skills', $parts, true);
+	if ($skillsIdx === false || $skillsIdx < 3) {
+		return null;
+	}
+	$marketplace = $parts[0];
+	$plugin      = $parts[1];
+	$skillTail   = array_slice($parts, $skillsIdx); // ['skills', '<skill>', ...]
+
+	$marketplaces = known_marketplaces();
+	if (!isset($marketplaces[$marketplace])) {
+		return null;
+	}
+	$src = $marketplaces[$marketplace]['source'] ?? null;
+	if (!is_array($src) || ($src['source'] ?? '') !== 'directory') {
+		return null;
+	}
+	$srcPath = $src['path'] ?? '';
+	if ($srcPath === '' || !is_dir($srcPath)) {
+		return null;
+	}
+	$realSrc = realpath($srcPath) ?: rtrim($srcPath, '/');
+	$candidate = $realSrc . '/plugins/' . $plugin . '/' . implode('/', $skillTail);
+	if (!is_dir($candidate) || !file_exists($candidate . '/SKILL.md')) {
+		return null;
+	}
+	return $candidate;
+}
+
+function known_marketplaces(): array {
+	static $cached = null;
+	if ($cached !== null) {
+		return $cached;
+	}
+	$cached = [];
+	$file = $_SERVER['HOME'] . '/.claude/plugins/known_marketplaces.json';
+	if (!file_exists($file)) {
+		return $cached;
+	}
+	$raw = @file_get_contents($file);
+	if ($raw === false) {
+		return $cached;
+	}
+	$data = json_decode($raw, true);
+	if (is_array($data)) {
+		$cached = $data;
+	}
+	return $cached;
 }
 
 function parse_frontmatter(string $skillMd): array {
@@ -252,10 +322,15 @@ function print_match_section($cli, array $matches): void {
 	foreach ($matches as $skill) {
 		$line = sprintf('%s  [%s]', $skill['name'], $skill['source']);
 		$cli->msg($line, 'green');
-		$cli->msg('  path: ' . $skill['dir']);
+		if (!empty($skill['source_path'])) {
+			$cli->msg('  path:  ' . $skill['source_path']);
+			$cli->msg('  cache: ' . $skill['dir']);
+		} else {
+			$cli->msg('  path:  ' . $skill['dir']);
+		}
 		$desc = first_line($skill['description']);
 		if ($desc !== '') {
-			$cli->msg('  desc: ' . truncate($desc, 100));
+			$cli->msg('  desc:  ' . truncate($desc, 100));
 		}
 	}
 }
@@ -275,7 +350,21 @@ function truncate(string $s, int $max): string {
 
 function add_skill_to_settings($cli, string $resolvedDir): void {
 	$useParent = $cli->hasFlag('parent');
+	$useCache  = $cli->hasFlag('use-cache');
 	$pathToRegister = $resolvedDir;
+
+	// Prefer-source resolution applies only when registering an individual skill dir,
+	// not when --parent is used to register a whole `skills/` directory.
+	$localSource = (!$useParent && !$useCache) ? resolve_local_source($resolvedDir) : null;
+	$cacheCounterpart = null;
+	if ($localSource !== null) {
+		$cli->msg('Detected local source for this plugin — registering source path instead of cache:', 'cyan');
+		$cli->msg('  cache:  ' . $resolvedDir);
+		$cli->msg('  source: ' . $localSource);
+		$cacheCounterpart = $resolvedDir;
+		$pathToRegister = $localSource;
+		$resolvedDir = $localSource; // downstream SKILL.md lookups use the source
+	}
 
 	if ($useParent) {
 		// Walk up the path looking for a `skills` ancestor (or the dir itself).
@@ -313,10 +402,16 @@ function add_skill_to_settings($cli, string $resolvedDir): void {
 		$existing['skills'] = [];
 	}
 
-	if (skills_array_contains($existing['skills'], $pathToRegister)) {
-		$cli->msg("Already present in {$settingsFile}:", 'yellow');
-		$cli->msg('  ' . $pathToRegister);
-		exit(0);
+	$dupeCandidates = [$pathToRegister];
+	if ($cacheCounterpart !== null) {
+		$dupeCandidates[] = $cacheCounterpart;
+	}
+	foreach ($dupeCandidates as $candidate) {
+		if (skills_array_contains($existing['skills'], $candidate)) {
+			$cli->msg("Already present in {$settingsFile}:", 'yellow');
+			$cli->msg('  ' . $candidate);
+			exit(0);
+		}
 	}
 
 	$cli->msg('About to add the following skill to ' . $settingsFile . ':', 'cyan');
@@ -369,7 +464,14 @@ function skills_array_contains(array $skills, string $candidate): bool {
 	$normalizedCandidate = normalize_path($candidate);
 	foreach ($skills as $existing) {
 		if (!is_string($existing)) continue;
+		$existingExpanded = expand_home($existing);
 		if (normalize_path($existing) === $normalizedCandidate) {
+			return true;
+		}
+		// Also dedupe across the cache↔source mapping: if an existing entry is a
+		// cache path with a resolvable local source, compare that too.
+		$existingSource = resolve_local_source($existingExpanded);
+		if ($existingSource !== null && normalize_path($existingSource) === $normalizedCandidate) {
 			return true;
 		}
 	}
