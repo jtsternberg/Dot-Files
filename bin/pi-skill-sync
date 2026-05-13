@@ -1,0 +1,410 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Register Claude Code skills into Pi's settings.json `skills` array.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Pi natively reads Claude-format skills by reference (no copying — just a path
+# in the `skills` array). This tool discovers skills under your local Claude /
+# Codex skill roots and registers a chosen skill's path into ~/.pi/settings.json
+# (or ./.pi/settings.json with --project).
+#
+# Two invocation forms:
+#   1. pi-skill-sync <search-term>   → fuzzy search; print matches; exit
+#   2. pi-skill-sync <absolute-path> → add that skill dir to Pi settings
+#
+# Search roots:
+#   ~/.claude/skills/
+#   ~/.claude/plugins/**/skills/   (recursive plugin skills)
+#   ~/.codex/skills/
+#
+# Examples:
+# pi-skill-sync cmux
+# pi-skill-sync /Users/JT/.claude/plugins/.../cmux-cli/skills/using-cmux-cli
+# pi-skill-sync cmux --desc
+# pi-skill-sync ~/.claude/skills/foo --parent --project --dry-run
+#
+# Usage (`pi-skill-sync -h`):
+# pi-skill-sync <search-term-or-path> [--parent] [--project] [--desc] [--dry-run] [-y]
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('pi-skill-sync')
+	->setDescription('Register a Claude Code skill into Pi\'s settings.json `skills` array (by reference; no copy).')
+	->setSampleUsage('<search-term-or-path> [--parent] [--project] [--desc] [--dry-run] [-y]')
+	->buildDocs([
+		'<search-term>'    => 'Substring (case-insensitive) matched against skill dir name and frontmatter `name:`',
+		'<absolute-path>'  => 'Path to a skill dir containing SKILL.md (or a `skills/` parent dir with --parent)',
+		'--parent'         => 'Register the parent `skills/` dir instead of the specific skill dir',
+		'--project'        => 'Write to ./.pi/settings.json instead of ~/.pi/settings.json',
+		'--desc'           => 'Also search inside SKILL.md descriptions (shown as a secondary section)',
+		'--dry-run'        => 'Show the proposed change without writing',
+		'-y, --yes'        => 'Autoconfirm prompts',
+		'-v, --verbose'    => 'Verbose output',
+		'--silent'         => 'Suppress decoration / prompts (still writes)',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+const PI_DEFAULT_SETTINGS = '~/.pi/settings.json';
+const PI_PROJECT_SETTINGS = '.pi/settings.json';
+
+$arg = $cli->getArg(1);
+if (empty($arg)) {
+	$cli->exitErr('Missing required argument: <search-term> or <absolute-path>. Run `pi-skill-sync -h`.', 1);
+}
+
+$resolved = resolve_path_arg($arg);
+
+if ($resolved && is_dir($resolved)) {
+	add_skill_to_settings($cli, $resolved);
+} else {
+	search_skills($cli, $arg);
+}
+
+exit(0);
+
+# -----------------------------------------------------------------------------
+# Path resolution
+# -----------------------------------------------------------------------------
+
+function resolve_path_arg(string $arg): ?string {
+	// Only treat as a path if it looks like one (contains a slash or starts with ~)
+	if (strpos($arg, '/') === false && strpos($arg, '~') !== 0) {
+		return null;
+	}
+
+	$expanded = str_replace('~', $_SERVER['HOME'], $arg);
+	// Validate existence via realpath, but return the expanded (un-resolved) form
+	// so symlinked locations (e.g. ~/.claude → Dropbox) stay readable.
+	if (realpath($expanded) === false) {
+		return null;
+	}
+	return rtrim($expanded, '/');
+}
+
+# -----------------------------------------------------------------------------
+# Skill discovery
+# -----------------------------------------------------------------------------
+
+function skill_roots(): array {
+	$home = $_SERVER['HOME'];
+	return [
+		['root' => $home . '/.claude/skills',  'label' => 'user',   'plugin_root' => false],
+		['root' => $home . '/.claude/plugins', 'label' => 'plugin', 'plugin_root' => true],
+		['root' => $home . '/.codex/skills',   'label' => 'codex',  'plugin_root' => false],
+	];
+}
+
+function discover_skills(): array {
+	$skills = [];
+	foreach (skill_roots() as $rootInfo) {
+		$root = $rootInfo['root'];
+		if (!is_dir($root)) {
+			continue;
+		}
+		$skillMds = find_skill_md_files($root);
+		foreach ($skillMds as $skillMd) {
+			$dir = dirname($skillMd);
+			$frontmatter = parse_frontmatter($skillMd);
+			$skills[] = [
+				'dir'         => $dir,
+				'dirname'     => basename($dir),
+				'name'        => $frontmatter['name'] ?? basename($dir),
+				'description' => $frontmatter['description'] ?? '',
+				'source'      => source_label_for($dir, $rootInfo),
+			];
+		}
+	}
+	return $skills;
+}
+
+function find_skill_md_files(string $root): array {
+	$results = [];
+	try {
+		$it = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::FOLLOW_SYMLINKS),
+			\RecursiveIteratorIterator::LEAVES_ONLY
+		);
+		foreach ($it as $file) {
+			if ($file->getFilename() === 'SKILL.md') {
+				$results[] = $file->getPathname();
+			}
+		}
+	} catch (\Exception $e) {
+		// Skip unreadable roots silently.
+	}
+	return $results;
+}
+
+function source_label_for(string $skillDir, array $rootInfo): string {
+	if (!$rootInfo['plugin_root']) {
+		return $rootInfo['label'];
+	}
+	// Plugin path varies (e.g. .claude/plugins/cache/<owner>/<plugin>/<version>/skills/<skill>
+	// or .claude/plugins/<marketplace>/plugins/<plugin>/skills/<skill>).
+	// The plugin name is the segment immediately preceding `skills/<skill>`.
+	$parts = explode('/', $skillDir);
+	$skillsIdx = array_search('skills', $parts, true);
+	if ($skillsIdx !== false && $skillsIdx > 0) {
+		// Walk back past version-like segments (e.g. "0.1.0").
+		$i = $skillsIdx - 1;
+		while ($i > 0 && preg_match('/^v?\d+(\.\d+)+/', $parts[$i])) {
+			$i--;
+		}
+		return 'plugin:' . $parts[$i];
+	}
+	$rel = substr($skillDir, strlen($rootInfo['root']) + 1);
+	$relParts = explode('/', $rel);
+	return 'plugin:' . ($relParts[0] ?? '?');
+}
+
+function parse_frontmatter(string $skillMd): array {
+	$out = [];
+	$fp = @fopen($skillMd, 'r');
+	if (!$fp) return $out;
+	$first = fgets($fp);
+	if (trim((string) $first) !== '---') {
+		fclose($fp);
+		return $out;
+	}
+	while (($line = fgets($fp)) !== false) {
+		if (trim($line) === '---') break;
+		if (preg_match('/^([a-zA-Z0-9_-]+):\s*(.*)$/', $line, $m)) {
+			$key   = $m[1];
+			$value = trim($m[2]);
+			// Strip surrounding quotes if present.
+			if ((str_starts_with($value, '"') && str_ends_with($value, '"')) ||
+			    (str_starts_with($value, "'") && str_ends_with($value, "'"))) {
+				$value = substr($value, 1, -1);
+			}
+			$out[$key] = $value;
+		}
+	}
+	fclose($fp);
+	return $out;
+}
+
+# -----------------------------------------------------------------------------
+# Search mode
+# -----------------------------------------------------------------------------
+
+function search_skills($cli, string $term): void {
+	$term = strtolower($term);
+	$includeDesc = $cli->hasFlag('desc');
+	$skills = discover_skills();
+
+	$primary = [];
+	$descMatches = [];
+	foreach ($skills as $skill) {
+		$inName = stripos($skill['dirname'], $term) !== false
+		       || stripos($skill['name'], $term) !== false;
+		if ($inName) {
+			$primary[] = $skill;
+			continue;
+		}
+		if ($includeDesc && stripos($skill['description'], $term) !== false) {
+			$descMatches[] = $skill;
+		}
+	}
+
+	if (empty($primary) && empty($descMatches)) {
+		$cli->msg("No skills matched: " . $term, 'yellow');
+		$cli->msg("Searched " . count($skills) . ' skills across ' . count(array_filter(skill_roots(), fn($r) => is_dir($r['root']))) . ' root(s).');
+		exit(0);
+	}
+
+	if (!empty($primary)) {
+		print_match_section($cli, $primary);
+	}
+	if (!empty($descMatches)) {
+		$cli->msg('');
+		$cli->msg('Description matches:', 'cyan');
+		print_match_section($cli, $descMatches);
+	}
+
+	$cli->msg('');
+	$cli->msg('Re-run with an absolute path to register a skill:', 'cyan');
+	$cli->msg('  pi-skill-sync <path-from-above>');
+}
+
+function print_match_section($cli, array $matches): void {
+	foreach ($matches as $skill) {
+		$line = sprintf('%s  [%s]', $skill['name'], $skill['source']);
+		$cli->msg($line, 'green');
+		$cli->msg('  path: ' . $skill['dir']);
+		$desc = first_line($skill['description']);
+		if ($desc !== '') {
+			$cli->msg('  desc: ' . truncate($desc, 100));
+		}
+	}
+}
+
+function first_line(string $s): string {
+	$parts = preg_split('/\r?\n/', $s, 2);
+	return trim($parts[0] ?? '');
+}
+
+function truncate(string $s, int $max): string {
+	return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
+}
+
+# -----------------------------------------------------------------------------
+# Add-to-settings mode
+# -----------------------------------------------------------------------------
+
+function add_skill_to_settings($cli, string $resolvedDir): void {
+	$useParent = $cli->hasFlag('parent');
+	$pathToRegister = $resolvedDir;
+
+	if ($useParent) {
+		// Walk up: if current dir IS already a `skills` dir, use it. Otherwise use parent if named `skills`.
+		if (basename($resolvedDir) === 'skills') {
+			// keep as is
+		} else {
+			$parent = dirname($resolvedDir);
+			if (basename($parent) === 'skills') {
+				$pathToRegister = $parent;
+			} else {
+				$cli->exitErr("--parent requested but {$resolvedDir} is not inside a `skills/` dir.", 1);
+			}
+		}
+	} else {
+		// Validate: must contain SKILL.md
+		if (!file_exists($resolvedDir . '/SKILL.md')) {
+			$cli->exitErr("Not a skill directory (no SKILL.md found): {$resolvedDir}\nUse --parent to register a `skills/` dir instead.", 1);
+		}
+	}
+
+	$skillName = basename($pathToRegister);
+	if (!$useParent) {
+		$fm = parse_frontmatter($pathToRegister . '/SKILL.md');
+		if (!empty($fm['name'])) {
+			$skillName = $fm['name'];
+		}
+	}
+
+	$settingsFile = $cli->hasFlag('project')
+		? rtrim(getcwd(), '/') . '/' . PI_PROJECT_SETTINGS
+		: str_replace('~', $_SERVER['HOME'], PI_DEFAULT_SETTINGS);
+
+	$existing = load_settings($settingsFile);
+	if (!isset($existing['skills']) || !is_array($existing['skills'])) {
+		$existing['skills'] = [];
+	}
+
+	if (skills_array_contains($existing['skills'], $pathToRegister)) {
+		$cli->msg("Already present in {$settingsFile}:", 'yellow');
+		$cli->msg('  ' . $pathToRegister);
+		exit(0);
+	}
+
+	$cli->msg('About to add the following skill to ' . $settingsFile . ':', 'cyan');
+	$cli->msg('  name: ' . $skillName);
+	$cli->msg('  path: ' . $pathToRegister);
+
+	if ($cli->hasFlag('dry-run')) {
+		$cli->msg('');
+		$cli->msg('Dry run — proposed file contents:', 'cyan');
+		$preview = $existing;
+		$preview['skills'][] = $pathToRegister;
+		echo render_settings_json($preview, $settingsFile) . "\n";
+		exit(0);
+	}
+
+	if (!$cli->isSilent() && !$cli->isAutoconfirm()) {
+		if (!$cli->confirm('Proceed? [y/N]')) {
+			$cli->msg('Aborted.', 'yellow');
+			exit(0);
+		}
+	}
+
+	$existing['skills'][] = $pathToRegister;
+	write_settings($settingsFile, $existing);
+
+	$cli->successMsg('✓ Added.');
+}
+
+function load_settings(string $file): array {
+	if (!file_exists($file)) {
+		return [];
+	}
+	$raw = file_get_contents($file);
+	if ($raw === false || trim($raw) === '') {
+		return [];
+	}
+	$decoded = json_decode($raw, true);
+	if (!is_array($decoded)) {
+		throw_settings_error($file, 'JSON did not decode to an object');
+	}
+	return $decoded;
+}
+
+function throw_settings_error(string $file, string $msg): void {
+	fwrite(STDERR, "Error reading {$file}: {$msg}\n");
+	exit(1);
+}
+
+function skills_array_contains(array $skills, string $candidate): bool {
+	$normalizedCandidate = normalize_path($candidate);
+	foreach ($skills as $existing) {
+		if (!is_string($existing)) continue;
+		if (normalize_path($existing) === $normalizedCandidate) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function normalize_path(string $path): string {
+	$expanded = str_replace('~', $_SERVER['HOME'], $path);
+	$real = realpath($expanded);
+	return $real ?: rtrim($expanded, '/');
+}
+
+function detect_indent(string $file): int {
+	if (!file_exists($file)) return 2;
+	$raw = file_get_contents($file);
+	if ($raw === false) return 2;
+	if (preg_match('/\n( +)"/', $raw, $m)) {
+		return strlen($m[1]);
+	}
+	return 2;
+}
+
+function render_settings_json(array $data, string $targetFile): string {
+	$indentSize = detect_indent($targetFile);
+	$json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+	if ($indentSize !== 4) {
+		$json = preg_replace_callback('/^( +)/m', function ($m) use ($indentSize) {
+			$count = strlen($m[1]) / 4;
+			return str_repeat(str_repeat(' ', $indentSize), (int) $count);
+		}, $json);
+	}
+	return $json;
+}
+
+function write_settings(string $file, array $data): void {
+	$dir = dirname($file);
+	if (!is_dir($dir)) {
+		if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+			fwrite(STDERR, "Failed to create directory: {$dir}\n");
+			exit(1);
+		}
+	}
+	$json = render_settings_json($data, $file) . "\n";
+	if (file_put_contents($file, $json) === false) {
+		fwrite(STDERR, "Failed to write: {$file}\n");
+		exit(1);
+	}
+}
