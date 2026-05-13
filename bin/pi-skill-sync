@@ -64,9 +64,11 @@ if (empty($arg)) {
 	$cli->exitErr('Missing required argument: <search-term> or <absolute-path>. Run `pi-skill-sync -h`.', 1);
 }
 
-$resolved = resolve_path_arg($arg);
-
-if ($resolved && is_dir($resolved)) {
+if (looks_like_path($arg)) {
+	$resolved = resolve_path_arg($arg);
+	if (!$resolved || !is_dir($resolved)) {
+		$cli->exitErr("No such directory: {$arg}\nPass a search term without a slash to search instead.", 1);
+	}
 	add_skill_to_settings($cli, $resolved);
 } else {
 	search_skills($cli, $arg);
@@ -78,13 +80,18 @@ exit(0);
 # Path resolution
 # -----------------------------------------------------------------------------
 
-function resolve_path_arg(string $arg): ?string {
-	// Only treat as a path if it looks like one (contains a slash or starts with ~)
-	if (strpos($arg, '/') === false && strpos($arg, '~') !== 0) {
-		return null;
-	}
+function looks_like_path(string $arg): bool {
+	return strpos($arg, '/') !== false || str_starts_with($arg, '~');
+}
 
-	$expanded = str_replace('~', $_SERVER['HOME'], $arg);
+function expand_home(string $path): string {
+	// Only expand a leading `~` (followed by `/` or end-of-string).
+	// Avoids mangling filenames that contain `~` mid-string.
+	return preg_replace('#^~(?=/|$)#', $_SERVER['HOME'], $path);
+}
+
+function resolve_path_arg(string $arg): ?string {
+	$expanded = expand_home($arg);
 	// Validate existence via realpath, but return the expanded (un-resolved) form
 	// so symlinked locations (e.g. ~/.claude → Dropbox) stay readable.
 	if (realpath($expanded) === false) {
@@ -132,8 +139,11 @@ function discover_skills(): array {
 function find_skill_md_files(string $root): array {
 	$results = [];
 	try {
+		// Intentionally NOT following symlinks: avoids cycle risk under
+		// ~/.claude/plugins and we have no known case where plugin skills
+		// live behind symlinks.
 		$it = new \RecursiveIteratorIterator(
-			new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::FOLLOW_SYMLINKS),
+			new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
 			\RecursiveIteratorIterator::LEAVES_ONLY
 		);
 		foreach ($it as $file) {
@@ -268,17 +278,17 @@ function add_skill_to_settings($cli, string $resolvedDir): void {
 	$pathToRegister = $resolvedDir;
 
 	if ($useParent) {
-		// Walk up: if current dir IS already a `skills` dir, use it. Otherwise use parent if named `skills`.
-		if (basename($resolvedDir) === 'skills') {
-			// keep as is
-		} else {
-			$parent = dirname($resolvedDir);
-			if (basename($parent) === 'skills') {
-				$pathToRegister = $parent;
-			} else {
-				$cli->exitErr("--parent requested but {$resolvedDir} is not inside a `skills/` dir.", 1);
-			}
+		// Walk up the path looking for a `skills` ancestor (or the dir itself).
+		$candidate = $resolvedDir;
+		while ($candidate !== '/' && $candidate !== '' && basename($candidate) !== 'skills') {
+			$parent = dirname($candidate);
+			if ($parent === $candidate) break;
+			$candidate = $parent;
 		}
+		if (basename($candidate) !== 'skills') {
+			$cli->exitErr("--parent requested but no `skills/` ancestor found above {$resolvedDir}.", 1);
+		}
+		$pathToRegister = $candidate;
 	} else {
 		// Validate: must contain SKILL.md
 		if (!file_exists($resolvedDir . '/SKILL.md')) {
@@ -296,7 +306,7 @@ function add_skill_to_settings($cli, string $resolvedDir): void {
 
 	$settingsFile = $cli->hasFlag('project')
 		? rtrim(getcwd(), '/') . '/' . PI_PROJECT_SETTINGS
-		: str_replace('~', $_SERVER['HOME'], PI_DEFAULT_SETTINGS);
+		: expand_home(PI_DEFAULT_SETTINGS);
 
 	$existing = load_settings($settingsFile);
 	if (!isset($existing['skills']) || !is_array($existing['skills'])) {
@@ -367,12 +377,15 @@ function skills_array_contains(array $skills, string $candidate): bool {
 }
 
 function normalize_path(string $path): string {
-	$expanded = str_replace('~', $_SERVER['HOME'], $path);
+	$expanded = expand_home($path);
 	$real = realpath($expanded);
 	return $real ?: rtrim($expanded, '/');
 }
 
 function detect_indent(string $file): int {
+	// Pi writes settings.json with 2-space indent (JSON.stringify(..., null, 2)
+	// per coding-agent/src/core/settings-manager.ts). 2 is canonical; detection
+	// here only matters if the user hand-edited their settings with a different style.
 	if (!file_exists($file)) return 2;
 	$raw = file_get_contents($file);
 	if ($raw === false) return 2;
@@ -403,8 +416,16 @@ function write_settings(string $file, array $data): void {
 		}
 	}
 	$json = render_settings_json($data, $file) . "\n";
-	if (file_put_contents($file, $json) === false) {
-		fwrite(STDERR, "Failed to write: {$file}\n");
+	// Atomic write: stage in <file>.tmp, then rename. Avoids truncation
+	// if the process is interrupted mid-write.
+	$tmp = $file . '.tmp';
+	if (file_put_contents($tmp, $json) === false) {
+		fwrite(STDERR, "Failed to write: {$tmp}\n");
+		exit(1);
+	}
+	if (!rename($tmp, $file)) {
+		@unlink($tmp);
+		fwrite(STDERR, "Failed to rename {$tmp} → {$file}\n");
 		exit(1);
 	}
 }

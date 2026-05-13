@@ -9,9 +9,7 @@ Pi natively reads Claude-format skills by reference — you just add the skill's
 
 ## Workflow
 
-Always start with `pi-skill-sync --help` to confirm current usage.
-
-Two-step pattern:
+Two-step pattern (run `pi-skill-sync --help` if usage looks off):
 
 1. **Discover**: `pi-skill-sync <search-term>` — fuzzy/substring search across `~/.claude/skills`, `~/.claude/plugins/**/skills`, and `~/.codex/skills`. Prints matches with their absolute paths; exits without writing.
 2. **Register**: `pi-skill-sync <absolute-path>` — copy a path from step 1 and re-run. Shows a preview, prompts, writes to `~/.pi/settings.json`.
