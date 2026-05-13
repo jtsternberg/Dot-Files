@@ -23,3 +23,5 @@ Two-step pattern (run `pi-skill-sync --help` if usage looks off):
 - `-y` / `--yes` — autoconfirm.
 
 Idempotent: re-running on an already-registered path prints "already present" and exits 0. Symlink-equivalent paths dedupe via realpath.
+
+When a Claude plugin's marketplace is a local `directory` source (per `~/.claude/plugins/known_marketplaces.json`), the tool resolves cache paths forward to the live source path and registers that instead — so edits in your plugin checkout are picked up without re-installing. Pass `--use-cache` to opt out.
