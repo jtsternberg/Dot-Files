@@ -56,6 +56,75 @@ if ($sub === '' || $sub === null) {
 	$sub = 'auto';
 }
 
+// Detects a directory that holds only interrupted Ollama pull artifacts:
+// blobs/ contains exclusively *-partial* files (no committed sha256 blobs),
+// and manifests/ has no model files. Safe to delete — nothing was finalized.
+function isOrphanedPartialDownloadDir(string $path): bool {
+	if (!is_dir($path) || is_link($path)) {
+		return false;
+	}
+
+	$entries = @scandir($path) ?: [];
+	foreach ($entries as $entry) {
+		if ($entry === '.' || $entry === '..' || $entry === '.DS_Store') {
+			continue;
+		}
+		if ($entry !== 'blobs' && $entry !== 'manifests') {
+			return false;
+		}
+	}
+
+	$blobsDir = $path . '/blobs';
+	if (is_dir($blobsDir)) {
+		$hasAnyBlob = false;
+		foreach (scandir($blobsDir) as $entry) {
+			if ($entry === '.' || $entry === '..' || $entry === '.DS_Store') {
+				continue;
+			}
+			$hasAnyBlob = true;
+			if (strpos($entry, '-partial') === false) {
+				return false;
+			}
+		}
+		if (!$hasAnyBlob) {
+			return false;
+		}
+	} else {
+		return false;
+	}
+
+	$manifestsDir = $path . '/manifests';
+	if (is_dir($manifestsDir)) {
+		$iter = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($manifestsDir, \FilesystemIterator::SKIP_DOTS)
+		);
+		foreach ($iter as $file) {
+			if ($file->isFile() && $file->getFilename() !== '.DS_Store') {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+function removeDirRecursive(string $path): bool {
+	if (is_link($path) || !is_dir($path)) {
+		return @unlink($path);
+	}
+	$iter = new \RecursiveIteratorIterator(
+		new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+		\RecursiveIteratorIterator::CHILD_FIRST
+	);
+	foreach ($iter as $item) {
+		$ok = $item->isDir() && !$item->isLink() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+		if (!$ok) {
+			return false;
+		}
+	}
+	return @rmdir($path);
+}
+
 function switchTo(\JT\CLI\Helpers $cli, string $symlink, string $target, string $label): bool {
 	if (!is_dir($target)) {
 		$cli->err("Target not found or not a directory: {$target}");
@@ -65,7 +134,19 @@ function switchTo(\JT\CLI\Helpers $cli, string $symlink, string $target, string 
 	if (is_link($symlink)) {
 		@unlink($symlink);
 	} elseif (file_exists($symlink)) {
-		$cli->exitErr("{$symlink} exists and is not a symlink. Remove or rename it first.");
+		if (isOrphanedPartialDownloadDir($symlink)) {
+			$cli->msg("{$symlink} contains only interrupted Ollama download artifacts.", 'yellow');
+			if ($cli->isAutoconfirm() || $cli->confirm("Remove it and continue?")) {
+				if (!removeDirRecursive($symlink)) {
+					$cli->exitErr("Failed to remove {$symlink}");
+				}
+				$cli->msg("Removed orphaned directory.", 'green');
+			} else {
+				$cli->exitErr("{$symlink} exists and is not a symlink. Remove or rename it first.");
+			}
+		} else {
+			$cli->exitErr("{$symlink} exists and is not a symlink. Remove or rename it first.");
+		}
 	}
 
 	if (!@symlink($target, $symlink)) {
