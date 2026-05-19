@@ -266,7 +266,7 @@
 
 ; Environment
 [core]
-	editor = cursor --wait
+	editor = code --wait
 	symlinks = true
 	excludesfile = ~/.gitignore_global
 	autocrlf = false
