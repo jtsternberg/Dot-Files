@@ -7,9 +7,10 @@ namespace JT;
 #
 # Version 0.1.0
 #
-# Updates the ~/.ollama-models symlink (where Ollama expects models) to point
-# at either local storage (~/.ollama-local-models) or the portable drive
-# (/Volumes/AI-LAB/ollama/models). Removes any existing symlink first.
+# Updates the ~/.ollama-models symlink (where we point Ollama via
+# OLLAMA_MODELS, set automatically by this script via `launchctl setenv`)
+# to point at either local storage (~/.ollama-local-models) or the portable
+# drive (/Volumes/AI-LAB/ollama/models). Removes any existing symlink first.
 #
 # Usage:
 # ollamodels [local|sd|auto|installwatcher|removewatcher]
@@ -31,7 +32,7 @@ $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
 	->setScriptName('ollamodels')
-	->setDescription('Switch Ollama models storage between local and portable SD drive.')
+	->setDescription('Switch Ollama models storage between local and portable SD drive. Also sets OLLAMA_MODELS in the launchd environment so Ollama.app picks up the symlink on next launch.')
 	->setSampleUsage('[local|sd|auto]')
 	->buildDocs([
 		'[local]'         => 'Use local storage (~/.ollama-local-models)',
@@ -154,6 +155,22 @@ function switchTo(\JT\CLI\Helpers $cli, string $symlink, string $target, string 
 	}
 
 	$cli->successMsg("Ollama models → {$label}: {$target}");
+
+	// Bootstrap OLLAMA_MODELS in launchd so Ollama.app (launched by launchd)
+	// inherits it on next start. Failure here doesn't undo the symlink.
+	exec('launchctl setenv OLLAMA_MODELS ' . escapeshellarg($symlink) . ' 2>&1', $setenvOut, $setenvRet);
+	if ($setenvRet !== 0) {
+		$cli->msg('Warning: launchctl setenv OLLAMA_MODELS failed: ' . implode("\n", $setenvOut), 'yellow');
+	} elseif (!$cli->isSilent()) {
+		$cli->msg("Set launchd OLLAMA_MODELS={$symlink}", 'cyan');
+	}
+
+	// If Ollama.app is currently running, the setenv only affects new launches.
+	exec('pgrep -x Ollama 2>/dev/null', $pgrepOut, $pgrepRet);
+	if ($pgrepRet === 0 && !empty($pgrepOut)) {
+		$cli->msg('Note: Ollama.app is running — quit and relaunch it for OLLAMA_MODELS to take effect.', 'yellow');
+	}
+
 	return true;
 }
 

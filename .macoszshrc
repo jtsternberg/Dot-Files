@@ -23,3 +23,7 @@ alias nt="open -a iTerm ."
 alias ql='qlmanage -p'
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
 alias emptyioscache='xcrun simctl erase all'
+
+# Tell shells (and any process started from them) about the Ollama models override.
+# The launchd-managed Ollama.app gets it via `launchctl setenv` in bin/ollamodels.
+export OLLAMA_MODELS="$HOME/.ollama-models"
