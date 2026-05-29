@@ -1,0 +1,505 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Battery / CPU watchdog — proactive macOS power-drain alarm.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Periodically (via a LaunchAgent) checks battery state and CPU usage and
+# sends a macOS notification BEFORE a runaway process or fast drain blindsides
+# you. Built after a runaway "PHP Language Server" pinned a core at 100% for
+# hours and drained the battery 100% -> 4% in ~90 minutes.
+#
+# Alerts when:
+#   - ON BATTERY:        < 45 min remaining  OR  drain rate > 35%/hr
+#   - ON AC *OR* BATTERY: any process > 85% CPU for 2 consecutive checks
+# Each alert lists the top 3 CPU eaters (PID + %CPU). Sustained-hog detection
+# persists state between runs; battery + per-PID alerts are throttled to once
+# per ~15 min so you are not spammed.
+#
+# macOS-only (pmset/launchd). On Linux it cleanly no-ops (exit 0).
+#
+# Usage:
+# battery-watchdog [check|install|uninstall|test|status]
+#
+# Examples:
+# battery-watchdog             # Run a check (default). Prints a readout; only
+#                              # notifies when a threshold trips.
+# battery-watchdog --silent    # Quiet check (how the LaunchAgent runs it)
+# battery-watchdog status      # Same as a check but never sends notifications
+# battery-watchdog test        # Fire a sample notification to confirm they work
+# battery-watchdog install     # Write + load the LaunchAgent (every 3 min)
+# battery-watchdog uninstall   # Unload + remove the LaunchAgent
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName('battery-watchdog')
+	->setDescription('Proactive macOS watchdog: alerts on fast battery drain or sustained CPU hogs before they blindside you. macOS-only (no-ops on Linux).')
+	->setSampleUsage('[check|install|uninstall|test|status]')
+	->buildDocs([
+		'[check]'     => 'Run a single check (default when no arg). Prints a readout and sends a notification only if a threshold trips.',
+		'[status]'    => 'Like check, but never sends notifications — just prints the current readout. Handy for eyeballing thresholds.',
+		'[test]'      => 'Fire a sample notification immediately (ignores thresholds) so you can confirm macOS notifications actually appear.',
+		'[install]'   => 'Write and load the LaunchAgent (com.jt.battery-watchdog) to run a check every 3 minutes.',
+		'[uninstall]' => 'Unload and remove the LaunchAgent.',
+		'--silent'    => 'Suppress all stdout (how the LaunchAgent runs it). Notifications still fire.',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+# -----------------------------------------------------------------------------
+# Config / constants
+# -----------------------------------------------------------------------------
+const PLIST_LABEL       = 'com.jt.battery-watchdog';
+const CHECK_INTERVAL    = 180;   // LaunchAgent StartInterval (seconds)
+const HOG_CPU_THRESHOLD = 85.0;  // %CPU considered a "hog"
+const LOW_TIME_MINUTES  = 45;    // alert below this many minutes remaining
+const DRAIN_RATE_LIMIT  = 35.0;  // alert above this drain rate (%/hr)
+const NOTIFY_THROTTLE   = 900;   // min seconds between repeat notifications (15 min)
+const TOP_N             = 3;     // how many CPU eaters to list
+const LOG_MAX_BYTES     = 1048576; // rotate the log past ~1MB
+
+$home     = getenv('HOME') ?: $cli->convertPathToAbsolute('~');
+$cacheDir = $home . '/.cache/battery-watchdog';
+$stateFile = $cacheDir . '/state.json';
+$logFile   = $cacheDir . '/watchdog.log';
+
+$sub = strtolower((string) $cli->getArg(1));
+// Accept the --flag spellings the spec mentions as aliases for the subcommands.
+if ($sub === '') {
+	foreach (['install', 'uninstall', 'test', 'status', 'check'] as $alias) {
+		if ($cli->hasFlag($alias)) { $sub = $alias; break; }
+	}
+}
+if ($sub === '') {
+	$sub = 'check';
+}
+
+$isMac = (PHP_OS === 'Darwin') || (php_uname('s') === 'Darwin');
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+
+/** Append a timestamped line to the watchdog log (best-effort, never fatal). */
+function wlog(string $logFile, string $cacheDir, string $line): void {
+	if (!is_dir($cacheDir)) {
+		@mkdir($cacheDir, 0755, true);
+	}
+	// Simple size-based rotation so months of every-3-min runs stay bounded.
+	if (is_file($logFile) && filesize($logFile) > LOG_MAX_BYTES) {
+		$lines = @file($logFile, FILE_IGNORE_NEW_LINES) ?: [];
+		$lines = array_slice($lines, -500);
+		@file_put_contents($logFile, implode("\n", $lines) . "\n");
+	}
+	$stamp = date('Y-m-d H:i:s');
+	@file_put_contents($logFile, "[{$stamp}] {$line}\n", FILE_APPEND);
+}
+
+/** Read persisted state, returning a normalized array. */
+function readState(string $stateFile): array {
+	$default = [
+		'charge'       => null,  // last battery percentage (int)
+		'chargeTime'   => null,  // unix ts of that sample
+		'powerSource'  => null,  // 'battery' | 'ac'
+		'hogPids'      => [],     // [pid => cpu] that were > threshold LAST run
+		'lastNotified' => [],     // [key => unix ts] for throttling
+	];
+	if (!is_file($stateFile)) {
+		return $default;
+	}
+	$data = json_decode((string) @file_get_contents($stateFile), true);
+	if (!is_array($data)) {
+		return $default;
+	}
+	return array_merge($default, $data);
+}
+
+/** Persist state (best-effort). */
+function writeState(string $stateFile, string $cacheDir, array $state): void {
+	if (!is_dir($cacheDir)) {
+		@mkdir($cacheDir, 0755, true);
+	}
+	@file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT));
+}
+
+/**
+ * Parse `pmset -g batt`.
+ *
+ * @return array{onBattery:bool,charge:?int,state:?string,minutes:?int,raw:string}
+ */
+function readBattery(): array {
+	$raw = (string) @shell_exec('pmset -g batt 2>/dev/null');
+	$out = [
+		'onBattery' => false,
+		'charge'    => null,
+		'state'     => null,
+		'minutes'   => null,
+		'raw'       => trim($raw),
+	];
+
+	// "Now drawing from 'Battery Power'" vs "'AC Power'".
+	if (stripos($raw, "drawing from 'Battery Power'") !== false) {
+		$out['onBattery'] = true;
+	}
+
+	// " -InternalBattery-0 (id=...) 52%; discharging; 1:57 remaining present: true"
+	if (preg_match('/(\d+)%/', $raw, $m)) {
+		$out['charge'] = (int) $m[1];
+	}
+	if (preg_match('/%;\s*([a-z ]+);/i', $raw, $m)) {
+		$out['state'] = trim(strtolower($m[1]));
+	}
+	// Confirm discharging from the per-battery line too (more reliable than the
+	// "drawing from" header on some hardware).
+	if ($out['state'] === 'discharging') {
+		$out['onBattery'] = true;
+	}
+	// Time estimate: "1:57 remaining" -> minutes. "(no estimate)" -> null.
+	if (preg_match('/(\d+):(\d{2})\s+remaining/', $raw, $m)) {
+		$out['minutes'] = ((int) $m[1]) * 60 + (int) $m[2];
+	}
+
+	return $out;
+}
+
+/**
+ * Top CPU processes via `ps`, excluding this watchdog and its children.
+ *
+ * @return array<int,array{pid:int,cpu:float,cmd:string}> sorted desc by cpu
+ */
+function readTopCpu(int $selfPid): array {
+	$raw = (string) @shell_exec('ps -arcwwwxo pid,%cpu,command 2>/dev/null');
+	$rows = [];
+	foreach (preg_split('/\R/', $raw) as $i => $line) {
+		if ($i === 0 || trim($line) === '') {
+			continue; // header / blanks
+		}
+		if (!preg_match('/^\s*(\d+)\s+([\d.]+)\s+(.*)$/', $line, $m)) {
+			continue;
+		}
+		$pid = (int) $m[1];
+		$cmd = trim($m[3]);
+		// Exclude the watchdog itself, its ps child, and the helper php process.
+		if ($pid === $selfPid || stripos($cmd, 'battery-watchdog') !== false) {
+			continue;
+		}
+		$rows[] = ['pid' => $pid, 'cpu' => (float) $m[2], 'cmd' => $cmd];
+	}
+	usort($rows, fn($a, $b) => $b['cpu'] <=> $a['cpu']);
+	return $rows;
+}
+
+/** Short, readable label for a process command (basename of the leading path). */
+function procLabel(string $cmd): string {
+	$first = strtok($cmd, ' ');
+	$base  = basename($first);
+	return $base !== '' ? $base : $cmd;
+}
+
+/** Fire a macOS notification via osascript (best-effort). */
+function notify(string $title, string $subtitle, string $message): void {
+	// AppleScript string-escape: backslash then double-quote.
+	$esc = fn($s) => str_replace(['\\', '"'], ['\\\\', '\\"'], $s);
+	$script = sprintf(
+		'display notification "%s" with title "%s" subtitle "%s" sound name "Basso"',
+		$esc($message),
+		$esc($title),
+		$esc($subtitle)
+	);
+	@exec('osascript -e ' . escapeshellarg($script) . ' >/dev/null 2>&1');
+}
+
+/** Format the top CPU eaters as "label(pid)=NN%" pieces. */
+function formatTop(array $top, int $n): string {
+	$pieces = [];
+	foreach (array_slice($top, 0, $n) as $p) {
+		$pieces[] = sprintf('%s(%d)=%.0f%%', procLabel($p['cmd']), $p['pid'], $p['cpu']);
+	}
+	return implode(', ', $pieces);
+}
+
+# -----------------------------------------------------------------------------
+# Linux / non-macOS: clean no-op.
+# -----------------------------------------------------------------------------
+if (!$isMac) {
+	if (!$cli->isSilent()) {
+		$cli->msg('battery-watchdog is macOS-only (needs pmset/launchd). Nothing to do here.', 'yellow');
+	}
+	exit(0);
+}
+
+# -----------------------------------------------------------------------------
+# Subcommands: install / uninstall
+# -----------------------------------------------------------------------------
+if ($sub === 'install' || $sub === 'uninstall') {
+	$plistDir  = $home . '/Library/LaunchAgents';
+	$plistPath = $plistDir . '/' . PLIST_LABEL . '.plist';
+
+	if ($sub === 'uninstall') {
+		if (!file_exists($plistPath)) {
+			$cli->msg('LaunchAgent not installed.', 'yellow');
+			exit(0);
+		}
+		@exec('launchctl unload ' . escapeshellarg($plistPath) . ' 2>&1');
+		@unlink($plistPath);
+		$cli->successMsg('LaunchAgent removed (' . $plistPath . ').');
+		exit(0);
+	}
+
+	// install
+	$phpBin     = PHP_BINARY;
+	$scriptPath = realpath(__FILE__);
+	$logOut     = $cacheDir . '/launchd.log';
+	if (!is_dir($cacheDir)) {
+		@mkdir($cacheDir, 0755, true);
+	}
+
+	$interval = CHECK_INTERVAL;
+	$label    = PLIST_LABEL;
+	$plistXml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>{$label}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{$phpBin}</string>
+		<string>{$scriptPath}</string>
+		<string>check</string>
+		<string>--silent</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>{$interval}</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>{$logOut}</string>
+	<key>StandardErrorPath</key>
+	<string>{$logOut}</string>
+</dict>
+</plist>
+XML;
+
+	if (!is_dir($plistDir)) {
+		@mkdir($plistDir, 0755, true);
+	}
+
+	// If already loaded, unload first so we pick up any changes cleanly.
+	if (file_exists($plistPath)) {
+		@exec('launchctl unload ' . escapeshellarg($plistPath) . ' 2>&1');
+	}
+
+	if (!file_put_contents($plistPath, $plistXml)) {
+		$cli->exitErr("Failed to write {$plistPath}");
+	}
+
+	exec('launchctl load ' . escapeshellarg($plistPath) . ' 2>&1', $out, $ret);
+	if ($ret !== 0) {
+		$cli->exitErr('launchctl load failed: ' . implode("\n", $out));
+	}
+
+	$cli->successMsg('LaunchAgent installed and loaded.');
+	$cli->msg('Runs a check every ' . (CHECK_INTERVAL / 60) . ' minutes. Logs: ' . $logFile, 'cyan');
+	$cli->msg('Verify: launchctl list | grep battery-watchdog', 'cyan');
+	exit(0);
+}
+
+# -----------------------------------------------------------------------------
+# Subcommand: test — force a sample notification.
+# -----------------------------------------------------------------------------
+if ($sub === 'test') {
+	notify(
+		'🔋 Battery Watchdog',
+		'Test notification',
+		'If you can see this, notifications work. Top CPU: ' . formatTop(readTopCpu(getmypid()), TOP_N)
+	);
+	wlog($logFile, $cacheDir, 'test: fired sample notification');
+	$cli->successMsg('Sample notification fired. Check your notification center / top-right of screen.');
+	$cli->msg('If nothing appeared, grant notification permission to the script host:', 'yellow');
+	$cli->msg('  System Settings → Notifications → (Script Editor / osascript) → Allow.', 'yellow');
+	exit(0);
+}
+
+# -----------------------------------------------------------------------------
+# check / status — the actual watchdog run.
+# -----------------------------------------------------------------------------
+$notifyEnabled = ($sub !== 'status'); // `status` is a dry readout, never notifies
+$selfPid = getmypid();
+$now     = time();
+
+$batt  = readBattery();
+$top   = readTopCpu($selfPid);
+$state = readState($stateFile);
+
+$alerts        = [];   // human-readable reasons we (would) alert
+$notifications = [];   // [throttleKey => [title, subtitle, message]]
+
+// --- Sustained CPU hog detection (AC or battery) ---------------------------
+$currentHogs = [];
+foreach ($top as $p) {
+	if ($p['cpu'] >= HOG_CPU_THRESHOLD) {
+		$currentHogs[$p['pid']] = $p['cpu'];
+	}
+}
+$prevHogs = is_array($state['hogPids']) ? $state['hogPids'] : [];
+$sustained = [];
+foreach ($currentHogs as $pid => $cpu) {
+	if (array_key_exists((string) $pid, $prevHogs) || array_key_exists($pid, $prevHogs)) {
+		$sustained[$pid] = $cpu;
+	}
+}
+if (!empty($sustained)) {
+	// Find a label for the worst sustained hog.
+	$worstPid = array_key_first($sustained);
+	$worstCpu = $sustained[$worstPid];
+	foreach ($sustained as $pid => $cpu) {
+		if ($cpu > $worstCpu) { $worstPid = $pid; $worstCpu = $cpu; }
+	}
+	$worstLabel = $worstPid;
+	foreach ($top as $p) {
+		if ($p['pid'] === $worstPid) { $worstLabel = procLabel($p['cmd']); break; }
+	}
+	$reason = sprintf('Sustained CPU hog: %s (pid %d) at %.0f%% for 2+ checks', $worstLabel, $worstPid, $worstCpu);
+	$alerts[] = $reason;
+	$notifications['hog-' . $worstPid] = [
+		'🔥 Runaway process',
+		sprintf('%s pinned at %.0f%% CPU', $worstLabel, $worstCpu),
+		'Top CPU: ' . formatTop($top, TOP_N),
+	];
+}
+
+// --- Battery drain detection (on battery only) -----------------------------
+$drainRate = null;
+if ($batt['onBattery']
+	&& $batt['charge'] !== null
+	&& $state['charge'] !== null
+	&& $state['chargeTime'] !== null
+	&& $state['powerSource'] === 'battery'
+) {
+	$elapsedHrs = ($now - (int) $state['chargeTime']) / 3600.0;
+	$dropped    = (int) $state['charge'] - $batt['charge'];
+	if ($elapsedHrs > 0 && $dropped > 0) {
+		$drainRate = $dropped / $elapsedHrs;
+	}
+}
+
+if ($batt['onBattery']) {
+	$battReasons = [];
+	if ($batt['minutes'] !== null && $batt['minutes'] < LOW_TIME_MINUTES) {
+		$battReasons[] = sprintf('only %d min remaining', $batt['minutes']);
+	}
+	if ($drainRate !== null && $drainRate > DRAIN_RATE_LIMIT) {
+		$battReasons[] = sprintf('draining %.0f%%/hr', $drainRate);
+	}
+	if (!empty($battReasons)) {
+		$reason = sprintf('Battery (%d%%): %s', (int) $batt['charge'], implode(' + ', $battReasons));
+		$alerts[] = $reason;
+		$notifications['battery'] = [
+			'🔋 Battery draining fast',
+			sprintf('%d%% — %s', (int) $batt['charge'], implode(', ', $battReasons)),
+			'Top CPU: ' . formatTop($top, TOP_N),
+		];
+	}
+}
+
+// --- Send notifications (throttled) ----------------------------------------
+$lastNotified = is_array($state['lastNotified']) ? $state['lastNotified'] : [];
+$fired = [];
+if ($notifyEnabled) {
+	foreach ($notifications as $key => $n) {
+		$last = isset($lastNotified[$key]) ? (int) $lastNotified[$key] : 0;
+		if (($now - $last) >= NOTIFY_THROTTLE) {
+			notify($n[0], $n[1], $n[2]);
+			$lastNotified[$key] = $now;
+			$fired[] = $key;
+		}
+	}
+}
+
+// `status` is a passive, read-only diagnostic: it must NOT mutate the shared
+// state file or log, so eyeballing it never perturbs the daemon's consecutive-
+// sample chain. Only a real `check` persists state and logs.
+if ($notifyEnabled) {
+	// Prune stale throttle entries for PIDs that are no longer hogging, so the
+	// map does not grow without bound. Keep 'battery' and active hog keys.
+	$activeKeys = array_merge(['battery'], array_map(fn($pid) => 'hog-' . $pid, array_keys($currentHogs)));
+	foreach (array_keys($lastNotified) as $key) {
+		if (!in_array($key, $activeKeys, true) && (($now - (int) $lastNotified[$key]) > NOTIFY_THROTTLE)) {
+			unset($lastNotified[$key]);
+		}
+	}
+
+	writeState($stateFile, $cacheDir, [
+		'charge'       => $batt['charge'],
+		'chargeTime'   => $now,
+		'powerSource'  => $batt['onBattery'] ? 'battery' : 'ac',
+		'hogPids'      => $currentHogs,
+		'lastNotified' => $lastNotified,
+	]);
+
+	$logParts = [
+		$sub . ':',
+		'source=' . ($batt['onBattery'] ? 'battery' : 'ac'),
+		'charge=' . ($batt['charge'] === null ? '?' : $batt['charge'] . '%'),
+		'state=' . ($batt['state'] ?? '?'),
+		'remain=' . ($batt['minutes'] === null ? 'n/a' : $batt['minutes'] . 'min'),
+		'drain=' . ($drainRate === null ? 'n/a' : sprintf('%.0f%%/hr', $drainRate)),
+		'top=[' . formatTop($top, TOP_N) . ']',
+	];
+	if (!empty($alerts)) {
+		$logParts[] = 'ALERT{' . implode(' | ', $alerts) . '}';
+	}
+	if (!empty($fired)) {
+		$logParts[] = 'notified=[' . implode(',', $fired) . ']';
+	}
+	wlog($logFile, $cacheDir, implode(' ', $logParts));
+}
+
+// --- Human-readable readout (suppressed by --silent) ------------------------
+if (!$cli->isSilent()) {
+	$cli->msg('Battery Watchdog — ' . date('Y-m-d H:i:s'), 'cyan');
+	$cli->msg(sprintf(
+		'  Power: %s | Charge: %s | State: %s | Remaining: %s',
+		$batt['onBattery'] ? 'BATTERY' : 'AC',
+		$batt['charge'] === null ? '?' : $batt['charge'] . '%',
+		$batt['state'] ?? '?',
+		$batt['minutes'] === null ? 'n/a' : sprintf('%d:%02d', intdiv($batt['minutes'], 60), $batt['minutes'] % 60)
+	));
+	if ($drainRate !== null) {
+		$cli->msg(sprintf('  Drain rate: %.1f%%/hr', $drainRate));
+	}
+	$cli->msg('  Top CPU:');
+	foreach (array_slice($top, 0, TOP_N) as $p) {
+		$color = $p['cpu'] >= HOG_CPU_THRESHOLD ? 'red' : '';
+		$cli->msg(sprintf('    %6.1f%%  [%d] %s', $p['cpu'], $p['pid'], procLabel($p['cmd'])), $color);
+	}
+	if (!empty($alerts)) {
+		$cli->msg('  ⚠ Alerts:', 'yellow');
+		foreach ($alerts as $a) {
+			$cli->msg('    - ' . $a, 'red');
+		}
+		if (!$notifyEnabled) {
+			$cli->msg('    (status mode — no notification sent)', 'yellow');
+		} elseif (empty($fired)) {
+			$cli->msg('    (throttled — notified within the last ' . (NOTIFY_THROTTLE / 60) . ' min)', 'yellow');
+		} else {
+			$cli->msg('    → notification sent', 'green');
+		}
+	} else {
+		$cli->successMsg('  No alerts. All good.');
+	}
+}
+
+exit(0);
