@@ -66,6 +66,7 @@ const DRAIN_RATE_LIMIT  = 35.0;  // alert above this drain rate (%/hr)
 const NOTIFY_THROTTLE   = 900;   // min seconds between repeat notifications (15 min)
 const TOP_N             = 3;     // how many CPU eaters to list
 const LOG_MAX_BYTES     = 1048576; // rotate the log past ~1MB
+const ASSESS_HINT       = 'Run battery-watchdog-assess for triage.';
 
 $home     = getenv('HOME') ?: $cli->convertPathToAbsolute('~');
 $cacheDir = $home . '/.cache/battery-watchdog';
@@ -376,7 +377,7 @@ if (!empty($sustained)) {
 	$notifications['hog-' . $worstPid] = [
 		'🔥 Runaway process',
 		sprintf('%s pinned at %.0f%% CPU', $worstLabel, $worstCpu),
-		'Top CPU: ' . formatTop($top, TOP_N),
+		'Top CPU: ' . formatTop($top, TOP_N) . ' — ' . ASSESS_HINT,
 	];
 }
 
@@ -409,7 +410,7 @@ if ($batt['onBattery']) {
 		$notifications['battery'] = [
 			'🔋 Battery draining fast',
 			sprintf('%d%% — %s', (int) $batt['charge'], implode(', ', $battReasons)),
-			'Top CPU: ' . formatTop($top, TOP_N),
+			'Top CPU: ' . formatTop($top, TOP_N) . ' — ' . ASSESS_HINT,
 		];
 	}
 }

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# =============================================================================
+# battery-watchdog-assess — interactive triage for a battery-watchdog alert.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# When the battery-watchdog notification fires, run this to get real-time
+# advice: it launches Claude Code in the dotfiles dir and runs the
+# /battery-watchdog command, which inspects the watchdog state/log, re-samples
+# live CPU/battery, classifies the offender, and proposes (and on your OK,
+# executes) a fix.
+#
+# Shell, not PHP, on purpose: this hands an interactive TTY to `claude` so you
+# can converse with it ("kill it" / "renice it"). A PHP exec() wrapper would
+# swallow the prompt.
+#
+# Usage:
+#   battery-watchdog-assess            # launch triage
+#   battery-watchdog-assess <args...>  # extra args are passed through to claude
+# =============================================================================
+set -euo pipefail
+
+# macOS only — the watchdog (pmset/launchd) doesn't exist elsewhere.
+if [ "$(uname -s)" != "Darwin" ]; then
+	echo "battery-watchdog-assess is macOS-only (needs pmset). Nothing to do." >&2
+	exit 0
+fi
+
+if ! command -v claude >/dev/null 2>&1; then
+	echo "Error: 'claude' (Claude Code CLI) not found on PATH." >&2
+	exit 1
+fi
+
+DOTFILES="${HOME}/.dotfiles"
+cd "$DOTFILES" 2>/dev/null || cd "$HOME"
+
+# Hand off to an interactive Claude Code session that runs the triage command.
+# --dangerously-skip-permissions so it can ps/kill/renice/read logs without
+# prompting (same posture as the `yc` alias).
+exec claude --dangerously-skip-permissions "$@" "/battery-watchdog"
