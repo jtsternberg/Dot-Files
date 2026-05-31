@@ -108,10 +108,14 @@ vdebugtrim() {
 
 wptests() {
 	CURRDIR=`pwd`
+	# `localhost` uses the UNIX socket (/tmp/mysql.sock -> LocalWP's MySQL),
+	# bypassing OrbStack squatting TCP 3306. Pass LocalWP's root pw (`root`),
+	# not the stale `pizzaizGr8`. (Native /usr/local/mysql can't start while
+	# OrbStack holds 3306, so the old `&& mysqlstart` was dropped.)
 	if [ -d "$CURRDIR/bin" ]; then
-		bash "$CURRDIR/bin/install-wp-tests.sh" wordpress_test root 'pizzaizGr8' 127.0.0.1 latest && mysqlstart
+		bash "$CURRDIR/bin/install-wp-tests.sh" wordpress_test root root localhost latest
 	else
-		bash "$CURRDIR//tests/bin/install-wp-tests.sh" wordpress_test root 'pizzaizGr8' 127.0.0.1 latest && mysqlstart
+		bash "$CURRDIR/tests/bin/install-wp-tests.sh" wordpress_test root root localhost latest
 	fi
 }
 
