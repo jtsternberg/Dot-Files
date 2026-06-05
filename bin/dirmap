@@ -13,7 +13,7 @@ namespace JT;
 #
 # Usage:
 # dirmap help
-# dirmap add <key> <path>
+# dirmap add [<key>] [<path>]
 # dirmap remove <key>
 # dirmap <key>
 # dirmap get <key>
@@ -66,12 +66,6 @@ class DirMap {
 	}
 
 	public function add( $args ) {
-		if ( empty( $args[2] ) ) {
-			$this->helpers->err( "\nThe directory map key (alias) is required." );
-			$this->helpers->msg( "E.g. dirmap add mysites ~/Sites\n" );
-			exit(1);
-		}
-
 		array_shift( $args );
 		array_shift( $args );
 		$key = array_shift( $args );
@@ -79,6 +73,11 @@ class DirMap {
 
 		if ( empty( $path ) || '.' === $path ) {
 			$path = $this->helpers->wd;
+		}
+
+		// No key given: default to the name of the current directory.
+		if ( empty( $key ) ) {
+			$key = $this->helpers->currDir;
 		}
 
 		$dirs = $this->dirs;
@@ -222,9 +221,9 @@ $helpyHelperton
 	] )
 	->setup( 'dirmap', [
 		'add' => [
-			'<key> [<path>]',
-			'Add a new directory mapping. Path defaults to current directory if omitted.',
-			'<key>    The alias for this directory',
+			'[<key>] [<path>]',
+			'Add a new directory mapping. Key defaults to the current directory name, and path to the current directory, if omitted.',
+			'<key>    The alias for this directory (defaults to current directory name)',
 			'<path>   The directory path (defaults to current directory)',
 		],
 		'remove' => [
