@@ -28,6 +28,7 @@ PATH=$PATH:~/.composer/vendor/bin
 PATH=$PATH:~/.local/bin
 PATH=$PATH:~/.node/bin
 PATH=$PATH:~/.npm-global/bin
+PATH=$PATH:~/.cargo/bin
 PATH=$PATH:./node_modules/.bin
 PATH=$PATH:/usr/local/sbin
 PATH=$PATH:~/.dotfiles/git
