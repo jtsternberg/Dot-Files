@@ -14,6 +14,7 @@ namespace JT;
 # Usage:
 # dirmap help
 # dirmap add [<key>] [<path>]
+# dirmap rename [<oldkey>] <newkey>
 # dirmap remove <key>
 # dirmap <key>
 # dirmap get <key>
@@ -111,6 +112,66 @@ class DirMap {
 		$this->helpers->msg( sprintf( "\nRemoved: %s\n", $key ), 'green' );
 	}
 
+	public function rename( $args ) {
+		array_shift( $args );
+		array_shift( $args );
+		$first  = array_shift( $args );
+		$second = array_shift( $args );
+
+		// With a single arg, it's the new key: identify the current
+		// directory to determine which existing key to rename.
+		if ( empty( $second ) ) {
+			$newKey = $first;
+			$oldKey = $this->findKeyForPath( $this->helpers->wd );
+
+			if ( empty( $oldKey ) ) {
+				$this->helpers->err( sprintf( "\nNo dirmap key found for the current directory: '%s'", $this->helpers->wd ), false );
+				$this->helpers->msg( "Provide the old key explicitly: dirmap rename <oldkey> <newkey>\n" );
+				exit( 1 );
+			}
+		} else {
+			$oldKey = $first;
+			$newKey = $second;
+		}
+
+		if ( empty( $newKey ) ) {
+			$this->helpers->err( "\nThe new directory map key (alias) is required." );
+			$this->helpers->msg( "E.g. dirmap rename oldkey newkey\n" );
+			exit( 1 );
+		}
+
+		if ( ! isset( $this->dirs[ $oldKey ] ) ) {
+			$this->helpers->err( sprintf( "\nThere is no directory associated with the given key: '%s'", $oldKey ), false );
+			$this->helpers->msg( "Try `dirmap list` to see available keys\n" );
+			exit( 1 );
+		}
+
+		if ( $oldKey === $newKey ) {
+			$this->helpers->err( sprintf( "\nThe new key is the same as the old key: '%s'\n", $oldKey ), false );
+			exit( 1 );
+		}
+
+		if ( isset( $this->dirs[ $newKey ] ) ) {
+			$this->helpers->err( sprintf( "\nA mapping already exists for the key: '%s' => %s", $newKey, $this->dirs[ $newKey ] ), false );
+			$this->helpers->msg( "Remove it first, or choose a different key.\n" );
+			exit( 1 );
+		}
+
+		$path = $this->dirs[ $oldKey ];
+
+		$dirs = $this->dirs;
+		unset( $dirs[''] );
+		unset( $dirs[ $oldKey ] );
+		$dirs[ $newKey ] = $path;
+
+		unset( $this->dirs[ $oldKey ] );
+		$this->dirs[ $newKey ] = $path;
+
+		$this->updateFile( $dirs );
+
+		$this->helpers->msg( sprintf( "\nRenamed: %s => %s (%s)\n", $oldKey, $newKey, $path ), 'green' );
+	}
+
 	public function identify( $args ) {
 		array_shift( $args );
 		array_shift( $args );
@@ -120,8 +181,31 @@ class DirMap {
 			$path = $this->helpers->wd;
 		}
 
+		$best = $this->findKeyForPath( $path );
+
+		if ( empty( $best ) ) {
+			$this->helpers->err( sprintf( "\nNo dirmap key found for: '%s'\n", $this->resolvePath( $path ) ), false );
+			exit( 1 );
+		}
+
+		exit( $best );
+	}
+
+	protected function resolvePath( $path ) {
 		$path = str_replace( '~', $this->hd, $path );
 		$path = rtrim( $path, '/' );
+
+		// Canonicalize symlinks (e.g. /tmp vs /private/tmp, or a symlinked
+		// ~/Sites) so paths compare by their physical location. getcwd()
+		// already returns the resolved path, so the stored side must match.
+		// Falls back to the string path when it doesn't exist on disk.
+		$real = realpath( $path );
+
+		return false !== $real ? $real : $path;
+	}
+
+	protected function findKeyForPath( $path ) {
+		$path = $this->resolvePath( $path );
 
 		$best = '';
 		foreach ( $this->dirs as $key => $dir ) {
@@ -129,22 +213,14 @@ class DirMap {
 				continue;
 			}
 
-			$resolved = str_replace( '~', $this->hd, $dir );
-			$resolved = rtrim( $resolved, '/' );
-
-			if ( $resolved === $path ) {
+			if ( $this->resolvePath( $dir ) === $path ) {
 				if ( empty( $best ) || strlen( $key ) < strlen( $best ) ) {
 					$best = $key;
 				}
 			}
 		}
 
-		if ( empty( $best ) ) {
-			$this->helpers->err( sprintf( "\nNo dirmap key found for: '%s'\n", $path ), false );
-			exit( 1 );
-		}
-
-		exit( $best );
+		return $best;
 	}
 
 	public function list() {
@@ -225,6 +301,12 @@ $helpyHelperton
 			'Add a new directory mapping. Key defaults to the current directory name, and path to the current directory, if omitted.',
 			'<key>    The alias for this directory (defaults to current directory name)',
 			'<path>   The directory path (defaults to current directory)',
+		],
+		'rename' => [
+			'[<oldkey>] <newkey>',
+			'Rename an existing mapping. If oldkey is omitted, the current directory is identified to find it.',
+			'<oldkey>   The existing alias (defaults to the key for the current directory)',
+			'<newkey>   The new alias',
 		],
 		'remove' => [
 			'<key>',
