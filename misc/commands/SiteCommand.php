@@ -63,12 +63,18 @@ abstract class SiteCommand {
 	}
 
 	/**
-	 * Get the REST URL from environment variable.
+	 * Get the base REST URL: the --url/--restUrl flag value takes precedence,
+	 * else the JTS_SITE_REST_URL environment variable.
+	 *
+	 * Subclasses override this to append a resource segment (e.g. /posts,
+	 * /pages). Routing the flag-derived URL through here too ensures that
+	 * resource segment is applied regardless of whether the base came from
+	 * the flag or the environment.
 	 *
 	 * @return string|null
 	 */
 	protected function getRestUrl(): ?string {
-		return $_ENV['JTS_SITE_REST_URL'] ?? null;
+		return $this->restUrl ?: ( $_ENV['JTS_SITE_REST_URL'] ?? null );
 	}
 
 	/**
@@ -145,7 +151,9 @@ abstract class SiteCommand {
 	 * @throws \Exception If no URL is available
 	 */
 	protected function resolveRestUrl(): string {
-		$url = $this->restUrl ?: $this->getRestUrl();
+		// getRestUrl() already prefers the flag-derived URL over the env value,
+		// and (in subclasses) appends the resource segment to whichever wins.
+		$url = $this->getRestUrl();
 
 		if ( empty( $url ) ) {
 			throw new \Exception( "Error: REST URL must be provided via --restUrl flag or JTS_SITE_REST_URL environment variable" );
