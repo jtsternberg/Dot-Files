@@ -16,6 +16,7 @@ class FetchFromSiteCommand extends SiteCommand {
 	protected $outputFile = '/tmp/fetchedpost.md';
 	protected $convertToMarkdown = true;
 	protected $stripTags = false;
+	protected $rawBlocks = false;
 	protected $openAfterFetch = false;
 	protected $frontmatter = [];
 	protected $inputFile = null;
@@ -54,6 +55,13 @@ class FetchFromSiteCommand extends SiteCommand {
 		$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
 		$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
 		$this->openAfterFetch = $cli->hasFlag( 'open' );
+
+		// Raw Gutenberg block mode: fetch content.raw via context=edit and emit
+		// it verbatim (no markdown conversion) for lossless round-trips.
+		$this->rawBlocks = $cli->hasFlag( 'raw' );
+		if ( $this->rawBlocks ) {
+			$this->convertToMarkdown = false;
+		}
 	}
 
 	/**
@@ -132,6 +140,11 @@ class FetchFromSiteCommand extends SiteCommand {
 			$url .= '/posts';
 		}
 		$url .= '/' . $postId . '?_embed=wp:term';
+
+		// context=edit exposes content.raw (unrendered Gutenberg block markup).
+		if ( $this->rawBlocks ) {
+			$url .= '&context=edit';
+		}
 
 		return $this->executeRequest( $url, 'GET' );
 	}
@@ -215,6 +228,12 @@ class FetchFromSiteCommand extends SiteCommand {
 	 * @return string Processed content
 	 */
 	protected function processContent( array $post ): string {
+		// Raw block mode emits content.raw verbatim (falls back to rendered if
+		// the edit-context payload lacks raw, e.g. insufficient capabilities).
+		if ( $this->rawBlocks ) {
+			return $post['content']['raw'] ?? $post['content']['rendered'] ?? '';
+		}
+
 		$content = $post['content']['rendered'] ?? '';
 
 		if ( $this->convertToMarkdown ) {
@@ -238,6 +257,16 @@ class FetchFromSiteCommand extends SiteCommand {
 			'date'      => $post['date'] ?? null,
 			'permalink' => $post['link'] ?? null,
 		];
+
+		// Conflict-detection token + post status for lossless round-trips.
+		// Only emitted when present (modified_gmt ships in both view and edit
+		// context; status is edit-context only).
+		if ( isset( $post['modified_gmt'] ) ) {
+			$frontmatter['modified_gmt'] = $post['modified_gmt'];
+		}
+		if ( isset( $post['status'] ) ) {
+			$frontmatter['status'] = $post['status'];
+		}
 
 		// Extract taxonomies from embedded terms
 		if ( ! empty( $post['_embedded']['wp:term'] ) ) {
@@ -308,7 +337,11 @@ class FetchFromSiteCommand extends SiteCommand {
 	protected function buildOutput( array $post, string $content ): string {
 		$output = '';
 
-		if ( $this->convertToMarkdown ) {
+		if ( $this->rawBlocks ) {
+			// Frontmatter carries id/slug/modified_gmt back to jt-blog-publish,
+			// but the body stays pure Gutenberg block markup — no H1 injected.
+			$output .= $this->buildFrontmatter( $post );
+		} elseif ( $this->convertToMarkdown ) {
 			$output .= $this->buildFrontmatter( $post );
 
 			$title = $post['title']['rendered'] ?? '';

@@ -20,13 +20,14 @@ $helpyHelperton
 	->setScriptName( 'jt-blog-fetch' )
 	->setPrefix( '' )
 	->setDescription( 'Fetches a blog post or page from jtsternberg.com and saves it locally.' )
-	->setSampleUsage( '[post-id|file.md] [--outputFile=FILE] [--rawHtml] [--browse] [--page] [--flushCache] [--open]' )
+	->setSampleUsage( '[post-id|file.md] [--outputFile=FILE] [--raw] [--rawHtml] [--browse] [--page] [--flushCache] [--open]' )
 	->buildDocs( [
 		'[post-id|slug]'     => 'Post/page ID or slug to fetch (optional if using --browse)',
 		'[file.md]'          => 'Markdown file with frontmatter id (updates in-place)',
 		'--postId=ID|SLUG'   => 'Post/page ID or slug to fetch (alternative to positional argument)',
 		'--outputFile=FILE'  => 'Path to save content (defaults to input file or /tmp/fetchedpost.md)',
-		'--rawHtml'          => 'Keep raw HTML instead of converting to Markdown',
+		'--raw'              => 'Fetch raw Gutenberg block markup (content.raw via context=edit) verbatim for lossless round-trips. Emits frontmatter (id/slug/modified_gmt) but no H1; round-trips via jt-blog-publish --disableMarkdown',
+		'--rawHtml'          => 'Keep raw (rendered) HTML instead of converting to Markdown',
 		'--stripTags'        => 'Strip HTML tags without Markdown equivalents (default: preserve)',
 		'--open'             => 'Open the file in default editor after fetching',
 		'--browse'           => 'Browse categories to select a post (or list pages if --page)',
@@ -66,6 +67,10 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 			$this->outputFile = $cli->getFlag( 'outputFile' ) ?: '/tmp/fetchedpost.md';
 			$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
 			$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
+			$this->rawBlocks = $cli->hasFlag( 'raw' );
+			if ( $this->rawBlocks ) {
+				$this->convertToMarkdown = false;
+			}
 			$this->openAfterFetch = $cli->hasFlag( 'open' );
 		} else {
 			// Normal flow - require postId
