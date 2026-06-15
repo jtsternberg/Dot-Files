@@ -26,6 +26,16 @@
 
 ; SSH commit signing via 1Password (macOS-only: op-ssh-sign path).
 ; Linux needs its own signer config in .gitconfig-linux.
+;
+; New-machine setup (one GUI step; everything else is in this repo):
+;   1. 1Password app -> Settings -> Developer -> "Use the SSH agent" (toggle on).
+;      op-ssh-sign needs the agent running to reach the key.
+;   2. (per GitHub account, already done for jtsternberg) Add the public key at
+;      https://github.com/settings/ssh/new with Key type = "Signing Key".
+;      The committer email must be a *verified* email on that account for the
+;      "Verified" badge. Key lives in 1Password ("Github SSH Key").
+; The signing key + allowed-signers list are tracked in the repo, so no other
+; manual steps: signingkey below, and git-allowed-signers (allowedSignersFile).
 [gpg]
 	format = ssh
 
