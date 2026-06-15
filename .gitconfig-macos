@@ -23,3 +23,20 @@
 [mergetool "Kaleidoscope"]
 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
 	trustExitCode = true
+
+; SSH commit signing via 1Password (macOS-only: op-ssh-sign path).
+; Linux needs its own signer config in .gitconfig-linux.
+[gpg]
+	format = ssh
+
+[gpg "ssh"]
+	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+
+[user]
+	signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJswq85xKah+wqtOahkzEWDtMTOSj4hqMhmS751hiUJu
+
+[commit]
+	gpgsign = true
+
+[tag]
+	gpgsign = true
