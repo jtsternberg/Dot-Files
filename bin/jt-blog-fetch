@@ -65,8 +65,8 @@ class BlogFetchCommand extends FetchFromSiteCommand {
 			SiteCommand::__construct( $cli );
 
 			$this->outputFile = $cli->getFlag( 'outputFile' ) ?: '/tmp/fetchedpost.md';
-			$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
-			$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
+			$this->convertToMarkdown = ! $cli->hasFlag( 'rawHtml' );
+			$this->stripTags = $cli->hasFlag( 'stripTags' );
 			$this->rawBlocks = $cli->hasFlag( 'raw' );
 			if ( $this->rawBlocks ) {
 				$this->convertToMarkdown = false;

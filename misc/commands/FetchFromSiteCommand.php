@@ -52,8 +52,8 @@ class FetchFromSiteCommand extends SiteCommand {
 			$this->outputFile = $outputFileExplicit;
 		}
 
-		$this->convertToMarkdown = $cli->getFlag( 'rawHtml' ) !== true;
-		$this->stripTags = $cli->getFlag( 'stripTags' ) === true;
+		$this->convertToMarkdown = ! $cli->hasFlag( 'rawHtml' );
+		$this->stripTags = $cli->hasFlag( 'stripTags' );
 		$this->openAfterFetch = $cli->hasFlag( 'open' );
 
 		// Raw Gutenberg block mode: fetch content.raw via context=edit and emit

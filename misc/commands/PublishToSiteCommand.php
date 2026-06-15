@@ -19,7 +19,7 @@ class PublishToSiteCommand extends SiteCommand {
 	public function __construct( $cli ) {
 		parent::__construct( $cli );
 
-		$this->disableMarkdown = $cli->getFlag( 'disableMarkdown' ) === true;
+		$this->disableMarkdown = $cli->hasFlag( 'disableMarkdown' );
 		$this->extractTitle = ! $this->disableMarkdown;
 		if ( $cli->hasFlag( 'extractTitle' ) ) {
 			$flagValue = $cli->getFlag( 'extractTitle' );
