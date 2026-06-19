@@ -43,3 +43,4 @@ stripe-webhooks.log
 
 # Custom commands
 .localshell
+**/.claude/settings.local.json
