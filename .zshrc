@@ -329,3 +329,6 @@ alias claude-mem='bun "/Users/JT/.claude/plugins/cache/thedotmack/claude-mem/10.
 # Claude Code Upgrade: LSP
 # https://karanbansal.in/blog/claude-code-lsp/
 export ENABLE_LSP_TOOL=1
+
+# Added by Antigravity CLI installer
+export PATH="/Users/JT/.local/bin:$PATH"
