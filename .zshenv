@@ -46,6 +46,10 @@ export PATH=$PATH
 export EDITOR='code -w'
 # Override on machines without code
 command -v code &>/dev/null || export EDITOR='vim'
+# Non-blocking editor for tools that just want to open a file (no --wait).
+# A backgrounded `code -w` leaves a live "ghost" instance in the app switcher;
+# plain `code` opens in the existing window and returns. Falls back to $EDITOR.
+command -v code &>/dev/null && export OPEN_IN_EDITOR_COMMAND='code'
 export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl -w'
 
 export WP_TESTS_DIR=/tmp/wordpress/tests
