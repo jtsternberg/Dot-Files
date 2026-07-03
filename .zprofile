@@ -21,4 +21,6 @@ source ~/.orbstack/shell/init.zsh 2>/dev/null || :
 
 
 # Added by Antigravity CLI installer
+# >>> Codex installer >>>
 export PATH="/Users/JT/.local/bin:$PATH"
+# <<< Codex installer <<<
