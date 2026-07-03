@@ -5,22 +5,29 @@ namespace JT;
 # Annotate `ollama list` with notes about when/why/how to use each model.
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.1.0
+# Version 0.2.0
 #
 # Shows `ollama list` with a column of your own notes about when to use each
 # model. Notes live in ~/.ollama-why.json so they sync with your dotfiles if
 # you symlink that file.
 #
+# Also keeps a "graveyard" of models that were tested and removed, so future
+# sessions don't re-benchmark a model that was already tried and killed.
+#
 # Examples:
 # ollama-why                                              # show annotated list
 # ollama-why set qwen3-coder:latest "Primary coding agent"
 # ollama-why set gemma4:26b-nvfp4 --when="General chat" --speed="MoE, 4B active"
+# ollama-why set qwen2.5-coder:1.5b --tested="Cron title generator, 152 tok/s stable"
 # ollama-why rm llama3.1:8b                               # remove a note
-# ollama-why rm gemma4:31b --delete-model                 # remove note AND run `ollama rm`
+# ollama-why rm gemma4:31b --delete-model --tested="Too slow; pi 0/4"
+#                                                         # archive note to graveyard AND run `ollama rm`
+# ollama-why history                                      # show the graveyard
+# ollama-why forget gemma4:31b                            # permanently delete a graveyard entry
 # ollama-why notes                                        # show raw notes JSON
 #
 # Usage (`ollama-why -h`):
-# ollama-why [<command>] [<model>] [<note>] [--when=<text>] [--speed=<text>] [--tags=<csv>]
+# ollama-why [<command>] [<model>] [<note>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>]
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -30,16 +37,19 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('ollama-why')
 	->setDescription('Annotate `ollama list` with your own notes about when to use each model')
-	->setSampleUsage('[set|rm|notes|path] [<model>] [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>]')
+	->setSampleUsage('[set|rm|history|forget|notes|path] [<model>] [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>]')
 	->buildDocs([
-		'(no command)'    => 'Show `ollama list` with a WHEN column populated from your notes',
-		'set <model> ...' => 'Add or update a note. Positional: `ollama-why set <model> "quick when-text"`',
-		'rm <model>'      => 'Remove a note (use --delete-model to also `ollama rm` the model)',
-		'notes'           => 'Print raw notes JSON (for editing / piping)',
-		'path'            => 'Print the path to the notes file (~/.ollama-why.json)',
-		'--when=<text>'   => 'When/why to use this model',
-		'--speed=<text>'  => 'Speed note (e.g. "~120 tok/s MLX", "MoE 3B active")',
-		'--tags=<csv>'    => 'Comma-separated tags (e.g. "coding,agent,mlx")',
+		'(no command)'     => 'Show `ollama list` with a WHEN column populated from your notes',
+		'set <model> ...'  => 'Add or update a note. Positional: `ollama-why set <model> "quick when-text"`',
+		'rm <model>'       => 'Remove a note (with --delete-model: archive the note to the graveyard and `ollama rm` the model)',
+		'history'          => 'Show the graveyard: models previously tested & removed',
+		'forget <model>'   => 'Permanently delete a graveyard entry',
+		'notes'            => 'Print raw notes JSON (for editing / piping)',
+		'path'             => 'Print the path to the notes file (~/.ollama-why.json)',
+		'--when=<text>'    => 'When/why to use this model',
+		'--speed=<text>'   => 'Speed note (e.g. "~120 tok/s MLX", "MoE 3B active")',
+		'--tags=<csv>'     => 'Comma-separated tags (e.g. "coding,agent,mlx")',
+		'--tested=<text>'  => 'Test result summary (on `set`, or included in the graveyard entry on `rm --delete-model`)',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -52,40 +62,63 @@ define('JT\\OLLAMA_WHY_FILE', $_SERVER['HOME'] . '/.ollama-why.json');
 $cmd = $cli->getArg(1);
 
 switch ($cmd) {
-	case 'set':   cmd_set($cli); break;
-	case 'rm':    cmd_rm($cli); break;
-	case 'notes': cmd_notes($cli); break;
-	case 'path':  echo OLLAMA_WHY_FILE . "\n"; break;
+	case 'set':     cmd_set($cli); break;
+	case 'rm':      cmd_rm($cli); break;
+	case 'history': cmd_history($cli); break;
+	case 'forget':  cmd_forget($cli); break;
+	case 'notes':   cmd_notes($cli); break;
+	case 'path':    echo OLLAMA_WHY_FILE . "\n"; break;
 	case null:
-	case '':      cmd_list($cli); break;
+	case '':        cmd_list($cli); break;
 	default:
 		$cli->exitErr("Unknown command: {$cmd}. Run `ollama-why -h`.", 1);
 }
 
-function load_notes(): array {
+/**
+ * Load the data file, transparently migrating the old flat shape
+ * (models as top-level keys) to the new { models, graveyard } shape.
+ */
+function load_data(): array {
+	$data = ['models' => [], 'graveyard' => []];
 	if (!file_exists(OLLAMA_WHY_FILE)) {
-		return [];
+		return $data;
 	}
-	$raw = file_get_contents(OLLAMA_WHY_FILE);
-	$data = json_decode($raw, true);
-	return is_array($data) ? $data : [];
+	$raw = json_decode(file_get_contents(OLLAMA_WHY_FILE), true);
+	if (!is_array($raw)) {
+		return $data;
+	}
+	if (isset($raw['models']) || isset($raw['graveyard'])) {
+		$data['models']    = is_array($raw['models'] ?? null) ? $raw['models'] : [];
+		$data['graveyard'] = is_array($raw['graveyard'] ?? null) ? $raw['graveyard'] : [];
+	} else {
+		// Old flat shape: everything top-level is a model note.
+		$data['models'] = $raw;
+	}
+	return $data;
 }
 
-function save_notes(array $notes): void {
-	ksort($notes);
+function save_data(array $data): void {
+	ksort($data['models']);
+	ksort($data['graveyard']);
+	// Cast to objects so empty maps encode as {} rather than []
+	$out = [
+		'models'    => (object) $data['models'],
+		'graveyard' => (object) $data['graveyard'],
+	];
 	file_put_contents(
 		OLLAMA_WHY_FILE,
-		json_encode($notes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
+		json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
 	);
 }
 
 function cmd_set($cli): void {
 	$model = $cli->getArg(2);
 	if (!$model) {
-		$cli->exitErr('Missing <model>. Usage: ollama-why set <model> [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>]', 1);
+		$cli->exitErr('Missing <model>. Usage: ollama-why set <model> [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>]', 1);
 	}
-	$notes = load_notes();
-	$entry = $notes[$model] ?? [];
+	$data = load_data();
+	$entry = $data['models'][$model] ?? [];
+	$had = (bool) $entry;
 
 	// Positional shorthand: `ollama-why set foo "Primary coder"` = --when="Primary coder"
 	$positional = $cli->getArg(3);
@@ -93,7 +126,7 @@ function cmd_set($cli): void {
 		$entry['when'] = $positional;
 	}
 
-	foreach (['when', 'speed'] as $k) {
+	foreach (['when', 'speed', 'tested'] as $k) {
 		$v = $cli->getFlag($k);
 		if ($v !== null && $v !== false) {
 			$entry[$k] = $v;
@@ -105,11 +138,15 @@ function cmd_set($cli): void {
 	}
 
 	if (!$entry) {
-		$cli->exitErr('Nothing to set. Provide a when-text or --when/--speed/--tags.', 1);
+		$cli->exitErr('Nothing to set. Provide a when-text or --when/--speed/--tags/--tested.', 1);
 	}
 
-	$notes[$model] = $entry;
-	save_notes($notes);
+	if (!$had && isset($data['graveyard'][$model])) {
+		$cli->msg("Note: {$model} is in the graveyard (removed {$data['graveyard'][$model]['removed_at']}). Creating a fresh active note; `ollama-why forget {$model}` to clear the graveyard entry.", 'yellow');
+	}
+
+	$data['models'][$model] = $entry;
+	save_data($data);
 	$cli->successMsg("Saved note for {$model}");
 	foreach ($entry as $k => $v) {
 		$val = is_array($v) ? implode(',', $v) : $v;
@@ -120,19 +157,46 @@ function cmd_set($cli): void {
 function cmd_rm($cli): void {
 	$model = $cli->getArg(2);
 	if (!$model) {
-		$cli->exitErr('Missing <model>. Usage: ollama-why rm <model> [--delete-model]', 1);
+		$cli->exitErr('Missing <model>. Usage: ollama-why rm <model> [--delete-model] [--tested=<text>]', 1);
 	}
-	$notes = load_notes();
-	$had_note = isset($notes[$model]);
+	$data = load_data();
+	$had_note = isset($data['models'][$model]);
+	$delete_model = $cli->hasFlag('delete-model');
+
 	if ($had_note) {
-		unset($notes[$model]);
-		save_notes($notes);
-		$cli->successMsg("Removed note for {$model}");
+		if ($delete_model) {
+			// Archive to the graveyard instead of deleting.
+			$entry = $data['models'][$model];
+			$entry['removed_at'] = date('Y-m-d');
+			$tested = $cli->getFlag('tested');
+			if ($tested !== null && $tested !== false) {
+				$entry['tested'] = $tested;
+			}
+			$data['graveyard'][$model] = $entry;
+			unset($data['models'][$model]);
+			save_data($data);
+			$cli->successMsg("Archived note for {$model} to graveyard (removed_at: {$entry['removed_at']})");
+		} else {
+			unset($data['models'][$model]);
+			save_data($data);
+			$cli->successMsg("Removed note for {$model}");
+		}
 	} else {
 		$cli->msg("No note found for {$model}", 'yellow');
+		if ($delete_model) {
+			// Still leave a tombstone so we know it was tried.
+			$entry = ['removed_at' => date('Y-m-d')];
+			$tested = $cli->getFlag('tested');
+			if ($tested !== null && $tested !== false) {
+				$entry['tested'] = $tested;
+			}
+			$data['graveyard'][$model] = $entry;
+			save_data($data);
+			$cli->msg("Added graveyard tombstone for {$model}", 'yellow');
+		}
 	}
 
-	if ($cli->hasFlag('delete-model')) {
+	if ($delete_model) {
 		$cli->msg("Running: ollama rm {$model}", 'cyan');
 		$output = [];
 		$code = 0;
@@ -151,6 +215,46 @@ function cmd_rm($cli): void {
 	}
 }
 
+function cmd_history($cli): void {
+	$data = load_data();
+	if (!$data['graveyard']) {
+		$cli->msg('Graveyard is empty — no models tested & removed yet.', 'yellow');
+		return;
+	}
+	$cli->msg('Previously tested & removed:', 'white');
+	foreach ($data['graveyard'] as $model => $entry) {
+		$removed = $entry['removed_at'] ?? '?';
+		echo $cli->color('red') . '  ' . $model . $cli->color('none')
+			. $cli->color('yellow') . '  (removed ' . $removed . ')' . $cli->color('none') . "\n";
+		if (!empty($entry['tested'])) {
+			$cli->msg('      tested: ' . $entry['tested'], 'cyan');
+		}
+		if (!empty($entry['when'])) {
+			$cli->msg('      when: ' . $entry['when'], 'green');
+		}
+		if (!empty($entry['speed'])) {
+			$cli->msg('      speed: ' . $entry['speed'], 'cyan');
+		}
+		if (!empty($entry['tags'])) {
+			$cli->msg('      tags: ' . implode(', ', $entry['tags']), 'magenta');
+		}
+	}
+}
+
+function cmd_forget($cli): void {
+	$model = $cli->getArg(2);
+	if (!$model) {
+		$cli->exitErr('Missing <model>. Usage: ollama-why forget <model>', 1);
+	}
+	$data = load_data();
+	if (!isset($data['graveyard'][$model])) {
+		$cli->exitErr("No graveyard entry for {$model}", 1);
+	}
+	unset($data['graveyard'][$model]);
+	save_data($data);
+	$cli->successMsg("Forgot graveyard entry for {$model}");
+}
+
 function cmd_notes($cli): void {
 	echo file_exists(OLLAMA_WHY_FILE) ? file_get_contents(OLLAMA_WHY_FILE) : "{}\n";
 }
@@ -163,7 +267,8 @@ function cmd_list($cli): void {
 		$cli->exitErr("`ollama list` failed:\n" . implode("\n", $output), $code);
 	}
 
-	$notes = load_notes();
+	$data = load_data();
+	$notes = $data['models'];
 	$seen_models = [];
 
 	// Header (preserve ollama's) + WHEN column
@@ -189,6 +294,9 @@ function cmd_list($cli): void {
 			if (!empty($note['speed'])) {
 				$cli->msg($indent . '    speed: ' . $note['speed'], 'cyan');
 			}
+			if (!empty($note['tested'])) {
+				$cli->msg($indent . '    tested: ' . $note['tested'], 'cyan');
+			}
 			if (!empty($note['tags'])) {
 				$cli->msg($indent . '    tags: ' . implode(', ', $note['tags']), 'magenta');
 			}
@@ -197,7 +305,7 @@ function cmd_list($cli): void {
 		}
 	}
 
-	// Surface orphaned notes (model no longer installed)
+	// Surface orphaned notes (model no longer installed, but not graveyarded)
 	$orphans = array_diff_key($notes, $seen_models);
 	if ($orphans) {
 		echo "\n";
@@ -207,5 +315,16 @@ function cmd_list($cli): void {
 			$cli->msg("  {$model}    {$when}", 'red');
 		}
 		$cli->msg('Tip: `ollama-why rm <model>` to clean up.', 'yellow');
+	}
+
+	// Graveyard summary at the very bottom
+	if ($data['graveyard']) {
+		echo "\n";
+		$cli->msg('Previously tested & removed (see `ollama-why history`):', 'yellow');
+		foreach ($data['graveyard'] as $model => $entry) {
+			$removed = $entry['removed_at'] ?? '?';
+			$summary = $entry['tested'] ?? ($entry['when'] ?? '');
+			$cli->msg("  {$model}  ({$removed})  {$summary}", 'red');
+		}
 	}
 }
