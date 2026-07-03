@@ -19,7 +19,8 @@
                 "general",
                 "older",
                 "fallback"
-            ]
+            ],
+            "location": "sd"
         },
         "qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
@@ -29,7 +30,8 @@
                 "tiny",
                 "fast"
             ],
-            "tested": "Cron title generator, 152 tok/s stable"
+            "tested": "Cron title generator, 152 tok/s stable",
+            "location": "local"
         },
         "qwen2.5-coder:7b": {
             "when": "Fast coder fallback when qwen3-coder feels heavy.",
@@ -49,6 +51,13 @@
                 "primary"
             ],
             "location": "sd"
+        },
+        "qwen3.5:9b": {
+            "when": "untagged \u2014 annotate when we know its role",
+            "tags": [
+                "unknown"
+            ],
+            "location": "local"
         }
     },
     "graveyard": {
