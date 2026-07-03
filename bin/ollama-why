@@ -166,11 +166,26 @@ function get_location_flag($cli): ?string {
 	return $loc;
 }
 
-function location_badge($cli, ?string $location): string {
+function location_badge($cli, ?string $location, bool $pad = false): string {
 	$colors = ['local' => 'cyan', 'sd' => 'magenta', 'both' => 'green'];
-	$label = $location ?: '?';
+	$label = '[' . ($location ?: '?') . ']';
+	if ($pad) {
+		$label = str_pad($label, 7); // widest is [local]
+	}
 	$color = $colors[$location] ?? 'dark_gray';
-	return $cli->color($color) . '[' . $label . ']' . $cli->color('none');
+	return $cli->color($color) . $label . $cli->color('none');
+}
+
+function term_width(): int {
+	$cols = (int) trim((string) shell_exec('tput cols 2>/dev/null'));
+	return $cols > 40 ? $cols : 120;
+}
+
+function truncate_text(string $text, int $max): string {
+	if ($max < 10 || mb_strlen($text) <= $max) {
+		return $text;
+	}
+	return rtrim(mb_substr($text, 0, $max - 1)) . '…';
 }
 
 function cmd_set($cli): void {
@@ -394,13 +409,19 @@ function cmd_list($cli): void {
 		}
 	}
 
-	// Header (preserve ollama's) + WHEN column
-	$header = array_shift($output);
-	$cli->msg(rtrim($header) . '    WHEN', 'white');
+	// Measure ollama's rows so the WHEN column lines up
+	$rows = array_values(array_filter(array_map('rtrim', $output), 'strlen'));
+	$header = rtrim(array_shift($output));
+	$col = strlen($header);
+	foreach ($rows as $row) {
+		$col = max($col, strlen($row));
+	}
+	$col += 4;
 
-	foreach ($output as $line) {
-		$line = rtrim($line);
-		if ($line === '') continue;
+	$cli->msg(str_pad($header, $col) . 'WHEN', 'white');
+
+	foreach ($rows as $line) {
+		if ($line === $header) continue;
 		// Columns are space-separated; first col is NAME
 		if (!preg_match('/^(\S+)\s+/', $line, $m)) {
 			echo $line . "\n";
@@ -409,23 +430,24 @@ function cmd_list($cli): void {
 		$model = $m[1];
 		$seen_models[$model] = true;
 		$note = $notes[$model] ?? null;
+		$padded = str_pad($line, $col);
 
 		if ($note) {
 			$when = $note['when'] ?? '';
-			$badge = location_badge($cli, $note['location'] ?? null);
-			echo $line . '    ' . $badge . ' ' . $cli->color('green') . $when . $cli->color('none') . "\n";
-			$indent = str_repeat(' ', 70);
+			$badge = location_badge($cli, $note['location'] ?? null, true);
+			echo $padded . $badge . ' ' . $cli->color('green') . $when . $cli->color('none') . "\n";
+			$indent = str_repeat(' ', $col + 8); // badge width + space
 			if (!empty($note['speed'])) {
-				$cli->msg($indent . '    speed: ' . $note['speed'], 'cyan');
+				$cli->msg($indent . 'speed: ' . $note['speed'], 'cyan');
 			}
 			if (!empty($note['tested'])) {
-				$cli->msg($indent . '    tested: ' . $note['tested'], 'cyan');
+				$cli->msg($indent . 'tested: ' . $note['tested'], 'cyan');
 			}
 			if (!empty($note['tags'])) {
-				$cli->msg($indent . '    tags: ' . implode(', ', $note['tags']), 'magenta');
+				$cli->msg($indent . 'tags: ' . implode(', ', $note['tags']), 'magenta');
 			}
 		} else {
-			echo $line . '    ' . $cli->color('yellow') . '(no note — run: ollama-why set ' . $model . ' "...")' . $cli->color('none') . "\n";
+			echo $padded . $cli->color('yellow') . '(no note — run: ollama-why set ' . $model . ' "...")' . $cli->color('none') . "\n";
 		}
 	}
 
@@ -442,14 +464,21 @@ function cmd_list($cli): void {
 		}
 	}
 
+	$width = term_width();
+	$name_w = 0;
+	foreach (array_merge(array_keys($missing), array_keys($data['graveyard'])) as $model) {
+		$name_w = max($name_w, strlen($model));
+	}
+	$name_w += 2;
+
 	if ($offline) {
 		echo "\n";
 		$cli->msg('Offline (SD unmounted):', 'yellow');
 		foreach ($offline as $model => $note) {
-			$when = $note['when'] ?? '';
-			echo '  ' . location_badge($cli, $note['location']) . ' '
-				. $cli->color('magenta') . $model . $cli->color('none')
-				. '    ' . $cli->color('green') . $when . $cli->color('none') . "\n";
+			$when = truncate_text($note['when'] ?? '', $width - $name_w - 12);
+			echo '  ' . location_badge($cli, $note['location'], true) . ' '
+				. $cli->color('magenta') . str_pad($model, $name_w) . $cli->color('none')
+				. $cli->color('green') . $when . $cli->color('none') . "\n";
 		}
 		$cli->msg('Tip: mount the drive, then `ollamodels auto` to switch stores.', 'yellow');
 	}
@@ -458,20 +487,22 @@ function cmd_list($cli): void {
 		echo "\n";
 		$cli->msg('Orphaned notes (models no longer installed):', 'yellow');
 		foreach ($orphans as $model => $note) {
-			$when = $note['when'] ?? '';
-			$cli->msg("  {$model}    {$when}", 'red');
+			$when = truncate_text($note['when'] ?? '', $width - $name_w - 4);
+			$cli->msg('  ' . str_pad($model, $name_w) . $when, 'red');
 		}
 		$cli->msg('Tip: `ollama-why rm <model>` to clean up.', 'yellow');
 	}
 
-	// Graveyard summary at the very bottom
+	// Graveyard summary at the very bottom — one line each; full text in `history`
 	if ($data['graveyard']) {
 		echo "\n";
 		$cli->msg('Previously tested & removed (see `ollama-why history`):', 'yellow');
 		foreach ($data['graveyard'] as $model => $entry) {
 			$removed = $entry['removed_at'] ?? '?';
-			$summary = $entry['tested'] ?? ($entry['when'] ?? '');
-			$cli->msg("  {$model}  ({$removed})  {$summary}", 'red');
+			$summary = truncate_text($entry['tested'] ?? ($entry['when'] ?? ''), $width - $name_w - 18);
+			echo '  ' . $cli->color('red') . str_pad($model, $name_w) . $cli->color('none')
+				. $cli->color('dark_gray') . str_pad($removed, 12) . $cli->color('none')
+				. $summary . "\n";
 		}
 	}
 }
