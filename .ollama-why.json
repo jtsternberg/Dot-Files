@@ -8,7 +8,8 @@
                 "mlx",
                 "fast-prompt",
                 "gemma"
-            ]
+            ],
+            "location": "sd"
         },
         "llama3.1:8b": {
             "when": "General chat fallback when you want a non-MLX / non-Gemma flavor. 14 months old; keep only if you have prompts tuned to llama3.",
@@ -36,7 +37,8 @@
             "tags": [
                 "coding",
                 "fallback"
-            ]
+            ],
+            "location": "local"
         },
         "qwen3-coder:latest": {
             "when": "Primary coding agent (aider/pi). Tool-calling strong; decode fast.",
@@ -45,8 +47,93 @@
                 "coding",
                 "agent",
                 "primary"
-            ]
+            ],
+            "location": "sd"
         }
     },
-    "graveyard": {}
+    "graveyard": {
+        "gemma4:12b-nvfp4": {
+            "when": "Dense 12B, MLX. Pulled to test the Gemma 4 12B email pitch \u2014 did not beat gemma4:26b-nvfp4.",
+            "speed": "18 tok/s warm decode, 337 tok/s prompt eval",
+            "tags": [
+                "mlx",
+                "gemma",
+                "12b",
+                "tested-and-killed"
+            ],
+            "removed_at": "2026-06-17",
+            "tested": "Dense 12B slower per token than 26B MoE (4B active). Aider bug-fix 123s 4/4; pi bug-fix 176s 0/4 \u2014 pi diagnosed the bugs then never called the edit tool, leaked <|channel>thought artifacts."
+        },
+        "gemma4:31b": {
+            "when": "Dense 31B reasoning/thinking gemma variant, GGUF.",
+            "speed": "6.5 tok/s decode (11x slower than qwen3-coder)",
+            "tags": [
+                "gemma",
+                "thinking",
+                "slow",
+                "tested-and-killed"
+            ],
+            "removed_at": "2026-04-24",
+            "tested": "Thinking-model + dense architecture double-whammy. Burns ~150 tokens on internal reasoning every turn, then generates the answer at 6.5 tok/s. Unusable for interactive work. Reclaimed 19 GB. gemma4:26b-nvfp4 MoE covers the gemma role better in every way."
+        },
+        "gemma4:latest": {
+            "when": "Was = gemma4:26b-a4b-it-q4 GGUF (9.6 GB).",
+            "speed": "68 tok/s prompt eval, 45 tok/s decode (GGUF)",
+            "tags": [
+                "gemma",
+                "gguf",
+                "superseded"
+            ],
+            "removed_at": "2026-04-24",
+            "tested": "Superseded by gemma4:26b-nvfp4 (MLX): 558 tok/s prompt eval (5x this) at similar decode speed. Same underlying 26B-a4b-it model; MLX quant is strictly faster on M2."
+        },
+        "qwen2.5-coder:1.5b-base": {
+            "when": "Base model (not chat-tuned). Pulled by mistake for cron use.",
+            "speed": "n/a",
+            "tags": [
+                "base",
+                "useless",
+                "deleted"
+            ],
+            "removed_at": "2026-04-24",
+            "tested": "Base model has no instruction/chat tuning \u2014 can't follow prompts or tool-call formats. qwen2.5-coder:1.5b (chat-tuned) is the right variant for cron title generation."
+        },
+        "qwen2.5-coder:7b-base": {
+            "when": "Base model (not chat-tuned).",
+            "speed": "n/a",
+            "tags": [
+                "base",
+                "useless",
+                "deleted"
+            ],
+            "removed_at": "2026-04-24",
+            "tested": "Base model \u2014 no chat tuning. qwen2.5-coder:7b is the usable version."
+        },
+        "qwen3.5:0.8b-nvfp4": {
+            "when": "Small MLX candidate to replace qwen2.5-coder:1.5b for cron title generation.",
+            "speed": "100 tok/s prompt eval, 182 tok/s decode",
+            "tags": [
+                "mlx",
+                "nvfp4",
+                "qwen3.5",
+                "tiny",
+                "tested-and-killed"
+            ],
+            "removed_at": "2026-04-24",
+            "tested": "Confirms MLX-prompt-eval-bottleneck on M2 is architecture-family-wide, not just the 35B: 100 tok/s prompt eval vs qwen2.5-coder:1.5b GGUF's 807. Decode is faster (182 vs 156) but for cron-style small-prompt tasks the prompt-eval loss dominates. Reclaimed 1 GB."
+        },
+        "qwen3.5:35b-a3b-coding-nvfp4": {
+            "when": "Ollama's MLX-flagship coding model. Advertised 2x speedup vs GGUF.",
+            "speed": "3 tok/s prompt eval (catastrophic), 40 tok/s decode",
+            "tags": [
+                "mlx",
+                "nvfp4",
+                "qwen3.5",
+                "coding",
+                "tested-and-killed"
+            ],
+            "removed_at": "2026-04-24",
+            "tested": "qwen3.5+NVFP4+MLX combo hits a broken slow path on M2 \u2014 prompt eval 3 tok/s vs qwen3-coder GGUF's 110. Thinking-model verbosity compounds it (362-832 tokens per response). Blog's 2x speedup is M5-only (GPU Neural Accelerators). Reclaimed 22 GB."
+        }
+    }
 }

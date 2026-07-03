@@ -5,7 +5,7 @@ namespace JT;
 # Annotate `ollama list` with notes about when/why/how to use each model.
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.2.0
+# Version 0.3.0
 #
 # Shows `ollama list` with a column of your own notes about when to use each
 # model. Notes live in ~/.ollama-why.json so they sync with your dotfiles if
@@ -13,6 +13,10 @@ namespace JT;
 #
 # Also keeps a "graveyard" of models that were tested and removed, so future
 # sessions don't re-benchmark a model that was already tried and killed.
+#
+# Location-aware: notes can record which drive a model lives on (local, sd,
+# or both — see `ollamodels`). When the SD drive is unmounted, sd-tagged
+# models show as "Offline" instead of "Orphaned".
 #
 # Examples:
 # ollama-why                                              # show annotated list
@@ -22,12 +26,14 @@ namespace JT;
 # ollama-why rm llama3.1:8b                               # remove a note
 # ollama-why rm gemma4:31b --delete-model --tested="Too slow; pi 0/4"
 #                                                         # archive note to graveyard AND run `ollama rm`
+# ollama-why set qwen3-coder:latest --location=sd         # tag which drive it lives on
+# ollama-why locate gemma4:26b-nvfp4 both                 # shorthand for --location
 # ollama-why history                                      # show the graveyard
 # ollama-why forget gemma4:31b                            # permanently delete a graveyard entry
 # ollama-why notes                                        # show raw notes JSON
 #
 # Usage (`ollama-why -h`):
-# ollama-why [<command>] [<model>] [<note>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>]
+# ollama-why [<command>] [<model>] [<note>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>] [--location=<local|sd|both>]
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -37,11 +43,12 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('ollama-why')
 	->setDescription('Annotate `ollama list` with your own notes about when to use each model')
-	->setSampleUsage('[set|rm|history|forget|notes|path] [<model>] [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>]')
+	->setSampleUsage('[set|rm|locate|history|forget|notes|path] [<model>] [<when-text>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>] [--location=<local|sd|both>]')
 	->buildDocs([
 		'(no command)'     => 'Show `ollama list` with a WHEN column populated from your notes',
 		'set <model> ...'  => 'Add or update a note. Positional: `ollama-why set <model> "quick when-text"`',
 		'rm <model>'       => 'Remove a note (with --delete-model: archive the note to the graveyard and `ollama rm` the model)',
+		'locate <model> <location>' => 'Set which drive a model lives on (shorthand for `set <model> --location=<value>`)',
 		'history'          => 'Show the graveyard: models previously tested & removed',
 		'forget <model>'   => 'Permanently delete a graveyard entry',
 		'notes'            => 'Print raw notes JSON (for editing / piping)',
@@ -50,6 +57,7 @@ $helpyHelperton
 		'--speed=<text>'   => 'Speed note (e.g. "~120 tok/s MLX", "MoE 3B active")',
 		'--tags=<csv>'     => 'Comma-separated tags (e.g. "coding,agent,mlx")',
 		'--tested=<text>'  => 'Test result summary (on `set`, or included in the graveyard entry on `rm --delete-model`)',
+		'--location=<val>' => 'Which drive the model lives on: local, sd, or both (--loc works too; auto-detected on `set` for installed models)',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -58,12 +66,16 @@ if ($helpyHelperton->batSignal) {
 }
 
 define('JT\\OLLAMA_WHY_FILE', $_SERVER['HOME'] . '/.ollama-why.json');
+define('JT\\OLLAMA_SD_PATH', '/Volumes/AI-LAB/ollama/models');
+define('JT\\OLLAMA_STORE_LINK', $_SERVER['HOME'] . '/.ollama-models');
+const LOCATIONS = ['local', 'sd', 'both'];
 
 $cmd = $cli->getArg(1);
 
 switch ($cmd) {
 	case 'set':     cmd_set($cli); break;
 	case 'rm':      cmd_rm($cli); break;
+	case 'locate':  cmd_locate($cli); break;
 	case 'history': cmd_history($cli); break;
 	case 'forget':  cmd_forget($cli); break;
 	case 'notes':   cmd_notes($cli); break;
@@ -111,6 +123,56 @@ function save_data(array $data): void {
 	);
 }
 
+function sd_mounted(): bool {
+	return is_dir(OLLAMA_SD_PATH) && is_readable(OLLAMA_SD_PATH);
+}
+
+/**
+ * Which store the ~/.ollama-models symlink currently points at.
+ *
+ * @return string|null 'sd', 'local', or null if the link is missing/unrecognized.
+ */
+function active_store(): ?string {
+	if (!is_link(OLLAMA_STORE_LINK)) {
+		return null;
+	}
+	$target = readlink(OLLAMA_STORE_LINK);
+	if ($target === OLLAMA_SD_PATH) {
+		return 'sd';
+	}
+	if ($target === $_SERVER['HOME'] . '/.ollama-local-models') {
+		return 'local';
+	}
+	return null;
+}
+
+/**
+ * Read the --location/--loc flag, validating against LOCATIONS.
+ *
+ * @return string|null Validated location, or null when the flag wasn't passed.
+ */
+function get_location_flag($cli): ?string {
+	$loc = $cli->getFlag('location');
+	if ($loc === null || $loc === false) {
+		$loc = $cli->getFlag('loc');
+	}
+	if ($loc === null || $loc === false) {
+		return null;
+	}
+	$loc = strtolower(trim($loc));
+	if (!in_array($loc, LOCATIONS, true)) {
+		$cli->exitErr("Invalid --location \"{$loc}\". Use one of: " . implode(', ', LOCATIONS), 1);
+	}
+	return $loc;
+}
+
+function location_badge($cli, ?string $location): string {
+	$colors = ['local' => 'cyan', 'sd' => 'magenta', 'both' => 'green'];
+	$label = $location ?: '?';
+	$color = $colors[$location] ?? 'dark_gray';
+	return $cli->color($color) . '[' . $label . ']' . $cli->color('none');
+}
+
 function cmd_set($cli): void {
 	$model = $cli->getArg(2);
 	if (!$model) {
@@ -136,9 +198,20 @@ function cmd_set($cli): void {
 	if ($tags !== null && $tags !== false) {
 		$entry['tags'] = array_map('trim', array_filter(explode(',', $tags)));
 	}
+	$location = get_location_flag($cli);
+	if ($location !== null) {
+		$entry['location'] = $location;
+	} elseif (empty($entry['location'])) {
+		// Auto-detect from the active store, but only for installed models.
+		$store = active_store();
+		if ($store && in_array($model, installed_models(), true)) {
+			$entry['location'] = $store;
+			$cli->msg("Auto-detected location: {$store} (override with --location=local|sd|both)", 'yellow');
+		}
+	}
 
 	if (!$entry) {
-		$cli->exitErr('Nothing to set. Provide a when-text or --when/--speed/--tags/--tested.', 1);
+		$cli->exitErr('Nothing to set. Provide a when-text or --when/--speed/--tags/--tested/--location.', 1);
 	}
 
 	if (!$had && isset($data['graveyard'][$model])) {
@@ -215,6 +288,43 @@ function cmd_rm($cli): void {
 	}
 }
 
+function cmd_locate($cli): void {
+	$model = $cli->getArg(2);
+	$location = strtolower(trim((string) $cli->getArg(3)));
+	if (!$model || !$location) {
+		$cli->exitErr('Usage: ollama-why locate <model> <local|sd|both>', 1);
+	}
+	if (!in_array($location, LOCATIONS, true)) {
+		$cli->exitErr("Invalid location \"{$location}\". Use one of: " . implode(', ', LOCATIONS), 1);
+	}
+	$data = load_data();
+	$entry = $data['models'][$model] ?? [];
+	$entry['location'] = $location;
+	$data['models'][$model] = $entry;
+	save_data($data);
+	$cli->successMsg("Set location for {$model}: {$location}");
+}
+
+/**
+ * Model names currently reported by `ollama list` (empty array on failure).
+ */
+function installed_models(): array {
+	$output = [];
+	$code = 0;
+	exec('ollama list 2>/dev/null', $output, $code);
+	if ($code !== 0) {
+		return [];
+	}
+	array_shift($output); // header
+	$models = [];
+	foreach ($output as $line) {
+		if (preg_match('/^(\S+)\s+/', $line, $m)) {
+			$models[] = $m[1];
+		}
+	}
+	return $models;
+}
+
 function cmd_history($cli): void {
 	$data = load_data();
 	if (!$data['graveyard']) {
@@ -224,7 +334,8 @@ function cmd_history($cli): void {
 	$cli->msg('Previously tested & removed:', 'white');
 	foreach ($data['graveyard'] as $model => $entry) {
 		$removed = $entry['removed_at'] ?? '?';
-		echo $cli->color('red') . '  ' . $model . $cli->color('none')
+		$badge = !empty($entry['location']) ? ' ' . location_badge($cli, $entry['location']) : '';
+		echo $cli->color('red') . '  ' . $model . $cli->color('none') . $badge
 			. $cli->color('yellow') . '  (removed ' . $removed . ')' . $cli->color('none') . "\n";
 		if (!empty($entry['tested'])) {
 			$cli->msg('      tested: ' . $entry['tested'], 'cyan');
@@ -270,6 +381,18 @@ function cmd_list($cli): void {
 	$data = load_data();
 	$notes = $data['models'];
 	$seen_models = [];
+	$sd_up = sd_mounted();
+
+	// SD-offline banner: any sd/both-tagged note while SD is unmounted
+	if (!$sd_up) {
+		$offline_count = count(array_filter($notes, function ($n) {
+			return in_array($n['location'] ?? '', ['sd', 'both'], true);
+		}));
+		if ($offline_count) {
+			$cli->msg("⚠️  SD drive (/Volumes/AI-LAB) not mounted — {$offline_count} model(s) tagged 'sd' are offline.", 'yellow');
+			echo "\n";
+		}
+	}
 
 	// Header (preserve ollama's) + WHEN column
 	$header = array_shift($output);
@@ -289,7 +412,8 @@ function cmd_list($cli): void {
 
 		if ($note) {
 			$when = $note['when'] ?? '';
-			echo $line . '    ' . $cli->color('green') . $when . $cli->color('none') . "\n";
+			$badge = location_badge($cli, $note['location'] ?? null);
+			echo $line . '    ' . $badge . ' ' . $cli->color('green') . $when . $cli->color('none') . "\n";
 			$indent = str_repeat(' ', 70);
 			if (!empty($note['speed'])) {
 				$cli->msg($indent . '    speed: ' . $note['speed'], 'cyan');
@@ -305,8 +429,31 @@ function cmd_list($cli): void {
 		}
 	}
 
-	// Surface orphaned notes (model no longer installed, but not graveyarded)
-	$orphans = array_diff_key($notes, $seen_models);
+	// Split missing models into offline (on the unmounted SD) vs true orphans
+	$missing = array_diff_key($notes, $seen_models);
+	$orphans = [];
+	$offline = [];
+	foreach ($missing as $model => $note) {
+		$loc = $note['location'] ?? null;
+		if (!$sd_up && in_array($loc, ['sd', 'both'], true)) {
+			$offline[$model] = $note;
+		} else {
+			$orphans[$model] = $note;
+		}
+	}
+
+	if ($offline) {
+		echo "\n";
+		$cli->msg('Offline (SD unmounted):', 'yellow');
+		foreach ($offline as $model => $note) {
+			$when = $note['when'] ?? '';
+			echo '  ' . location_badge($cli, $note['location']) . ' '
+				. $cli->color('magenta') . $model . $cli->color('none')
+				. '    ' . $cli->color('green') . $when . $cli->color('none') . "\n";
+		}
+		$cli->msg('Tip: mount the drive, then `ollamodels auto` to switch stores.', 'yellow');
+	}
+
 	if ($orphans) {
 		echo "\n";
 		$cli->msg('Orphaned notes (models no longer installed):', 'yellow');
