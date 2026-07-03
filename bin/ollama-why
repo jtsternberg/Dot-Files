@@ -177,15 +177,30 @@ function location_badge($cli, ?string $location, bool $pad = false): string {
 }
 
 function term_width(): int {
-	$cols = (int) trim((string) shell_exec('tput cols 2>/dev/null'));
-	return $cols > 40 ? $cols : 120;
+	static $width = null;
+	if ($width !== null) {
+		return $width;
+	}
+	// stty against the controlling tty — `tput cols` sees no tty from PHP and lies (80)
+	$size = trim((string) shell_exec('stty size < /dev/tty 2>/dev/null'));
+	$cols = 0;
+	if (preg_match('/^\d+\s+(\d+)$/', $size, $m)) {
+		$cols = (int) $m[1];
+	}
+	if (!$cols) {
+		$cols = (int) getenv('COLUMNS');
+	}
+	return $width = ($cols > 40 ? $cols : 120);
 }
 
-function truncate_text(string $text, int $max): string {
-	if ($max < 10 || mb_strlen($text) <= $max) {
-		return $text;
-	}
-	return rtrim(mb_substr($text, 0, $max - 1)) . '…';
+/**
+ * Word-wrap text to fit the terminal, indenting continuation lines
+ * so they stay aligned under the starting column.
+ */
+function wrap_text(string $text, int $start_col): string {
+	$avail = max(30, term_width() - $start_col - 2);
+	$wrapped = wordwrap($text, $avail, "\n", false);
+	return str_replace("\n", "\n" . str_repeat(' ', $start_col), $wrapped);
 }
 
 function cmd_set($cli): void {
@@ -464,7 +479,6 @@ function cmd_list($cli): void {
 		}
 	}
 
-	$width = term_width();
 	$name_w = 0;
 	foreach (array_merge(array_keys($missing), array_keys($data['graveyard'])) as $model) {
 		$name_w = max($name_w, strlen($model));
@@ -475,7 +489,7 @@ function cmd_list($cli): void {
 		echo "\n";
 		$cli->msg('Offline (SD unmounted):', 'yellow');
 		foreach ($offline as $model => $note) {
-			$when = truncate_text($note['when'] ?? '', $width - $name_w - 12);
+			$when = wrap_text($note['when'] ?? '', $name_w + 10);
 			echo '  ' . location_badge($cli, $note['location'], true) . ' '
 				. $cli->color('magenta') . str_pad($model, $name_w) . $cli->color('none')
 				. $cli->color('green') . $when . $cli->color('none') . "\n";
@@ -487,7 +501,7 @@ function cmd_list($cli): void {
 		echo "\n";
 		$cli->msg('Orphaned notes (models no longer installed):', 'yellow');
 		foreach ($orphans as $model => $note) {
-			$when = truncate_text($note['when'] ?? '', $width - $name_w - 4);
+			$when = wrap_text($note['when'] ?? '', $name_w + 2);
 			$cli->msg('  ' . str_pad($model, $name_w) . $when, 'red');
 		}
 		$cli->msg('Tip: `ollama-why rm <model>` to clean up.', 'yellow');
@@ -499,7 +513,7 @@ function cmd_list($cli): void {
 		$cli->msg('Previously tested & removed (see `ollama-why history`):', 'yellow');
 		foreach ($data['graveyard'] as $model => $entry) {
 			$removed = $entry['removed_at'] ?? '?';
-			$summary = truncate_text($entry['tested'] ?? ($entry['when'] ?? ''), $width - $name_w - 18);
+			$summary = wrap_text($entry['tested'] ?? ($entry['when'] ?? ''), $name_w + 14);
 			echo '  ' . $cli->color('red') . str_pad($model, $name_w) . $cli->color('none')
 				. $cli->color('dark_gray') . str_pad($removed, 12) . $cli->color('none')
 				. $summary . "\n";
