@@ -54,6 +54,11 @@ class BlogMediaCommand extends SiteCommand {
 		'gif'  => 'image/gif',
 		'webp' => 'image/webp',
 		'svg'  => 'image/svg+xml',
+		'mp3'  => 'audio/mpeg',
+		'm4a'  => 'audio/mp4',
+		'wav'  => 'audio/wav',
+		'ogg'  => 'audio/ogg',
+		'flac' => 'audio/flac',
 	];
 
 	public function __construct( $cli, string $imageFileArg ) {
@@ -72,7 +77,7 @@ class BlogMediaCommand extends SiteCommand {
 		$ext = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
 
 		if ( ! isset( self::$contentTypes[ $ext ] ) ) {
-			throw new \Exception( "Error: Unsupported image type: .{$ext}" );
+			throw new \Exception( "Error: Unsupported file type: .{$ext}" );
 		}
 
 		return self::$contentTypes[ $ext ];
