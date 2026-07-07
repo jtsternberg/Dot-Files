@@ -55,3 +55,4 @@ notes-dropbox-sync/notes-dropbox-sync-launcher
 .dolt/
 *.db
 .beads-credential-key
+/transcripts
