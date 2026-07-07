@@ -5,21 +5,32 @@ namespace JT;
 # Switch Ollama models storage location (local vs portable SD).
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.1.0
+# Version 0.2.0
 #
 # Updates the ~/.ollama-models symlink (where we point Ollama via
 # OLLAMA_MODELS, set automatically by this script via `launchctl setenv`)
 # to point at either local storage (~/.ollama-local-models) or the portable
 # drive (/Volumes/AI-LAB/ollama/models). Removes any existing symlink first.
 #
+# The `reconcile` subcommand symlinks local-primary models (manifests +
+# blobs) into the SD tree so the SD store can "see" all models. Direction is
+# always local → SD; never the reverse (would dangle when SD ejects).
+#
+# WARNING: Do NOT run `ollama rm <model>` while on SD after reconcile — it
+# may follow the symlinks and delete the local originals (6+ GB re-download).
+# This is unverified. If you need to remove a symlinked model, do it while on
+# local (`ollamodels local && ollama rm <model>`).
+#
 # Usage:
-# ollamodels [local|sd|auto|installwatcher|removewatcher]
+# ollamodels [local|sd|auto|reconcile|installwatcher|removewatcher]
 #
 # Examples:
 # ollamodels           # Auto: use SD if mounted, else local
 # ollamodels auto      # Same as above
 # ollamodels sd        # Switch to portable drive
 # ollamodels local     # Switch to local ~/.ollama-local-models
+# ollamodels reconcile --dry-run   # Preview local → SD symlink plan
+# ollamodels reconcile -y          # Symlink local models into SD, no prompt
 #
 # A macOS LaunchAgent can watch /Volumes and auto-switch whenever the
 # AI-LAB drive is mounted or ejected:
@@ -33,11 +44,14 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('ollamodels')
 	->setDescription('Switch Ollama models storage between local and portable SD drive. Also sets OLLAMA_MODELS in the launchd environment so Ollama.app picks up the symlink on next launch.')
-	->setSampleUsage('[local|sd|auto]')
+	->setSampleUsage('[local|sd|auto|reconcile]')
 	->buildDocs([
 		'[local]'         => 'Use local storage (~/.ollama-local-models)',
 		'[sd]'            => 'Use portable drive (/Volumes/AI-LAB/ollama/models)',
 		'[auto]'          => 'Use SD if mounted, otherwise local (default when no arg)',
+		'[reconcile]'     => 'Symlink local-primary models into the SD tree (local → SD) so both stores see all models. WARNING: after reconcile, only run `ollama rm` while on local — `ollama rm` on SD may follow symlinks and delete local originals (unverified).',
+		'--dry-run'       => 'reconcile: print what would be symlinked without touching anything',
+		'-y, --yes'       => 'reconcile: skip the confirmation prompt',
 		'[installwatcher]'=> 'Install macOS LaunchAgent to auto-switch on mount/eject',
 		'[removewatcher]' => 'Remove the LaunchAgent',
 	]);
@@ -174,8 +188,187 @@ function switchTo(\JT\CLI\Helpers $cli, string $symlink, string $target, string 
 	return true;
 }
 
+/**
+ * Symlink local-primary models (manifests + blobs) into the SD tree so the
+ * SD store sees all models. Direction is strictly local → SD.
+ */
+function reconcile(\JT\CLI\Helpers $cli, string $localPath, string $sdPath): bool {
+	if (!is_dir($sdPath) || !is_readable($sdPath)) {
+		$cli->err("SD drive not mounted ({$sdPath}). Mount it, then re-run `ollamodels reconcile`.");
+		return false;
+	}
+
+	$dryRun = $cli->hasFlag('dry-run');
+
+	$cli->msg('WARNING: Do NOT run `ollama rm <model>` while on SD after reconcile — it may', 'yellow');
+	$cli->msg('follow the symlinks and delete the local originals (6+ GB re-download).', 'yellow');
+	$cli->msg('This is unverified. If you need to remove a symlinked model, do it while on', 'yellow');
+	$cli->msg('local (`ollamodels local && ollama rm <model>`).', 'yellow');
+	echo "\n";
+
+	$libDir = $localPath . '/manifests/registry.ollama.ai/library';
+	if (!is_dir($libDir)) {
+		$cli->err("No local manifests found at {$libDir}");
+		return false;
+	}
+
+	// Build the plan: per model tag, which manifests/blobs need symlinks.
+	$plan = [];
+	$iter = new \RecursiveIteratorIterator(
+		new \RecursiveDirectoryIterator($libDir, \FilesystemIterator::SKIP_DOTS)
+	);
+	foreach ($iter as $file) {
+		if (!$file->isFile() || $file->getFilename() === '.DS_Store') {
+			continue;
+		}
+		$manifestPath = $file->getPathname();
+		$rel = substr($manifestPath, strlen($localPath) + 1); // manifests/registry.../library/<model>/<tag>
+		$tag = basename(dirname($manifestPath)) . ':' . $file->getFilename();
+		$sdManifest = $sdPath . '/' . $rel;
+
+		$entry = ['manifest' => null, 'blobs' => [], 'shared' => 0, 'already' => 0];
+
+		if (is_link($sdManifest)) {
+			$entry['already']++;
+		} elseif (file_exists($sdManifest)) {
+			continue; // SD has its own real copy of this model — don't touch it
+		} else {
+			$entry['manifest'] = ['from' => $manifestPath, 'to' => $sdManifest];
+		}
+
+		$json = json_decode((string) file_get_contents($manifestPath), true);
+		if (!is_array($json)) {
+			$cli->msg("Skipping {$tag}: could not parse manifest JSON ({$manifestPath})", 'yellow');
+			continue;
+		}
+		$digests = [];
+		if (!empty($json['config']['digest'])) {
+			$digests[] = $json['config']['digest'];
+		}
+		foreach ($json['layers'] ?? [] as $layer) {
+			if (!empty($layer['digest'])) {
+				$digests[] = $layer['digest'];
+			}
+		}
+		foreach (array_unique($digests) as $digest) {
+			$blobName = str_replace(':', '-', $digest); // sha256:<hash> → sha256-<hash>
+			$localBlob = $localPath . '/blobs/' . $blobName;
+			$sdBlob = $sdPath . '/blobs/' . $blobName;
+			if (is_link($sdBlob)) {
+				$entry['already']++;
+			} elseif (file_exists($sdBlob)) {
+				$entry['shared']++; // real file on SD (shared layer) — leave it
+			} elseif (file_exists($localBlob)) {
+				$entry['blobs'][] = ['from' => $localBlob, 'to' => $sdBlob];
+			} else {
+				$cli->msg("Skipping blob for {$tag}: missing locally ({$blobName})", 'yellow');
+			}
+		}
+
+		if ($entry['manifest'] || $entry['blobs']) {
+			$plan[$tag] = $entry;
+		}
+	}
+
+	if (!$plan) {
+		$cli->successMsg('Nothing to reconcile — SD already sees all local models.');
+		return true;
+	}
+
+	// Print the plan
+	$totalLinks = 0;
+	foreach ($plan as $tag => $entry) {
+		$manifests = $entry['manifest'] ? 1 : 0;
+		$blobs = count($entry['blobs']);
+		$totalLinks += $manifests + $blobs;
+		$cli->msg("{$tag}", 'cyan');
+		$cli->msg("  manifests to symlink: {$manifests}, blobs to symlink: {$blobs}, blobs shared on SD: {$entry['shared']}", 'cyan');
+	}
+	$cli->msg("Total symlinks to create: {$totalLinks}", 'white');
+
+	if ($dryRun) {
+		echo "\n";
+		foreach ($plan as $entry) {
+			$links = $entry['blobs'];
+			if ($entry['manifest']) {
+				array_unshift($links, $entry['manifest']);
+			}
+			foreach ($links as $link) {
+				$cli->msg("would link: {$link['to']} -> {$link['from']}", 'yellow');
+			}
+		}
+		$cli->msg('Dry run — nothing created.', 'yellow');
+		return true;
+	}
+
+	if (!$cli->isAutoconfirm() && !$cli->confirm('Create these symlinks (local → SD)?')) {
+		$cli->msg('Aborted.', 'yellow');
+		return false;
+	}
+
+	$created = 0;
+	$failed = 0;
+	foreach ($plan as $tag => $entry) {
+		$links = $entry['blobs'];
+		if ($entry['manifest']) {
+			array_unshift($links, $entry['manifest']);
+		}
+		$linked = 0;
+		foreach ($links as $link) {
+			$dir = dirname($link['to']);
+			if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+				$cli->err("Failed to create directory {$dir}");
+				$failed++;
+				continue;
+			}
+			if (@symlink($link['from'], $link['to'])) {
+				$created++;
+				$linked++;
+			} else {
+				$cli->err("Failed to symlink {$link['to']}");
+				$failed++;
+			}
+		}
+		$cli->successMsg("{$tag}: {$linked} symlink(s) created ({$entry['shared']} blob(s) already shared on SD)");
+		promoteLocationToBoth($cli, $tag);
+	}
+
+	echo "\n";
+	$cli->successMsg("Reconcile complete: {$created} symlink(s) created" . ($failed ? ", {$failed} FAILED" : ''));
+	$cli->msg('Reminder: run `ollama rm` only while on local for these models (see warning above).', 'yellow');
+	return $failed === 0;
+}
+
+/**
+ * If ~/.ollama-why.json has a note for this model tagged location "local",
+ * promote it to "both". Silent no-op otherwise.
+ */
+function promoteLocationToBoth(\JT\CLI\Helpers $cli, string $tag): void {
+	$file = getenv('HOME') . '/.ollama-why.json';
+	if (!file_exists($file)) {
+		return;
+	}
+	$data = json_decode((string) file_get_contents($file), true);
+	if (!is_array($data) || !isset($data['models']) || !is_array($data['models'])) {
+		return; // old/unknown shape — leave it to ollama-why
+	}
+	if (($data['models'][$tag]['location'] ?? '') !== 'local') {
+		return;
+	}
+	$data['models'][$tag]['location'] = 'both';
+	$out = [
+		'models'    => (object) $data['models'],
+		'graveyard' => (object) ($data['graveyard'] ?? []),
+	];
+	file_put_contents($file, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+	$cli->msg("  ollama-why: {$tag} location promoted local → both", 'cyan');
+}
+
 $ok = true;
 switch (strtolower($sub)) {
+	case 'reconcile':
+		$ok = reconcile($cli, $localPath, $sdPath);
+		break;
 	case 'local':
 		$ok = switchTo($cli, $symlink, $localPath, 'local');
 		break;
