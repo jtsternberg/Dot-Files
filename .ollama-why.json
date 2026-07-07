@@ -11,6 +11,15 @@
             ],
             "location": "sd"
         },
+        "gemma4:e4b": {
+            "when": "Edge 4B gemma variant \u2014 untested for role. Multimodal capable (text+image).",
+            "tags": [
+                "gemma",
+                "edge",
+                "untested"
+            ],
+            "location": "sd"
+        },
         "llama3.1:8b": {
             "when": "General chat fallback when you want a non-MLX / non-Gemma flavor. 14 months old; keep only if you have prompts tuned to llama3.",
             "speed": "42 tok/s GGUF",
@@ -31,7 +40,7 @@
                 "fast"
             ],
             "tested": "Cron title generator, 152 tok/s stable",
-            "location": "local"
+            "location": "both"
         },
         "qwen2.5-coder:7b": {
             "when": "Fast coder fallback when qwen3-coder feels heavy.",
@@ -40,7 +49,7 @@
                 "coding",
                 "fallback"
             ],
-            "location": "local"
+            "location": "both"
         },
         "qwen3-coder:latest": {
             "when": "Primary coding agent (aider/pi). Tool-calling strong; decode fast.",
