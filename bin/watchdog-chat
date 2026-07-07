@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# =============================================================================
+# watchdog-chat — interactive triage chat for a system-watchdog alert.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# When the system-watchdog notification fires (battery drain, CPU hog, or
+# memory pressure), run this to get real-time advice: it launches Claude Code
+# in the dotfiles dir and runs the /system-watchdog command, which inspects the
+# watchdog state/log, re-samples live CPU/RAM/battery, classifies the offender,
+# and proposes (and on your OK, executes) a fix. Named "chat" because you
+# converse with it ("kill it" / "renice it" / "free the memory").
+#
+# Shell, not PHP, on purpose: this hands an interactive TTY to `claude`. A PHP
+# exec() wrapper would swallow the prompt.
+#
+# Usage:
+#   watchdog-chat            # launch triage chat
+#   watchdog-chat <args...>  # extra args are passed through to claude
+# =============================================================================
+set -euo pipefail
+
+# macOS only — the watchdog (pmset/vm_stat/launchd) doesn't exist elsewhere.
+if [ "$(uname -s)" != "Darwin" ]; then
+	echo "watchdog-chat is macOS-only (needs pmset). Nothing to do." >&2
+	exit 0
+fi
+
+if ! command -v claude >/dev/null 2>&1; then
+	echo "Error: 'claude' (Claude Code CLI) not found on PATH." >&2
+	exit 1
+fi
+
+DOTFILES="${HOME}/.dotfiles"
+cd "$DOTFILES" 2>/dev/null || cd "$HOME"
+
+# Hand off to an interactive Claude Code session that runs the triage command.
+# --dangerously-skip-permissions so it can ps/kill/renice/read logs without
+# prompting (same posture as the `yc` alias).
+exec claude --dangerously-skip-permissions "$@" "/system-watchdog"
