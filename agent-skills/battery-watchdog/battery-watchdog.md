@@ -1,7 +1,7 @@
 ---
 name: battery-watchdog
 description: Triage the battery-watchdog's latest alert — find the current power/CPU offender, classify it, and propose (and on confirmation, execute) a fix.
-allowed-tools: [Bash, Read]
+allowed-tools: [Bash, Read, ScheduleWakeup]
 ---
 
 # Battery Watchdog — Triage
@@ -14,6 +14,32 @@ it if JT confirms.
 
 The notification is stale by the time JT reads it. **Do not trust the log
 alone — always re-sample live.**
+
+## 0. Read the journal first (compounded findings)
+
+Before anything else, read the journal — it's your memory across runs. Past
+investigations, confirmed causes, and known-benign baselines live here so you
+don't re-derive them every time.
+
+```bash
+cat ~/.cache/battery-watchdog/journal.jsonl 2>/dev/null
+```
+
+Each line is one JSON entry. Three `kind`s:
+- **`investigation`** — a hypothesis under test. Has a `status` (`open` |
+  `confirmed` | `refuted` | `resolved`), a `watch_for` (what evidence would
+  confirm/refute it), and often an `action_taken`.
+- **`baseline`** — a standing fact about a process (e.g. "Dropbox Helper
+  normally runs 50–100%, benign"). Use these to *avoid re-flagging* known-OK
+  work and to *skip the never-kill traps*.
+- **`resolution`** — a closed-out finding worth remembering.
+
+**How to use it this run:** if today's offender matches an entry, lead with
+that context. If it matches an **`open` investigation**, this run is a data
+point for it — explicitly check the `watch_for` condition and say whether
+today's evidence confirms, refutes, or is neutral. If it matches a `baseline`,
+weigh that before classifying (a known-benign process shouldn't be treated as a
+fresh runaway). Surface the 1–2 relevant entries to JT in your verdict.
 
 ## 1. Gather state (run these, read the output)
 
@@ -86,6 +112,66 @@ by re-sampling (`ps -p <PID>` — gone? `%cpu` dropped?). Report what changed.
 
 Never act without an explicit go-ahead. If JT only asked "what's going on?",
 stop after the verdict + options.
+
+## 5. Journal what compounds (write it down)
+
+The point of the journal is that findings accumulate — so the *next* run is
+smarter. Append an entry when you learn something worth carrying forward. Do
+**not** journal one-off noise or things already captured.
+
+Journal when:
+- **You open a line of investigation** — a hypothesis + a test in flight (e.g.
+  "JT disabled X to see if hog Y stops"). Record `hypothesis`, `action_taken`,
+  and `watch_for` so a future run knows what to check.
+- **This run confirms or refutes an open investigation** — update by appending
+  a new entry with the same `offender` and `status: confirmed|refuted` (append,
+  don't rewrite — the file is a log). Say what evidence settled it.
+- **You learn a new benign baseline** — a process that looks scary but is
+  normal on this Mac, so future runs stop re-flagging it.
+- **You confirm a recurring offender or a never-kill trap** worth remembering.
+
+Append with a single JSON line (this is the only write the skill makes; `>>`
+never clobbers the file):
+
+```bash
+printf '%s\n' '{"date":"YYYY-MM-DD","kind":"investigation","status":"open","offender":"<proc>","hypothesis":"...","action_taken":"...","watch_for":"..."}' \
+  >> ~/.cache/battery-watchdog/journal.jsonl
+```
+
+Keep entries terse but self-contained — a future run reads them cold with no
+other context. Use the real date (macOS: `date +%F`). Tell JT in one line what
+you journaled (or that nothing was worth journaling).
+
+## 6. Don't rot in waiting-for-answer purgatory
+
+JT doesn't always reply to a question or follow up on a verdict — and a finding
+that was worth journaling can be lost when the session goes idle. So: **at the
+end of any turn where journalable material exists but you have NOT yet written
+it** (e.g. you proposed a hypothesis, ran a test, or reached a verdict but are
+waiting on JT to confirm before recording it), schedule a short self-wakeup to
+revisit and journal it yourself:
+
+```
+ScheduleWakeup(delaySeconds: 60,
+  prompt: "Revisit this battery-watchdog session: is there a finding, hypothesis,
+           or test-in-flight worth appending to ~/.cache/battery-watchdog/journal.jsonl
+           that isn't already there? If yes, append it (step 5) and note it. If it's
+           already journaled or nothing is worth it, stop.",
+  reason: "self-follow-up so a journalable finding isn't lost to idle time")
+```
+
+Rules:
+- **Only schedule the wakeup if there is something potentially journalable so
+  far** — no open finding, no pending verdict → don't schedule, just stop.
+- On wake: re-read the conversation, append to the journal if warranted, then
+  **stop the loop** (`ScheduleWakeup(stop: true)`). Reschedule once more only if
+  JT is clearly mid-decision and the finding still isn't safe to record.
+- Never let this become a busy-loop. One follow-up to capture the finding, then
+  done. Journaling your own best-understanding is better than losing it.
+
+> Note: `ScheduleWakeup` is the self-resume primitive. If a given run can't
+> schedule one (unavailable in the current mode), fall back to journaling your
+> current best understanding *before* ending the turn rather than deferring.
 
 ## Notes
 - macOS only. If `pmset` isn't found, say this machine isn't supported and stop.
