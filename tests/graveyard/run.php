@@ -24,5 +24,28 @@ ok($cmux->buildResumeCommand('abc', true, 'opus') === 'claude --dangerously-skip
 
 ok(method_exists($cmux, 'newWorkspace'), 'Cmux::newWorkspace exists');
 
+require_once dirname(__DIR__, 2) . '/bin/graveyard_lib.php';
+$gy = new Graveyard($cli, $cmux);
+
+// parseDuration
+ok($gy->parseDuration('2d') === 172800, 'dur 2d');
+ok($gy->parseDuration('48h') === 172800, 'dur 48h');
+ok($gy->parseDuration('90m') === 5400, 'dur 90m');
+ok($gy->parseDuration('30') === 30, 'dur bare seconds');
+$threw = false; try { $gy->parseDuration('nope'); } catch (\InvalidArgumentException $e) { $threw = true; }
+ok($threw, 'dur invalid throws');
+
+// upsertIndex dedupes by session_id (use a temp store root via env override)
+putenv('GRAVEYARD_ROOT=' . sys_get_temp_dir() . '/gy-test-' . getmypid());
+@mkdir(getenv('GRAVEYARD_ROOT'), 0755, true);
+$gy2 = new Graveyard($cli, $cmux);
+$gy2->upsertIndex(['session_id' => 'x', 'summary' => 'first']);
+$gy2->upsertIndex(['session_id' => 'x', 'summary' => 'second']);
+$gy2->upsertIndex(['session_id' => 'y', 'summary' => 'other']);
+$idx = $gy2->readIndex();
+ok(count($idx['tombstones']) === 2, 'upsert dedupes to 2');
+$xs = array_values(array_filter($idx['tombstones'], fn($t) => $t['session_id'] === 'x'));
+ok($xs[0]['summary'] === 'second', 'upsert newest wins');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
