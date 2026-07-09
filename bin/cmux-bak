@@ -39,12 +39,14 @@ if ($helpyHelperton->batSignal) {
 	exit(0);
 }
 
+require_once dirname(__DIR__) . '/misc/helpers/cmux.php';
+
 class CmuxBak {
 
 	const BAK_DEFAULT = '~/.config/cmux/bak.json';
-	const SESSIONS_DIR = '~/.claude/sessions';
 
 	protected $cli;
+	protected $cmux;
 	protected $bakFile;
 	protected $dryRun;
 	protected $verbose;
@@ -53,6 +55,7 @@ class CmuxBak {
 		$this->cli     = $cli;
 		$this->dryRun  = $cli->hasFlag('dry-run');
 		$this->verbose = $cli->isVerbose();
+		$this->cmux    = new \JT\Helpers\Cmux($cli, $this->dryRun);
 
 		$file          = $cli->getFlag('file', self::BAK_DEFAULT);
 		$this->bakFile = $this->cli->convertPathToAbsolute($file);
@@ -76,8 +79,8 @@ class CmuxBak {
 	protected function backup() {
 		$this->cli->msg('Scanning cmux state...', 'yellow');
 
-		$tree = $this->getCmuxTree();
-		$claudeSessions = $this->loadClaudeSessions();
+		$tree = $this->cmux->tree();
+		$claudeSessions = $this->cmux->loadClaudeSessions();
 
 		if ($this->verbose) {
 			$this->cli->msg('  Found ' . count($claudeSessions) . ' active Claude sessions', 'cyan');
@@ -134,7 +137,7 @@ class CmuxBak {
 									$this->cli->msg("    → Claude session {$short}… cwd={$cwd}{$flags}", 'green');
 								}
 							} else {
-								$cwd = $this->getCwdForTty($tty);
+								$cwd = $this->cmux->getCwdForTty($tty);
 								if ($this->verbose && $cwd) {
 									$this->cli->msg("    → cwd={$cwd}");
 								}
@@ -204,8 +207,8 @@ class CmuxBak {
 		}
 		$this->cli->lineBreak();
 
-		$tree           = $this->getCmuxTree();
-		$aliveSessions  = $this->loadClaudeSessions();
+		$tree           = $this->cmux->tree();
+		$aliveSessions  = $this->cmux->loadClaudeSessions();
 		$aliveTtys      = array_keys($aliveSessions);
 
 		// Map workspace title → workspace data (current)
@@ -303,17 +306,15 @@ class CmuxBak {
 							$short = substr($sessionId, 0, 8);
 							$this->cli->msg("    ✗ Claude not running — resuming {$short}…", 'yellow');
 							if ($bakCwd) {
-								$this->sendToSurface($surfRef, $currentWsRef, "cd {$bakCwd}\n", "cd {$bakCwd}");
+								$this->cli->msg("    → cd {$bakCwd}");
+								$this->cmux->sendToSurface($surfRef, $currentWsRef, "cd {$bakCwd}\n");
 								if (!$this->dryRun) {
 									usleep(300000);
 								}
 							}
-							$resumeCmd = $this->buildResumeCommand($sessionId, $skipPerms, $model);
-							$this->sendToSurface(
-								$surfRef, $currentWsRef,
-								"{$resumeCmd}\n",
-								$resumeCmd
-							);
+							$resumeCmd = $this->cmux->buildResumeCommand($sessionId, $skipPerms, $model);
+							$this->cli->msg("    → {$resumeCmd}");
+							$this->cmux->sendToSurface($surfRef, $currentWsRef, "{$resumeCmd}\n");
 						}
 					}
 				}
@@ -350,8 +351,8 @@ class CmuxBak {
 				usleep(500000);
 
 				// Re-fetch tree to find the new workspace
-				$newTree = $this->getCmuxTree();
-				$newWs   = $this->findWorkspaceByTitle($newTree, $wsTitle);
+				$newTree = $this->cmux->tree();
+				$newWs   = $this->cmux->findWorkspaceByTitle($newTree, $wsTitle);
 
 				if (!$newWs) {
 					$this->cli->err("    Could not find newly created workspace '{$wsTitle}'");
@@ -374,7 +375,7 @@ class CmuxBak {
 							$targetRef   = $firstSurfRef;
 							$targetWsRef = $newWsRef;
 						} else {
-							$targetRef = $this->createSurface($newWsRef, $firstPaneRef, $surfType, $surfUrl);
+							$targetRef = $this->cmux->createSurface($newWsRef, $firstPaneRef, $surfType, $surfUrl);
 							if (!$targetRef) {
 								continue;
 							}
@@ -387,15 +388,15 @@ class CmuxBak {
 
 						// Only cd if it wasn't handled via --cwd on workspace creation
 						if ($bakCwd && !($paneIdx === 0 && $surfIdx === 0 && $firstCwd)) {
-							$this->sendToSurface($targetRef, $targetWsRef, "cd {$bakCwd}\n");
+							$this->cmux->sendToSurface($targetRef, $targetWsRef, "cd {$bakCwd}\n");
 							usleep(300000);
 						}
 
 						if ($sessionId) {
 							$short      = substr($sessionId, 0, 8);
-							$resumeCmd  = $this->buildResumeCommand($sessionId, $skipPerms, $model);
+							$resumeCmd  = $this->cmux->buildResumeCommand($sessionId, $skipPerms, $model);
 							$this->cli->msg("    → {$resumeCmd}");
-							$this->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
+							$this->cmux->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
 						}
 					}
 				}
@@ -409,235 +410,11 @@ class CmuxBak {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
-	protected function getCmuxTree() {
-		$output = shell_exec('cmux tree --all --json 2>/dev/null');
-		if (!$output) {
-			$this->cli->exitErr('cmux tree returned no output.');
-		}
-		$tree = json_decode($output, true);
-		if (!$tree) {
-			$this->cli->exitErr('Failed to parse cmux tree JSON.');
-		}
-		return $tree;
-	}
-
-	/**
-	 * Load all active Claude sessions from ~/.claude/sessions/<pid>.json.
-	 * Returns array keyed by tty: [ tty => [session_id, cwd, status, pid] ]
-	 */
-	protected function loadClaudeSessions() {
-		$sessionsDir = $this->cli->convertPathToAbsolute(self::SESSIONS_DIR);
-		$sessions    = [];
-
-		if (!is_dir($sessionsDir)) {
-			return $sessions;
-		}
-
-		foreach (glob($sessionsDir . '/*.json') ?: [] as $file) {
-			$pid = pathinfo($file, PATHINFO_FILENAME);
-			if (!ctype_digit($pid)) {
-				continue;
-			}
-			if (!$this->pidIsAlive((int) $pid)) {
-				continue;
-			}
-			$data = json_decode(file_get_contents($file), true);
-			if (!$data) {
-				continue;
-			}
-			$tty = $this->getTtyForPid((int) $pid);
-			if ($tty) {
-				$sessionId = $data['sessionId'] ?? null;
-				$cwd       = $data['cwd'] ?? null;
-				$jsonl     = $this->readSessionJsonl($sessionId, $cwd);
-
-				$sessions[$tty] = [
-					'session_id'   => $sessionId,
-					'cwd'          => $cwd,
-					'status'       => $data['status'] ?? null,
-					'pid'          => (int) $pid,
-					'skip_perms'   => $jsonl['permission_mode'] === 'bypassPermissions',
-					'model'        => $jsonl['model'],
-				];
-			}
-		}
-
-		return $sessions;
-	}
-
-	protected function pidIsAlive(int $pid) {
-		if (function_exists('posix_kill')) {
-			return posix_kill($pid, 0);
-		}
-		exec("kill -0 {$pid} 2>/dev/null", $out, $code);
-		return $code === 0;
-	}
-
-	protected function getTtyForPid(int $pid) {
-		$tty = trim((string) shell_exec("ps -p {$pid} -o tty= 2>/dev/null"));
-		return ($tty && $tty !== '??') ? $tty : null;
-	}
-
-	protected function getCwdForTty(string $tty) {
-		$psOut = shell_exec("ps -t {$tty} -o pid=,stat= 2>/dev/null");
-		$pid   = null;
-
-		// Prefer foreground process (stat contains +)
-		foreach (explode("\n", trim((string) $psOut)) as $line) {
-			$parts = preg_split('/\s+/', trim($line));
-			if (count($parts) >= 2 && strpos($parts[1], '+') !== false) {
-				$pid = $parts[0];
-				break;
-			}
-		}
-
-		if (!$pid) {
-			$lines = array_filter(explode("\n", trim((string) $psOut)));
-			if ($lines) {
-				$pid = preg_split('/\s+/', trim(reset($lines)))[0];
-			}
-		}
-
-		if (!$pid) {
-			return null;
-		}
-
-		$lsofOut = shell_exec("lsof -p {$pid} 2>/dev/null");
-		foreach (explode("\n", (string) $lsofOut) as $line) {
-			// Fields: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-			$parts = preg_split('/\s+/', $line, 9);
-			if (isset($parts[3]) && $parts[3] === 'cwd') {
-				return $parts[8] ?? null;
-			}
-		}
-
-		return null;
-	}
-
-	protected function sendToSurface(string $surfRef, string $wsRef, string $text, string $label = '') {
-		if ($label) {
-			$this->cli->msg("    → {$label}");
-		}
-		if (!$this->dryRun) {
-			shell_exec(
-				'cmux send --surface ' . escapeshellarg($surfRef)
-				. ' --workspace ' . escapeshellarg($wsRef)
-				. ' ' . escapeshellarg($text)
-				. ' 2>/dev/null'
-			);
-		}
-	}
-
-	protected function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url) {
-		$cmd = 'cmux new-surface --type ' . escapeshellarg($type)
-			. ' --workspace ' . escapeshellarg($wsRef);
-
-		if ($type === 'browser' && $url) {
-			$cmd .= ' --url ' . escapeshellarg($url);
-		} elseif ($paneRef) {
-			$cmd .= ' --pane ' . escapeshellarg($paneRef);
-		}
-
-		shell_exec($cmd . ' 2>/dev/null');
-		usleep(400000);
-
-		// Find the last surface in the workspace (the one we just created)
-		$newTree = $this->getCmuxTree();
-		$newWs   = $this->findWorkspaceByRef($newTree, $wsRef);
-		if (!$newWs) {
-			return null;
-		}
-
-		$allSurfs = [];
-		foreach ($newWs['panes'] ?? [] as $pane) {
-			foreach ($pane['surfaces'] ?? [] as $s) {
-				$allSurfs[] = $s['ref'];
-			}
-		}
-
-		return $allSurfs ? end($allSurfs) : null;
-	}
-
-	protected function findWorkspaceByTitle(array $tree, string $title) {
-		foreach ($tree['windows'] ?? [] as $window) {
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				if (($ws['title'] ?? '') === $title) {
-					return $ws;
-				}
-			}
-		}
-		return null;
-	}
-
-	protected function findWorkspaceByRef(array $tree, string $ref) {
-		foreach ($tree['windows'] ?? [] as $window) {
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				if (($ws['ref'] ?? '') === $ref) {
-					return $ws;
-				}
-			}
-		}
-		return null;
-	}
-
 	/**
 	 * Strip the leading status indicator that Claude Code prepends to terminal titles.
 	 * Claude uses spinner chars (⠂⠒⠐…) while active and ✳ when idle — these change
 	 * between backup time and restore time, so we normalize them away for matching.
 	 */
-	protected function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model): string {
-		$cmd = 'claude';
-		if ($skipPerms) {
-			$cmd .= ' --dangerously-skip-permissions';
-		}
-		$cmd .= " --resume {$sessionId}";
-		if ($model) {
-			$cmd .= " --model={$model}";
-		}
-		return $cmd;
-	}
-
-	/**
-	 * Read the last permission-mode and model from a session's JSONL transcript.
-	 * These reflect the state at the end of the conversation, not just launch flags.
-	 */
-	protected function readSessionJsonl(?string $sessionId, ?string $cwd): array {
-		$result = ['permission_mode' => null, 'model' => null];
-
-		if (!$sessionId || !$cwd) {
-			return $result;
-		}
-
-		// Claude encodes the project dir by replacing / and . with -
-		$projectKey = str_replace(['/', '.'], '-', $cwd);
-		$claudeDir  = $this->cli->convertPathToAbsolute('~/.claude');
-		$jsonlPath  = "{$claudeDir}/projects/{$projectKey}/{$sessionId}.jsonl";
-
-		if (!file_exists($jsonlPath)) {
-			return $result;
-		}
-
-		$handle = fopen($jsonlPath, 'r');
-		while (($line = fgets($handle)) !== false) {
-			$entry = json_decode($line, true);
-			if (!$entry || !isset($entry['type'])) {
-				continue;
-			}
-			if ($entry['type'] === 'permission-mode' && isset($entry['permissionMode'])) {
-				$result['permission_mode'] = $entry['permissionMode'];
-			}
-			if ($entry['type'] === 'assistant'
-				&& isset($entry['message']['model'])
-				&& $entry['message']['model'] !== '<synthetic>'
-			) {
-				$result['model'] = $entry['message']['model'];
-			}
-		}
-		fclose($handle);
-
-		return $result;
-	}
-
 	protected function normalizeTitle(string $title): string {
 		// Strip any leading non-ASCII characters (the icon) plus following whitespace
 		return preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title);
@@ -704,8 +481,8 @@ class CmuxBak {
 		usleep(500000);
 
 		// Find the newly created surface (last in the workspace)
-		$newTree = $this->getCmuxTree();
-		$newWs   = $this->findWorkspaceByRef($newTree, $wsRef);
+		$newTree = $this->cmux->tree();
+		$newWs   = $this->cmux->findWorkspaceByRef($newTree, $wsRef);
 		if (!$newWs) {
 			return null;
 		}
