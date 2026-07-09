@@ -12,7 +12,7 @@ namespace JT;
 #
 # Usage:
 # graveyard bury <surface-ref> [--force] [-y]
-# graveyard bury --idle <dur> [-y]
+# graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard ls
 # graveyard show <id>
 # graveyard resurrect <id>
@@ -29,7 +29,7 @@ $helpyHelperton
 	->setSampleUsage('<bury|ls|show|resurrect> [args]')
 	->buildDocs([
 		'bury <ref>'      => 'Bury a live session by its cmux surface ref',
-		'bury --idle <d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m)',
+		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
 		'-y'              => 'Skip confirmations',
 		'ls'              => 'List buried sessions',
@@ -53,7 +53,15 @@ $sub = $cli->getArg(1);
 switch ($sub) {
 	case 'bury':
 		if ($cli->hasFlag('idle')) {
-			$gy->buryIdle($gy->parseDuration((string) $cli->getFlag('idle')), $cli->isAutoconfirm());
+			$dur = (string) $cli->getFlag('idle');
+			if ($dur === '') { $dur = (string) $cli->getArg(2); } // supports "--idle 15s" (space-separated)
+			if ($dur === '') { $cli->exitErr('Usage: graveyard bury --idle <dur>  (e.g. --idle=2d)'); }
+			try {
+				$secs = $gy->parseDuration($dur);
+			} catch (\InvalidArgumentException $e) {
+				$cli->exitErr("Invalid --idle duration: '{$dur}' (use e.g. 2d, 48h, 90m, 30s).");
+			}
+			$gy->buryIdle($secs, $cli->isAutoconfirm());
 		} else {
 			$ref = $cli->getArg(2);
 			if (!$ref) { $cli->exitErr('Usage: graveyard bury <surface-ref> | --idle <dur>'); }
