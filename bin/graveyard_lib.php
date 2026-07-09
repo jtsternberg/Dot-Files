@@ -142,4 +142,92 @@ class Graveyard {
 		}
 		return $out;
 	}
+
+	public function exportTranscript(array $sess, int $timeoutSecs = 30): bool {
+		$id  = $sess['session_id'];
+		$dir = $this->sessionDir($id);
+		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
+
+		$tmp = $dir . '/.transcript.' . ($sess['pid'] ?? getmypid()) . '.tmp';
+		if (file_exists($tmp)) { @unlink($tmp); }
+
+		// /export <path> writes rendered text straight to the file (no dialog when path is writable).
+		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp . "\n");
+
+		$deadline = time() + $timeoutSecs;
+		while (time() < $deadline) {
+			clearstatcache(true, $tmp);
+			if (is_file($tmp) && filesize($tmp) > 0) {
+				// give the write a beat to finish, then rename atomically
+				usleep(300000);
+				return @rename($tmp, $this->transcriptPath($id));
+			}
+			usleep(500000);
+		}
+		@unlink($tmp);
+		return false;
+	}
+
+	public function deriveSummary(array $sess): string {
+		$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
+		if (is_file($jsonl)) {
+			$fh = fopen($jsonl, 'r');
+			while (($line = fgets($fh)) !== false) {
+				$e = json_decode($line, true);
+				if (($e['type'] ?? '') === 'user') {
+					$content = $e['message']['content'] ?? '';
+					if (is_array($content)) {
+						foreach ($content as $c) { if (($c['type'] ?? '') === 'text') { $content = $c['text']; break; } }
+					}
+					if (is_string($content) && trim($content) !== '') {
+						fclose($fh);
+						return trim(mb_substr(preg_replace('/\s+/', ' ', $content), 0, 100));
+					}
+				}
+			}
+			fclose($fh);
+		}
+		$title = $sess['tab_title'] ?? '';
+		// strip Claude Code's leading status glyph
+		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title)) ?: '(no summary)';
+	}
+
+	public function teardown(array $sess): void {
+		shell_exec('cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']) . ' 2>/dev/null');
+	}
+
+	public function buryOne(array $sess, bool $force, bool $autoConfirm): bool {
+		$idFloor = self::IDLE_FLOOR_DEFAULT;
+		$screen  = $this->readLastScreen($sess['surface_ref'], $sess['workspace_ref']);
+		if ($this->isBusy((int) $sess['idle_seconds'], $idFloor, $screen)) {
+			if (!$force) {
+				$this->cli->msg("  Skipping {$sess['tab_title']} — session looks busy (use --force to override).", 'yellow');
+				return false;
+			}
+			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
+		}
+
+		$this->cli->msg("  Exporting transcript for " . substr($sess['session_id'], 0, 8) . '…', 'cyan');
+		if (!$this->exportTranscript($sess)) {
+			$this->cli->err("  Export failed (no transcript written) — leaving session ALIVE.");
+			return false;
+		}
+
+		$summary = $this->deriveSummary($sess);
+		$tomb = $this->buildTombstone($sess, [
+			'workspace_title' => $sess['workspace_title'],
+			'tab_title'       => $sess['tab_title'],
+		], $summary, gmdate('Y-m-d\TH:i:s\Z'));
+		file_put_contents($this->metaPath($sess['session_id']), json_encode($tomb, JSON_PRETTY_PRINT));
+		$this->upsertIndex($tomb);
+		$this->cli->successMsg("  Buried: {$summary}");
+
+		if (!$autoConfirm && !$this->cli->confirm("  Close the cmux tab and kill this session now?")) {
+			$this->cli->msg('  Left the tab open; transcript is archived.', 'yellow');
+			return true;
+		}
+		$this->teardown($sess);
+		$this->cli->msg('  Tab closed; RAM freed.', 'green');
+		return true;
+	}
 }
