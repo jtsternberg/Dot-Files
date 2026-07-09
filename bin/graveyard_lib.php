@@ -230,4 +230,98 @@ class Graveyard {
 		$this->cli->msg('  Tab closed; RAM freed.', 'green');
 		return true;
 	}
+
+	public function listTombstones(): void {
+		$tombs = $this->readIndex()['tombstones'] ?? [];
+		if (!$tombs) { $this->cli->msg('Graveyard is empty.', 'yellow'); return; }
+		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
+		foreach ($tombs as $t) {
+			$id = substr($t['session_id'], 0, 8);
+			$this->cli->msg(sprintf(
+				"%s  %-24.24s  %-10.10s  %s",
+				$id, $t['workspace_title'] ?: '(untitled)', substr($t['buried_at'] ?? '', 0, 10), $t['summary'] ?? ''
+			));
+			$this->cli->msg("          cwd: " . ($t['cwd'] ?? ''), 'cyan');
+		}
+	}
+
+	public function resolveTombstone(string $prefix): ?array {
+		$tombs = $this->readIndex()['tombstones'] ?? [];
+		$matches = array_values(array_filter($tombs, fn($t) => str_starts_with($t['session_id'], $prefix)));
+		if (count($matches) === 1) { return $matches[0]; }
+		if (count($matches) > 1) {
+			$this->cli->err("Ambiguous id '{$prefix}' — matches " . count($matches) . " tombstones:");
+			foreach ($matches as $m) { $this->cli->msg('  ' . substr($m['session_id'], 0, 12) . '  ' . $m['summary']); }
+		}
+		return null;
+	}
+
+	public function showTombstone(string $prefix): void {
+		$t = $this->resolveTombstone($prefix);
+		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
+		$path = $this->transcriptPath($t['session_id']);
+		if (!is_file($path)) { $this->cli->exitErr("Transcript missing: {$path}"); }
+		$editor = trim((string) shell_exec('command -v code 2>/dev/null'));
+		if ($editor) { shell_exec('code -r ' . escapeshellarg($path)); }
+		else { $ed = getenv('EDITOR') ?: 'vi'; $this->cli->runCommand($ed . ' ' . escapeshellarg($path)); }
+		$this->cli->successMsg("Opened {$path}");
+	}
+
+	public function resurrect(string $prefix): void {
+		$t = $this->resolveTombstone($prefix);
+		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
+		$path = $this->transcriptPath($t['session_id']);
+		if (!is_file($path)) { $this->cli->exitErr("Transcript missing: {$path}"); }
+
+		$title = $t['workspace_title'] ?: 'resurrected';
+		$cwd   = $t['cwd'] ?? '';
+		$ws = $this->cmux->newWorkspace($title, $cwd ?: null);
+		$surfRef = $ws['firstSurfRef'];
+		$wsRef   = $ws['ref'];
+
+		// Launch a FRESH claude (no --resume), then tell it to read the transcript.
+		$launch = 'claude';
+		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
+		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+		$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
+		sleep(3); // let the REPL come up
+
+		$preamble = 'Resuming a buried session. Read ' . $path
+			. ' — that is a transcript of where we left off. Re-orient from it, then continue.';
+		$this->cmux->sendToSurface($surfRef, $wsRef, $preamble . "\n");
+		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.");
+	}
+
+	public function buryByRef(string $ref, bool $force, bool $autoConfirm): void {
+		$self = $this->selfSurfaceId();
+		foreach ($this->liveSessions() as $s) {
+			if ($s['surface_ref'] === $ref || ($s['surface_id'] ?? '') === $ref) {
+				if ($self && ($s['surface_ref'] === $self || ($s['surface_id'] ?? '') === $self)) {
+					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+				}
+				$this->buryOne($s, $force, $autoConfirm);
+				return;
+			}
+		}
+		$this->cli->exitErr("No live claude session found at surface '{$ref}'.");
+	}
+
+	public function buryIdle(int $thresholdSecs, bool $autoConfirm): void {
+		$self = $this->selfSurfaceId();
+		$sessions = $this->filterSelf($this->liveSessions(), $self, null);
+		$stale = array_values(array_filter($sessions, fn($s) => $s['idle_seconds'] >= $thresholdSecs));
+		if (!$stale) { $this->cli->msg('No sessions idle past the threshold.', 'yellow'); return; }
+
+		$this->cli->msg('Sessions to bury (idle >= ' . $thresholdSecs . 's):', 'yellow');
+		foreach ($stale as $s) {
+			$this->cli->msg(sprintf('  %s  idle=%ds  %-20.20s  %.40s',
+				substr($s['session_id'], 0, 8), $s['idle_seconds'], $s['workspace_title'], $s['tab_title']));
+		}
+		if (!$autoConfirm && !$this->cli->confirm('Bury these ' . count($stale) . ' session(s)?')) {
+			$this->cli->msg('Aborted.', 'yellow'); return;
+		}
+		$n = 0;
+		foreach ($stale as $s) { if ($this->buryOne($s, false, true)) { $n++; } }
+		$this->cli->successMsg("Buried {$n} of " . count($stale) . ' session(s).');
+	}
 }

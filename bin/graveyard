@@ -1,0 +1,71 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# graveyard — demote, browse, and resurrect Claude Code sessions via cmux.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Buries idle Claude sessions to ~/.claude-graveyard/ (rendered transcript +
+# metadata) and frees their RAM, then lists / opens / resurrects them.
+#
+# Usage:
+# graveyard bury <surface-ref> [--force] [-y]
+# graveyard bury --idle <dur> [-y]
+# graveyard ls
+# graveyard show <id>
+# graveyard resurrect <id>
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+require_once dirname(__DIR__) . '/misc/helpers/cmux.php';
+require_once __DIR__ . '/graveyard_lib.php';
+
+$helpyHelperton = $cli->getHelp();
+$helpyHelperton
+	->setScriptName('graveyard')
+	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux.')
+	->setSampleUsage('<bury|ls|show|resurrect> [args]')
+	->buildDocs([
+		'bury <ref>'      => 'Bury a live session by its cmux surface ref',
+		'bury --idle <d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m)',
+		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
+		'-y'              => 'Skip confirmations',
+		'ls'              => 'List buried sessions',
+		'show <id>'       => 'Open a buried transcript in your editor',
+		'resurrect <id>'  => 'Recreate the workspace and restart Claude on the transcript',
+	]);
+
+if ($helpyHelperton->batSignal) {
+	$cli->msg($helpyHelperton->getHelp());
+	exit(0);
+}
+
+$cmux = new Helpers\Cmux($cli);
+if (!$cmux->ping()) {
+	$cli->exitErr('cmux is not reachable. Is cmux running?');
+}
+
+$gy  = new Graveyard($cli, $cmux);
+$sub = $cli->getArg(1);
+
+switch ($sub) {
+	case 'bury':
+		if ($cli->hasFlag('idle')) {
+			$gy->buryIdle($gy->parseDuration((string) $cli->getFlag('idle')), $cli->isAutoconfirm());
+		} else {
+			$ref = $cli->getArg(2);
+			if (!$ref) { $cli->exitErr('Usage: graveyard bury <surface-ref> | --idle <dur>'); }
+			$gy->buryByRef($ref, $cli->hasFlag('force'), $cli->isAutoconfirm());
+		}
+		break;
+	case 'ls':        $gy->listTombstones(); break;
+	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
+	case 'resurrect': $gy->resurrect((string) $cli->getArg(2)); break;
+	default:
+		$cli->msg($helpyHelperton->getHelp());
+		exit($sub ? 1 : 0);
+}
+
+exit(0);
