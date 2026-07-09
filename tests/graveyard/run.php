@@ -47,5 +47,21 @@ ok(count($idx['tombstones']) === 2, 'upsert dedupes to 2');
 $xs = array_values(array_filter($idx['tombstones'], fn($t) => $t['session_id'] === 'x'));
 ok($xs[0]['summary'] === 'second', 'upsert newest wins');
 
+// isBusy: idle floor
+ok($gy->isBusy(5, 15, '')  === true,  'busy when idle<floor');
+ok($gy->isBusy(30, 15, '') === false, 'idle enough, quiet screen');
+// isBusy: active-turn markers on screen
+ok($gy->isBusy(30, 15, '... (esc to interrupt)') === true,  'busy: esc-to-interrupt');
+ok($gy->isBusy(30, 15, '✳ Cogitating… (1.2k tokens)') === true, 'busy: token counter');
+ok($gy->isBusy(30, 15, 'justin@mac ~/.dotfiles %') === false, 'quiet prompt not busy');
+
+// filterSelf
+$sessions = [
+	['surface_ref' => 'surface:1', 'session_id' => 'self-sess'],
+	['surface_ref' => 'surface:2', 'session_id' => 'other'],
+];
+$kept = $gy->filterSelf($sessions, 'surface:1', 'self-sess');
+ok(count($kept) === 1 && $kept[0]['session_id'] === 'other', 'filterSelf drops self by surface+session');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

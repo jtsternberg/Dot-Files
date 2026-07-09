@@ -3,6 +3,12 @@ namespace JT;
 
 class Graveyard {
 
+	// Active-turn markers Claude Code prints while a turn is running. Absence-based
+	// detection (NOT prompt matching, which is fragile with custom/powerline prompts).
+	const ACTIVE_TURN_RE = '/(esc to interrupt|\(\s*[\d.]+k?\s+tokens\s*\)|Cogitating|Thinking…|Pondering|Deciphering)/i';
+
+	const IDLE_FLOOR_DEFAULT = 15; // seconds; JSONL must be quiet at least this long
+
 	protected $cli;
 	protected $cmux;
 
@@ -74,5 +80,66 @@ class Graveyard {
 			'buried_at'       => $buriedAt,
 			'last_active'     => $lastActive,
 		];
+	}
+
+	public function selfSurfaceId(): ?string {
+		return getenv('CMUX_SURFACE_ID') ?: null;
+	}
+
+	public function filterSelf(array $sessions, ?string $selfSurfaceId, ?string $selfSessionId): array {
+		return array_values(array_filter($sessions, function ($s) use ($selfSurfaceId, $selfSessionId) {
+			if ($selfSurfaceId && ($s['surface_ref'] ?? null) === $selfSurfaceId) { return false; }
+			if ($selfSurfaceId && ($s['surface_id'] ?? null) === $selfSurfaceId) { return false; }
+			if ($selfSessionId && ($s['session_id'] ?? null) === $selfSessionId) { return false; }
+			return true;
+		}));
+	}
+
+	public function isBusy(int $idleSeconds, int $idleFloor, string $lastScreen): bool {
+		if ($idleSeconds < $idleFloor) { return true; }
+		return (bool) preg_match(self::ACTIVE_TURN_RE, $lastScreen);
+	}
+
+	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string {
+		$cmd = 'cmux read-screen --surface ' . escapeshellarg($surfaceRef)
+			 . ' --workspace ' . escapeshellarg($workspaceRef)
+			 . ' --lines ' . (int) $lines . ' 2>/dev/null';
+		return (string) shell_exec($cmd);
+	}
+
+	public function liveSessions(): array {
+		$byTty = $this->cmux->loadClaudeSessions();
+		$tree  = $this->cmux->tree();
+		$now   = time();
+		$out   = [];
+
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				foreach ($ws['panes'] ?? [] as $pane) {
+					foreach ($pane['surfaces'] ?? [] as $surf) {
+						$tty = $surf['tty'] ?? '';
+						if (!$tty || empty($byTty[$tty])) { continue; }
+						$sess = $byTty[$tty];
+						$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
+						$idle = is_file($jsonl) ? ($now - filemtime($jsonl)) : PHP_INT_MAX;
+						$out[] = [
+							'session_id'      => $sess['session_id'],
+							'cwd'             => $sess['cwd'] ?? '',
+							'model'           => $sess['model'] ?? null,
+							'skip_perms'      => (bool) ($sess['skip_perms'] ?? false),
+							'pid'             => $sess['pid'] ?? null,
+							'tty'             => $tty,
+							'surface_ref'     => $surf['ref'] ?? '',
+							'surface_id'      => $surf['id'] ?? ($surf['ref'] ?? ''),
+							'workspace_ref'   => $ws['ref'] ?? '',
+							'workspace_title' => $ws['title'] ?? '',
+							'tab_title'       => $surf['title'] ?? '',
+							'idle_seconds'    => $idle,
+						];
+					}
+				}
+			}
+		}
+		return $out;
 	}
 }
