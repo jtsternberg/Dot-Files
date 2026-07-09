@@ -309,6 +309,13 @@ class Graveyard {
 	public function buryIdle(int $thresholdSecs, bool $autoConfirm): void {
 		$self = $this->selfSurfaceId();
 		$sessions = $this->filterSelf($this->liveSessions(), $self, null);
+
+		$unknown = array_values(array_filter($sessions, fn($s) => $s['idle_seconds'] === PHP_INT_MAX));
+		if ($unknown) {
+			$this->cli->msg('  Skipping ' . count($unknown) . ' session(s) with unmeasurable idle time (no transcript found).', 'yellow');
+		}
+		$sessions = array_values(array_filter($sessions, fn($s) => $s['idle_seconds'] !== PHP_INT_MAX));
+
 		$stale = array_values(array_filter($sessions, fn($s) => $s['idle_seconds'] >= $thresholdSecs));
 		if (!$stale) { $this->cli->msg('No sessions idle past the threshold.', 'yellow'); return; }
 

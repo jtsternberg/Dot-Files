@@ -17,6 +17,8 @@ $cmux = new Helpers\Cmux($cli);
 // encodeProjectKey
 ok($cmux->encodeProjectKey('/Users/JT/.dotfiles') === '-Users-JT--dotfiles', 'encodeProjectKey dotfiles');
 ok($cmux->encodeProjectKey('/Users/JT/Code/claude-plugins') === '-Users-JT-Code-claude-plugins', 'encodeProjectKey plugins');
+ok($cmux->encodeProjectKey('/Users/JT/Documents/Southport UDO') === '-Users-JT-Documents-Southport-UDO', 'encodeProjectKey spaces');
+ok($cmux->encodeProjectKey('/Users/JT/Local Sites/gatehouse/app/public/wp-content') === '-Users-JT-Local-Sites-gatehouse-app-public-wp-content', 'encodeProjectKey spaced path');
 
 // buildResumeCommand
 ok($cmux->buildResumeCommand('abc', false, null) === 'claude --resume abc', 'resume plain');

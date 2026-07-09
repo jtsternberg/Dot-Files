@@ -39,7 +39,7 @@ class Cmux {
 	}
 
 	public function encodeProjectKey(string $cwd): string {
-		return str_replace(['/', '.'], '-', $cwd);
+		return preg_replace('/[^a-zA-Z0-9]/', '-', $cwd);
 	}
 
 	public function jsonlPathFor(string $sessionId, string $cwd): string {
