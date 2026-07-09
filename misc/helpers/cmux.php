@@ -181,6 +181,21 @@ class Cmux {
 		return $allSurfs ? end($allSurfs) : null;
 	}
 
+	public function newWorkspace(string $title, ?string $cwd): array {
+		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title);
+		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
+		$res = $this->cli->getCommandOutputAndExitCode($cmd);
+		if ($res['exitCode'] !== 0) { $this->cli->exitErr('new-workspace failed: ' . $res['error']); }
+		usleep(500000);
+		$ws = $this->findWorkspaceByTitle($this->tree(), $title);
+		if (!$ws) { $this->cli->exitErr("Could not find new workspace '{$title}'."); }
+		return [
+			'ref'          => $ws['ref'] ?? '',
+			'firstPaneRef' => $ws['panes'][0]['ref'] ?? null,
+			'firstSurfRef' => $ws['panes'][0]['surfaces'][0]['ref'] ?? null,
+		];
+	}
+
 	public function findWorkspaceByTitle(array $tree, string $title): ?array {
 		foreach ($tree['windows'] ?? [] as $window) {
 			foreach ($window['workspaces'] ?? [] as $ws) {

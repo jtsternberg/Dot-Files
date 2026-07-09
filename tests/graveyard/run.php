@@ -22,5 +22,7 @@ ok($cmux->encodeProjectKey('/Users/JT/Code/claude-plugins') === '-Users-JT-Code-
 ok($cmux->buildResumeCommand('abc', false, null) === 'claude --resume abc', 'resume plain');
 ok($cmux->buildResumeCommand('abc', true, 'opus') === 'claude --dangerously-skip-permissions --resume abc --model=opus', 'resume flags');
 
+ok(method_exists($cmux, 'newWorkspace'), 'Cmux::newWorkspace exists');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
