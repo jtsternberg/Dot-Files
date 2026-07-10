@@ -61,3 +61,6 @@ notes-dropbox-sync/notes-dropbox-sync-launcher
 
 # superpowers SDD scratch (plans/ledgers) — not repo content
 .superpowers/
+
+# stray /export transcript dumps written to cwd
+*command-messagesystem-watchdogcommand-message.txt
