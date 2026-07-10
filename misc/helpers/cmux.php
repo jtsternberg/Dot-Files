@@ -67,7 +67,11 @@ class Cmux {
 			if (!$this->pidIsAlive((int) $pid)) {
 				continue;
 			}
-			$data = json_decode(file_get_contents($file), true);
+			$raw = @file_get_contents($file);
+			if ($raw === false) {
+				continue;
+			}
+			$data = json_decode($raw, true);
 			if (!$data) {
 				continue;
 			}
