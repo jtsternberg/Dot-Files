@@ -138,8 +138,8 @@ class Graveyard {
 						$tty = $surf['tty'] ?? '';
 						if (!$tty || empty($byTty[$tty])) { continue; }
 						$sess = $byTty[$tty];
-						$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
-						$idle = is_file($jsonl) ? ($now - filemtime($jsonl)) : PHP_INT_MAX;
+						$ts   = $this->cmux->lastRealActivity($sess['session_id'], $sess['cwd'] ?? '');
+						$idle = $ts !== null ? ($now - $ts) : PHP_INT_MAX;
 						$out[] = [
 							'session_id'      => $sess['session_id'],
 							'cwd'             => $sess['cwd'] ?? '',
@@ -157,6 +157,27 @@ class Graveyard {
 					}
 				}
 			}
+		}
+		return $this->dedupBySessionId($out);
+	}
+
+	/**
+	 * Keep the first row for each session_id, preserving order. A single Claude
+	 * session can surface under multiple cmux panes/surfaces; liveSessions()
+	 * builds one row per surface, so this collapses those back to one per session.
+	 */
+	public function dedupBySessionId(array $rows): array {
+		$seen = [];
+		$out  = [];
+		foreach ($rows as $row) {
+			$id = $row['session_id'] ?? null;
+			if ($id !== null && isset($seen[$id])) {
+				continue;
+			}
+			if ($id !== null) {
+				$seen[$id] = true;
+			}
+			$out[] = $row;
 		}
 		return $out;
 	}

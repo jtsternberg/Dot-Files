@@ -72,5 +72,34 @@ $sess2 = [
 $kept2 = $gy->filterSelf($sess2, null, 'my-own-sess');
 ok(count($kept2) === 1 && $kept2[0]['session_id'] === 'keep-me', 'filterSelf drops self by session_id alone');
 
+// lastRealActivity: streams JSONL, returns last user/assistant timestamp (ignores later system entries)
+$tmpCwd = '/tmp/gy-test-cwd-' . getmypid();
+$tmpSid = 'test-sess-' . getmypid();
+$tmpJsonlPath = $cmux->jsonlPathFor($tmpSid, $tmpCwd);
+@mkdir(dirname($tmpJsonlPath), 0755, true);
+$t1 = '2026-07-01T10:00:00Z';
+$t2 = '2026-07-01T10:05:00Z';
+$t3 = '2026-07-01T10:09:00Z';
+file_put_contents(
+	$tmpJsonlPath,
+	json_encode(['type' => 'user', 'timestamp' => $t1]) . "\n"
+	. json_encode(['type' => 'assistant', 'timestamp' => $t2]) . "\n"
+	. json_encode(['type' => 'system', 'timestamp' => $t3]) . "\n"
+);
+ok($cmux->lastRealActivity($tmpSid, $tmpCwd) === strtotime($t2), 'lastRealActivity returns last user/assistant ts, ignores trailing system entry');
+ok($cmux->lastRealActivity('nope', '/no/such') === null, 'lastRealActivity null for missing file');
+@unlink($tmpJsonlPath);
+@rmdir(dirname($tmpJsonlPath));
+
+// dedupBySessionId: keeps first row per session_id, preserves order
+$dupRows = [
+	['session_id' => 'a', 'tab_title' => 'first'],
+	['session_id' => 'a', 'tab_title' => 'dupe'],
+	['session_id' => 'b', 'tab_title' => 'x'],
+];
+$deduped = $gy->dedupBySessionId($dupRows);
+ok(count($deduped) === 2, 'dedupBySessionId returns 2 rows');
+ok($deduped[0]['tab_title'] === 'first', 'dedupBySessionId keeps first row for duplicate session_id');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
