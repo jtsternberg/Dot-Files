@@ -310,7 +310,8 @@ class Graveyard {
 
 		$preamble = 'Resuming a buried session. Read ' . $path
 			. ' — that is a transcript of where we left off. Re-orient from it, then continue.';
-		$this->cmux->sendToSurface($surfRef, $wsRef, $preamble . "\n");
+		$this->cmux->sendToSurface($surfRef, $wsRef, $preamble);
+		$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
 		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.");
 	}
 

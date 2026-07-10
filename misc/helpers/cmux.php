@@ -151,6 +151,17 @@ class Cmux {
 		}
 	}
 
+	public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {
+		if (!$this->dryRun) {
+			shell_exec(
+				'cmux send-key --surface ' . escapeshellarg($surfRef)
+				. ' --workspace ' . escapeshellarg($wsRef)
+				. ' ' . escapeshellarg($key)
+				. ' 2>/dev/null'
+			);
+		}
+	}
+
 	public function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url): ?string {
 		$cmd = 'cmux new-surface --type ' . escapeshellarg($type)
 			. ' --workspace ' . escapeshellarg($wsRef);
