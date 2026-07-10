@@ -471,7 +471,10 @@ class Graveyard {
 	public function candidates(): array {
 		$rows = $this->filterSelf($this->liveSessions(), $this->selfSurfaceId(), $this->selfSessionId());
 		$rows = array_values(array_filter($rows, fn($r) => $r['idle_seconds'] !== PHP_INT_MAX));
-		usort($rows, fn($a, $b) => $b['idle_seconds'] <=> $a['idle_seconds']);
+		usort($rows, function ($a, $b) {
+			return $b['idle_seconds'] <=> $a['idle_seconds']
+				?: strcmp($a['session_id'], $b['session_id']);
+		});
 
 		$out = [];
 		foreach ($rows as $r) {
