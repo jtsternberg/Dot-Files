@@ -292,10 +292,72 @@ class Cmux {
 	}
 
 	/**
+	 * Whether a JSONL entry is SYNTHETIC / non-activity (not a real user/assistant
+	 * conversation turn). Such entries must not count toward last-activity/idle.
+	 * Three classes are detected, each per-entry (never by timestamp pairing):
+	 *
+	 *   1. cmux-bak mass-restore resume turns — a user "Continue from where you left
+	 *      off." (isMeta) turn and an assistant turn whose model is '<synthetic>'
+	 *      / text "No response requested.".
+	 *   2. Slash-command turns — /export, /resume, etc. write command invocation,
+	 *      stdout, and caveat turns (text begins with <command-name>, <command-args>,
+	 *      <command-message>, <local-command-stdout>, <local-command-caveat>). These
+	 *      freshen the JSONL without representing real work.
+	 *
+	 * @param array $entry Decoded JSONL entry.
+	 * @return bool True if the entry is synthetic / non-activity.
+	 */
+	public function isSyntheticEntry(array $entry): bool {
+		// Assistant marker: synthetic model.
+		if (
+			isset($entry['type'], $entry['message']['model'])
+			&& $entry['type'] === 'assistant'
+			&& $entry['message']['model'] === '<synthetic>'
+		) {
+			return true;
+		}
+
+		// Concatenate text content (array-of-parts or plain string).
+		$content = $entry['message']['content'] ?? null;
+		$text = '';
+		if (is_string($content)) {
+			$text = $content;
+		} elseif (is_array($content)) {
+			foreach ($content as $part) {
+				if (is_array($part) && isset($part['text']) && is_string($part['text'])) {
+					$text .= $part['text'];
+				}
+			}
+		}
+		$text = trim($text);
+
+		// Slash-command turns (invocation / stdout / caveat). Not gated on isMeta —
+		// the invocation and stdout turns carry no isMeta flag.
+		$commandPrefixes = ['<command-name>', '<command-args>', '<command-message>', '<local-command-stdout>', '<local-command-caveat>'];
+		foreach ($commandPrefixes as $prefix) {
+			if (strncmp($text, $prefix, strlen($prefix)) === 0) {
+				return true;
+			}
+		}
+
+		// Text-content resume marker. Gated on isMeta so a genuine human turn that
+		// happens to type the same words isn't misclassified (the real synthetic user
+		// resume turn always carries isMeta:true; the synthetic assistant turn is
+		// already caught by the '<synthetic>' model check above).
+		if (empty($entry['isMeta'])) {
+			return false;
+		}
+
+		$markers = ['Continue from where you left off.', 'No response requested.'];
+		return in_array($text, $markers, true);
+	}
+
+	/**
 	 * Unix timestamp of the last JSONL entry whose type is 'user' or 'assistant'
 	 * and that has a 'timestamp'. Null if the file is missing or has no such entry.
 	 * JSONL mtime is unreliable (freshened by cron/housekeeping); this reflects the
-	 * actual last real conversation turn.
+	 * actual last real conversation turn. Synthetic resume turns (see
+	 * isSyntheticEntry) are skipped so restored sessions don't look freshly active.
 	 */
 	public function lastRealActivity(string $sessionId, string $cwd): ?int {
 		$jsonlPath = $this->jsonlPathFor($sessionId, $cwd);
@@ -312,6 +374,9 @@ class Cmux {
 				continue;
 			}
 			if ($entry['type'] === 'user' || $entry['type'] === 'assistant') {
+				if ($this->isSyntheticEntry($entry)) {
+					continue;
+				}
 				$parsed = strtotime($entry['timestamp']);
 				if ($parsed !== false) { $lastTs = $parsed; }
 			}
