@@ -15,7 +15,7 @@ namespace JT;
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard ls
 # graveyard show <id>
-# graveyard resurrect <id>
+# graveyard resurrect <id> [--from-transcript]
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -34,7 +34,8 @@ $helpyHelperton
 		'-y'              => 'Skip confirmations',
 		'ls'              => 'List buried sessions',
 		'show <id>'       => 'Open a buried transcript in your editor',
-		'resurrect <id>'  => 'Recreate the workspace and restart Claude on the transcript',
+		'resurrect <id>'     => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript',
+		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -70,7 +71,7 @@ switch ($sub) {
 		break;
 	case 'ls':        $gy->listTombstones(); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
-	case 'resurrect': $gy->resurrect((string) $cli->getArg(2)); break;
+	case 'resurrect': $gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript')); break;
 	default:
 		$cli->msg($helpyHelperton->getHelp());
 		exit($sub ? 1 : 0);

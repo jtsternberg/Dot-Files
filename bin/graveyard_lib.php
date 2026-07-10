@@ -340,11 +340,18 @@ class Graveyard {
 		$this->cli->successMsg("Opened {$path}");
 	}
 
-	public function resurrect(string $prefix): void {
+	public function resurrect(string $prefix, bool $fromTranscript = false): void {
 		$t = $this->resolveTombstone($prefix);
 		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
-		$path = $this->transcriptPath($t['session_id']);
-		if (!is_file($path)) { $this->cli->exitErr("Transcript missing: {$path}"); }
+
+		$jsonl         = $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
+		$hasJsonl      = is_file($jsonl);
+		$transcript    = $this->transcriptPath($t['session_id']);
+		$hasTranscript = is_file($transcript);
+
+		if (!$hasJsonl && !$hasTranscript) {
+			$this->cli->exitErr("Neither live JSONL nor exported transcript available for {$t['session_id']} — cannot resurrect.");
+		}
 
 		$title = $t['workspace_title'] ?: 'resurrected';
 		$cwd   = $t['cwd'] ?? '';
@@ -352,18 +359,41 @@ class Graveyard {
 		$surfRef = $ws['firstSurfRef'];
 		$wsRef   = $ws['ref'];
 
-		// Launch a FRESH claude (no --resume), then tell it to read the transcript.
-		$launch = 'claude';
-		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
-		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+		$buildLaunch = function (string $base) use ($t): string {
+			$launch = $base;
+			if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
+			if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+			return $launch;
+		};
+
+		$useResume = !$fromTranscript && $hasJsonl;
+
+		if ($useResume) {
+			// The live JSONL still exists — restore the session as-was via --resume.
+			$launch = $buildLaunch('claude --resume ' . $t['session_id']);
+			$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
+			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
+			$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} via --resume (restored in place).");
+			return;
+		}
+
+		// Fall back to the read-the-transcript restart — either the JSONL is
+		// gone (GC'd), or --from-transcript forced this path.
+		if (!$hasTranscript) {
+			$this->cli->exitErr("Neither live JSONL nor exported transcript available for {$t['session_id']} — cannot resurrect.");
+		}
+
+		$launch = $buildLaunch('claude');
 		$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
 		sleep(3); // let the REPL come up
 
-		$preamble = 'Resuming a buried session. Read ' . $path
+		$preamble = 'Resuming a buried session. Read ' . $transcript
 			. ' — that is a transcript of where we left off. Re-orient from it, then continue.';
 		$this->cmux->sendToSurface($surfRef, $wsRef, $preamble);
 		$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
-		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.");
+
+		$note = ($fromTranscript && $hasJsonl) ? ' (forced transcript mode)' : '';
+		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.{$note}");
 	}
 
 	public function buryByRef(string $ref, bool $force, bool $autoConfirm): void {
