@@ -67,7 +67,11 @@ class Cmux {
 			if (!$this->pidIsAlive((int) $pid)) {
 				continue;
 			}
-			$data = json_decode(file_get_contents($file), true);
+			$raw = @file_get_contents($file);
+			if ($raw === false) {
+				continue;
+			}
+			$data = json_decode($raw, true);
 			if (!$data) {
 				continue;
 			}
@@ -285,5 +289,35 @@ class Cmux {
 		fclose($handle);
 
 		return $result;
+	}
+
+	/**
+	 * Unix timestamp of the last JSONL entry whose type is 'user' or 'assistant'
+	 * and that has a 'timestamp'. Null if the file is missing or has no such entry.
+	 * JSONL mtime is unreliable (freshened by cron/housekeeping); this reflects the
+	 * actual last real conversation turn.
+	 */
+	public function lastRealActivity(string $sessionId, string $cwd): ?int {
+		$jsonlPath = $this->jsonlPathFor($sessionId, $cwd);
+
+		if (!is_file($jsonlPath)) {
+			return null;
+		}
+
+		$lastTs = null;
+		$handle = fopen($jsonlPath, 'r');
+		while (($line = fgets($handle)) !== false) {
+			$entry = json_decode($line, true);
+			if (!$entry || !isset($entry['type'], $entry['timestamp'])) {
+				continue;
+			}
+			if ($entry['type'] === 'user' || $entry['type'] === 'assistant') {
+				$parsed = strtotime($entry['timestamp']);
+				if ($parsed !== false) { $lastTs = $parsed; }
+			}
+		}
+		fclose($handle);
+
+		return $lastTs;
 	}
 }

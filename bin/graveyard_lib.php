@@ -138,8 +138,8 @@ class Graveyard {
 						$tty = $surf['tty'] ?? '';
 						if (!$tty || empty($byTty[$tty])) { continue; }
 						$sess = $byTty[$tty];
-						$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
-						$idle = is_file($jsonl) ? ($now - filemtime($jsonl)) : PHP_INT_MAX;
+						$ts   = $this->cmux->lastRealActivity($sess['session_id'], $sess['cwd'] ?? '');
+						$idle = $ts !== null ? ($now - $ts) : PHP_INT_MAX;
 						$out[] = [
 							'session_id'      => $sess['session_id'],
 							'cwd'             => $sess['cwd'] ?? '',
@@ -157,6 +157,27 @@ class Graveyard {
 					}
 				}
 			}
+		}
+		return $this->dedupBySessionId($out);
+	}
+
+	/**
+	 * Keep the first row for each session_id, preserving order. A single Claude
+	 * session can surface under multiple cmux panes/surfaces; liveSessions()
+	 * builds one row per surface, so this collapses those back to one per session.
+	 */
+	public function dedupBySessionId(array $rows): array {
+		$seen = [];
+		$out  = [];
+		foreach ($rows as $row) {
+			$id = $row['session_id'] ?? null;
+			if ($id !== null && isset($seen[$id])) {
+				continue;
+			}
+			if ($id !== null) {
+				$seen[$id] = true;
+			}
+			$out[] = $row;
 		}
 		return $out;
 	}
@@ -319,11 +340,18 @@ class Graveyard {
 		$this->cli->successMsg("Opened {$path}");
 	}
 
-	public function resurrect(string $prefix): void {
+	public function resurrect(string $prefix, bool $fromTranscript = false): void {
 		$t = $this->resolveTombstone($prefix);
 		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
-		$path = $this->transcriptPath($t['session_id']);
-		if (!is_file($path)) { $this->cli->exitErr("Transcript missing: {$path}"); }
+
+		$jsonl         = $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
+		$hasJsonl      = is_file($jsonl);
+		$transcript    = $this->transcriptPath($t['session_id']);
+		$hasTranscript = is_file($transcript);
+
+		if (!$hasJsonl && !$hasTranscript) {
+			$this->cli->exitErr("Neither live JSONL nor exported transcript available for {$t['session_id']} — cannot resurrect.");
+		}
 
 		$title = $t['workspace_title'] ?: 'resurrected';
 		$cwd   = $t['cwd'] ?? '';
@@ -331,36 +359,226 @@ class Graveyard {
 		$surfRef = $ws['firstSurfRef'];
 		$wsRef   = $ws['ref'];
 
-		// Launch a FRESH claude (no --resume), then tell it to read the transcript.
-		$launch = 'claude';
-		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
-		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+		$buildLaunch = function (string $base) use ($t): string {
+			$launch = $base;
+			if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
+			if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+			return $launch;
+		};
+
+		$useResume = !$fromTranscript && $hasJsonl;
+
+		if ($useResume) {
+			// The live JSONL still exists — restore the session as-was via --resume.
+			$launch = $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
+			$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
+			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
+			$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} via --resume (restored in place).");
+			return;
+		}
+
+		// Fall back to the read-the-transcript restart — either the JSONL is
+		// gone (GC'd), or --from-transcript forced this path.
+		if (!$hasTranscript) {
+			$this->cli->exitErr("Neither live JSONL nor exported transcript available for {$t['session_id']} — cannot resurrect.");
+		}
+
+		$launch = $buildLaunch('claude');
 		$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
 		sleep(3); // let the REPL come up
 
-		$preamble = 'Resuming a buried session. Read ' . $path
+		$preamble = 'Resuming a buried session. Read ' . $transcript
 			. ' — that is a transcript of where we left off. Re-orient from it, then continue.';
 		$this->cmux->sendToSurface($surfRef, $wsRef, $preamble);
 		$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
-		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.");
+
+		$note = ($fromTranscript && $hasJsonl) ? ' (forced transcript mode)' : '';
+		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.{$note}");
 	}
 
-	public function buryByRef(string $ref, bool $force, bool $autoConfirm): void {
-		$self = $this->selfSurfaceId();
+	/**
+	 * PURE: match $id against $rows by precedence tiers; first tier with >=1
+	 * match wins (no fallthrough to weaker tiers).
+	 *   1. exact surface_ref
+	 *   2. exact surface_id (UUID)
+	 *   3. session_id exact (if any) else session_id prefix matches
+	 *   4. workspace_title/tab_title substring (case-insensitive)
+	 * Returns [] if nothing matches in any tier.
+	 */
+	public function matchIdentifier(array $rows, string $id): array {
+		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));
+		if ($exact) { return $exact; }
+
+		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_id'] ?? null) === $id));
+		if ($exact) { return $exact; }
+
+		$sessionExact = array_values(array_filter($rows, fn($r) => ($r['session_id'] ?? null) === $id));
+		if ($sessionExact) { return $sessionExact; }
+		$prefix = array_values(array_filter($rows, fn($r) => str_starts_with((string) ($r['session_id'] ?? ''), $id)));
+		if ($prefix) { return $prefix; }
+
+		$needle = mb_strtolower($id);
+		$nameMatches = array_values(array_filter($rows, function ($r) use ($needle) {
+			$title = mb_strtolower((string) ($r['workspace_title'] ?? ''));
+			$tab   = mb_strtolower((string) ($r['tab_title'] ?? ''));
+			return ($needle !== '' && (str_contains($title, $needle) || str_contains($tab, $needle)));
+		}));
+		if ($nameMatches) { return $nameMatches; }
+
+		return [];
+	}
+
+	/** Resolve $id against deduped liveSessions() via matchIdentifier(). */
+	public function resolveLiveByIdentifier(string $id): array {
+		return $this->matchIdentifier($this->liveSessions(), $id);
+	}
+
+	public function buryByRef(string $id, bool $force, bool $autoConfirm): void {
+		$matches = $this->resolveLiveByIdentifier($id);
+
+		if (!$matches) {
+			$this->cli->exitErr("No live session matches '{$id}'.");
+		}
+
+		if (count($matches) > 1) {
+			$this->cli->msg("'{$id}' is ambiguous — matches " . count($matches) . ' live session(s):', 'yellow');
+			foreach ($matches as $m) {
+				$this->cli->msg(sprintf(
+					'  %s  idle=%ds  %-20.20s  %.40s  %s',
+					substr($m['session_id'], 0, 8),
+					$m['idle_seconds'] ?? 0,
+					$m['workspace_title'] ?? '',
+					$m['tab_title'] ?? '',
+					$m['cwd'] ?? ''
+				));
+			}
+			$this->cli->exitErr("'{$id}' is ambiguous — narrow it or pass a full session-id.");
+		}
+
+		$match = $matches[0];
+		$selfSurfaceId = $this->selfSurfaceId();
 		$selfSessionId = $this->selfSessionId();
-		foreach ($this->liveSessions() as $s) {
-			if ($s['surface_ref'] === $ref || ($s['surface_id'] ?? '') === $ref) {
-				if ($self && ($s['surface_ref'] === $self || ($s['surface_id'] ?? '') === $self)) {
-					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
-				}
-				if ($selfSessionId && ($s['session_id'] ?? null) === $selfSessionId) {
-					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
-				}
-				$this->buryOne($s, $force, $autoConfirm);
-				return;
+		if ($selfSessionId && ($match['session_id'] ?? null) === $selfSessionId) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+		}
+		if ($selfSurfaceId && (($match['surface_id'] ?? null) === $selfSurfaceId || ($match['surface_ref'] ?? null) === $selfSurfaceId)) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+		}
+
+		$this->buryIds([$match['session_id']], $autoConfirm, $force);
+	}
+
+	public function candidates(): array {
+		$rows = $this->filterSelf($this->liveSessions(), $this->selfSurfaceId(), $this->selfSessionId());
+		$rows = array_values(array_filter($rows, fn($r) => $r['idle_seconds'] !== PHP_INT_MAX));
+		usort($rows, function ($a, $b) {
+			return $b['idle_seconds'] <=> $a['idle_seconds']
+				?: strcmp($a['session_id'], $b['session_id']);
+		});
+
+		$out = [];
+		foreach ($rows as $r) {
+			$busy = $this->isBusy(
+				(int) $r['idle_seconds'],
+				self::IDLE_FLOOR_DEFAULT,
+				$this->readLastScreen($r['surface_ref'], $r['workspace_ref'])
+			);
+			$out[] = [
+				'session_id'      => $r['session_id'],
+				'idle_seconds'    => $r['idle_seconds'],
+				'cwd'             => $r['cwd'],
+				'workspace_title' => $r['workspace_title'],
+				'tab_title'       => $r['tab_title'],
+				'busy'            => $busy,
+				'surface_ref'     => $r['surface_ref'],
+				'workspace_ref'   => $r['workspace_ref'],
+				'pid'             => $r['pid'],
+				'model'           => $r['model'],
+				'skip_perms'      => $r['skip_perms'],
+			];
+		}
+		return $out;
+	}
+
+	/** PURE: single tab-separated porcelain line for a candidate row. No trailing newline. */
+	public function formatCandidatePorcelain(array $row): string {
+		return implode("\t", [
+			$row['session_id'],
+			(string) $row['idle_seconds'],
+			$row['busy'] ? 'busy' : 'idle',
+			$row['workspace_title'],
+			$row['cwd'],
+		]);
+	}
+
+	public function idleHuman(int $secs): string {
+		if ($secs >= 86400) { return floor($secs / 86400) . 'd'; }
+		if ($secs >= 3600)  { return floor($secs / 3600) . 'h'; }
+		if ($secs >= 60)    { return floor($secs / 60) . 'm'; }
+		return $secs . 's';
+	}
+
+	public function printCandidates(bool $porcelain): void {
+		$rows = $this->candidates();
+		if ($porcelain) {
+			foreach ($rows as $r) { echo $this->formatCandidatePorcelain($r) . "\n"; }
+			return;
+		}
+		if (!$rows) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
+		foreach ($rows as $r) {
+			$this->cli->msg(sprintf(
+				'%s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
+				substr($r['session_id'], 0, 8),
+				$this->idleHuman((int) $r['idle_seconds']),
+				$r['busy'] ? 'busy' : 'idle',
+				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
+				$r['cwd']
+			));
+		}
+	}
+
+	public function buryIds(array $sessionIds, bool $autoConfirm, bool $force = false): void {
+		$ids = array_values(array_unique(array_filter($sessionIds, fn($s) => $s !== '')));
+		if (!$ids) { $this->cli->msg('No session ids given.', 'yellow'); return; }
+
+		if ($this->selfSurfaceId() === null) {
+			$this->cli->msg('Warning: CMUX_SURFACE_ID is unset — self-protection is disabled; verify your targets.', 'yellow');
+		}
+
+		$selfSessionId = $this->selfSessionId();
+		$resolved = [];
+		$missing  = [];
+		foreach ($ids as $sid) {
+			$fresh = $this->resolveLiveBySessionId($sid);
+			if (!$fresh) { $missing[] = $sid; continue; }
+			$resolved[] = $fresh;
+		}
+		if ($missing) {
+			foreach ($missing as $sid) {
+				$this->cli->msg("  Session {$sid} is not currently live — skipping.", 'yellow');
 			}
 		}
-		$this->cli->exitErr("No live claude session found at surface '{$ref}'.");
+		if ($selfSessionId && in_array($selfSessionId, $ids, true)) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+		}
+		if (!$resolved) { $this->cli->msg('No live sessions to bury.', 'yellow'); return; }
+
+		$this->cli->msg('Sessions to bury:', 'yellow');
+		foreach ($resolved as $s) {
+			$this->cli->msg(sprintf('  %s  idle=%ds  %-20.20s  %.40s',
+				substr($s['session_id'], 0, 8), $s['idle_seconds'], $s['workspace_title'], $s['tab_title']));
+		}
+		if (!$autoConfirm && !$this->cli->confirm('Bury these ' . count($resolved) . ' session(s)?')) {
+			$this->cli->msg('Aborted.', 'yellow'); return;
+		}
+
+		$n = 0;
+		foreach (array_map(fn($s) => $s['session_id'], $resolved) as $sid) {
+			$fresh = $this->resolveLiveBySessionId($sid);
+			if (!$fresh) { $this->cli->msg("  Session {$sid} is gone — skipping.", 'yellow'); continue; }
+			if ($this->buryOne($fresh, $force, true)) { $n++; }
+		}
+		$this->cli->successMsg("Buried {$n} of " . count($resolved) . ' session(s).');
 	}
 
 	public function buryIdle(int $thresholdSecs, bool $autoConfirm): void {
@@ -391,5 +609,136 @@ class Graveyard {
 			if ($this->buryOne($fresh, false, true)) { $n++; }
 		}
 		$this->cli->successMsg("Buried {$n} of " . count($ids) . ' session(s).');
+	}
+
+	public function pickAndBury(bool $autoConfirm): void {
+		$cands = $this->candidates();
+		if (!$cands) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
+
+		if (trim((string) shell_exec('command -v fzf 2>/dev/null')) !== '') {
+			$ids = $this->pickWithFzf($cands);
+		} else {
+			$ids = $this->pickWithRepl($cands);
+		}
+
+		if (!$ids) { $this->cli->msg('Nothing selected.', 'yellow'); return; }
+		$this->buryIds($ids, $autoConfirm);
+	}
+
+	public function pickWithFzf(array $cands): array {
+		$selfBin = $_SERVER['argv'][0];
+		$resolved = realpath($selfBin);
+		if ($resolved !== false) { $selfBin = $resolved; }
+
+		$lines = [];
+		foreach ($cands as $r) {
+			$label = sprintf(
+				'%s  %s  %s%s  %s',
+				$this->idleHuman((int) $r['idle_seconds']),
+				$r['busy'] ? 'busy' : 'idle',
+				$r['workspace_title'] ?: '',
+				$r['tab_title'] ? ' / ' . $r['tab_title'] : '',
+				$r['cwd']
+			);
+			$lines[] = $r['session_id'] . "\t" . $label;
+		}
+
+		$tmp = tempnam(sys_get_temp_dir(), 'gy-pick-');
+		file_put_contents($tmp, implode("\n", $lines));
+
+		$preview = escapeshellarg('php ' . $selfBin . ' _preview {1}');
+		$cmd = 'fzf --multi --with-nth=2.. --delimiter="\t" --preview ' . $preview . ' --preview-window=right:60%:wrap';
+		$out = shell_exec('cat ' . escapeshellarg($tmp) . ' | ' . $cmd . ' 2>/dev/null');
+		@unlink($tmp);
+
+		$ids = [];
+		foreach (explode("\n", (string) $out) as $line) {
+			$line = rtrim($line, "\r");
+			if ($line === '') { continue; }
+			$parts = explode("\t", $line, 2);
+			$ids[] = $parts[0];
+		}
+		return $ids;
+	}
+
+	public function pickWithRepl(array $cands): array {
+		foreach ($cands as $i => $r) {
+			$this->cli->msg(sprintf(
+				'%2d) %s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
+				$i + 1,
+				substr($r['session_id'], 0, 8),
+				$this->idleHuman((int) $r['idle_seconds']),
+				$r['busy'] ? 'busy' : 'idle',
+				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
+				$r['cwd']
+			));
+		}
+
+		while (true) {
+			$line = (string) $this->cli->ask('Select (e.g. 1 3 5, 2-4, a=all, p<n>=preview, q=quit): ');
+			$line = trim($line);
+			if ($line === '' || strtolower($line) === 'q') { return []; }
+			if (strtolower($line) === 'a') {
+				return array_map(fn($r) => $r['session_id'], $cands);
+			}
+			if (preg_match('/^p(\d+)$/i', $line, $m)) {
+				$idx = (int) $m[1] - 1;
+				if (!isset($cands[$idx])) {
+					$this->cli->msg('No such candidate.', 'yellow');
+					continue;
+				}
+				$r = $cands[$idx];
+				$this->cli->msg($this->readLastScreen($r['surface_ref'], $r['workspace_ref'], 40));
+				continue;
+			}
+			$indices = $this->parseReplSelection($line, count($cands));
+			if (!$indices) {
+				$this->cli->msg('No valid selections.', 'yellow');
+				continue;
+			}
+			$ids = [];
+			foreach ($indices as $idx) {
+				$ids[] = $cands[$idx]['session_id'];
+			}
+			return array_values(array_unique($ids));
+		}
+	}
+
+	/** PURE: parse a REPL selection line ("1 3 5", "2-4") into 0-based indices within [0, count). Out-of-range tokens are warned and skipped. */
+	public function parseReplSelection(string $line, int $count): array {
+		$indices = [];
+		foreach (preg_split('/\s+/', trim($line)) as $token) {
+			if ($token === '') { continue; }
+			if (preg_match('/^(\d+)-(\d+)$/', $token, $m)) {
+				$start = (int) $m[1];
+				$end   = (int) $m[2];
+				if ($start > $end) { [$start, $end] = [$end, $start]; }
+				for ($n = $start; $n <= $end; $n++) {
+					$idx = $n - 1;
+					if ($idx >= 0 && $idx < $count) { $indices[] = $idx; }
+					else { $this->cli->msg("  Ignoring out-of-range selection: {$n}", 'yellow'); }
+				}
+			} elseif (preg_match('/^(\d+)$/', $token, $m)) {
+				$n   = (int) $m[1];
+				$idx = $n - 1;
+				if ($idx >= 0 && $idx < $count) { $indices[] = $idx; }
+				else { $this->cli->msg("  Ignoring out-of-range selection: {$n}", 'yellow'); }
+			} else {
+				$this->cli->msg("  Ignoring unrecognized token: {$token}", 'yellow');
+			}
+		}
+		return array_values(array_unique($indices));
+	}
+
+	public function printPreview(string $sessionId): void {
+		$s = $this->resolveLiveBySessionId($sessionId);
+		if (!$s) { echo "(session no longer live)\n"; return; }
+		echo sprintf(
+			"cwd: %s\nmodel: %s\nidle: %s\n\n",
+			$s['cwd'],
+			$s['model'] ?: '(unknown)',
+			$this->idleHuman((int) $s['idle_seconds'])
+		);
+		echo $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40);
 	}
 }

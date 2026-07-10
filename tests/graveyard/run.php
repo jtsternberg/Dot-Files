@@ -72,5 +72,93 @@ $sess2 = [
 $kept2 = $gy->filterSelf($sess2, null, 'my-own-sess');
 ok(count($kept2) === 1 && $kept2[0]['session_id'] === 'keep-me', 'filterSelf drops self by session_id alone');
 
+// lastRealActivity: streams JSONL, returns last user/assistant timestamp (ignores later system entries)
+$tmpCwd = '/tmp/gy-test-cwd-' . getmypid();
+$tmpSid = 'test-sess-' . getmypid();
+$tmpJsonlPath = $cmux->jsonlPathFor($tmpSid, $tmpCwd);
+@mkdir(dirname($tmpJsonlPath), 0755, true);
+$t1 = '2026-07-01T10:00:00Z';
+$t2 = '2026-07-01T10:05:00Z';
+$t3 = '2026-07-01T10:09:00Z';
+file_put_contents(
+	$tmpJsonlPath,
+	json_encode(['type' => 'user', 'timestamp' => $t1]) . "\n"
+	. json_encode(['type' => 'assistant', 'timestamp' => $t2]) . "\n"
+	. json_encode(['type' => 'system', 'timestamp' => $t3]) . "\n"
+);
+ok($cmux->lastRealActivity($tmpSid, $tmpCwd) === strtotime($t2), 'lastRealActivity returns last user/assistant ts, ignores trailing system entry');
+ok($cmux->lastRealActivity('nope', '/no/such') === null, 'lastRealActivity null for missing file');
+
+// lastRealActivity: ignores unparseable timestamps, keeps prior valid one
+$tmpSid2 = 'test-sess-bad-ts-' . getmypid();
+$tmpJsonlPath2 = $cmux->jsonlPathFor($tmpSid2, $tmpCwd);
+$goodTs = '2026-02-01T09:00:00Z';
+file_put_contents(
+	$tmpJsonlPath2,
+	json_encode(['type' => 'user', 'timestamp' => $goodTs]) . "\n"
+	. json_encode(['type' => 'assistant', 'timestamp' => 'not-a-date']) . "\n"
+);
+ok($cmux->lastRealActivity($tmpSid2, $tmpCwd) === strtotime($goodTs), 'lastRealActivity ignores unparseable timestamp, keeps good one');
+@unlink($tmpJsonlPath);
+@unlink($tmpJsonlPath2);
+@rmdir(dirname($tmpJsonlPath));
+
+// dedupBySessionId: keeps first row per session_id, preserves order
+$dupRows = [
+	['session_id' => 'a', 'tab_title' => 'first'],
+	['session_id' => 'a', 'tab_title' => 'dupe'],
+	['session_id' => 'b', 'tab_title' => 'x'],
+];
+$deduped = $gy->dedupBySessionId($dupRows);
+ok(count($deduped) === 2, 'dedupBySessionId returns 2 rows');
+ok($deduped[0]['tab_title'] === 'first', 'dedupBySessionId keeps first row for duplicate session_id');
+
+// formatCandidatePorcelain: pure tab-separated formatter
+$idleRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($idleRow) === "abc\t3600\tidle\tproj\t/x", 'formatCandidatePorcelain idle row');
+$busyRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => true, 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($busyRow) === "abc\t3600\tbusy\tproj\t/x", 'formatCandidatePorcelain busy row');
+
+// buryIds([]) is a clean no-op (guard) — should not throw
+$threwBuryIds = false;
+try { $gy->buryIds([], false); } catch (\Throwable $e) { $threwBuryIds = true; }
+ok(!$threwBuryIds, 'buryIds([]) is a no-op, does not throw');
+
+// buryIds([], false, true) — force param variant — also a clean no-op (guard)
+$threwBuryIdsForce = false;
+try { $gy->buryIds([], false, true); } catch (\Throwable $e) { $threwBuryIdsForce = true; }
+ok(!$threwBuryIdsForce, 'buryIds([], false, true) is a no-op, does not throw');
+
+// matchIdentifier: precedence tiers, first tier winning stops fallthrough
+$mrows = [
+	['surface_ref' => 'surface:5', 'surface_id' => 'UUID-5', 'session_id' => 'aaa111', 'workspace_title' => 'backend api', 'tab_title' => 'fix bug'],
+	['surface_ref' => 'surface:6', 'surface_id' => 'UUID-6', 'session_id' => 'aaa222', 'workspace_title' => 'frontend', 'tab_title' => 'backend notes'],
+	['surface_ref' => 'surface:7', 'surface_id' => 'UUID-7', 'session_id' => 'bbb333', 'workspace_title' => 'docs', 'tab_title' => 'x'],
+];
+
+$m1 = $gy->matchIdentifier($mrows, 'surface:6');
+ok(count($m1) === 1 && $m1[0]['session_id'] === 'aaa222', 'matchIdentifier: surface_ref tier wins');
+
+$m2 = $gy->matchIdentifier($mrows, 'UUID-7');
+ok(count($m2) === 1 && $m2[0]['session_id'] === 'bbb333', 'matchIdentifier: surface_id tier');
+
+$m3 = $gy->matchIdentifier($mrows, 'aaa');
+ok(count($m3) === 2, 'matchIdentifier: session_id prefix tier returns both, no fallthrough to names');
+
+$m4 = $gy->matchIdentifier($mrows, 'aaa111');
+ok(count($m4) === 1 && $m4[0]['session_id'] === 'aaa111', 'matchIdentifier: exact session_id beats prefix-of-others');
+
+$m5 = $gy->matchIdentifier($mrows, 'backend');
+ok(count($m5) === 2, 'matchIdentifier: name substring tier (weakest), reached only when no ref/id/session matched');
+
+$m6 = $gy->matchIdentifier($mrows, 'nope');
+ok($m6 === [], 'matchIdentifier: no match returns []');
+
+// parseReplSelection: tokens, ranges, dedup, out-of-range ignored
+ok($gy->parseReplSelection('1 3 5', 5) === [0, 2, 4], 'parseReplSelection: simple tokens');
+ok($gy->parseReplSelection('2-4', 5) === [1, 2, 3], 'parseReplSelection: range');
+ok($gy->parseReplSelection('1 1 2-3', 5) === [0, 1, 2], 'parseReplSelection: dedup + mixed tokens/range');
+ok($gy->parseReplSelection('9 1', 5) === [0], 'parseReplSelection: out-of-range token ignored');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -11,11 +11,17 @@ namespace JT;
 # metadata) and frees their RAM, then lists / opens / resurrects them.
 #
 # Usage:
-# graveyard bury <surface-ref> [--force] [-y]
+# graveyard bury  (no args: interactive picker — fzf if available, else numbered REPL)
+# graveyard bury <identifier> [--force] [-y]
+#   identifier: cmux surface ref (surface:N), surface UUID, session-id (or
+#   prefix), or a workspace/tab title substring. Ambiguous matches are
+#   rejected (no auto-pick) — narrow it or pass a full session-id.
+# graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
+# graveyard candidates [--porcelain]
 # graveyard ls
 # graveyard show <id>
-# graveyard resurrect <id>
+# graveyard resurrect <id> [--from-transcript]
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -28,13 +34,17 @@ $helpyHelperton
 	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux.')
 	->setSampleUsage('<bury|ls|show|resurrect> [args]')
 	->buildDocs([
-		'bury <ref>'      => 'Bury a live session by its cmux surface ref',
+		'bury' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection',
+		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
+		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
 		'-y'              => 'Skip confirmations',
+		'candidates [--porcelain]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated, agent-readable)',
 		'ls'              => 'List buried sessions',
 		'show <id>'       => 'Open a buried transcript in your editor',
-		'resurrect <id>'  => 'Recreate the workspace and restart Claude on the transcript',
+		'resurrect <id>'     => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript',
+		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -63,14 +73,21 @@ switch ($sub) {
 			}
 			$gy->buryIdle($secs, $cli->isAutoconfirm());
 		} else {
-			$ref = $cli->getArg(2);
-			if (!$ref) { $cli->exitErr('Usage: graveyard bury <surface-ref> | --idle <dur>'); }
-			$gy->buryByRef($ref, $cli->hasFlag('force'), $cli->isAutoconfirm());
+			$rest = [];
+			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
+			if (!$rest) { $gy->pickAndBury($cli->isAutoconfirm()); break; }
+			if (count($rest) === 1) {
+				$gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
+			} else {
+				$gy->buryIds($rest, $cli->isAutoconfirm());
+			}
 		}
 		break;
+	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain')); break;
+	case '_preview':   $gy->printPreview((string) $cli->getArg(2)); break;
 	case 'ls':        $gy->listTombstones(); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
-	case 'resurrect': $gy->resurrect((string) $cli->getArg(2)); break;
+	case 'resurrect': $gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript')); break;
 	default:
 		$cli->msg($helpyHelperton->getHelp());
 		exit($sub ? 1 : 0);
