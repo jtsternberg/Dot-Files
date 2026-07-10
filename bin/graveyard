@@ -11,8 +11,11 @@ namespace JT;
 # metadata) and frees their RAM, then lists / opens / resurrects them.
 #
 # Usage:
-# graveyard bury <surface-ref> [--force] [-y]
-# graveyard bury <session-id> [<session-id>...] [-y]
+# graveyard bury <identifier> [--force] [-y]
+#   identifier: cmux surface ref (surface:N), surface UUID, session-id (or
+#   prefix), or a workspace/tab title substring. Ambiguous matches are
+#   rejected (no auto-pick) — narrow it or pass a full session-id.
+# graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard candidates [--porcelain]
 # graveyard ls
@@ -30,8 +33,8 @@ $helpyHelperton
 	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux.')
 	->setSampleUsage('<bury|ls|show|resurrect> [args]')
 	->buildDocs([
-		'bury <ref>'      => 'Bury a live session by its cmux surface ref',
-		'bury <id> [<id>...]' => 'Bury one or more live sessions by session-id (TOCTOU-safe re-resolve before each)',
+		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
+		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
 		'-y'              => 'Skip confirmations',
@@ -70,8 +73,8 @@ switch ($sub) {
 		} else {
 			$rest = [];
 			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
-			if (!$rest) { $cli->exitErr('Usage: graveyard bury <surface-ref> | <id> [<id>...] | --idle <dur>'); }
-			if (count($rest) === 1 && str_starts_with($rest[0], 'surface:')) {
+			if (!$rest) { $cli->exitErr('Usage: graveyard bury <identifier> | <id> <id> [<id>...] | --idle <dur>'); }
+			if (count($rest) === 1) {
 				$gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
 			} else {
 				$gy->buryIds($rest, $cli->isAutoconfirm());

@@ -396,22 +396,76 @@ class Graveyard {
 		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.{$note}");
 	}
 
-	public function buryByRef(string $ref, bool $force, bool $autoConfirm): void {
-		$self = $this->selfSurfaceId();
-		$selfSessionId = $this->selfSessionId();
-		foreach ($this->liveSessions() as $s) {
-			if ($s['surface_ref'] === $ref || ($s['surface_id'] ?? '') === $ref) {
-				if ($self && ($s['surface_ref'] === $self || ($s['surface_id'] ?? '') === $self)) {
-					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
-				}
-				if ($selfSessionId && ($s['session_id'] ?? null) === $selfSessionId) {
-					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
-				}
-				$this->buryOne($s, $force, $autoConfirm);
-				return;
-			}
+	/**
+	 * PURE: match $id against $rows by precedence tiers; first tier with >=1
+	 * match wins (no fallthrough to weaker tiers).
+	 *   1. exact surface_ref
+	 *   2. exact surface_id (UUID)
+	 *   3. session_id exact (if any) else session_id prefix matches
+	 *   4. workspace_title/tab_title substring (case-insensitive)
+	 * Returns [] if nothing matches in any tier.
+	 */
+	public function matchIdentifier(array $rows, string $id): array {
+		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));
+		if ($exact) { return $exact; }
+
+		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_id'] ?? null) === $id));
+		if ($exact) { return $exact; }
+
+		$sessionExact = array_values(array_filter($rows, fn($r) => ($r['session_id'] ?? null) === $id));
+		if ($sessionExact) { return $sessionExact; }
+		$prefix = array_values(array_filter($rows, fn($r) => str_starts_with((string) ($r['session_id'] ?? ''), $id)));
+		if ($prefix) { return $prefix; }
+
+		$needle = mb_strtolower($id);
+		$nameMatches = array_values(array_filter($rows, function ($r) use ($needle) {
+			$title = mb_strtolower((string) ($r['workspace_title'] ?? ''));
+			$tab   = mb_strtolower((string) ($r['tab_title'] ?? ''));
+			return ($needle !== '' && (str_contains($title, $needle) || str_contains($tab, $needle)));
+		}));
+		if ($nameMatches) { return $nameMatches; }
+
+		return [];
+	}
+
+	/** Resolve $id against deduped liveSessions() via matchIdentifier(). */
+	public function resolveLiveByIdentifier(string $id): array {
+		return $this->matchIdentifier($this->liveSessions(), $id);
+	}
+
+	public function buryByRef(string $id, bool $force, bool $autoConfirm): void {
+		$matches = $this->resolveLiveByIdentifier($id);
+
+		if (!$matches) {
+			$this->cli->exitErr("No live session matches '{$id}'.");
 		}
-		$this->cli->exitErr("No live claude session found at surface '{$ref}'.");
+
+		if (count($matches) > 1) {
+			$this->cli->msg("'{$id}' is ambiguous — matches " . count($matches) . ' live session(s):', 'yellow');
+			foreach ($matches as $m) {
+				$this->cli->msg(sprintf(
+					'  %s  idle=%ds  %-20.20s  %.40s  %s',
+					substr($m['session_id'], 0, 8),
+					$m['idle_seconds'] ?? 0,
+					$m['workspace_title'] ?? '',
+					$m['tab_title'] ?? '',
+					$m['cwd'] ?? ''
+				));
+			}
+			$this->cli->exitErr("'{$id}' is ambiguous — narrow it or pass a full session-id.");
+		}
+
+		$match = $matches[0];
+		$selfSurfaceId = $this->selfSurfaceId();
+		$selfSessionId = $this->selfSessionId();
+		if ($selfSessionId && ($match['session_id'] ?? null) === $selfSessionId) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+		}
+		if ($selfSurfaceId && (($match['surface_id'] ?? null) === $selfSurfaceId || ($match['surface_ref'] ?? null) === $selfSurfaceId)) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+		}
+
+		$this->buryOne($match, $force, $autoConfirm);
 	}
 
 	public function candidates(): array {

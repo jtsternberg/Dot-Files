@@ -124,5 +124,30 @@ $threwBuryIds = false;
 try { $gy->buryIds([], false); } catch (\Throwable $e) { $threwBuryIds = true; }
 ok(!$threwBuryIds, 'buryIds([]) is a no-op, does not throw');
 
+// matchIdentifier: precedence tiers, first tier winning stops fallthrough
+$mrows = [
+	['surface_ref' => 'surface:5', 'surface_id' => 'UUID-5', 'session_id' => 'aaa111', 'workspace_title' => 'backend api', 'tab_title' => 'fix bug'],
+	['surface_ref' => 'surface:6', 'surface_id' => 'UUID-6', 'session_id' => 'aaa222', 'workspace_title' => 'frontend', 'tab_title' => 'backend notes'],
+	['surface_ref' => 'surface:7', 'surface_id' => 'UUID-7', 'session_id' => 'bbb333', 'workspace_title' => 'docs', 'tab_title' => 'x'],
+];
+
+$m1 = $gy->matchIdentifier($mrows, 'surface:6');
+ok(count($m1) === 1 && $m1[0]['session_id'] === 'aaa222', 'matchIdentifier: surface_ref tier wins');
+
+$m2 = $gy->matchIdentifier($mrows, 'UUID-7');
+ok(count($m2) === 1 && $m2[0]['session_id'] === 'bbb333', 'matchIdentifier: surface_id tier');
+
+$m3 = $gy->matchIdentifier($mrows, 'aaa');
+ok(count($m3) === 2, 'matchIdentifier: session_id prefix tier returns both, no fallthrough to names');
+
+$m4 = $gy->matchIdentifier($mrows, 'aaa111');
+ok(count($m4) === 1 && $m4[0]['session_id'] === 'aaa111', 'matchIdentifier: exact session_id beats prefix-of-others');
+
+$m5 = $gy->matchIdentifier($mrows, 'backend');
+ok(count($m5) === 2, 'matchIdentifier: name substring tier (weakest), reached only when no ref/id/session matched');
+
+$m6 = $gy->matchIdentifier($mrows, 'nope');
+ok($m6 === [], 'matchIdentifier: no match returns []');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
