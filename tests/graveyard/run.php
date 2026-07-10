@@ -124,6 +124,11 @@ $threwBuryIds = false;
 try { $gy->buryIds([], false); } catch (\Throwable $e) { $threwBuryIds = true; }
 ok(!$threwBuryIds, 'buryIds([]) is a no-op, does not throw');
 
+// buryIds([], false, true) — force param variant — also a clean no-op (guard)
+$threwBuryIdsForce = false;
+try { $gy->buryIds([], false, true); } catch (\Throwable $e) { $threwBuryIdsForce = true; }
+ok(!$threwBuryIdsForce, 'buryIds([], false, true) is a no-op, does not throw');
+
 // matchIdentifier: precedence tiers, first tier winning stops fallthrough
 $mrows = [
 	['surface_ref' => 'surface:5', 'surface_id' => 'UUID-5', 'session_id' => 'aaa111', 'workspace_title' => 'backend api', 'tab_title' => 'fix bug'],

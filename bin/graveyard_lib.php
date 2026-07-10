@@ -370,7 +370,7 @@ class Graveyard {
 
 		if ($useResume) {
 			// The live JSONL still exists — restore the session as-was via --resume.
-			$launch = $buildLaunch('claude --resume ' . $t['session_id']);
+			$launch = $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
 			$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
 			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
 			$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} via --resume (restored in place).");
@@ -465,7 +465,7 @@ class Graveyard {
 			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
 		}
 
-		$this->buryOne($match, $force, $autoConfirm);
+		$this->buryIds([$match['session_id']], $autoConfirm, $force);
 	}
 
 	public function candidates(): array {
@@ -537,9 +537,13 @@ class Graveyard {
 		}
 	}
 
-	public function buryIds(array $sessionIds, bool $autoConfirm): void {
+	public function buryIds(array $sessionIds, bool $autoConfirm, bool $force = false): void {
 		$ids = array_values(array_unique(array_filter($sessionIds, fn($s) => $s !== '')));
 		if (!$ids) { $this->cli->msg('No session ids given.', 'yellow'); return; }
+
+		if ($this->selfSurfaceId() === null) {
+			$this->cli->msg('Warning: CMUX_SURFACE_ID is unset — self-protection is disabled; verify your targets.', 'yellow');
+		}
 
 		$selfSessionId = $this->selfSessionId();
 		$resolved = [];
@@ -572,7 +576,7 @@ class Graveyard {
 		foreach (array_map(fn($s) => $s['session_id'], $resolved) as $sid) {
 			$fresh = $this->resolveLiveBySessionId($sid);
 			if (!$fresh) { $this->cli->msg("  Session {$sid} is gone — skipping.", 'yellow'); continue; }
-			if ($this->buryOne($fresh, false, true)) { $n++; }
+			if ($this->buryOne($fresh, $force, true)) { $n++; }
 		}
 		$this->cli->successMsg("Buried {$n} of " . count($resolved) . ' session(s).');
 	}
