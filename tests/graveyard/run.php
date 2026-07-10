@@ -149,5 +149,11 @@ ok(count($m5) === 2, 'matchIdentifier: name substring tier (weakest), reached on
 $m6 = $gy->matchIdentifier($mrows, 'nope');
 ok($m6 === [], 'matchIdentifier: no match returns []');
 
+// parseReplSelection: tokens, ranges, dedup, out-of-range ignored
+ok($gy->parseReplSelection('1 3 5', 5) === [0, 2, 4], 'parseReplSelection: simple tokens');
+ok($gy->parseReplSelection('2-4', 5) === [1, 2, 3], 'parseReplSelection: range');
+ok($gy->parseReplSelection('1 1 2-3', 5) === [0, 1, 2], 'parseReplSelection: dedup + mixed tokens/range');
+ok($gy->parseReplSelection('9 1', 5) === [0], 'parseReplSelection: out-of-range token ignored');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

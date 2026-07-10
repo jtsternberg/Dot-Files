@@ -508,7 +508,7 @@ class Graveyard {
 		]);
 	}
 
-	protected function formatIdleHuman(int $secs): string {
+	public function idleHuman(int $secs): string {
 		if ($secs >= 86400) { return floor($secs / 86400) . 'd'; }
 		if ($secs >= 3600)  { return floor($secs / 3600) . 'h'; }
 		if ($secs >= 60)    { return floor($secs / 60) . 'm'; }
@@ -526,7 +526,7 @@ class Graveyard {
 			$this->cli->msg(sprintf(
 				'%s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
 				substr($r['session_id'], 0, 8),
-				$this->formatIdleHuman((int) $r['idle_seconds']),
+				$this->idleHuman((int) $r['idle_seconds']),
 				$r['busy'] ? 'busy' : 'idle',
 				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
 				$r['cwd']
@@ -602,5 +602,136 @@ class Graveyard {
 			if ($this->buryOne($fresh, false, true)) { $n++; }
 		}
 		$this->cli->successMsg("Buried {$n} of " . count($ids) . ' session(s).');
+	}
+
+	public function pickAndBury(bool $autoConfirm): void {
+		$cands = $this->candidates();
+		if (!$cands) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
+
+		if (trim((string) shell_exec('command -v fzf 2>/dev/null')) !== '') {
+			$ids = $this->pickWithFzf($cands);
+		} else {
+			$ids = $this->pickWithRepl($cands);
+		}
+
+		if (!$ids) { $this->cli->msg('Nothing selected.', 'yellow'); return; }
+		$this->buryIds($ids, $autoConfirm);
+	}
+
+	public function pickWithFzf(array $cands): array {
+		$selfBin = $_SERVER['argv'][0];
+		$resolved = realpath($selfBin);
+		if ($resolved !== false) { $selfBin = $resolved; }
+
+		$lines = [];
+		foreach ($cands as $r) {
+			$label = sprintf(
+				'%s  %s  %s%s  %s',
+				$this->idleHuman((int) $r['idle_seconds']),
+				$r['busy'] ? 'busy' : 'idle',
+				$r['workspace_title'] ?: '',
+				$r['tab_title'] ? ' / ' . $r['tab_title'] : '',
+				$r['cwd']
+			);
+			$lines[] = $r['session_id'] . "\t" . $label;
+		}
+
+		$tmp = tempnam(sys_get_temp_dir(), 'gy-pick-');
+		file_put_contents($tmp, implode("\n", $lines));
+
+		$preview = escapeshellarg('php ' . $selfBin . ' _preview {1}');
+		$cmd = 'fzf --multi --with-nth=2.. --delimiter="\t" --preview ' . $preview . ' --preview-window=right:60%:wrap';
+		$out = shell_exec('cat ' . escapeshellarg($tmp) . ' | ' . $cmd . ' 2>/dev/null');
+		@unlink($tmp);
+
+		$ids = [];
+		foreach (explode("\n", (string) $out) as $line) {
+			$line = rtrim($line, "\r");
+			if ($line === '') { continue; }
+			$parts = explode("\t", $line, 2);
+			$ids[] = $parts[0];
+		}
+		return $ids;
+	}
+
+	public function pickWithRepl(array $cands): array {
+		foreach ($cands as $i => $r) {
+			$this->cli->msg(sprintf(
+				'%2d) %s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
+				$i + 1,
+				substr($r['session_id'], 0, 8),
+				$this->idleHuman((int) $r['idle_seconds']),
+				$r['busy'] ? 'busy' : 'idle',
+				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
+				$r['cwd']
+			));
+		}
+
+		while (true) {
+			$line = (string) $this->cli->ask('Select (e.g. 1 3 5, 2-4, a=all, p<n>=preview, q=quit): ');
+			$line = trim($line);
+			if ($line === '' || strtolower($line) === 'q') { return []; }
+			if (strtolower($line) === 'a') {
+				return array_map(fn($r) => $r['session_id'], $cands);
+			}
+			if (preg_match('/^p(\d+)$/i', $line, $m)) {
+				$idx = (int) $m[1] - 1;
+				if (!isset($cands[$idx])) {
+					$this->cli->msg('No such candidate.', 'yellow');
+					continue;
+				}
+				$r = $cands[$idx];
+				$this->cli->msg($this->readLastScreen($r['surface_ref'], $r['workspace_ref'], 40));
+				continue;
+			}
+			$indices = $this->parseReplSelection($line, count($cands));
+			if (!$indices) {
+				$this->cli->msg('No valid selections.', 'yellow');
+				continue;
+			}
+			$ids = [];
+			foreach ($indices as $idx) {
+				$ids[] = $cands[$idx]['session_id'];
+			}
+			return array_values(array_unique($ids));
+		}
+	}
+
+	/** PURE: parse a REPL selection line ("1 3 5", "2-4") into 0-based indices within [0, count). Out-of-range tokens are warned and skipped. */
+	public function parseReplSelection(string $line, int $count): array {
+		$indices = [];
+		foreach (preg_split('/\s+/', trim($line)) as $token) {
+			if ($token === '') { continue; }
+			if (preg_match('/^(\d+)-(\d+)$/', $token, $m)) {
+				$start = (int) $m[1];
+				$end   = (int) $m[2];
+				if ($start > $end) { [$start, $end] = [$end, $start]; }
+				for ($n = $start; $n <= $end; $n++) {
+					$idx = $n - 1;
+					if ($idx >= 0 && $idx < $count) { $indices[] = $idx; }
+					else { $this->cli->msg("  Ignoring out-of-range selection: {$n}", 'yellow'); }
+				}
+			} elseif (preg_match('/^(\d+)$/', $token, $m)) {
+				$n   = (int) $m[1];
+				$idx = $n - 1;
+				if ($idx >= 0 && $idx < $count) { $indices[] = $idx; }
+				else { $this->cli->msg("  Ignoring out-of-range selection: {$n}", 'yellow'); }
+			} else {
+				$this->cli->msg("  Ignoring unrecognized token: {$token}", 'yellow');
+			}
+		}
+		return array_values(array_unique($indices));
+	}
+
+	public function printPreview(string $sessionId): void {
+		$s = $this->resolveLiveBySessionId($sessionId);
+		if (!$s) { echo "(session no longer live)\n"; return; }
+		echo sprintf(
+			"cwd: %s\nmodel: %s\nidle: %s\n\n",
+			$s['cwd'],
+			$s['model'] ?: '(unknown)',
+			$this->idleHuman((int) $s['idle_seconds'])
+		);
+		echo $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40);
 	}
 }

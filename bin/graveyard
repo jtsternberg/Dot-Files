@@ -11,6 +11,7 @@ namespace JT;
 # metadata) and frees their RAM, then lists / opens / resurrects them.
 #
 # Usage:
+# graveyard bury  (no args: interactive picker — fzf if available, else numbered REPL)
 # graveyard bury <identifier> [--force] [-y]
 #   identifier: cmux surface ref (surface:N), surface UUID, session-id (or
 #   prefix), or a workspace/tab title substring. Ambiguous matches are
@@ -33,6 +34,7 @@ $helpyHelperton
 	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux.')
 	->setSampleUsage('<bury|ls|show|resurrect> [args]')
 	->buildDocs([
+		'bury' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection',
 		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
@@ -73,7 +75,7 @@ switch ($sub) {
 		} else {
 			$rest = [];
 			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
-			if (!$rest) { $cli->exitErr('Usage: graveyard bury <identifier> | <id> <id> [<id>...] | --idle <dur>'); }
+			if (!$rest) { $gy->pickAndBury($cli->isAutoconfirm()); break; }
 			if (count($rest) === 1) {
 				$gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
 			} else {
@@ -82,6 +84,7 @@ switch ($sub) {
 		}
 		break;
 	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain')); break;
+	case '_preview':   $gy->printPreview((string) $cli->getArg(2)); break;
 	case 'ls':        $gy->listTombstones(); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
 	case 'resurrect': $gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript')); break;
