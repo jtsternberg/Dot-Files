@@ -192,8 +192,27 @@ class Graveyard {
 		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title)) ?: '(no summary)';
 	}
 
-	public function teardown(array $sess): void {
-		shell_exec('cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']) . ' 2>/dev/null');
+	public function teardown(array $sess): bool {
+		$wsRef = $sess['workspace_ref'] ?? '';
+		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
+
+		if ($count <= 1) {
+			$cmd = 'cmux close-workspace --workspace ' . escapeshellarg($wsRef);
+		} else {
+			$cmd = 'cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']);
+		}
+		$res = $this->cli->getCommandOutputAndExitCode($cmd);
+
+		$pid = $sess['pid'] ?? null;
+		if ($pid && $this->cmux->pidIsAlive((int) $pid)) {
+			if (function_exists('posix_kill')) {
+				posix_kill((int) $pid, SIGTERM);
+			} else {
+				$this->cli->runCommand('kill ' . (int) $pid);
+			}
+		}
+
+		return ($res['exitCode'] ?? 1) === 0;
 	}
 
 	public function buryOne(array $sess, bool $force, bool $autoConfirm): bool {
@@ -226,8 +245,11 @@ class Graveyard {
 			$this->cli->msg('  Left the tab open; transcript is archived.', 'yellow');
 			return true;
 		}
-		$this->teardown($sess);
-		$this->cli->msg('  Tab closed; RAM freed.', 'green');
+		if ($this->teardown($sess)) {
+			$this->cli->msg('  Tab closed; process terminated — RAM freed.', 'green');
+		} else {
+			$this->cli->err('  Archived, but could not close the cmux tab automatically — close it manually (transcript is safe).');
+		}
 		return true;
 	}
 

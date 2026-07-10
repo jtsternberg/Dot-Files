@@ -218,6 +218,14 @@ class Cmux {
 		return null;
 	}
 
+	public function workspaceSurfaceCount(string $wsRef): int {
+		$ws = $this->findWorkspaceByRef($this->tree(), $wsRef);
+		if (!$ws) { return 0; }
+		$n = 0;
+		foreach ($ws['panes'] ?? [] as $pane) { $n += count($pane['surfaces'] ?? []); }
+		return $n;
+	}
+
 	public function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model): string {
 		$cmd = 'claude';
 		if ($skipPerms) {
