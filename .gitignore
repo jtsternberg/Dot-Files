@@ -58,3 +58,6 @@ notes-dropbox-sync/notes-dropbox-sync-launcher
 /transcripts
 
 # graveyard store lives in ~/.claude-graveyard (never commit transcripts)
+
+# superpowers SDD scratch (plans/ledgers) — not repo content
+.superpowers/
