@@ -414,6 +414,112 @@ class Graveyard {
 		$this->cli->exitErr("No live claude session found at surface '{$ref}'.");
 	}
 
+	public function candidates(): array {
+		$rows = $this->filterSelf($this->liveSessions(), $this->selfSurfaceId(), $this->selfSessionId());
+		$rows = array_values(array_filter($rows, fn($r) => $r['idle_seconds'] !== PHP_INT_MAX));
+		usort($rows, fn($a, $b) => $b['idle_seconds'] <=> $a['idle_seconds']);
+
+		$out = [];
+		foreach ($rows as $r) {
+			$busy = $this->isBusy(
+				(int) $r['idle_seconds'],
+				self::IDLE_FLOOR_DEFAULT,
+				$this->readLastScreen($r['surface_ref'], $r['workspace_ref'])
+			);
+			$out[] = [
+				'session_id'      => $r['session_id'],
+				'idle_seconds'    => $r['idle_seconds'],
+				'cwd'             => $r['cwd'],
+				'workspace_title' => $r['workspace_title'],
+				'tab_title'       => $r['tab_title'],
+				'busy'            => $busy,
+				'surface_ref'     => $r['surface_ref'],
+				'workspace_ref'   => $r['workspace_ref'],
+				'pid'             => $r['pid'],
+				'model'           => $r['model'],
+				'skip_perms'      => $r['skip_perms'],
+			];
+		}
+		return $out;
+	}
+
+	/** PURE: single tab-separated porcelain line for a candidate row. No trailing newline. */
+	public function formatCandidatePorcelain(array $row): string {
+		return implode("\t", [
+			$row['session_id'],
+			(string) $row['idle_seconds'],
+			$row['busy'] ? 'busy' : 'idle',
+			$row['workspace_title'],
+			$row['cwd'],
+		]);
+	}
+
+	protected function formatIdleHuman(int $secs): string {
+		if ($secs >= 86400) { return floor($secs / 86400) . 'd'; }
+		if ($secs >= 3600)  { return floor($secs / 3600) . 'h'; }
+		if ($secs >= 60)    { return floor($secs / 60) . 'm'; }
+		return $secs . 's';
+	}
+
+	public function printCandidates(bool $porcelain): void {
+		$rows = $this->candidates();
+		if ($porcelain) {
+			foreach ($rows as $r) { echo $this->formatCandidatePorcelain($r) . "\n"; }
+			return;
+		}
+		if (!$rows) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
+		foreach ($rows as $r) {
+			$this->cli->msg(sprintf(
+				'%s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
+				substr($r['session_id'], 0, 8),
+				$this->formatIdleHuman((int) $r['idle_seconds']),
+				$r['busy'] ? 'busy' : 'idle',
+				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
+				$r['cwd']
+			));
+		}
+	}
+
+	public function buryIds(array $sessionIds, bool $autoConfirm): void {
+		$ids = array_values(array_unique(array_filter($sessionIds, fn($s) => $s !== '')));
+		if (!$ids) { $this->cli->msg('No session ids given.', 'yellow'); return; }
+
+		$selfSessionId = $this->selfSessionId();
+		$resolved = [];
+		$missing  = [];
+		foreach ($ids as $sid) {
+			$fresh = $this->resolveLiveBySessionId($sid);
+			if (!$fresh) { $missing[] = $sid; continue; }
+			$resolved[] = $fresh;
+		}
+		if ($missing) {
+			foreach ($missing as $sid) {
+				$this->cli->msg("  Session {$sid} is not currently live — skipping.", 'yellow');
+			}
+		}
+		if ($selfSessionId && in_array($selfSessionId, $ids, true)) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+		}
+		if (!$resolved) { $this->cli->msg('No live sessions to bury.', 'yellow'); return; }
+
+		$this->cli->msg('Sessions to bury:', 'yellow');
+		foreach ($resolved as $s) {
+			$this->cli->msg(sprintf('  %s  idle=%ds  %-20.20s  %.40s',
+				substr($s['session_id'], 0, 8), $s['idle_seconds'], $s['workspace_title'], $s['tab_title']));
+		}
+		if (!$autoConfirm && !$this->cli->confirm('Bury these ' . count($resolved) . ' session(s)?')) {
+			$this->cli->msg('Aborted.', 'yellow'); return;
+		}
+
+		$n = 0;
+		foreach (array_map(fn($s) => $s['session_id'], $resolved) as $sid) {
+			$fresh = $this->resolveLiveBySessionId($sid);
+			if (!$fresh) { $this->cli->msg("  Session {$sid} is gone — skipping.", 'yellow'); continue; }
+			if ($this->buryOne($fresh, false, true)) { $n++; }
+		}
+		$this->cli->successMsg("Buried {$n} of " . count($resolved) . ' session(s).');
+	}
+
 	public function buryIdle(int $thresholdSecs, bool $autoConfirm): void {
 		$sessions = $this->filterSelf($this->liveSessions(), $this->selfSurfaceId(), $this->selfSessionId());
 

@@ -12,7 +12,9 @@ namespace JT;
 #
 # Usage:
 # graveyard bury <surface-ref> [--force] [-y]
+# graveyard bury <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
+# graveyard candidates [--porcelain]
 # graveyard ls
 # graveyard show <id>
 # graveyard resurrect <id> [--from-transcript]
@@ -29,9 +31,11 @@ $helpyHelperton
 	->setSampleUsage('<bury|ls|show|resurrect> [args]')
 	->buildDocs([
 		'bury <ref>'      => 'Bury a live session by its cmux surface ref',
+		'bury <id> [<id>...]' => 'Bury one or more live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
 		'-y'              => 'Skip confirmations',
+		'candidates [--porcelain]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated, agent-readable)',
 		'ls'              => 'List buried sessions',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id>'     => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript',
@@ -64,11 +68,17 @@ switch ($sub) {
 			}
 			$gy->buryIdle($secs, $cli->isAutoconfirm());
 		} else {
-			$ref = $cli->getArg(2);
-			if (!$ref) { $cli->exitErr('Usage: graveyard bury <surface-ref> | --idle <dur>'); }
-			$gy->buryByRef($ref, $cli->hasFlag('force'), $cli->isAutoconfirm());
+			$rest = [];
+			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
+			if (!$rest) { $cli->exitErr('Usage: graveyard bury <surface-ref> | <id> [<id>...] | --idle <dur>'); }
+			if (count($rest) === 1 && str_starts_with($rest[0], 'surface:')) {
+				$gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
+			} else {
+				$gy->buryIds($rest, $cli->isAutoconfirm());
+			}
 		}
 		break;
+	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain')); break;
 	case 'ls':        $gy->listTombstones(); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
 	case 'resurrect': $gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript')); break;

@@ -113,5 +113,16 @@ $deduped = $gy->dedupBySessionId($dupRows);
 ok(count($deduped) === 2, 'dedupBySessionId returns 2 rows');
 ok($deduped[0]['tab_title'] === 'first', 'dedupBySessionId keeps first row for duplicate session_id');
 
+// formatCandidatePorcelain: pure tab-separated formatter
+$idleRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($idleRow) === "abc\t3600\tidle\tproj\t/x", 'formatCandidatePorcelain idle row');
+$busyRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => true, 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($busyRow) === "abc\t3600\tbusy\tproj\t/x", 'formatCandidatePorcelain busy row');
+
+// buryIds([]) is a clean no-op (guard) — should not throw
+$threwBuryIds = false;
+try { $gy->buryIds([], false); } catch (\Throwable $e) { $threwBuryIds = true; }
+ok(!$threwBuryIds, 'buryIds([]) is a no-op, does not throw');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
