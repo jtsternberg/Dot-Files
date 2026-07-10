@@ -86,6 +86,24 @@ class Graveyard {
 		return getenv('CMUX_SURFACE_ID') ?: null;
 	}
 
+	public function selfSessionId(): ?string {
+		$sid = $this->selfSurfaceId();
+		if (!$sid) { return null; }
+		foreach ($this->liveSessions() as $s) {
+			if (($s['surface_id'] ?? null) === $sid || ($s['surface_ref'] ?? null) === $sid) {
+				return $s['session_id'];
+			}
+		}
+		return null;
+	}
+
+	public function resolveLiveBySessionId(string $sessionId): ?array {
+		foreach ($this->liveSessions() as $s) {
+			if ($s['session_id'] === $sessionId) { return $s; }
+		}
+		return null;
+	}
+
 	public function filterSelf(array $sessions, ?string $selfSurfaceId, ?string $selfSessionId): array {
 		return array_values(array_filter($sessions, function ($s) use ($selfSurfaceId, $selfSessionId) {
 			if ($selfSurfaceId && ($s['surface_ref'] ?? null) === $selfSurfaceId) { return false; }
@@ -155,14 +173,17 @@ class Graveyard {
 		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp . "\n");
 
 		$deadline = time() + $timeoutSecs;
+		$lastSize = -1;
 		while (time() < $deadline) {
 			clearstatcache(true, $tmp);
-			if (is_file($tmp) && filesize($tmp) > 0) {
-				// give the write a beat to finish, then rename atomically
-				usleep(300000);
-				return @rename($tmp, $this->transcriptPath($id));
+			if (is_file($tmp)) {
+				$size = filesize($tmp);
+				if ($size > 0 && $size === $lastSize) {
+					return @rename($tmp, $this->transcriptPath($id));
+				}
+				$lastSize = $size;
 			}
-			usleep(500000);
+			usleep(400000);
 		}
 		@unlink($tmp);
 		return false;
@@ -209,6 +230,15 @@ class Graveyard {
 				posix_kill((int) $pid, SIGTERM);
 			} else {
 				$this->cli->runCommand('kill ' . (int) $pid);
+			}
+		}
+
+		if ($pid > 0) {
+			$deadline = time() + 3;
+			while (time() < $deadline && $this->cmux->pidIsAlive((int) $pid)) { usleep(200000); }
+			if ($this->cmux->pidIsAlive((int) $pid)) {
+				if (function_exists('posix_kill')) { posix_kill((int) $pid, 9); }
+				else { $this->cli->runCommand('kill -9 ' . (int) $pid); }
 			}
 		}
 
@@ -317,9 +347,13 @@ class Graveyard {
 
 	public function buryByRef(string $ref, bool $force, bool $autoConfirm): void {
 		$self = $this->selfSurfaceId();
+		$selfSessionId = $this->selfSessionId();
 		foreach ($this->liveSessions() as $s) {
 			if ($s['surface_ref'] === $ref || ($s['surface_id'] ?? '') === $ref) {
 				if ($self && ($s['surface_ref'] === $self || ($s['surface_id'] ?? '') === $self)) {
+					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+				}
+				if ($selfSessionId && ($s['session_id'] ?? null) === $selfSessionId) {
 					$this->cli->exitErr('Refusing to bury the caller\'s own session.');
 				}
 				$this->buryOne($s, $force, $autoConfirm);
@@ -330,8 +364,7 @@ class Graveyard {
 	}
 
 	public function buryIdle(int $thresholdSecs, bool $autoConfirm): void {
-		$self = $this->selfSurfaceId();
-		$sessions = $this->filterSelf($this->liveSessions(), $self, null);
+		$sessions = $this->filterSelf($this->liveSessions(), $this->selfSurfaceId(), $this->selfSessionId());
 
 		$unknown = array_values(array_filter($sessions, fn($s) => $s['idle_seconds'] === PHP_INT_MAX));
 		if ($unknown) {
@@ -350,8 +383,13 @@ class Graveyard {
 		if (!$autoConfirm && !$this->cli->confirm('Bury these ' . count($stale) . ' session(s)?')) {
 			$this->cli->msg('Aborted.', 'yellow'); return;
 		}
+		$ids = array_map(fn($s) => $s['session_id'], $stale);
 		$n = 0;
-		foreach ($stale as $s) { if ($this->buryOne($s, false, true)) { $n++; } }
-		$this->cli->successMsg("Buried {$n} of " . count($stale) . ' session(s).');
+		foreach ($ids as $sid) {
+			$fresh = $this->resolveLiveBySessionId($sid);
+			if (!$fresh) { $this->cli->msg("  Session {$sid} is gone — skipping.", 'yellow'); continue; }
+			if ($this->buryOne($fresh, false, true)) { $n++; }
+		}
+		$this->cli->successMsg("Buried {$n} of " . count($ids) . ' session(s).');
 	}
 }

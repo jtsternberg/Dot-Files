@@ -65,5 +65,12 @@ $sessions = [
 $kept = $gy->filterSelf($sessions, 'surface:1', 'self-sess');
 ok(count($kept) === 1 && $kept[0]['session_id'] === 'other', 'filterSelf drops self by surface+session');
 
+$sess2 = [
+	['surface_ref' => 'surface:9', 'surface_id' => 'uuid-9', 'session_id' => 'my-own-sess'],
+	['surface_ref' => 'surface:8', 'surface_id' => 'uuid-8', 'session_id' => 'keep-me'],
+];
+$kept2 = $gy->filterSelf($sess2, null, 'my-own-sess');
+ok(count($kept2) === 1 && $kept2[0]['session_id'] === 'keep-me', 'filterSelf drops self by session_id alone');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
