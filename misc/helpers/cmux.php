@@ -308,7 +308,8 @@ class Cmux {
 				continue;
 			}
 			if ($entry['type'] === 'user' || $entry['type'] === 'assistant') {
-				$lastTs = strtotime($entry['timestamp']);
+				$parsed = strtotime($entry['timestamp']);
+				if ($parsed !== false) { $lastTs = $parsed; }
 			}
 		}
 		fclose($handle);

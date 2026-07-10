@@ -88,7 +88,19 @@ file_put_contents(
 );
 ok($cmux->lastRealActivity($tmpSid, $tmpCwd) === strtotime($t2), 'lastRealActivity returns last user/assistant ts, ignores trailing system entry');
 ok($cmux->lastRealActivity('nope', '/no/such') === null, 'lastRealActivity null for missing file');
+
+// lastRealActivity: ignores unparseable timestamps, keeps prior valid one
+$tmpSid2 = 'test-sess-bad-ts-' . getmypid();
+$tmpJsonlPath2 = $cmux->jsonlPathFor($tmpSid2, $tmpCwd);
+$goodTs = '2026-02-01T09:00:00Z';
+file_put_contents(
+	$tmpJsonlPath2,
+	json_encode(['type' => 'user', 'timestamp' => $goodTs]) . "\n"
+	. json_encode(['type' => 'assistant', 'timestamp' => 'not-a-date']) . "\n"
+);
+ok($cmux->lastRealActivity($tmpSid2, $tmpCwd) === strtotime($goodTs), 'lastRealActivity ignores unparseable timestamp, keeps good one');
 @unlink($tmpJsonlPath);
+@unlink($tmpJsonlPath2);
 @rmdir(dirname($tmpJsonlPath));
 
 // dedupBySessionId: keeps first row per session_id, preserves order
