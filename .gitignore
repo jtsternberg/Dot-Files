@@ -56,3 +56,5 @@ notes-dropbox-sync/notes-dropbox-sync-launcher
 *.db
 .beads-credential-key
 /transcripts
+
+# graveyard store lives in ~/.claude-graveyard (never commit transcripts)
