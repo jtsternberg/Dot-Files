@@ -754,24 +754,7 @@ git commit -m "feat(graveyard): bury one session via /export temp+rename with id
 	}
 ```
 
-Add `newWorkspace()` to `Cmux` (used only here) — wraps `cmux new-workspace --name --cwd`, re-fetches the tree, returns first pane/surface refs (mirrors cmux-bak's create-then-find logic):
-
-```php
-	public function newWorkspace(string $title, ?string $cwd): array {
-		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title);
-		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
-		$res = $this->cli->getCommandOutputAndExitCode($cmd);
-		if ($res['exitCode'] !== 0) { $this->cli->exitErr('new-workspace failed: ' . $res['error']); }
-		usleep(500000);
-		$ws = $this->findWorkspaceByTitle($this->tree(), $title);
-		if (!$ws) { $this->cli->exitErr("Could not find new workspace '{$title}'."); }
-		return [
-			'ref'          => $ws['ref'] ?? '',
-			'firstPaneRef' => $ws['panes'][0]['ref'] ?? null,
-			'firstSurfRef' => $ws['panes'][0]['surfaces'][0]['ref'] ?? null,
-		];
-	}
-```
+`Cmux::newWorkspace()` was added in Task 1 (interface completeness) — `resurrect()` consumes it; nothing to add here.
 
 - [ ] **Step 2: Create the executable `bin/graveyard`**
 
