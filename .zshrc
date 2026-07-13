@@ -92,6 +92,7 @@ alias claudecatchup='claude "/catchup"'
 alias claudecreatepr='claude "/create-pr"'
 alias claudecreateissue='claude "/create-github-issue"'
 alias claudecommitstaged='claude "/commit-staged"'
+alias weeklylog='goto monorepo && claude --dangerously-skip-permissions "/weeklylog"'
 alias agyolo='agy --dangerously-skip-permissions'
 # alias claudefix='claude "/fix-github-issue $@"'
 claudefix() {
