@@ -191,7 +191,10 @@ class Graveyard {
 		if (file_exists($tmp)) { @unlink($tmp); }
 
 		// /export <path> writes rendered text straight to the file (no dialog when path is writable).
-		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp . "\n");
+		// Inside a running Claude Code TUI a sent "\n" only inserts a newline in the prompt — it does
+		// not submit. Send the command text, then press Return as a real key event to submit it.
+		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp);
+		$this->cmux->sendKeyToSurface($sess['surface_ref'], $sess['workspace_ref'], 'Return');
 
 		$deadline = time() + $timeoutSecs;
 		$lastSize = -1;
@@ -210,6 +213,41 @@ class Graveyard {
 		return false;
 	}
 
+	/**
+	 * PURE: reduce a raw user-message body to a short human summary, or '' if the
+	 * message is noise (empty, a tool/skill wrapper, a local-command dump).
+	 *
+	 * A slash-command invocation — which Claude Code records as
+	 * "<command-message>..</command-message><command-name>/foo</command-name>"
+	 * (optionally with <command-args>) — collapses to "/foo [args]" rather than
+	 * leaking the raw tags into the tombstone summary.
+	 */
+	public function summarizeUserText(string $raw): string {
+		$text = trim($raw);
+		if ($text === '') { return ''; }
+
+		// Slash-command invocation → "/command-name [args]".
+		if (preg_match('#<command-name>\s*/?([^<]+?)\s*</command-name>#i', $text, $m)) {
+			$cmd = '/' . trim($m[1]);
+			if (preg_match('#<command-args>\s*(.*?)\s*</command-args>#is', $text, $a) && trim($a[1]) !== '') {
+				$cmd .= ' ' . trim($a[1]);
+			}
+			return trim(mb_substr(preg_replace('/\s+/', ' ', $cmd), 0, 100));
+		}
+
+		// Machine-generated noise that isn't a human prompt — skip to the next entry.
+		$noisePrefixes = ['<command-message>', '<local-command-stdout>', 'Base directory for this skill:', 'Caveat:'];
+		foreach ($noisePrefixes as $prefix) {
+			if (stripos($text, $prefix) === 0) { return ''; }
+		}
+
+		// Strip any stray tags, collapse whitespace.
+		$clean = trim(preg_replace('/\s+/', ' ', preg_replace('/<[^>]+>/', ' ', $text)));
+		if ($clean === '') { return ''; }
+
+		return mb_substr($clean, 0, 100);
+	}
+
 	public function deriveSummary(array $sess): string {
 		$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
 		if (is_file($jsonl)) {
@@ -219,11 +257,16 @@ class Graveyard {
 				if (($e['type'] ?? '') === 'user') {
 					$content = $e['message']['content'] ?? '';
 					if (is_array($content)) {
-						foreach ($content as $c) { if (($c['type'] ?? '') === 'text') { $content = $c['text']; break; } }
+						$text = '';
+						foreach ($content as $c) { if (($c['type'] ?? '') === 'text') { $text = $c['text']; break; } }
+						$content = $text;
 					}
-					if (is_string($content) && trim($content) !== '') {
-						fclose($fh);
-						return trim(mb_substr(preg_replace('/\s+/', ' ', $content), 0, 100));
+					if (is_string($content)) {
+						$summary = $this->summarizeUserText($content);
+						if ($summary !== '') {
+							fclose($fh);
+							return $summary;
+						}
 					}
 				}
 			}
