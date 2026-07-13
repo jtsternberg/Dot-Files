@@ -313,7 +313,7 @@ class Helpers {
 	 * @return string             The given answer.
 	 */
 	function confirm( $question ) {
-		$this->msg( $question, 'yellow' );
+		$this->msg( rtrim( $question ) . ' (y/n)', 'yellow' );
 
 		if ( $this->isAutoconfirm() ) {
 			$this->msg( 'Y', 'green' );
