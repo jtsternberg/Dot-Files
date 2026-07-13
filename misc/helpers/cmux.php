@@ -144,6 +144,23 @@ class Cmux {
 		return null;
 	}
 
+	/**
+	 * PIDs whose controlling terminal is $tty (accepts "ttys007" or "/dev/ttys007").
+	 * This is the whole terminal process tree for a cmux surface — login shell,
+	 * wrapper, and the Claude process beneath it. Read-only.
+	 */
+	public function pidsOnTty(string $tty): array {
+		$tty = preg_replace('#^/dev/#', '', trim($tty));
+		if ($tty === '') { return []; }
+		$out  = (string) shell_exec('ps -t ' . escapeshellarg($tty) . ' -o pid= 2>/dev/null');
+		$self = getmypid();
+		$pids = [];
+		foreach (preg_split('/\s+/', trim($out)) as $p) {
+			if (ctype_digit($p) && (int) $p !== $self) { $pids[] = (int) $p; }
+		}
+		return $pids;
+	}
+
 	public function sendToSurface(string $surfRef, string $wsRef, string $text): void {
 		if (!$this->dryRun) {
 			shell_exec(

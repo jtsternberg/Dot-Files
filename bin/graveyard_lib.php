@@ -279,34 +279,59 @@ class Graveyard {
 
 	public function teardown(array $sess): bool {
 		$wsRef = $sess['workspace_ref'] ?? '';
+		$tty   = $sess['tty'] ?? '';
+
+		// Kill the live process tree FIRST, resolved from the surface's controlling
+		// tty. The tty is authoritative even for resumed/resurrected sessions, which
+		// run Claude under a resume wrapper whose live pid differs from the one in
+		// ~/.claude/sessions/<pid>.json — killing that stale pid leaves Claude alive.
+		// Falling back to the recorded pid only when we somehow have no tty.
+		$killed = $tty !== '' ? $this->killTty($tty) : $this->killPid((int) ($sess['pid'] ?? 0));
+
+		// With the shell gone the surface is empty, so cmux can close it cleanly.
+		// A lingering empty tab is only cosmetic — the RAM is already freed — so it
+		// does not fail the teardown.
 		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
-
-		if ($count <= 1) {
-			$cmd = 'cmux close-workspace --workspace ' . escapeshellarg($wsRef);
-		} else {
-			$cmd = 'cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']);
-		}
+		$cmd = ($count <= 1)
+			? 'cmux close-workspace --workspace ' . escapeshellarg($wsRef)
+			: 'cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']);
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
-
-		$pid = $sess['pid'] ?? null;
-		if ($pid && $this->cmux->pidIsAlive((int) $pid)) {
-			if (function_exists('posix_kill')) {
-				posix_kill((int) $pid, SIGTERM);
-			} else {
-				$this->cli->runCommand('kill ' . (int) $pid);
-			}
+		if (($res['exitCode'] ?? 1) !== 0) {
+			$this->cli->msg('  (Process terminated, but the now-empty cmux tab lingered — close it manually.)', 'yellow');
 		}
 
-		if ($pid > 0) {
-			$deadline = time() + 3;
-			while (time() < $deadline && $this->cmux->pidIsAlive((int) $pid)) { usleep(200000); }
-			if ($this->cmux->pidIsAlive((int) $pid)) {
-				if (function_exists('posix_kill')) { posix_kill((int) $pid, 9); }
-				else { $this->cli->runCommand('kill -9 ' . (int) $pid); }
-			}
-		}
+		return $killed;
+	}
 
-		return ($res['exitCode'] ?? 1) === 0;
+	/** Kill every process on $tty (SIGTERM, then SIGKILL survivors). True if the tty is clear after. */
+	protected function killTty(string $tty): bool {
+		$pids = $this->cmux->pidsOnTty($tty);
+		if (!$pids) { return true; } // nothing alive to free
+
+		$this->signalPids($pids, defined('SIGTERM') ? SIGTERM : 15);
+		$deadline = time() + 3;
+		while (time() < $deadline && $this->cmux->pidsOnTty($tty)) { usleep(200000); }
+		$this->signalPids($this->cmux->pidsOnTty($tty), 9);
+
+		return $this->cmux->pidsOnTty($tty) === [];
+	}
+
+	/** Fallback single-pid kill (SIGTERM, then SIGKILL). True if the pid is dead after. */
+	protected function killPid(int $pid): bool {
+		if ($pid <= 0) { return false; }
+		if (!$this->cmux->pidIsAlive($pid)) { return true; }
+		$this->signalPids([$pid], defined('SIGTERM') ? SIGTERM : 15);
+		$deadline = time() + 3;
+		while (time() < $deadline && $this->cmux->pidIsAlive($pid)) { usleep(200000); }
+		if ($this->cmux->pidIsAlive($pid)) { $this->signalPids([$pid], 9); }
+		return !$this->cmux->pidIsAlive($pid);
+	}
+
+	protected function signalPids(array $pids, int $signal): void {
+		foreach ($pids as $pid) {
+			if (function_exists('posix_kill')) { posix_kill((int) $pid, $signal); }
+			else { $this->cli->runCommand('kill -' . $signal . ' ' . (int) $pid); }
+		}
 	}
 
 	public function buryOne(array $sess, bool $force, bool $autoConfirm): bool {
@@ -340,9 +365,9 @@ class Graveyard {
 			return true;
 		}
 		if ($this->teardown($sess)) {
-			$this->cli->msg('  Tab closed; process terminated — RAM freed.', 'green');
+			$this->cli->msg('  Process terminated — RAM freed.', 'green');
 		} else {
-			$this->cli->err('  Archived, but could not close the cmux tab automatically — close it manually (transcript is safe).');
+			$this->cli->err('  Archived, but could not terminate the live session automatically — kill it manually (transcript is safe).');
 		}
 		return true;
 	}
