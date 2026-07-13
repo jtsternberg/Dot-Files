@@ -35,5 +35,5 @@ cd "$DOTFILES" 2>/dev/null || cd "$HOME"
 
 # Hand off to an interactive Claude Code session that runs the triage command.
 # --dangerously-skip-permissions so it can ps/kill/renice/read logs without
-# prompting (same posture as the `yc` alias).
+# prompting (same posture as the `yolo` alias).
 exec claude --dangerously-skip-permissions "$@" "/system-watchdog"

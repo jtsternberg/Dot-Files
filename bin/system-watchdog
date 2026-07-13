@@ -18,6 +18,10 @@ namespace JT;
 #   - ON AC *OR* BATTERY: any process > 85% CPU for 2 consecutive checks
 #   - ON AC *OR* BATTERY: sustained memory pressure (warn/critical) or active
 #                         swap thrashing
+#   - ON AC *OR* BATTERY: kernel zone-map exhaustion risk (a single zone ballooning
+#                         into the GBs) — a wired-kernel leak that %free/pressure
+#                         cannot see. Caught a real "zone map exhausted" panic on
+#                         2026-07-13 that userspace metrics missed entirely.
 # Each alert lists the top offenders (PID + %CPU or RSS). Sustained-hog and
 # sustained-pressure detection persist state between runs; alerts are throttled
 # to once per ~15 min per key so you are not spammed.
@@ -69,6 +73,13 @@ const DRAIN_RATE_LIMIT    = 35.0;  // alert above this drain rate (%/hr)
 const MEM_PRESSURE_WARN   = 2;     // kern.memorystatus_vm_pressure_level: 1=normal 2=warn 4=critical
 const MEM_FREE_LOW        = 10;    // system-wide free memory % at/below which we care
 const SWAPOUT_RATE_LIMIT  = 2000;  // swapouts/min (16KB pages) considered active thrashing
+// The single largest kernel zone is the trustworthy leak signal: it baselines
+// low (~2G IOGPUFamily on this Mac) and the 2026-07-13 panic zone hit 19G, so an
+// 8G single zone means something is leaking with room to spare before exhaustion.
+// The zone-map % is a weak backstop only: it idles ~79% and its "limit" is
+// elastic (grows with the leak), so it is set high and rarely the sole trigger.
+const ZONE_SINGLE_GB      = 8.0;   // alert when any single kernel zone's cur size >= this many GB
+const ZONE_MAP_PCT_LIMIT  = 95.0;  // backstop: alert when zone map usage >= this % of its (elastic) limit
 const NOTIFY_THROTTLE     = 900;   // min seconds between repeat notifications (15 min)
 const TOP_N               = 3;     // how many offenders to list
 const LOG_MAX_BYTES       = 1048576; // rotate the log past ~1MB
@@ -211,6 +222,66 @@ function readMemory(): array {
 	// vm_stat cumulative "Swapouts: NNN." — delta between runs = active swapping.
 	if (preg_match('/Swapouts:\s*(\d+)/i', (string) @shell_exec('vm_stat 2>/dev/null'), $m)) {
 		$out['swapouts'] = (int) $m[1];
+	}
+
+	return $out;
+}
+
+/**
+ * Read kernel zone-map usage via `zprint` (works without root).
+ *
+ * Catches the failure mode that memory_pressure / %free is BLIND to: a kernel
+ * zone leak (wired memory), which is invisible to userspace memory metrics. A
+ * `data.kalloc.1024` leak driven by EndpointSecurity event buffers under extreme
+ * process/exec churn once exhausted the zone map and hard-panicked this Mac
+ * (2026-07-13) while %free still read ~90%.
+ *
+ * @return array{mapPct:?float,mapUsedGb:?float,mapLimitGb:?float,topZone:?string,topZoneGb:?float}
+ *   mapPct     zone map used as a % of its limit (from zprint's "total X of Y")
+ *   topZone    name of the single largest zone by current size
+ *   topZoneGb  that zone's current size in GB
+ */
+function readKernelZones(): array {
+	$out = ['mapPct' => null, 'mapUsedGb' => null, 'mapLimitGb' => null, 'topZone' => null, 'topZoneGb' => null];
+	$raw = (string) @shell_exec('zprint 2>/dev/null');
+	if ($raw === '') {
+		return $out; // zprint unavailable — skip silently
+	}
+
+	// K/M/G suffixed size -> GB.
+	$toGb = function (string $num, string $unit): float {
+		$n = (float) $num;
+		switch (strtoupper($unit)) {
+			case 'G': return $n;
+			case 'M': return $n / 1024.0;
+			case 'K': return $n / 1024.0 / 1024.0;
+			case 'B': return $n / 1024.0 / 1024.0 / 1024.0;
+			default:  return $n / 1024.0 / 1024.0 / 1024.0; // bytes
+		}
+	};
+
+	// Summary line: "total   ...   4818.20M of 6135.61M"
+	if (preg_match('/total\s+.*?([\d.]+)([KMGB])\s+of\s+([\d.]+)([KMGB])/i', $raw, $m)) {
+		$out['mapUsedGb']  = $toGb($m[1], $m[2]);
+		$out['mapLimitGb'] = $toGb($m[3], $m[4]);
+		if ($out['mapLimitGb'] > 0) {
+			$out['mapPct'] = round(100.0 * $out['mapUsedGb'] / $out['mapLimitGb'], 1);
+		}
+	}
+
+	// Largest single zone by current size. zprint's 2nd numeric column after the
+	// zone name is the current size (e.g. "19G" during the panic-causing leak).
+	$topGb = 0.0;
+	foreach (preg_split('/\R/', $raw) as $line) {
+		if (!preg_match('/^(\S+)\s+\d+\s+([\d.]+)([KMGB])\b/', $line, $m)) {
+			continue;
+		}
+		$gb = $toGb($m[2], $m[3]);
+		if ($gb > $topGb) {
+			$topGb = $gb;
+			$out['topZone'] = $m[1];
+			$out['topZoneGb'] = round($gb, 2);
+		}
 	}
 
 	return $out;
@@ -399,6 +470,7 @@ $batt   = readBattery();
 $top    = readTop($selfPid, 'cpu');
 $mem    = readMemory();
 $topMem = readTop($selfPid, 'mem');
+$zones  = readKernelZones();
 $state  = readState($stateFile);
 
 $alerts        = [];   // human-readable reasons we (would) alert
@@ -481,6 +553,31 @@ if (($activeThrash && $underPressure) || ($memCritical && $memCriticalPrev)) {
 	];
 }
 
+// --- Kernel zone-map exhaustion detection (AC or battery) ------------------
+// This is the ONE signal that catches a kernel wired-memory leak, which
+// memory_pressure/%free cannot see. A runaway zone fills the map and the kernel
+// panics ("zone map exhausted") with userspace RAM looking fine. Growth is
+// monotonic during a real leak, so a single reading over threshold is alertable
+// immediately — no 2-check gate — because we may only have minutes of headroom.
+if (($zones['mapPct'] !== null && $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT)
+	|| ($zones['topZoneGb'] !== null && $zones['topZoneGb'] >= ZONE_SINGLE_GB)
+) {
+	$bits = [];
+	if ($zones['mapPct'] !== null) {
+		$bits[] = sprintf('zone map %.0f%% full (%.1f/%.1fG)', $zones['mapPct'], $zones['mapUsedGb'], $zones['mapLimitGb']);
+	}
+	if ($zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0) {
+		$bits[] = sprintf('%s=%.1fG', $zones['topZone'], $zones['topZoneGb']);
+	}
+	$reason = 'Kernel zone pressure: ' . implode(', ', $bits);
+	$alerts[] = $reason;
+	$notifications['kernelzone'] = [
+		'💥 Kernel memory leak risk',
+		implode(', ', $bits),
+		'Wired-kernel leak (invisible to RAM %). Often an EndpointSecurity flood from process churn — ' . ASSESS_HINT,
+	];
+}
+
 // --- Battery drain detection (on battery only) -----------------------------
 $drainRate = null;
 if ($batt['onBattery']
@@ -535,7 +632,7 @@ if ($notifyEnabled) {
 if ($notifyEnabled) {
 	// Prune stale throttle entries for PIDs that are no longer hogging, so the
 	// map does not grow without bound. Keep 'battery', 'memory', active hog keys.
-	$activeKeys = array_merge(['battery', 'memory'], array_map(fn($pid) => 'hog-' . $pid, array_keys($currentHogs)));
+	$activeKeys = array_merge(['battery', 'memory', 'kernelzone'], array_map(fn($pid) => 'hog-' . $pid, array_keys($currentHogs)));
 	foreach (array_keys($lastNotified) as $key) {
 		if (!in_array($key, $activeKeys, true) && (($now - (int) $lastNotified[$key]) > NOTIFY_THROTTLE)) {
 			unset($lastNotified[$key]);
@@ -562,6 +659,8 @@ if ($notifyEnabled) {
 		'drain=' . ($drainRate === null ? 'n/a' : sprintf('%.0f%%/hr', $drainRate)),
 		'mem=' . ($mem['free'] === null ? '?' : $mem['free'] . '%free') . '/lvl' . ($mem['level'] ?? '?'),
 		'swap=' . ($swapRate === null ? 'n/a' : sprintf('%.0f/min', $swapRate)),
+		'zonemap=' . ($zones['mapPct'] === null ? 'n/a' : sprintf('%.0f%%', $zones['mapPct']))
+			. ($zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0 ? sprintf('(%s=%.1fG)', $zones['topZone'], $zones['topZoneGb']) : ''),
 		'top=[' . formatTop($top, TOP_N) . ']',
 	];
 	if (!empty($alerts)) {
@@ -593,6 +692,16 @@ if (!$cli->isSilent()) {
 		$mem['swapUsed'] === null ? '?' : sprintf('%.0fMB', $mem['swapUsed']),
 		$swapRate === null ? 'no swap-rate baseline yet' : sprintf('swapping %.0f pages/min', $swapRate)
 	), $underPressure ? 'yellow' : '');
+	if ($zones['mapPct'] !== null) {
+		$zoneOver = $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT
+			|| ($zones['topZoneGb'] !== null && $zones['topZoneGb'] >= ZONE_SINGLE_GB);
+		$cli->msg(sprintf(
+			'  Kernel zone map: %.0f%% full (%.1f/%.1fG)%s',
+			$zones['mapPct'], $zones['mapUsedGb'], $zones['mapLimitGb'],
+			$zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0
+				? sprintf(' | largest: %s=%.1fG', $zones['topZone'], $zones['topZoneGb']) : ''
+		), $zoneOver ? 'red' : '');
+	}
 	$cli->msg('  Top CPU:');
 	foreach (array_slice($top, 0, TOP_N) as $p) {
 		$color = $p['cpu'] >= HOG_CPU_THRESHOLD ? 'red' : '';
