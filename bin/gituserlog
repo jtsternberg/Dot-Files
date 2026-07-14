@@ -182,6 +182,16 @@ class GitUserLogger {
 		$repodir = $this->logsdir . '/' . $reponame;
 		[$path, $reponame] = explode($this->logsdir . '/', $repodir);
 
+		// macOS's temp-file reaper deletes unaccessed files (HEAD, config) but
+		// leaves directories, so a cached clone can pass is_dir() yet be broken.
+		if (is_dir($repodir)) {
+			$gitDirCheck = trim(`git -C "$repodir" rev-parse --git-dir 2>/dev/null` ?? '');
+			if ('' === $gitDirCheck) {
+				$this->cli->msg("{$reponame} cache broken, re-cloning...", 'yellow', false);
+				`rm -rf "$repodir"`;
+			}
+		}
+
 		if (is_dir($repodir)) {
 			chdir($repodir);
 			$this->cli->msg("{$reponame} updating...", 'cyan', false);
