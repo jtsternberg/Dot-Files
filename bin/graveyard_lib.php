@@ -913,4 +913,79 @@ class Graveyard {
 		);
 		echo $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40);
 	}
+
+	/**
+	 * peek <id>: one-shot rendered preview of a LIVE session's recent genuine turns,
+	 * read from its JSONL (not the terminal screen, not /export) so JT can inspect what
+	 * a session was doing before approving a bury — without the interactive picker.
+	 */
+	public function peekSession(string $id, int $turns = 6): void {
+		$matches = $this->resolveLiveByIdentifier($id);
+		if (!$matches) {
+			$this->cli->exitErr("No live session matches '{$id}'.");
+		}
+		if (count($matches) > 1) {
+			$this->cli->msg("'{$id}' is ambiguous — matches " . count($matches) . ' live session(s):', 'yellow');
+			foreach ($matches as $m) {
+				$this->cli->msg(sprintf('  %s  %-20.20s  %s', substr($m['session_id'], 0, 8), $m['workspace_title'] ?? '', $m['cwd'] ?? ''));
+			}
+			$this->cli->exitErr("Narrow it or pass a full session-id.");
+		}
+		$s = $matches[0];
+
+		$this->cli->msg(sprintf('%s  %s', substr($s['session_id'], 0, 8), $s['workspace_title'] ?: $s['tab_title']), 'cyan');
+		$this->cli->msg(sprintf('cwd: %s   model: %s   idle: %s', $s['cwd'], $s['model'] ?: '(unknown)', $this->idleHuman((int) $s['idle_seconds'])), 'cyan');
+		if (!($s['targetable'] ?? true)) {
+			$this->cli->msg('⚠ untargetable: ' . $s['reason'], 'yellow');
+		}
+		$this->cli->msg('');
+
+		$jsonl = $this->cmux->jsonlPathFor($s['session_id'], $s['cwd']);
+		$entries = [];
+		if (is_file($jsonl)) {
+			$fh = fopen($jsonl, 'r');
+			while (($line = fgets($fh)) !== false) {
+				$e = json_decode($line, true);
+				if ($e) { $entries[] = $e; }
+			}
+			fclose($fh);
+		}
+		$rendered = $this->renderTurns($entries, $turns);
+		echo $rendered !== '' ? $rendered : "(no genuine conversation turns found)\n";
+	}
+
+	/**
+	 * PURE-ish: render the last $limit genuine user/assistant turns from decoded JSONL
+	 * entries as readable lines. Skips synthetic resume turns AND slash-command noise
+	 * (both classified by Cmux::isSyntheticEntry) and tool-only turns with no text.
+	 * Remaining text is tag-stripped, whitespace-collapsed, and truncated.
+	 */
+	public function renderTurns(array $entries, int $limit = 6, int $width = 160): string {
+		$turns = [];
+		foreach ($entries as $e) {
+			$type = $e['type'] ?? '';
+			if ($type !== 'user' && $type !== 'assistant') { continue; }
+			if ($this->cmux->isSyntheticEntry($e)) { continue; }
+
+			$content = $e['message']['content'] ?? '';
+			$text = '';
+			if (is_string($content)) {
+				$text = $content;
+			} elseif (is_array($content)) {
+				foreach ($content as $c) {
+					if (is_array($c) && ($c['type'] ?? '') === 'text') { $text .= ($text === '' ? '' : ' ') . ($c['text'] ?? ''); }
+				}
+			}
+
+			// Genuine turns only reach here (command/synthetic already skipped). Clean
+			// defensively: strip any stray tags, collapse whitespace.
+			$text = trim(preg_replace('/\s+/', ' ', preg_replace('/<[^>]+>/', ' ', $text)));
+			if ($text === '') { continue; } // tool-only / empty turn
+			if (mb_strlen($text) > $width) { $text = mb_substr($text, 0, $width - 1) . '…'; }
+			$turns[] = ($type === 'user' ? '❯ ' : '⏺ ') . $text;
+		}
+
+		$turns = array_slice($turns, -$limit);
+		return $turns ? implode("\n", $turns) . "\n" : '';
+	}
 }

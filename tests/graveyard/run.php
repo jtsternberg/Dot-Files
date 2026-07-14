@@ -283,5 +283,30 @@ ok($gy->transcriptMatchesSession("anything", '') === true, 'gate2: empty needle 
 // how /export renders it — must match (regression: raw <command-*> tags never appear rendered).
 ok($gy->transcriptMatchesSession("❯ /monorepo-address-pr-review\n  ⎿ …", '/monorepo-address-pr-review') === true, 'gate2: slash-command summary needle matches rendered transcript');
 
+// ---------------------------------------------------------------------------
+// peek: renderTurns (dotfiles-48w) — pure rendering of genuine JSONL turns
+// ---------------------------------------------------------------------------
+$entries = [
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => "<command-name>/superpowers:brainstorm</command-name>"]]]], // command → "/superpowers:brainstorm"
+	['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => "Let's brainstorm the asana skill."]]]],
+	['type' => 'user', 'isMeta' => true, 'message' => ['content' => [['type' => 'text', 'text' => 'Continue from where you left off.']]]], // synthetic → skipped
+	['type' => 'assistant', 'message' => ['model' => '<synthetic>', 'content' => [['type' => 'text', 'text' => 'No response requested.']]]], // synthetic → skipped
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => 'Add a sync subcommand']]]],
+	['type' => 'assistant', 'message' => ['content' => [['type' => 'tool_use', 'name' => 'Bash']]]], // tool-only → skipped (no text)
+	['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => 'Done — added sync.']]]],
+];
+$r = $gy->renderTurns($entries, 10);
+ok(strpos($r, '/superpowers:brainstorm') === false, 'renderTurns: slash-command turn skipped as noise');
+ok(strpos($r, '❯ Add a sync subcommand') !== false, 'renderTurns: genuine user turn shown');
+ok(strpos($r, '⏺ Done — added sync.') !== false, 'renderTurns: assistant text shown');
+ok(strpos($r, 'Continue from where you left off') === false, 'renderTurns: synthetic user resume skipped');
+ok(strpos($r, 'No response requested') === false, 'renderTurns: synthetic assistant skipped');
+ok(substr_count($r, "\n") === 3, 'renderTurns: 3 genuine turns (command + 2 synthetic + tool-only skipped)');
+$r2 = $gy->renderTurns($entries, 2);
+ok(substr_count($r2, "\n") === 2 && strpos($r2, 'Done — added sync.') !== false, 'renderTurns: honors last-N limit');
+ok($gy->renderTurns([], 6) === '', 'renderTurns: empty entries → empty string');
+$long = ['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => str_repeat('x', 300)]]]];
+ok(mb_substr(trim($gy->renderTurns([$long], 6)), -1) === '…', 'renderTurns: long turn truncated with ellipsis');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

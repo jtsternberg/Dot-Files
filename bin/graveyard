@@ -19,6 +19,7 @@ namespace JT;
 # graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard candidates [--porcelain]
+# graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
 # graveyard show <id>
 # graveyard resurrect <id> [--from-transcript]
@@ -41,6 +42,7 @@ $helpyHelperton
 		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
 		'-y'              => 'Skip confirmations',
 		'candidates [--porcelain]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated, agent-readable)',
+		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id>'     => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript',
@@ -84,6 +86,10 @@ switch ($sub) {
 		}
 		break;
 	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain')); break;
+	case 'peek':
+		$turns = $cli->hasFlag('turns') ? max(1, (int) $cli->getFlag('turns')) : 6;
+		$gy->peekSession((string) $cli->getArg(2), $turns);
+		break;
 	case '_preview':   $gy->printPreview((string) $cli->getArg(2)); break;
 	case 'ls':        $gy->listTombstones(); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
