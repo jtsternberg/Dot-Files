@@ -308,5 +308,58 @@ ok($gy->renderTurns([], 6) === '', 'renderTurns: empty entries → empty string'
 $long = ['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => str_repeat('x', 300)]]]];
 ok(mb_substr(trim($gy->renderTurns([$long], 6)), -1) === '…', 'renderTurns: long turn truncated with ellipsis');
 
+// ---------------------------------------------------------------------------
+// Workspace-level (grouped) bury (dotfiles-c8a)
+// ---------------------------------------------------------------------------
+// uuidv4 shape
+$uu = $cmux->uuidv4();
+ok((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $uu), 'uuidv4: valid v4 shape');
+ok($cmux->uuidv4() !== $cmux->uuidv4(), 'uuidv4: unique');
+
+// resolveWorkspaceNode: ref, title substring, ambiguity
+$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+	['ref' => 'workspace:9', 'title' => 'asana-skill update', 'panes' => []],
+	['ref' => 'workspace:12', 'title' => 'boss backend', 'panes' => []],
+	['ref' => 'workspace:13', 'title' => 'boss frontend', 'panes' => []],
+]]]];
+ok($cmux->resolveWorkspaceNode($wtree, 'workspace:12')['title'] === 'boss backend', 'resolveWorkspaceNode: exact ref');
+ok($cmux->resolveWorkspaceNode($wtree, 'asana')['ref'] === 'workspace:9', 'resolveWorkspaceNode: title substring');
+ok($cmux->resolveWorkspaceNode($wtree, 'nope') === null, 'resolveWorkspaceNode: no match → null');
+$threwWs = false; try { $cmux->resolveWorkspaceNode($wtree, 'boss'); } catch (\RuntimeException $e) { $threwWs = true; }
+ok($threwWs, 'resolveWorkspaceNode: ambiguous title throws');
+
+// classifyWorkspaceLayout: claude member (bound), untargetable claude (fresh), shell, browser
+$wsNode = ['panes' => [
+	['index' => 0, 'surfaces' => [
+		['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'claude a', 'index_in_pane' => 0],
+		['ref' => 'surface:2', 'type' => 'terminal', 'title' => 'fresh claude', 'index_in_pane' => 1],
+	]],
+	['index' => 1, 'surfaces' => [
+		['ref' => 'surface:3', 'type' => 'terminal', 'title' => 'a shell', 'index_in_pane' => 0],
+		['ref' => 'surface:4', 'type' => 'browser', 'title' => 'docs', 'url' => 'https://x', 'index_in_pane' => 1],
+	]],
+]];
+$liveByRef = ['surface:1' => ['session_id' => 'sid-1', 'cwd' => '/a', 'targetable' => true, 'tab_title' => 'claude a']];
+$isClaudeByRef = ['surface:1' => true, 'surface:2' => true, 'surface:3' => false, 'surface:4' => false];
+$c = $gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef);
+ok(count($c['members']) === 1 && $c['members'][0]['session_id'] === 'sid-1', 'classify: one bound claude member');
+ok($c['members'][0]['group_pos'] === 0, 'classify: member carries group_pos');
+ok(count($c['untargetable']) === 1 && $c['untargetable'][0]['ref'] === 'surface:2', 'classify: fresh claude → untargetable (abort trigger)');
+ok(count($c['layout']) === 4, 'classify: full layout captured');
+$kinds = array_column($c['layout'], 'kind');
+ok($kinds === ['claude', 'claude-untargetable', 'shell', 'browser'], 'classify: per-surface kinds correct');
+ok($c['layout'][3]['url'] === 'https://x', 'classify: browser url recorded');
+
+// groupTombstones + tombstoneLine
+$ts = [
+	['session_id' => 'aaaa1111', 'group_id' => 'g1', 'group_pos' => 1, 'group_title' => 'ws', 'buried_at' => '2026-07-14', 'workspace_title' => 'ws', 'summary' => 's2'],
+	['session_id' => 'bbbb2222', 'group_id' => 'g1', 'group_pos' => 0, 'group_title' => 'ws', 'buried_at' => '2026-07-14', 'workspace_title' => 'ws', 'summary' => 's1'],
+	['session_id' => 'cccc3333', 'buried_at' => '2026-07-13', 'workspace_title' => 'loose', 'summary' => 's3'],
+];
+[$groups, $loose] = $gy->groupTombstones($ts);
+ok(count($groups['g1']) === 2 && count($loose) === 1, 'groupTombstones: splits grouped vs loose');
+ok($groups['g1'][0]['session_id'] === 'bbbb2222', 'groupTombstones: members sorted by group_pos');
+ok(strpos($gy->tombstoneLine($ts[2]), 'cccc3333') === 0, 'tombstoneLine: starts with short id');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

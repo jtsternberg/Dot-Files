@@ -25,6 +25,8 @@ class Graveyard {
 	public function sessionDir(string $id): string { return $this->storeRoot() . "/sessions/{$id}"; }
 	public function transcriptPath(string $id): string { return $this->sessionDir($id) . '/transcript.txt'; }
 	public function metaPath(string $id): string { return $this->sessionDir($id) . '/meta.json'; }
+	public function workspaceGroupDir(string $group): string { return $this->storeRoot() . "/workspaces/{$group}"; }
+	public function manifestPath(string $group): string { return $this->workspaceGroupDir($group) . '/manifest.json'; }
 	public function indexPath(): string { return $this->storeRoot() . '/index.json'; }
 
 	public function parseDuration(string $s): int {
@@ -61,7 +63,7 @@ class Graveyard {
 		file_put_contents($this->indexPath(), json_encode($idx, JSON_PRETTY_PRINT));
 	}
 
-	public function buildTombstone(array $session, array $surface, string $summary, string $buriedAt): array {
+	public function buildTombstone(array $session, array $surface, string $summary, string $buriedAt, ?array $group = null): array {
 		$sessionId = $session['session_id'];
 		$cwd       = $session['cwd'] ?? '';
 		$lastActive = null;
@@ -69,7 +71,7 @@ class Graveyard {
 		if (is_file($jsonl)) {
 			$lastActive = gmdate('Y-m-d\TH:i:s\Z', filemtime($jsonl));
 		}
-		return [
+		$tomb = [
 			'session_id'      => $sessionId,
 			'workspace_title' => $surface['workspace_title'] ?? '',
 			'tab_title'       => $surface['tab_title'] ?? '',
@@ -80,6 +82,15 @@ class Graveyard {
 			'buried_at'       => $buriedAt,
 			'last_active'     => $lastActive,
 		];
+		// Grouped (workspace) bury: stamp the shared group id + layout position so
+		// ls/resurrect can operate on the workspace as a unit, while the member
+		// tombstone stays self-sufficient for single-member resurrect.
+		if ($group !== null) {
+			$tomb['group_id']    = $group['group_id'] ?? null;
+			$tomb['group_title'] = $group['group_title'] ?? null;
+			$tomb['group_pos']   = $group['group_pos'] ?? null;
+		}
+		return $tomb;
 	}
 
 	public function selfSurfaceId(): ?string {
@@ -336,14 +347,20 @@ class Graveyard {
 	}
 
 	public function teardown(array $sess): bool {
-		$wsRef  = $sess['workspace_ref'] ?? '';
+		$killed = $this->killMember($sess);
+		if ($killed) { $this->closeSurfaceOrWorkspace($sess); }
+		return $killed;
+	}
+
+	/**
+	 * GATE 3 + kill. Only kill a pid whose ~/.claude/sessions/<pid>.json sessionId
+	 * equals the target. Never kill by surface/tty membership — recycled ttys mean a
+	 * tty can host a different live session. Last-line defense that makes a wrong join
+	 * non-destructive. Returns true iff the verified claude pid (and descendants) died.
+	 */
+	protected function killMember(array $sess): bool {
 		$target = $sess['session_id'] ?? '';
 		$pid    = (int) ($sess['pid'] ?? 0);
-
-		// GATE 3: only kill a pid whose ~/.claude/sessions/<pid>.json sessionId equals
-		// the target. Never kill by surface/tty membership — recycled ttys mean a tty
-		// can host a different live session. This is the last-line defense that makes a
-		// wrong join non-destructive.
 		if ($pid <= 0) {
 			$this->cli->err('  Teardown aborted: no resolved pid for this session — leaving it ALIVE.');
 			return false;
@@ -353,12 +370,12 @@ class Graveyard {
 			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
 			return false;
 		}
+		return $this->killPidTree($pid);
+	}
 
-		// Kill the verified claude pid and its descendants (subagents). Freeing that
-		// RAM is the success criterion; the resume wrapper shell exits when claude
-		// does, letting cmux close the surface.
-		$killed = $this->killPidTree($pid);
-
+	/** Close a single member's surface, or the workspace if it's the last surface. */
+	protected function closeSurfaceOrWorkspace(array $sess): void {
+		$wsRef = $sess['workspace_ref'] ?? '';
 		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
 		$cmd = ($count <= 1)
 			? 'cmux close-workspace --workspace ' . escapeshellarg($wsRef)
@@ -367,8 +384,13 @@ class Graveyard {
 		if (($res['exitCode'] ?? 1) !== 0) {
 			$this->cli->msg('  (Process terminated, but the now-empty cmux tab lingered — close it manually.)', 'yellow');
 		}
+	}
 
-		return $killed;
+	/** Close an entire workspace (and every remaining surface in it). */
+	protected function closeWorkspace(string $wsRef): bool {
+		if ($wsRef === '') { return false; }
+		$res = $this->cli->getCommandOutputAndExitCode('cmux close-workspace --workspace ' . escapeshellarg($wsRef));
+		return ($res['exitCode'] ?? 1) === 0;
 	}
 
 	/** Kill $pid and its descendants (SIGTERM, then SIGKILL survivors). True if $pid is dead after. */
@@ -393,7 +415,7 @@ class Graveyard {
 		}
 	}
 
-	public function buryOne(array $sess, bool $force, bool $autoConfirm): bool {
+	public function buryOne(array $sess, bool $force, bool $autoConfirm, ?array $group = null, bool $deferClose = false): bool {
 		$id      = substr((string) $sess['session_id'], 0, 8);
 		$idFloor = self::IDLE_FLOOR_DEFAULT;
 
@@ -448,7 +470,7 @@ class Graveyard {
 		$tomb = $this->buildTombstone($sess, [
 			'workspace_title' => $sess['workspace_title'],
 			'tab_title'       => $sess['tab_title'],
-		], $summary, gmdate('Y-m-d\TH:i:s\Z'));
+		], $summary, gmdate('Y-m-d\TH:i:s\Z'), $group);
 		file_put_contents($this->metaPath($sess['session_id']), json_encode($tomb, JSON_PRETTY_PRINT));
 		$this->upsertIndex($tomb);
 		$this->cli->successMsg("  Buried: {$summary}");
@@ -457,6 +479,18 @@ class Graveyard {
 			$this->cli->msg('  Left the tab open; transcript is archived.', 'yellow');
 			return true;
 		}
+
+		// In a grouped workspace bury we kill each member here but defer closing to a
+		// single workspace-level close (which also sweeps the non-claude surfaces).
+		if ($deferClose) {
+			if ($this->killMember($sess)) {
+				$this->cli->msg('  Process terminated — RAM freed.', 'green');
+			} else {
+				$this->cli->err('  Archived, but could not terminate the live session automatically — kill it manually (transcript is safe).');
+			}
+			return true;
+		}
+
 		if ($this->teardown($sess)) {
 			$this->cli->msg('  Process terminated — RAM freed.', 'green');
 		} else {
@@ -465,18 +499,224 @@ class Graveyard {
 		return true;
 	}
 
+	// =========================================================================
+	// Workspace-level (grouped) bury  (dotfiles-c8a)
+	// =========================================================================
+
+	/**
+	 * PURE. Classify a workspace's surfaces into a layout + member lists.
+	 *
+	 * Inputs (all injectable for testing):
+	 *   $wsNode        cmux tree workspace node (panes[].surfaces[])
+	 *   $liveByRef     [surface_ref => liveSessions row] for TARGETABLE claude rows
+	 *   $isClaudeByRef [surface_ref => bool]  content-probe result (has a Claude REPL
+	 *                  statusline). A shell has no statusline. Reliable for fresh+resumed.
+	 *
+	 * Returns:
+	 *   'layout'      ordered list of surface entries with position + type + title +
+	 *                 cwd/url + claude_session_id (for members) — the manifest body.
+	 *   'members'     targetable claude liveSessions rows (to bury), with group_pos set.
+	 *   'untargetable' claude surfaces detected but not bound to a targetable row
+	 *                 (fresh/ambiguous) — presence forces abort unless --force.
+	 */
+	public function classifyWorkspaceLayout(array $wsNode, array $liveByRef, array $isClaudeByRef): array {
+		$layout = [];
+		$members = [];
+		$untargetable = [];
+		$pos = 0;
+
+		foreach ($wsNode['panes'] ?? [] as $paneIdx => $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				$ref  = $surf['ref'] ?? '';
+				$type = $surf['type'] ?? 'terminal';
+				$row  = $liveByRef[$ref] ?? null;
+				$isClaude = $isClaudeByRef[$ref] ?? false;
+
+				$entry = [
+					'group_pos'    => $pos,
+					'pane_index'   => $pane['index'] ?? $paneIdx,
+					'index_in_pane'=> $surf['index_in_pane'] ?? 0,
+					'ref'          => $ref,
+					'type'         => $type,
+					'title'        => $surf['title'] ?? '',
+					'url'          => $surf['url'] ?? null,
+					'cwd'          => $row['cwd'] ?? null,
+					'kind'         => 'shell',
+					'claude_session_id' => null,
+				];
+
+				if ($type === 'browser') {
+					$entry['kind'] = 'browser';
+				} elseif ($isClaude && $row && ($row['targetable'] ?? false)) {
+					$entry['kind'] = 'claude';
+					$entry['claude_session_id'] = $row['session_id'];
+					$m = $row; $m['group_pos'] = $pos;
+					$members[] = $m;
+				} elseif ($isClaude) {
+					// A Claude REPL that the join could not bind to a targetable session
+					// (fresh/non-resumed, or ambiguous). Detected, not buryable.
+					$entry['kind'] = 'claude-untargetable';
+					$untargetable[] = ['ref' => $ref, 'title' => $surf['title'] ?? ''];
+				}
+
+				$layout[] = $entry;
+				$pos++;
+			}
+		}
+
+		return ['layout' => $layout, 'members' => $members, 'untargetable' => $untargetable];
+	}
+
+	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): void {
+		try {
+			$wsInfo = $this->cmux->resolveWorkspaceNode($this->cmux->tree(), $nameOrRef);
+		} catch (\RuntimeException $e) {
+			$this->cli->exitErr($e->getMessage());
+			return;
+		}
+		if (!$wsInfo) { $this->cli->exitErr("No workspace matches '{$nameOrRef}'."); return; }
+
+		$wsRef   = $wsInfo['ref'];
+		$wsTitle = $wsInfo['title'];
+
+		// Index targetable claude rows by surface_ref, and content-probe every surface.
+		$liveByRef = [];
+		foreach ($this->liveSessions() as $r) {
+			if (($r['targetable'] ?? false) && $r['surface_ref'] !== '') { $liveByRef[$r['surface_ref']] = $r; }
+		}
+		$isClaudeByRef = [];
+		foreach ($wsInfo['node']['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				$ref = $surf['ref'] ?? '';
+				if ($ref === '' || ($surf['type'] ?? '') === 'browser') { $isClaudeByRef[$ref] = false; continue; }
+				$screen = $this->readLastScreen($ref, $wsRef, 8);
+				$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null;
+			}
+		}
+
+		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef);
+
+		// Self-guard: never bury a workspace containing the caller's own session.
+		$selfSid = $this->selfSessionId();
+		foreach ($cls['members'] as $m) {
+			if ($selfSid && $m['session_id'] === $selfSid) {
+				$this->cli->exitErr('Refusing to bury a workspace containing the caller\'s own session.');
+				return;
+			}
+		}
+
+		// Abort on any detected-but-unbindable Claude, unless --force skips them.
+		if ($cls['untargetable']) {
+			$this->cli->msg('Workspace "' . $wsTitle . '" has ' . count($cls['untargetable']) . ' Claude surface(s) not safely targetable:', 'yellow');
+			foreach ($cls['untargetable'] as $u) {
+				$this->cli->msg('  ' . $u['ref'] . '  ' . $u['title'], 'yellow');
+			}
+			if (!$force) {
+				$this->cli->exitErr('Refusing to partially destroy a workspace. Resolve these (or re-run with --force to skip them and leave them alive).');
+				return;
+			}
+			$this->cli->msg('  --force: skipping the above (left ALIVE); the workspace will not be fully closed.', 'yellow');
+		}
+
+		if (!$cls['members']) { $this->cli->exitErr('No targetable Claude sessions in that workspace to bury.'); return; }
+
+		$this->cli->msg(sprintf('Workspace "%s" (%s): %d Claude session(s), %d other surface(s).',
+			$wsTitle, $wsRef, count($cls['members']), count($cls['layout']) - count($cls['members'])), 'yellow');
+		foreach ($cls['members'] as $m) {
+			$this->cli->msg(sprintf('  %s  %-20.20s  %s', substr($m['session_id'], 0, 8), $m['tab_title'] ?? '', $m['cwd'] ?? ''));
+		}
+		if (!$autoConfirm && !$this->cli->confirm('Bury this workspace (' . count($cls['members']) . ' session(s)) as a group?')) {
+			$this->cli->msg('Aborted.', 'yellow');
+			return;
+		}
+
+		// Stamp a shared group + write the layout manifest BEFORE any destruction.
+		$group = $this->cmux->uuidv4();
+		$buriedAt = gmdate('Y-m-d\TH:i:s\Z');
+		$dir = $this->workspaceGroupDir($group);
+		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
+		file_put_contents($this->manifestPath($group), json_encode([
+			'group_id'    => $group,
+			'group_title' => $wsTitle,
+			'window_ref'  => $wsInfo['window_ref'],
+			'buried_at'   => $buriedAt,
+			'layout'      => $cls['layout'],
+		], JSON_PRETTY_PRINT));
+
+		// Bury each member (per-member gates), deferring the tab close.
+		$buried = 0; $failed = 0;
+		foreach ($cls['members'] as $m) {
+			$sid = $m['session_id'];
+			$fresh = $this->resolveLiveBySessionId($sid);
+			if (!$fresh) { $this->cli->msg("  {$sid} is gone — skipping.", 'yellow'); $failed++; continue; }
+			$fresh['group_pos'] = $m['group_pos'];
+			$grp = ['group_id' => $group, 'group_title' => $wsTitle, 'group_pos' => $m['group_pos']];
+			if ($this->buryOne($fresh, $force, true, $grp, true)) { $buried++; }
+			else { $failed++; }
+		}
+
+		// Close the workspace only if everything was clean; otherwise close just the
+		// buried members' surfaces + non-claude surfaces, leaving anything still alive.
+		if ($failed === 0 && !$cls['untargetable']) {
+			$this->closeWorkspace($wsRef);
+		} else {
+			foreach ($cls['layout'] as $e) {
+				if ($e['kind'] === 'claude-untargetable') { continue; }
+				if ($e['kind'] === 'claude') { continue; } // already killed; its surface closes when shell exits
+				$this->cli->getCommandOutputAndExitCode('cmux close-surface --surface ' . escapeshellarg($e['ref']));
+			}
+			$this->cli->msg('  Workspace left open (some surfaces preserved).', 'yellow');
+		}
+
+		$this->cli->successMsg("Buried workspace \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
+	}
+
 	public function listTombstones(): void {
 		$tombs = $this->readIndex()['tombstones'] ?? [];
 		if (!$tombs) { $this->cli->msg('Graveyard is empty.', 'yellow'); return; }
 		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
-		foreach ($tombs as $t) {
-			$id = substr($t['session_id'], 0, 8);
-			$this->cli->msg(sprintf(
-				"%s  %-24.24s  %-10.10s  %s",
-				$id, $t['workspace_title'] ?: '(untitled)', substr($t['buried_at'] ?? '', 0, 10), $t['summary'] ?? ''
-			));
+
+		// Grouped view: workspace groups first (header + members), then loose tombstones.
+		[$groups, $loose] = $this->groupTombstones($tombs);
+		foreach ($groups as $gid => $members) {
+			$title = $members[0]['group_title'] ?? '(workspace)';
+			$this->cli->msg(sprintf('▸ workspace "%s"  group %s  %s  (%d session%s)',
+				$title, substr($gid, 0, 8), substr($members[0]['buried_at'] ?? '', 0, 10),
+				count($members), count($members) === 1 ? '' : 's'), 'green');
+			$this->cli->msg('  resurrect: graveyard resurrect --workspace ' . substr($gid, 0, 8), 'cyan');
+			foreach ($members as $t) {
+				$this->cli->msg('    ' . $this->tombstoneLine($t));
+			}
+		}
+		foreach ($loose as $t) {
+			$this->cli->msg($this->tombstoneLine($t));
 			$this->cli->msg("          cwd: " . ($t['cwd'] ?? ''), 'cyan');
 		}
+	}
+
+	/** PURE: split tombstones into [group_id => members[], loose[]], preserving order. */
+	public function groupTombstones(array $tombs): array {
+		$groups = [];
+		$loose  = [];
+		foreach ($tombs as $t) {
+			$gid = $t['group_id'] ?? null;
+			if ($gid) { $groups[$gid][] = $t; }
+			else { $loose[] = $t; }
+		}
+		foreach ($groups as &$members) {
+			usort($members, fn($a, $b) => ($a['group_pos'] ?? 0) <=> ($b['group_pos'] ?? 0));
+		}
+		unset($members);
+		return [$groups, $loose];
+	}
+
+	/** PURE: one-line tombstone summary. */
+	public function tombstoneLine(array $t): string {
+		return sprintf('%s  %-24.24s  %-10.10s  %s',
+			substr($t['session_id'], 0, 8),
+			$t['workspace_title'] ?: '(untitled)',
+			substr($t['buried_at'] ?? '', 0, 10),
+			$t['summary'] ?? '');
 	}
 
 	public function resolveTombstone(string $prefix): ?array {
@@ -517,44 +757,99 @@ class Graveyard {
 		$title = $t['workspace_title'] ?: 'resurrected';
 		$cwd   = $t['cwd'] ?? '';
 		$ws = $this->cmux->newWorkspace($title, $cwd ?: null);
-		$surfRef = $ws['firstSurfRef'];
-		$wsRef   = $ws['ref'];
 
-		$buildLaunch = function (string $base) use ($t): string {
-			$launch = $base;
-			if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
-			if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
-			return $launch;
-		};
+		$mode = $this->launchSessionIntoSurface($t, $ws['firstSurfRef'], $ws['ref'], $fromTranscript);
+		$note = $mode === 'resume' ? 'via --resume (restored in place)' : 'Claude is reading the transcript';
+		$this->cli->successMsg("Resurrected '{$title}' in {$ws['ref']} — {$note}.");
+	}
 
-		$useResume = !$fromTranscript && $hasJsonl;
+	/**
+	 * Launch a buried session into an existing cmux surface: --resume when the live
+	 * JSONL still exists (unless $fromTranscript), else restart Claude and point it at
+	 * the exported transcript. Returns 'resume' or 'transcript'. Shared by single- and
+	 * workspace-resurrect so both restore members identically.
+	 */
+	protected function launchSessionIntoSurface(array $t, string $surfRef, string $wsRef, bool $fromTranscript): string {
+		$jsonl      = $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
+		$transcript = $this->transcriptPath($t['session_id']);
+		$useResume  = !$fromTranscript && is_file($jsonl);
 
 		if ($useResume) {
-			// The live JSONL still exists — restore the session as-was via --resume.
 			$launch = $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
 			$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
 			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
-			$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} via --resume (restored in place).");
-			return;
+			return 'resume';
 		}
 
-		// Fall back to the read-the-transcript restart — either the JSONL is
-		// gone (GC'd), or --from-transcript forced this path.
-		if (!$hasTranscript) {
-			$this->cli->exitErr("Neither live JSONL nor exported transcript available for {$t['session_id']} — cannot resurrect.");
-		}
-
-		$launch = $buildLaunch('claude');
+		$launch = 'claude';
+		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
+		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
 		$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
 		sleep(3); // let the REPL come up
-
-		$preamble = 'Resuming a buried session. Read ' . $transcript
-			. ' — that is a transcript of where we left off. Re-orient from it, then continue.';
-		$this->cmux->sendToSurface($surfRef, $wsRef, $preamble);
+		$this->cmux->sendToSurface($surfRef, $wsRef,
+			'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.');
 		$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
+		return 'transcript';
+	}
 
-		$note = ($fromTranscript && $hasJsonl) ? ' (forced transcript mode)' : '';
-		$this->cli->successMsg("Resurrected '{$title}' in {$wsRef} — Claude is reading the transcript.{$note}");
+	/** Resolve a group id by exact or prefix match over stored workspace manifests. */
+	public function resolveGroup(string $prefix): ?array {
+		$root = $this->storeRoot() . '/workspaces';
+		if (!is_dir($root)) { return null; }
+		$matches = [];
+		foreach (glob($root . '/*/manifest.json') ?: [] as $mf) {
+			$gid = basename(dirname($mf));
+			if ($gid === $prefix || str_starts_with($gid, $prefix)) {
+				$m = json_decode((string) @file_get_contents($mf), true);
+				if ($m) { $matches[] = $m; }
+			}
+		}
+		if (count($matches) === 1) { return $matches[0]; }
+		if (count($matches) > 1) {
+			$this->cli->err("Ambiguous group '{$prefix}' — matches " . count($matches) . ' workspaces.');
+		}
+		return null;
+	}
+
+	public function resurrectWorkspace(string $prefix, bool $fromTranscript = false): void {
+		$m = $this->resolveGroup($prefix);
+		if (!$m) { $this->cli->exitErr("No single workspace group matches '{$prefix}'."); return; }
+
+		$layout = $m['layout'] ?? [];
+		if (!$layout) { $this->cli->exitErr('Manifest has no layout to restore.'); return; }
+
+		// Member tombstones by session id (for resume metadata).
+		$tombBySid = [];
+		foreach ($this->readIndex()['tombstones'] ?? [] as $t) {
+			if (!empty($t['group_id']) && $t['group_id'] === $m['group_id']) { $tombBySid[$t['session_id']] = $t; }
+		}
+
+		$firstCwd = $layout[0]['cwd'] ?? null;
+		$ws = $this->cmux->newWorkspace($m['group_title'] ?: 'resurrected', $firstCwd);
+		$wsRef = $ws['ref'];
+
+		$restored = 0;
+		foreach ($layout as $i => $e) {
+			// First layout slot reuses the workspace's initial surface; the rest are new tabs.
+			if ($i === 0) {
+				$surfRef = $ws['firstSurfRef'];
+			} else {
+				$surfRef = $this->cmux->createSurface($wsRef, null, $e['type'] === 'browser' ? 'browser' : 'terminal', $e['url'] ?? null);
+				if (!$surfRef) { $this->cli->msg("  Could not create surface for slot {$i} — skipping.", 'yellow'); continue; }
+			}
+
+			if ($e['kind'] === 'claude' && !empty($e['claude_session_id']) && isset($tombBySid[$e['claude_session_id']])) {
+				$mode = $this->launchSessionIntoSurface($tombBySid[$e['claude_session_id']], $surfRef, $wsRef, $fromTranscript);
+				$this->cli->msg('  ↺ ' . substr($e['claude_session_id'], 0, 8) . " ({$mode})", 'green');
+				$restored++;
+			} elseif ($e['kind'] === 'browser') {
+				// url already applied at surface creation
+			} elseif (!empty($e['cwd'])) {
+				$this->cmux->sendToSurface($surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
+			}
+		}
+
+		$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s — %d Claude session(s) restored.', $m['group_title'], $wsRef, $restored));
 	}
 
 	/**

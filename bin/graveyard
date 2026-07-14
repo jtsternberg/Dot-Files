@@ -39,6 +39,7 @@ $helpyHelperton
 		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
+		'bury --workspace <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force.',
 		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
 		'-y'              => 'Skip confirmations',
 		'candidates [--porcelain]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated, agent-readable)',
@@ -46,6 +47,7 @@ $helpyHelperton
 		'ls'              => 'List buried sessions',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id>'     => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript',
+		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 	]);
 
@@ -64,7 +66,12 @@ $sub = $cli->getArg(1);
 
 switch ($sub) {
 	case 'bury':
-		if ($cli->hasFlag('idle')) {
+		if ($cli->hasFlag('workspace')) {
+			$ws = (string) $cli->getFlag('workspace');
+			if ($ws === '') { $ws = (string) $cli->getArg(2); } // supports "--workspace <name>" (space form)
+			if ($ws === '') { $cli->exitErr('Usage: graveyard bury --workspace <name|ref>'); }
+			$gy->buryWorkspace($ws, $cli->hasFlag('force'), $cli->isAutoconfirm());
+		} elseif ($cli->hasFlag('idle')) {
 			$dur = (string) $cli->getFlag('idle');
 			if ($dur === '') { $dur = (string) $cli->getArg(2); } // supports "--idle 15s" (space-separated)
 			if ($dur === '') { $cli->exitErr('Usage: graveyard bury --idle <dur>  (e.g. --idle=2d)'); }
@@ -93,7 +100,16 @@ switch ($sub) {
 	case '_preview':   $gy->printPreview((string) $cli->getArg(2)); break;
 	case 'ls':        $gy->listTombstones(); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
-	case 'resurrect': $gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript')); break;
+	case 'resurrect':
+		if ($cli->hasFlag('workspace')) {
+			$g = (string) $cli->getFlag('workspace');
+			if ($g === '') { $g = (string) $cli->getArg(2); }
+			if ($g === '') { $cli->exitErr('Usage: graveyard resurrect --workspace <group>'); }
+			$gy->resurrectWorkspace($g, $cli->hasFlag('from-transcript'));
+		} else {
+			$gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript'));
+		}
+		break;
 	default:
 		$cli->msg($helpyHelperton->getHelp());
 		exit($sub ? 1 : 0);
