@@ -335,29 +335,6 @@ class Graveyard {
 		return mb_strpos($hay, $needle) !== false;
 	}
 
-	/** Raw first meaningful user text (pre-summary) for a session's JSONL, for gate-2 matching. */
-	public function firstMeaningfulUserText(string $sessionId, string $cwd): string {
-		$jsonl = $this->cmux->jsonlPathFor($sessionId, $cwd);
-		if (!is_file($jsonl)) { return ''; }
-		$fh = fopen($jsonl, 'r');
-		while (($line = fgets($fh)) !== false) {
-			$e = json_decode($line, true);
-			if (($e['type'] ?? '') !== 'user') { continue; }
-			$content = $e['message']['content'] ?? '';
-			if (is_array($content)) {
-				$t = '';
-				foreach ($content as $c) { if (($c['type'] ?? '') === 'text') { $t = $c['text']; break; } }
-				$content = $t;
-			}
-			if (is_string($content) && $this->summarizeUserText($content) !== '') {
-				fclose($fh);
-				return trim(mb_substr($content, 0, 200));
-			}
-		}
-		fclose($fh);
-		return '';
-	}
-
 	public function teardown(array $sess): bool {
 		$wsRef  = $sess['workspace_ref'] ?? '';
 		$target = $sess['session_id'] ?? '';
@@ -456,17 +433,18 @@ class Graveyard {
 		}
 
 		// GATE 2 (post-export, pre-teardown): confirm the exported transcript actually
-		// belongs to the target before anything destructive. The transcript is already
-		// safe on disk, so a mismatch aborts teardown (session left ALIVE) rather than
-		// risking a kill of the wrong session.
-		$firstPrompt = $this->firstMeaningfulUserText((string) $sess['session_id'], (string) $sess['cwd']);
-		$exported    = (string) @file_get_contents($this->transcriptPath($sess['session_id']));
-		if (!$this->transcriptMatchesSession($exported, $firstPrompt)) {
-			$this->cli->err("  Refusing to tear down {$id} (gate 2): exported transcript does not match this session's first prompt — leaving it ALIVE (transcript kept for inspection).");
+		// belongs to the target before anything destructive. The needle is the session's
+		// derived summary — the SAME first meaningful turn deriveSummary() pulls from the
+		// JSONL, tag-stripped so it matches how /export renders it (a slash-command turn
+		// renders as "/foo", not the raw <command-*> tags). The transcript is already
+		// safe on disk, so a mismatch aborts teardown (session left ALIVE).
+		$summary  = $this->deriveSummary($sess);
+		$exported = (string) @file_get_contents($this->transcriptPath($sess['session_id']));
+		if (!$this->transcriptMatchesSession($exported, $summary)) {
+			$this->cli->err("  Refusing to tear down {$id} (gate 2): exported transcript does not match this session's first turn — leaving it ALIVE (transcript kept for inspection).");
 			return false;
 		}
 
-		$summary = $this->deriveSummary($sess);
 		$tomb = $this->buildTombstone($sess, [
 			'workspace_title' => $sess['workspace_title'],
 			'tab_title'       => $sess['tab_title'],

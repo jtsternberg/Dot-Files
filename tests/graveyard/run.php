@@ -279,6 +279,9 @@ ok($gy->statuslineMatchesSession('a plain shell prompt $', '/Users/JT/Code/asana
 ok($gy->transcriptMatchesSession("… conversation …\n> Fix the login bug now\n…", 'Fix the login bug now') === true, 'gate2: matching first prompt passes');
 ok($gy->transcriptMatchesSession("some other session entirely", 'Fix the login bug now') === false, 'gate2: mismatched transcript blocks');
 ok($gy->transcriptMatchesSession("anything", '') === true, 'gate2: empty needle cannot assert (no block)');
+// gate2: a slash-command session's needle is the tag-stripped summary ("/foo"), which is
+// how /export renders it — must match (regression: raw <command-*> tags never appear rendered).
+ok($gy->transcriptMatchesSession("❯ /monorepo-address-pr-review\n  ⎿ …", '/monorepo-address-pr-review') === true, 'gate2: slash-command summary needle matches rendered transcript');
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
