@@ -1,8 +1,6 @@
 {
-  "database": "beads_dotfiles",
+  "database": "dolt",
   "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_database": "beads_dotfiles",
-  "server_host": "127.0.0.1",
-  "project_id": "9049d4b3-459e-40a5-a861-b4003169c479"
+  "dolt_mode": "embedded",
+  "dolt_database": "dotfiles"
 }
