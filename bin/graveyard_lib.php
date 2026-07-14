@@ -545,16 +545,24 @@ class Graveyard {
 					'claude_session_id' => null,
 				];
 
+				// A non-terminal, non-browser surface is a cmux-native agent session
+				// (e.g. type "agentSession", the React Claude UI). It has no tty for the
+				// join/statusline machinery, so it can never be a bound member — but it
+				// IS Claude, so treat it as claude (untargetable) to force an abort rather
+				// than silently closing it as if it were a shell.
+				$claudeSurface = $isClaude || ($type !== 'terminal' && $type !== 'browser');
+
 				if ($type === 'browser') {
 					$entry['kind'] = 'browser';
-				} elseif ($isClaude && $row && ($row['targetable'] ?? false)) {
+				} elseif ($claudeSurface && $row && ($row['targetable'] ?? false)) {
 					$entry['kind'] = 'claude';
 					$entry['claude_session_id'] = $row['session_id'];
 					$m = $row; $m['group_pos'] = $pos;
 					$members[] = $m;
-				} elseif ($isClaude) {
-					// A Claude REPL that the join could not bind to a targetable session
-					// (fresh/non-resumed, or ambiguous). Detected, not buryable.
+				} elseif ($claudeSurface) {
+					// A Claude surface the join could not bind to a targetable session
+					// (fresh/non-resumed, ambiguous, or a native agent session). Detected,
+					// not buryable → forces abort (unless --force skips it, alive).
 					$entry['kind'] = 'claude-untargetable';
 					$untargetable[] = ['ref' => $ref, 'title' => $surf['title'] ?? ''];
 				}

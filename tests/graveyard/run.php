@@ -350,6 +350,14 @@ $kinds = array_column($c['layout'], 'kind');
 ok($kinds === ['claude', 'claude-untargetable', 'shell', 'browser'], 'classify: per-surface kinds correct');
 ok($c['layout'][3]['url'] === 'https://x', 'classify: browser url recorded');
 
+// classify: a cmux-native agentSession surface (no tty, not in isClaudeByRef) must be
+// treated as Claude (untargetable → abort), NEVER as a shell that gets silently closed.
+$wsAgent = ['panes' => [['index' => 0, 'surfaces' => [
+	['ref' => 'surface:9', 'type' => 'agentSession', 'title' => 'Claude Code · React', 'index_in_pane' => 0],
+]]]];
+$ca = $gy->classifyWorkspaceLayout($wsAgent, [], []); // note: not in isClaudeByRef
+ok(count($ca['untargetable']) === 1 && $ca['layout'][0]['kind'] === 'claude-untargetable', 'classify: agentSession → claude-untargetable (never shell)');
+
 // groupTombstones + tombstoneLine
 $ts = [
 	['session_id' => 'aaaa1111', 'group_id' => 'g1', 'group_pos' => 1, 'group_title' => 'ws', 'buried_at' => '2026-07-14', 'workspace_title' => 'ws', 'summary' => 's2'],
