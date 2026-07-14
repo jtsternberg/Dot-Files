@@ -171,6 +171,12 @@ class Graveyard {
 				'reason'          => $j['reason'],
 			];
 		}
+
+		// Second pass (dotfiles-c15): content-probe fallback for Claude sessions the
+		// ancestry join left unbound (fresh / non-cmux-resumed). Bind each to a still-
+		// unbound terminal surface by matching its on-screen statusline cwd, uniquely.
+		$out = $this->bindUnresolvedByContentProbe($out, $debug, $treeIx);
+
 		return $this->dedupBySessionId($out);
 	}
 
@@ -197,6 +203,53 @@ class Graveyard {
 			}
 		}
 		return $ix;
+	}
+
+	/**
+	 * I/O wrapper for the content-probe fallback (dotfiles-c15). Finds Claude sessions
+	 * the ancestry join left unbound (reason "no resume-script ancestor"), reads each
+	 * still-unbound terminal surface's screen, and upgrades a row to targetable when
+	 * contentProbeBind() finds it a unique cwd match.
+	 */
+	protected function bindUnresolvedByContentProbe(array $rows, array $debug, array $treeIx): array {
+		$bound = [];
+		$fresh = [];
+		foreach ($rows as $i => $r) {
+			if ($r['targetable']) { if ($r['surface_ref'] !== '') { $bound[$r['surface_ref']] = true; } continue; }
+			if (strpos((string) $r['reason'], 'no resume-script') === 0) {
+				$r['_i'] = $i;
+				$r['tty'] = $this->cmux->getTtyForPid((int) $r['pid']) ?: ($r['tty'] ?? '');
+				$fresh[] = $r;
+			}
+		}
+		if (!$fresh) { return $rows; }
+
+		// Candidate surfaces: terminal surfaces (debug-terminals lists only these) not
+		// already claimed by a deterministic bind.
+		$unbound = [];
+		$screenByRef = [];
+		foreach ($debug as $ref => $d) {
+			if (isset($bound[$ref])) { continue; }
+			$unbound[$ref] = ['tty' => $d['tty'] ?? '', 'workspace_ref' => $d['workspace_ref'] ?? ''];
+			$screenByRef[$ref] = $this->readLastScreen($ref, $d['workspace_ref'] ?? '', 8);
+		}
+
+		$binds = $this->contentProbeBind($fresh, $unbound, $screenByRef);
+		foreach ($fresh as $r) {
+			$ref = $binds[$r['session_id']] ?? null;
+			if (!$ref) { continue; }
+			$wref = $unbound[$ref]['workspace_ref'] ?? '';
+			$i = $r['_i'];
+			$rows[$i]['surface_ref']     = $ref;
+			$rows[$i]['surface_id']      = $treeIx['surface'][$ref]['id'] ?? $ref;
+			$rows[$i]['workspace_ref']   = $wref;
+			$rows[$i]['workspace_title'] = $treeIx['workspace'][$wref] ?? '';
+			$rows[$i]['tab_title']       = $treeIx['surface'][$ref]['title'] ?? '';
+			$rows[$i]['tty']             = $unbound[$ref]['tty'] ?? '';
+			$rows[$i]['targetable']      = true;
+			$rows[$i]['reason']          = 'bound via content-probe (fresh session)';
+		}
+		return $rows;
 	}
 
 	/**
@@ -332,6 +385,41 @@ class Graveyard {
 		$tok  = '/' . ltrim($tok, '/');
 		$full = '/' . ltrim(rtrim($sessionCwd, '/'), '/');
 		return basename($full) === basename($tok) || str_ends_with($full, $tok);
+	}
+
+	/**
+	 * PURE. Content-probe fallback binding (dotfiles-c15). For Claude sessions the
+	 * ancestry join could not bind (fresh / non-cmux-resumed), match each to a still-
+	 * unbound terminal surface by reading its on-screen statusline cwd. A session binds
+	 * only when EXACTLY ONE unclaimed surface matches its cwd (ties broken by OS tty);
+	 * anything ambiguous stays unbound — never a guess.
+	 *
+	 * @param array $freshRows        rows to try to bind: [session_id, cwd, tty]
+	 * @param array $unboundSurfaces  [surface_ref => ['tty'=>debug_tty,'workspace_ref'=>..]]
+	 * @param array $screenByRef      [surface_ref => last-screen text]
+	 * @return array [session_id => surface_ref] for unambiguous binds
+	 */
+	public function contentProbeBind(array $freshRows, array $unboundSurfaces, array $screenByRef): array {
+		$binds = [];
+		$claimed = [];
+		foreach ($freshRows as $r) {
+			$cands = [];
+			foreach (array_keys($unboundSurfaces) as $ref) {
+				if (isset($claimed[$ref])) { continue; }
+				if ($this->statuslineMatchesSession($screenByRef[$ref] ?? '', (string) ($r['cwd'] ?? ''))) {
+					$cands[] = $ref;
+				}
+			}
+			if (count($cands) > 1 && !empty($r['tty'])) {
+				$tied = array_values(array_filter($cands, fn($ref) => ($unboundSurfaces[$ref]['tty'] ?? '') === $r['tty']));
+				if (count($tied) === 1) { $cands = $tied; }
+			}
+			if (count($cands) === 1) {
+				$binds[$r['session_id']] = $cands[0];
+				$claimed[$cands[0]] = true;
+			}
+		}
+		return $binds;
 	}
 
 	/**

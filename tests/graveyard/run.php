@@ -369,5 +369,40 @@ ok(count($groups['g1']) === 2 && count($loose) === 1, 'groupTombstones: splits g
 ok($groups['g1'][0]['session_id'] === 'bbbb2222', 'groupTombstones: members sorted by group_pos');
 ok(strpos($gy->tombstoneLine($ts[2]), 'cccc3333') === 0, 'tombstoneLine: starts with short id');
 
+// ---------------------------------------------------------------------------
+// contentProbeBind fallback (dotfiles-c15)
+// ---------------------------------------------------------------------------
+$fresh = [
+	['session_id' => 'f-1', 'cwd' => '/Users/JT/Code/asana-cli', 'tty' => 'ttys010'],
+	['session_id' => 'f-2', 'cwd' => '/Users/JT/Boss', 'tty' => 'ttys011'],
+];
+$unbound = [
+	'surface:1' => ['tty' => 'ttys010'],
+	'surface:2' => ['tty' => 'ttys011'],
+	'surface:3' => ['tty' => 'ttys012'],
+];
+$screens = [
+	'surface:1' => '… 📁 /asana-cli | 🌿 main',
+	'surface:2' => '… 📁 /Boss | 🌿 main',
+	'surface:3' => 'plain shell $',
+];
+$b = $gy->contentProbeBind($fresh, $unbound, $screens);
+ok(($b['f-1'] ?? null) === 'surface:1' && ($b['f-2'] ?? null) === 'surface:2', 'contentProbeBind: unique cwd matches bind');
+
+// ambiguous: two surfaces show the same cwd → no bind unless tty breaks the tie
+$fresh2 = [['session_id' => 'f-3', 'cwd' => '/Users/JT/Code/asana-cli', 'tty' => 'ttysZZ']];
+$unbound2 = ['surface:1' => ['tty' => 'ttysAA'], 'surface:2' => ['tty' => 'ttysBB']];
+$screens2 = ['surface:1' => '📁 /asana-cli', 'surface:2' => '📁 /asana-cli'];
+ok($gy->contentProbeBind($fresh2, $unbound2, $screens2) === [], 'contentProbeBind: ambiguous cwd (no tty match) → no bind');
+
+// tty tiebreak: same cwd on two surfaces, session tty matches exactly one
+$fresh3 = [['session_id' => 'f-4', 'cwd' => '/x', 'tty' => 'ttysBB']];
+$unbound3 = ['surface:1' => ['tty' => 'ttysAA'], 'surface:2' => ['tty' => 'ttysBB']];
+$screens3 = ['surface:1' => '📁 /x', 'surface:2' => '📁 /x'];
+ok(($gy->contentProbeBind($fresh3, $unbound3, $screens3)['f-4'] ?? null) === 'surface:2', 'contentProbeBind: tty breaks a cwd tie');
+
+// no surface matches → no bind
+ok($gy->contentProbeBind([['session_id' => 'f-5', 'cwd' => '/nope', 'tty' => 't']], $unbound, $screens) === [], 'contentProbeBind: no cwd match → no bind');
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
