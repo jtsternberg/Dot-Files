@@ -146,10 +146,13 @@ ok(count($deduped) === 2, 'dedupBySessionId returns 2 rows');
 ok($deduped[0]['tab_title'] === 'first', 'dedupBySessionId keeps first row for duplicate session_id');
 
 // formatCandidatePorcelain: pure tab-separated formatter
-$idleRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'workspace_title' => 'proj', 'cwd' => '/x'];
-ok($gy->formatCandidatePorcelain($idleRow) === "abc\t3600\tidle\tproj\t/x", 'formatCandidatePorcelain idle row');
-$busyRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => true, 'workspace_title' => 'proj', 'cwd' => '/x'];
-ok($gy->formatCandidatePorcelain($busyRow) === "abc\t3600\tbusy\tproj\t/x", 'formatCandidatePorcelain busy row');
+// Columns: session_id, idle, busy|idle, targetable|UNTARGETABLE, workspace_title, cwd, reason
+$idleRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'targetable' => true, 'reason' => '', 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($idleRow) === "abc\t3600\tidle\ttargetable\tproj\t/x\t", 'formatCandidatePorcelain idle row');
+$busyRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => true, 'targetable' => true, 'reason' => '', 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($busyRow) === "abc\t3600\tbusy\ttargetable\tproj\t/x\t", 'formatCandidatePorcelain busy row');
+$untRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'targetable' => false, 'reason' => 'collision', 'workspace_title' => 'proj', 'cwd' => '/x'];
+ok($gy->formatCandidatePorcelain($untRow) === "abc\t3600\tidle\tUNTARGETABLE\tproj\t/x\tcollision", 'formatCandidatePorcelain untargetable row');
 
 // buryIds([]) is a clean no-op (guard) — should not throw
 $threwBuryIds = false;
@@ -191,6 +194,91 @@ ok($gy->parseReplSelection('1 3 5', 5) === [0, 2, 4], 'parseReplSelection: simpl
 ok($gy->parseReplSelection('2-4', 5) === [1, 2, 3], 'parseReplSelection: range');
 ok($gy->parseReplSelection('1 1 2-3', 5) === [0, 1, 2], 'parseReplSelection: dedup + mixed tokens/range');
 ok($gy->parseReplSelection('9 1', 5) === [0], 'parseReplSelection: out-of-range token ignored');
+
+// ---------------------------------------------------------------------------
+// Deterministic session<->surface join (dotfiles-yt2) + verify gates (dotfiles-4ur)
+// ---------------------------------------------------------------------------
+
+// parseProcTable
+$psRaw = "  PID  PPID COMMAND\n"
+	. "  100     1 /usr/bin/login -flp JT /bin/bash --noprofile --norc -c exec -l /bin/zsh '/tmp/cmux-surface-resume/claude-UUID1.zsh'\n"
+	. "  200   100 -/bin/zsh /tmp/cmux-surface-resume/claude-UUID1.zsh\n"
+	. "  300   200 /opt/homebrew/bin/claude --resume 11111111-1111-1111-1111-111111111111 --dangerously-skip-permissions\n"
+	. "  400     1 /usr/bin/login -flp JT /bin/bash -c exec -l /bin/zsh '/tmp/cmux-agent-resume/claude-22222222-abc-UUID2.zsh'\n"
+	. "  500   400 /opt/homebrew/bin/claude --resume 22222222-2222-2222-2222-222222222222\n";
+$proc = $cmux->parseProcTable($psRaw);
+ok(isset($proc[300]) && $proc[300]['ppid'] === 200, 'parseProcTable: pid/ppid parsed');
+ok($cmux->isClaudeCommand($proc[300]['cmd']) === true, 'isClaudeCommand: true for claude binary');
+ok($cmux->isClaudeCommand($proc[200]['cmd']) === false, 'isClaudeCommand: false for zsh running claude-*.zsh');
+ok($cmux->descendantClaudePid($proc, 100) === 300, 'descendantClaudePid: finds claude under login/zsh');
+ok($cmux->descendantPids($proc, 100) === [100, 200, 300] || $cmux->descendantPids($proc, 100) == [100,200,300], 'descendantPids: whole subtree');
+ok($cmux->ancestorResumeScript($proc, 300) === 'claude-UUID1.zsh', 'ancestorResumeScript: walks up to resume script');
+ok($cmux->claudeResumeArg($proc[300]['cmd']) === '11111111-1111-1111-1111-111111111111', 'claudeResumeArg: extracts --resume id');
+ok($cmux->claudeResumeArg('/opt/homebrew/bin/claude') === null, 'claudeResumeArg: null when no --resume');
+
+// parseDebugTerminals
+$dtRaw = "[0] surface:59 \"lg\" mapped=1 tree=1 window=window:2 workspace=workspace:22 pane=pane:38 ctx=split\n"
+	. "    runtime=1 focused=0\n"
+	. "    tty=ttys052 cwd=/Users/JT/Code/asana-cli branch=main* ports=[]\n"
+	. "    created=1s initialCommand=/bin/zsh '/tmp/cmux-surface-resume/claude-UUID1.zsh' portalHost=nil\n"
+	. "[1] surface:70 \"other\" mapped=1 tree=1 window=window:1 workspace=workspace:9 pane=pane:5 ctx=split\n"
+	. "    tty=ttys052 cwd=/Users/JT/Boss branch=nil ports=[]\n"
+	. "    created=2s initialCommand=/bin/zsh '/tmp/cmux-agent-resume/claude-22222222-abc-UUID2.zsh' portalHost=nil\n";
+$dbg = $cmux->parseDebugTerminals($dtRaw);
+ok(isset($dbg['surface:59']) && $dbg['surface:59']['tty'] === 'ttys052', 'parseDebugTerminals: tty');
+ok($dbg['surface:59']['cwd'] === '/Users/JT/Code/asana-cli', 'parseDebugTerminals: cwd');
+ok($dbg['surface:59']['workspace_ref'] === 'workspace:22', 'parseDebugTerminals: workspace ref');
+ok($dbg['surface:59']['script'] === 'claude-UUID1.zsh', 'parseDebugTerminals: resume script');
+ok($dbg['surface:70']['script'] === 'claude-22222222-abc-UUID2.zsh', 'parseDebugTerminals: agent-resume script');
+
+// joinSessionsToSurfaces — the core fix. Two surfaces share tty ttys052; join must
+// bind each session to the RIGHT surface via ancestry, not tty.
+$sessions = [
+	300 => ['session_id' => '11111111-1111-1111-1111-111111111111', 'cwd' => '/Users/JT/Code/asana-cli', 'model' => 'opus', 'skip_perms' => true],
+	500 => ['session_id' => '22222222-2222-2222-2222-222222222222', 'cwd' => '/Users/JT/Boss', 'model' => null, 'skip_perms' => false],
+];
+$joined = $cmux->joinSessionsToSurfaces($sessions, $proc, $dbg);
+$bySid = [];
+foreach ($joined as $r) { $bySid[$r['session_id']] = $r; }
+ok($bySid['11111111-1111-1111-1111-111111111111']['surface_ref'] === 'surface:59', 'join: session bound to correct surface via ancestry (not tty)');
+ok($bySid['11111111-1111-1111-1111-111111111111']['targetable'] === true, 'join: unambiguous session is targetable');
+ok($bySid['11111111-1111-1111-1111-111111111111']['pid'] === 300, 'join: pid is the claude pid');
+ok($bySid['22222222-2222-2222-2222-222222222222']['surface_ref'] === 'surface:70', 'join: second session -> its own surface');
+
+// join: --resume mismatch => untargetable
+$badProc = $proc;
+$badProc[300]['cmd'] = '/opt/homebrew/bin/claude --resume 99999999-9999-9999-9999-999999999999';
+$joinedBad = $cmux->joinSessionsToSurfaces($sessions, $badProc, $dbg);
+$badRow = null; foreach ($joinedBad as $r) { if ($r['session_id'] === '11111111-1111-1111-1111-111111111111') { $badRow = $r; } }
+ok($badRow['targetable'] === false && str_contains($badRow['reason'], '--resume'), 'join: --resume mismatch marks untargetable');
+
+// join: shared resume script (two surfaces, same script) => ambiguous/untargetable
+$dupDbg = $dbg;
+$dupDbg['surface:70']['script'] = 'claude-UUID1.zsh';
+$joinedDup = $cmux->joinSessionsToSurfaces($sessions, $proc, $dupDbg);
+$dupRow = null; foreach ($joinedDup as $r) { if ($r['session_id'] === '11111111-1111-1111-1111-111111111111') { $dupRow = $r; } }
+ok($dupRow['targetable'] === false && str_contains($dupRow['reason'], 'ambiguous'), 'join: script shared by >1 surface -> untargetable');
+
+// treeIndex
+$tree = ['windows' => [['workspaces' => [
+	['ref' => 'workspace:22', 'title' => 'asana', 'panes' => [['surfaces' => [
+		['ref' => 'surface:59', 'id' => 'UUID-59', 'title' => 'lg'],
+	]]]],
+]]]];
+$ix = $gy->treeIndex($tree);
+ok($ix['workspace']['workspace:22'] === 'asana', 'treeIndex: workspace title');
+ok($ix['surface']['surface:59']['id'] === 'UUID-59', 'treeIndex: surface id');
+
+// GATE 1: statusline cwd match
+ok($gy->extractStatuslineCwd('foo 📁 /asana-cli | 🌿 main') === '/asana-cli', 'extractStatuslineCwd');
+ok($gy->statuslineMatchesSession('… 📁 /asana-cli | 🌿 main', '/Users/JT/Code/asana-cli') === true, 'gate1: basename match passes');
+ok($gy->statuslineMatchesSession('… 📁 /Boss', '/Users/JT/Code/asana-cli') === false, 'gate1: cwd mismatch blocks');
+ok($gy->statuslineMatchesSession('a plain shell prompt $', '/Users/JT/Code/asana-cli') === false, 'gate1: no REPL statusline blocks');
+
+// GATE 2: transcript belongs to session
+ok($gy->transcriptMatchesSession("… conversation …\n> Fix the login bug now\n…", 'Fix the login bug now') === true, 'gate2: matching first prompt passes');
+ok($gy->transcriptMatchesSession("some other session entirely", 'Fix the login bug now') === false, 'gate2: mismatched transcript blocks');
+ok($gy->transcriptMatchesSession("anything", '') === true, 'gate2: empty needle cannot assert (no block)');
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
