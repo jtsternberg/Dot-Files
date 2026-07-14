@@ -126,39 +126,66 @@ class Graveyard {
 	}
 
 	public function liveSessions(): array {
-		$byTty = $this->cmux->loadClaudeSessions();
-		$tree  = $this->cmux->tree();
-		$now   = time();
-		$out   = [];
+		// Deterministic session<->surface join via process ancestry (dotfiles-yt2):
+		// tty numbers are recycled across live surfaces, so a tty join mis-pairs.
+		$sessions = $this->cmux->loadClaudeSessionsByPid();
+		$proc     = $this->cmux->parseProcTable($this->cmux->psProcTable());
+		$debug    = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+		$joined   = $this->cmux->joinSessionsToSurfaces($sessions, $proc, $debug);
 
+		// Tree supplies stable surface UUID + workspace/surface titles, keyed by ref.
+		$treeIx = $this->treeIndex($this->cmux->tree());
+		$now    = time();
+		$out    = [];
+
+		foreach ($joined as $j) {
+			if (!$j['session_id']) { continue; }
+			$ts   = $this->cmux->lastRealActivity($j['session_id'], $j['cwd']);
+			$idle = $ts !== null ? ($now - $ts) : PHP_INT_MAX;
+			$ref  = $j['surface_ref'];
+			$out[] = [
+				'session_id'      => $j['session_id'],
+				'cwd'             => $j['cwd'],
+				'model'           => $j['model'],
+				'skip_perms'      => $j['skip_perms'],
+				'pid'             => $j['pid'],
+				'tty'             => $j['tty'],
+				'surface_ref'     => $ref,
+				'surface_id'      => $treeIx['surface'][$ref]['id'] ?? $ref,
+				'workspace_ref'   => $j['workspace_ref'],
+				'workspace_title' => $treeIx['workspace'][$j['workspace_ref']] ?? '',
+				'tab_title'       => $treeIx['surface'][$ref]['title'] ?? $j['title'],
+				'idle_seconds'    => $idle,
+				'targetable'      => $j['targetable'],
+				'reason'          => $j['reason'],
+			];
+		}
+		return $this->dedupBySessionId($out);
+	}
+
+	/**
+	 * PURE. Index a cmux tree for ref-keyed lookups:
+	 *   ['surface' => [surface_ref => ['id','title']], 'workspace' => [workspace_ref => title]].
+	 */
+	public function treeIndex(array $tree): array {
+		$ix = ['surface' => [], 'workspace' => []];
 		foreach ($tree['windows'] ?? [] as $window) {
 			foreach ($window['workspaces'] ?? [] as $ws) {
+				$wref = $ws['ref'] ?? '';
+				if ($wref) { $ix['workspace'][$wref] = $ws['title'] ?? ''; }
 				foreach ($ws['panes'] ?? [] as $pane) {
 					foreach ($pane['surfaces'] ?? [] as $surf) {
-						$tty = $surf['tty'] ?? '';
-						if (!$tty || empty($byTty[$tty])) { continue; }
-						$sess = $byTty[$tty];
-						$ts   = $this->cmux->lastRealActivity($sess['session_id'], $sess['cwd'] ?? '');
-						$idle = $ts !== null ? ($now - $ts) : PHP_INT_MAX;
-						$out[] = [
-							'session_id'      => $sess['session_id'],
-							'cwd'             => $sess['cwd'] ?? '',
-							'model'           => $sess['model'] ?? null,
-							'skip_perms'      => (bool) ($sess['skip_perms'] ?? false),
-							'pid'             => $sess['pid'] ?? null,
-							'tty'             => $tty,
-							'surface_ref'     => $surf['ref'] ?? '',
-							'surface_id'      => $surf['id'] ?? ($surf['ref'] ?? ''),
-							'workspace_ref'   => $ws['ref'] ?? '',
-							'workspace_title' => $ws['title'] ?? '',
-							'tab_title'       => $surf['title'] ?? '',
-							'idle_seconds'    => $idle,
+						$ref = $surf['ref'] ?? '';
+						if (!$ref) { continue; }
+						$ix['surface'][$ref] = [
+							'id'    => $surf['id'] ?? $ref,
+							'title' => $surf['title'] ?? '',
 						];
 					}
 				}
 			}
 		}
-		return $this->dedupBySessionId($out);
+		return $ix;
 	}
 
 	/**
@@ -191,7 +218,10 @@ class Graveyard {
 		if (file_exists($tmp)) { @unlink($tmp); }
 
 		// /export <path> writes rendered text straight to the file (no dialog when path is writable).
-		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp . "\n");
+		// Inside a running Claude Code TUI a sent "\n" only inserts a newline in the prompt — it does
+		// not submit. Send the command text, then press Return as a real key event to submit it.
+		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp);
+		$this->cmux->sendKeyToSurface($sess['surface_ref'], $sess['workspace_ref'], 'Return');
 
 		$deadline = time() + $timeoutSecs;
 		$lastSize = -1;
@@ -210,6 +240,41 @@ class Graveyard {
 		return false;
 	}
 
+	/**
+	 * PURE: reduce a raw user-message body to a short human summary, or '' if the
+	 * message is noise (empty, a tool/skill wrapper, a local-command dump).
+	 *
+	 * A slash-command invocation — which Claude Code records as
+	 * "<command-message>..</command-message><command-name>/foo</command-name>"
+	 * (optionally with <command-args>) — collapses to "/foo [args]" rather than
+	 * leaking the raw tags into the tombstone summary.
+	 */
+	public function summarizeUserText(string $raw): string {
+		$text = trim($raw);
+		if ($text === '') { return ''; }
+
+		// Slash-command invocation → "/command-name [args]".
+		if (preg_match('#<command-name>\s*/?([^<]+?)\s*</command-name>#i', $text, $m)) {
+			$cmd = '/' . trim($m[1]);
+			if (preg_match('#<command-args>\s*(.*?)\s*</command-args>#is', $text, $a) && trim($a[1]) !== '') {
+				$cmd .= ' ' . trim($a[1]);
+			}
+			return trim(mb_substr(preg_replace('/\s+/', ' ', $cmd), 0, 100));
+		}
+
+		// Machine-generated noise that isn't a human prompt — skip to the next entry.
+		$noisePrefixes = ['<command-message>', '<local-command-stdout>', 'Base directory for this skill:', 'Caveat:'];
+		foreach ($noisePrefixes as $prefix) {
+			if (stripos($text, $prefix) === 0) { return ''; }
+		}
+
+		// Strip any stray tags, collapse whitespace.
+		$clean = trim(preg_replace('/\s+/', ' ', preg_replace('/<[^>]+>/', ' ', $text)));
+		if ($clean === '') { return ''; }
+
+		return mb_substr($clean, 0, 100);
+	}
+
 	public function deriveSummary(array $sess): string {
 		$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
 		if (is_file($jsonl)) {
@@ -219,11 +284,16 @@ class Graveyard {
 				if (($e['type'] ?? '') === 'user') {
 					$content = $e['message']['content'] ?? '';
 					if (is_array($content)) {
-						foreach ($content as $c) { if (($c['type'] ?? '') === 'text') { $content = $c['text']; break; } }
+						$text = '';
+						foreach ($content as $c) { if (($c['type'] ?? '') === 'text') { $text = $c['text']; break; } }
+						$content = $text;
 					}
-					if (is_string($content) && trim($content) !== '') {
-						fclose($fh);
-						return trim(mb_substr(preg_replace('/\s+/', ' ', $content), 0, 100));
+					if (is_string($content)) {
+						$summary = $this->summarizeUserText($content);
+						if ($summary !== '') {
+							fclose($fh);
+							return $summary;
+						}
 					}
 				}
 			}
@@ -234,41 +304,120 @@ class Graveyard {
 		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title)) ?: '(no summary)';
 	}
 
+	/** PURE. The cwd token from a Claude REPL statusline ("📁 /foo"), or null if none. */
+	public function extractStatuslineCwd(string $screen): ?string {
+		return preg_match('/📁\s*(\S+)/u', $screen, $m) ? $m[1] : null;
+	}
+
+	/**
+	 * PURE. GATE 1 predicate: does the on-screen Claude statusline's cwd correspond to
+	 * $sessionCwd? The statusline abbreviates (often just "/basename"), so we accept a
+	 * basename match or a path-suffix match. Returns false when no statusline is found
+	 * (i.e. the surface is not showing a Claude REPL) — that must block the bury.
+	 */
+	public function statuslineMatchesSession(string $screen, string $sessionCwd): bool {
+		$tok = $this->extractStatuslineCwd($screen);
+		if ($tok === null || $sessionCwd === '') { return false; }
+		$tok  = '/' . ltrim($tok, '/');
+		$full = '/' . ltrim(rtrim($sessionCwd, '/'), '/');
+		return basename($full) === basename($tok) || str_ends_with($full, $tok);
+	}
+
+	/**
+	 * PURE. GATE 2 predicate: does an exported transcript belong to the target? Assert
+	 * the session's first meaningful prompt appears in the rendered transcript text
+	 * (whitespace-insensitive). Empty needle → cannot assert → do not block.
+	 */
+	public function transcriptMatchesSession(string $transcriptText, string $firstPrompt): bool {
+		$needle = trim(preg_replace('/\s+/', ' ', mb_substr($firstPrompt, 0, 60)));
+		if ($needle === '') { return true; }
+		$hay = preg_replace('/\s+/', ' ', $transcriptText);
+		return mb_strpos($hay, $needle) !== false;
+	}
+
 	public function teardown(array $sess): bool {
-		$wsRef = $sess['workspace_ref'] ?? '';
+		$wsRef  = $sess['workspace_ref'] ?? '';
+		$target = $sess['session_id'] ?? '';
+		$pid    = (int) ($sess['pid'] ?? 0);
+
+		// GATE 3: only kill a pid whose ~/.claude/sessions/<pid>.json sessionId equals
+		// the target. Never kill by surface/tty membership — recycled ttys mean a tty
+		// can host a different live session. This is the last-line defense that makes a
+		// wrong join non-destructive.
+		if ($pid <= 0) {
+			$this->cli->err('  Teardown aborted: no resolved pid for this session — leaving it ALIVE.');
+			return false;
+		}
+		$pidSid = $this->cmux->sessionIdForPid($pid);
+		if ($pidSid !== $target) {
+			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
+			return false;
+		}
+
+		// Kill the verified claude pid and its descendants (subagents). Freeing that
+		// RAM is the success criterion; the resume wrapper shell exits when claude
+		// does, letting cmux close the surface.
+		$killed = $this->killPidTree($pid);
+
 		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
-
-		if ($count <= 1) {
-			$cmd = 'cmux close-workspace --workspace ' . escapeshellarg($wsRef);
-		} else {
-			$cmd = 'cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']);
-		}
+		$cmd = ($count <= 1)
+			? 'cmux close-workspace --workspace ' . escapeshellarg($wsRef)
+			: 'cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']);
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
-
-		$pid = $sess['pid'] ?? null;
-		if ($pid && $this->cmux->pidIsAlive((int) $pid)) {
-			if (function_exists('posix_kill')) {
-				posix_kill((int) $pid, SIGTERM);
-			} else {
-				$this->cli->runCommand('kill ' . (int) $pid);
-			}
+		if (($res['exitCode'] ?? 1) !== 0) {
+			$this->cli->msg('  (Process terminated, but the now-empty cmux tab lingered — close it manually.)', 'yellow');
 		}
 
-		if ($pid > 0) {
-			$deadline = time() + 3;
-			while (time() < $deadline && $this->cmux->pidIsAlive((int) $pid)) { usleep(200000); }
-			if ($this->cmux->pidIsAlive((int) $pid)) {
-				if (function_exists('posix_kill')) { posix_kill((int) $pid, 9); }
-				else { $this->cli->runCommand('kill -9 ' . (int) $pid); }
-			}
-		}
+		return $killed;
+	}
 
-		return ($res['exitCode'] ?? 1) === 0;
+	/** Kill $pid and its descendants (SIGTERM, then SIGKILL survivors). True if $pid is dead after. */
+	protected function killPidTree(int $pid): bool {
+		if ($pid <= 0) { return false; }
+		$proc = $this->cmux->parseProcTable($this->cmux->psProcTable());
+		$pids = $this->cmux->descendantPids($proc, $pid); // $pid + subagents
+		$this->signalPids($pids, defined('SIGTERM') ? SIGTERM : 15);
+		$deadline = time() + 3;
+		while (time() < $deadline && $this->cmux->pidIsAlive($pid)) { usleep(200000); }
+		if ($this->cmux->pidIsAlive($pid)) {
+			$proc = $this->cmux->parseProcTable($this->cmux->psProcTable());
+			$this->signalPids($this->cmux->descendantPids($proc, $pid), 9);
+		}
+		return !$this->cmux->pidIsAlive($pid);
+	}
+
+	protected function signalPids(array $pids, int $signal): void {
+		foreach ($pids as $pid) {
+			if (function_exists('posix_kill')) { posix_kill((int) $pid, $signal); }
+			else { $this->cli->runCommand('kill -' . $signal . ' ' . (int) $pid); }
+		}
 	}
 
 	public function buryOne(array $sess, bool $force, bool $autoConfirm): bool {
+		$id      = substr((string) $sess['session_id'], 0, 8);
 		$idFloor = self::IDLE_FLOOR_DEFAULT;
-		$screen  = $this->readLastScreen($sess['surface_ref'], $sess['workspace_ref']);
+
+		// Refuse sessions the join could not bind to a single surface with confidence.
+		// --force does NOT override this: an unresolved surface_ref means we don't know
+		// which tab we'd act on, and guessing risks clobbering a different live session.
+		if (!($sess['targetable'] ?? false)) {
+			$this->cli->err("  Refusing to bury {$id}: untargetable — " . ($sess['reason'] ?: 'ambiguous session↔surface mapping') . '. Resolve it first.');
+			return false;
+		}
+
+		$screen = $this->readLastScreen($sess['surface_ref'], $sess['workspace_ref']);
+
+		// GATE 1 (pre-export): the resolved surface must actually be showing THIS
+		// session's idle Claude REPL. A statusline cwd mismatch means the join pointed
+		// at the wrong tab; abort before typing /export into someone else's session.
+		if (!$this->statuslineMatchesSession($screen, (string) $sess['cwd'])) {
+			$onscreen = $this->extractStatuslineCwd($screen);
+			$this->cli->err("  Refusing to bury {$id} (gate 1): resolved surface shows "
+				. ($onscreen !== null ? "cwd '{$onscreen}'" : 'no Claude REPL statusline')
+				. ", not session cwd '{$sess['cwd']}' — leaving it ALIVE.");
+			return false;
+		}
+
 		if ($this->isBusy((int) $sess['idle_seconds'], $idFloor, $screen)) {
 			if (!$force) {
 				$this->cli->msg("  Skipping {$sess['tab_title']} — session looks busy (use --force to override).", 'yellow');
@@ -277,13 +426,25 @@ class Graveyard {
 			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
 		}
 
-		$this->cli->msg("  Exporting transcript for " . substr($sess['session_id'], 0, 8) . '…', 'cyan');
+		$this->cli->msg("  Exporting transcript for {$id}…", 'cyan');
 		if (!$this->exportTranscript($sess)) {
 			$this->cli->err("  Export failed (no transcript written) — leaving session ALIVE.");
 			return false;
 		}
 
-		$summary = $this->deriveSummary($sess);
+		// GATE 2 (post-export, pre-teardown): confirm the exported transcript actually
+		// belongs to the target before anything destructive. The needle is the session's
+		// derived summary — the SAME first meaningful turn deriveSummary() pulls from the
+		// JSONL, tag-stripped so it matches how /export renders it (a slash-command turn
+		// renders as "/foo", not the raw <command-*> tags). The transcript is already
+		// safe on disk, so a mismatch aborts teardown (session left ALIVE).
+		$summary  = $this->deriveSummary($sess);
+		$exported = (string) @file_get_contents($this->transcriptPath($sess['session_id']));
+		if (!$this->transcriptMatchesSession($exported, $summary)) {
+			$this->cli->err("  Refusing to tear down {$id} (gate 2): exported transcript does not match this session's first turn — leaving it ALIVE (transcript kept for inspection).");
+			return false;
+		}
+
 		$tomb = $this->buildTombstone($sess, [
 			'workspace_title' => $sess['workspace_title'],
 			'tab_title'       => $sess['tab_title'],
@@ -297,9 +458,9 @@ class Graveyard {
 			return true;
 		}
 		if ($this->teardown($sess)) {
-			$this->cli->msg('  Tab closed; process terminated — RAM freed.', 'green');
+			$this->cli->msg('  Process terminated — RAM freed.', 'green');
 		} else {
-			$this->cli->err('  Archived, but could not close the cmux tab automatically — close it manually (transcript is safe).');
+			$this->cli->err('  Archived, but could not terminate the live session automatically — kill it manually (transcript is safe).');
 		}
 		return true;
 	}
@@ -495,19 +656,26 @@ class Graveyard {
 				'pid'             => $r['pid'],
 				'model'           => $r['model'],
 				'skip_perms'      => $r['skip_perms'],
+				'targetable'      => $r['targetable'] ?? true,
+				'reason'          => $r['reason'] ?? '',
 			];
 		}
 		return $out;
 	}
 
-	/** PURE: single tab-separated porcelain line for a candidate row. No trailing newline. */
+	/**
+	 * PURE: single tab-separated porcelain line for a candidate row. No trailing newline.
+	 * Columns: session_id, idle_seconds, busy|idle, targetable|UNTARGETABLE, workspace_title, cwd, reason.
+	 */
 	public function formatCandidatePorcelain(array $row): string {
 		return implode("\t", [
 			$row['session_id'],
 			(string) $row['idle_seconds'],
 			$row['busy'] ? 'busy' : 'idle',
+			($row['targetable'] ?? true) ? 'targetable' : 'UNTARGETABLE',
 			$row['workspace_title'],
 			$row['cwd'],
+			$row['reason'] ?? '',
 		]);
 	}
 
@@ -526,6 +694,7 @@ class Graveyard {
 		}
 		if (!$rows) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
 		foreach ($rows as $r) {
+			$targetable = $r['targetable'] ?? true;
 			$this->cli->msg(sprintf(
 				'%s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
 				substr($r['session_id'], 0, 8),
@@ -533,7 +702,10 @@ class Graveyard {
 				$r['busy'] ? 'busy' : 'idle',
 				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
 				$r['cwd']
-			));
+			), $targetable ? '' : 'yellow');
+			if (!$targetable) {
+				$this->cli->msg('          ⚠ untargetable: ' . $r['reason'], 'yellow');
+			}
 		}
 	}
 
@@ -740,5 +912,80 @@ class Graveyard {
 			$this->idleHuman((int) $s['idle_seconds'])
 		);
 		echo $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40);
+	}
+
+	/**
+	 * peek <id>: one-shot rendered preview of a LIVE session's recent genuine turns,
+	 * read from its JSONL (not the terminal screen, not /export) so JT can inspect what
+	 * a session was doing before approving a bury — without the interactive picker.
+	 */
+	public function peekSession(string $id, int $turns = 6): void {
+		$matches = $this->resolveLiveByIdentifier($id);
+		if (!$matches) {
+			$this->cli->exitErr("No live session matches '{$id}'.");
+		}
+		if (count($matches) > 1) {
+			$this->cli->msg("'{$id}' is ambiguous — matches " . count($matches) . ' live session(s):', 'yellow');
+			foreach ($matches as $m) {
+				$this->cli->msg(sprintf('  %s  %-20.20s  %s', substr($m['session_id'], 0, 8), $m['workspace_title'] ?? '', $m['cwd'] ?? ''));
+			}
+			$this->cli->exitErr("Narrow it or pass a full session-id.");
+		}
+		$s = $matches[0];
+
+		$this->cli->msg(sprintf('%s  %s', substr($s['session_id'], 0, 8), $s['workspace_title'] ?: $s['tab_title']), 'cyan');
+		$this->cli->msg(sprintf('cwd: %s   model: %s   idle: %s', $s['cwd'], $s['model'] ?: '(unknown)', $this->idleHuman((int) $s['idle_seconds'])), 'cyan');
+		if (!($s['targetable'] ?? true)) {
+			$this->cli->msg('⚠ untargetable: ' . $s['reason'], 'yellow');
+		}
+		$this->cli->msg('');
+
+		$jsonl = $this->cmux->jsonlPathFor($s['session_id'], $s['cwd']);
+		$entries = [];
+		if (is_file($jsonl)) {
+			$fh = fopen($jsonl, 'r');
+			while (($line = fgets($fh)) !== false) {
+				$e = json_decode($line, true);
+				if ($e) { $entries[] = $e; }
+			}
+			fclose($fh);
+		}
+		$rendered = $this->renderTurns($entries, $turns);
+		echo $rendered !== '' ? $rendered : "(no genuine conversation turns found)\n";
+	}
+
+	/**
+	 * PURE-ish: render the last $limit genuine user/assistant turns from decoded JSONL
+	 * entries as readable lines. Skips synthetic resume turns AND slash-command noise
+	 * (both classified by Cmux::isSyntheticEntry) and tool-only turns with no text.
+	 * Remaining text is tag-stripped, whitespace-collapsed, and truncated.
+	 */
+	public function renderTurns(array $entries, int $limit = 6, int $width = 160): string {
+		$turns = [];
+		foreach ($entries as $e) {
+			$type = $e['type'] ?? '';
+			if ($type !== 'user' && $type !== 'assistant') { continue; }
+			if ($this->cmux->isSyntheticEntry($e)) { continue; }
+
+			$content = $e['message']['content'] ?? '';
+			$text = '';
+			if (is_string($content)) {
+				$text = $content;
+			} elseif (is_array($content)) {
+				foreach ($content as $c) {
+					if (is_array($c) && ($c['type'] ?? '') === 'text') { $text .= ($text === '' ? '' : ' ') . ($c['text'] ?? ''); }
+				}
+			}
+
+			// Genuine turns only reach here (command/synthetic already skipped). Clean
+			// defensively: strip any stray tags, collapse whitespace.
+			$text = trim(preg_replace('/\s+/', ' ', preg_replace('/<[^>]+>/', ' ', $text)));
+			if ($text === '') { continue; } // tool-only / empty turn
+			if (mb_strlen($text) > $width) { $text = mb_substr($text, 0, $width - 1) . '…'; }
+			$turns[] = ($type === 'user' ? '❯ ' : '⏺ ') . $text;
+		}
+
+		$turns = array_slice($turns, -$limit);
+		return $turns ? implode("\n", $turns) . "\n" : '';
 	}
 }

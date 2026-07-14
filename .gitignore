@@ -64,3 +64,6 @@ notes-dropbox-sync/notes-dropbox-sync-launcher
 
 # stray /export transcript dumps written to cwd
 *command-messagesystem-watchdogcommand-message.txt
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
