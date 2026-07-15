@@ -368,23 +368,50 @@ class Graveyard {
 		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title)) ?: '(no summary)';
 	}
 
-	/** PURE. The cwd token from a Claude REPL statusline ("📁 /foo"), or null if none. */
+	/**
+	 * PURE. The cwd token from a Claude REPL statusline ("📁 /foo"), or null if none.
+	 * The cwd MAY CONTAIN SPACES ("/Southport UDO"), so capture the whole field after
+	 * the 📁 glyph up to the next status separator (| or │) or end of line — never
+	 * stop at the first space (that was the phase-1-family bug: '/Southport UDO' →
+	 * '/Southport', making every spaced-path session fail gate 1).
+	 */
 	public function extractStatuslineCwd(string $screen): ?string {
-		return preg_match('/📁\s*(\S+)/u', $screen, $m) ? $m[1] : null;
+		if (!preg_match('/📁\s*([^|│\x{2502}\n]+)/u', $screen, $m)) { return null; }
+		$tok = trim($m[1]);
+		return $tok === '' ? null : $tok;
+	}
+
+	/**
+	 * PURE. Split a path into its non-empty components, dropping a leading ~ and any
+	 * elision markers (…), so an abbreviated statusline path can be compared by its
+	 * trailing components. "~/Documents/Southport UDO" → [Documents, Southport UDO];
+	 * "…/Southport UDO" → [Southport UDO]; "/a/b" → [a, b].
+	 */
+	public function pathTailComponents(string $path): array {
+		$out = [];
+		foreach (preg_split('#/+#', trim($path)) as $p) {
+			$p = trim($p);
+			if ($p === '' || $p === '~' || $p === '…' || $p === '...') { continue; }
+			$out[] = $p;
+		}
+		return $out;
 	}
 
 	/**
 	 * PURE. GATE 1 predicate: does the on-screen Claude statusline's cwd correspond to
-	 * $sessionCwd? The statusline abbreviates (often just "/basename"), so we accept a
-	 * basename match or a path-suffix match. Returns false when no statusline is found
-	 * (i.e. the surface is not showing a Claude REPL) — that must block the bury.
+	 * $sessionCwd? The statusline abbreviates (leading-component elision, ~-home, or
+	 * just a trailing slice), so we match the statusline token's components as a
+	 * TRAILING slice of the session cwd's components — robust to spaces, ~, and elision.
+	 * Returns false when no statusline is found (surface is not a Claude REPL) — blocks.
 	 */
 	public function statuslineMatchesSession(string $screen, string $sessionCwd): bool {
 		$tok = $this->extractStatuslineCwd($screen);
 		if ($tok === null || $sessionCwd === '') { return false; }
-		$tok  = '/' . ltrim($tok, '/');
-		$full = '/' . ltrim(rtrim($sessionCwd, '/'), '/');
-		return basename($full) === basename($tok) || str_ends_with($full, $tok);
+		$tokComps  = $this->pathTailComponents($tok);
+		$sessComps = $this->pathTailComponents($sessionCwd);
+		$n = count($tokComps);
+		if ($n === 0 || $n > count($sessComps)) { return false; }
+		return array_slice($sessComps, -$n) === $tokComps;
 	}
 
 	/**
@@ -751,6 +778,15 @@ class Graveyard {
 			else { $failed++; }
 		}
 
+		// Nothing actually buried (every member failed a gate): this is a FAILURE, not a
+		// bury. Do not claim success, do not leave a group/manifest artifact behind, do
+		// not close anything. Remove the pre-written (now-empty) group dir and exit non-zero.
+		if ($buried === 0) {
+			$this->removeGroupArtifact($group);
+			$this->cli->exitErr("Buried 0 of " . count($cls['members']) . " session(s) in \"{$wsTitle}\" — every member was refused by a gate; workspace left intact. No group created.");
+			return;
+		}
+
 		// Close the workspace only if everything was clean; otherwise close just the
 		// buried members' surfaces + non-claude surfaces, leaving anything still alive.
 		if ($failed === 0 && !$cls['untargetable']) {
@@ -765,6 +801,13 @@ class Graveyard {
 		}
 
 		$this->cli->successMsg("Buried workspace \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
+	}
+
+	/** Remove a workspace group directory + manifest (used to clean up a failed bury). */
+	protected function removeGroupArtifact(string $group): void {
+		$dir = $this->workspaceGroupDir($group);
+		@unlink($this->manifestPath($group));
+		if (is_dir($dir)) { @rmdir($dir); }
 	}
 
 	public function listTombstones(): void {

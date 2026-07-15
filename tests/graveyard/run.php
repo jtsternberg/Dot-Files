@@ -275,6 +275,41 @@ ok($gy->statuslineMatchesSession('… 📁 /asana-cli | 🌿 main', '/Users/JT/C
 ok($gy->statuslineMatchesSession('… 📁 /Boss', '/Users/JT/Code/asana-cli') === false, 'gate1: cwd mismatch blocks');
 ok($gy->statuslineMatchesSession('a plain shell prompt $', '/Users/JT/Code/asana-cli') === false, 'gate1: no REPL statusline blocks');
 
+// GATE 1 regression: SPACED paths (the Hankinsville/Southport UDO bug). extractStatuslineCwd
+// must not stop at the first space, and matching must be robust to spaces / ~ / elision.
+ok($gy->extractStatuslineCwd('[Opus] | 📁 /Southport UDO | 🌿 main') === '/Southport UDO', 'extractStatuslineCwd: keeps spaced path (not "/Southport")');
+ok($gy->extractStatuslineCwd('📁 /Southport UDO') === '/Southport UDO', 'extractStatuslineCwd: spaced path, no trailing separator');
+ok($gy->extractStatuslineCwd("📁 /a b c │ x") === '/a b c', 'extractStatuslineCwd: stops at box-drawing │ separator');
+ok($gy->statuslineMatchesSession('📁 /Southport UDO | 🌿 m', '/Users/JT/Documents/Southport UDO') === true, 'gate1: spaced basename matches (Hankinsville repro)');
+ok($gy->statuslineMatchesSession('📁 ~/Documents/Southport UDO', '/Users/JT/Documents/Southport UDO') === true, 'gate1: ~-abbreviated multi-component suffix matches');
+ok($gy->statuslineMatchesSession('📁 …/Documents/Southport UDO | x', '/Users/JT/Documents/Southport UDO') === true, 'gate1: elided leading components (…) match by suffix');
+ok($gy->statuslineMatchesSession('📁 /Southport UDO', '/Users/JT/Documents/Northport UDO') === false, 'gate1: different spaced dir still blocks');
+ok($gy->statuslineMatchesSession('📁 /UDO', '/Users/JT/Documents/Southport UDO') === false, 'gate1: partial last-component (not a full component) does not match');
+
+// -y / --force must NOT bypass a gate refusal — only the confirm prompt. A Graveyard
+// whose surface always shows a MISMATCHED statusline must still be refused at gate 1
+// even with force=true AND autoConfirm=true, and must write no tombstone.
+$stub = new class($cli, $cmux) extends Graveyard {
+	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string {
+		return '[Opus] | 📁 /totally-different-dir | 🌿 main';
+	}
+};
+$fakeSess = ['session_id' => 'zztest-gate1', 'cwd' => '/Users/JT/x', 'surface_ref' => 'surface:1',
+	'workspace_ref' => 'ws:1', 'targetable' => true, 'reason' => '', 'idle_seconds' => 999999,
+	'tab_title' => 't', 'workspace_title' => 'w', 'pid' => 0, 'model' => null, 'skip_perms' => false];
+ok($stub->buryOne($fakeSess, true, true) === false, '-y/force does NOT bypass gate 1 (mismatched statusline refused)');
+ok(!is_file($stub->metaPath('zztest-gate1')), 'gate-1 refusal under -y/force writes no tombstone');
+
+// pathTailComponents
+ok($gy->pathTailComponents('/Users/JT/Documents/Southport UDO') === ['Users','JT','Documents','Southport UDO'], 'pathTailComponents: spaced component preserved');
+ok($gy->pathTailComponents('~/Code/asana-cli') === ['Code','asana-cli'], 'pathTailComponents: drops leading ~');
+ok($gy->pathTailComponents('…/a/b') === ['a','b'], 'pathTailComponents: drops elision marker');
+
+// Whitespace-on-path sweep (same family as phase-1 encodeProjectKey): a spaced cwd must
+// round-trip to a valid project key and jsonl path with no space-splitting.
+ok($cmux->encodeProjectKey('/Users/JT/Documents/Southport UDO') === '-Users-JT-Documents-Southport-UDO', 'sweep: encodeProjectKey handles spaces');
+ok(strpos($cmux->jsonlPathFor('sid', '/Users/JT/Documents/Southport UDO'), 'Southport-UDO/sid.jsonl') !== false, 'sweep: jsonlPathFor handles spaced cwd');
+
 // GATE 2: transcript belongs to session
 ok($gy->transcriptMatchesSession("… conversation …\n> Fix the login bug now\n…", 'Fix the login bug now') === true, 'gate2: matching first prompt passes');
 ok($gy->transcriptMatchesSession("some other session entirely", 'Fix the login bug now') === false, 'gate2: mismatched transcript blocks');
