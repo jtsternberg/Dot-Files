@@ -40,7 +40,7 @@ $helpyHelperton
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'bury --workspace <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force.',
-		'--force'         => 'Bury even if the session looks busy (bury <ref> only)',
+		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
 		'-y'              => 'Skip confirmations',
 		'candidates [--porcelain]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated, agent-readable)',
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
