@@ -161,6 +161,10 @@ if (empty($cli->getArg(1))) {
 		exit(1);
 	}
 
+	// Report which config file is being used. Goes to STDERR so it never
+	// pollutes the stdout captured by `bash "$(_localshell)"`.
+	$cli->msgStderr('Using config: ' . $configPath, 'cyan');
+
 	// Convert paths to absolute
 	$scriptPath = $cli->convertPathToAbsolute($config['scriptPath']);
 	$cmd = ['localshellupdater', escapeshellarg($scriptPath)];
