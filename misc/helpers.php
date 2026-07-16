@@ -2,7 +2,7 @@
 /**
  * My CLI helpers.
  *
- * @version 1.0.1
+ * @version 1.1.0
  */
 
 namespace JT\CLI;
@@ -21,7 +21,7 @@ class Exception extends \Exception {
  * My CLI helpers.
  *
  * @since 1.0.0
- * @version 1.0.1
+ * @version 1.1.0
  */
 class Helpers {
 
@@ -105,6 +105,31 @@ class Helpers {
 	public $forceSilent = false;
 
 	/**
+	 * Optional stream handle for result/stdout output.
+	 *
+	 * Null (the default) means write via echo, which preserves output-buffering
+	 * semantics for existing callers (fwrite to STDOUT bypasses ob_start()).
+	 * Inject a stream via setStreams() -- e.g. fopen('php://memory') -- to
+	 * capture output in tests without spawning a subprocess.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @var resource|null
+	 */
+	protected $stdout = null;
+
+	/**
+	 * Optional stream handle for diagnostic/stderr output.
+	 *
+	 * Null (the default) means write to STDERR. Override via setStreams().
+	 *
+	 * @since  {{next}}
+	 *
+	 * @var resource|null
+	 */
+	protected $stderr = null;
+
+	/**
 	 * Creates or returns an instance of this class.
 	 * @since  0.1.0
 	 * @return Helpers A single instance of this class.
@@ -129,6 +154,71 @@ class Helpers {
 		$this->currUser = get_current_user();
 		require_once __DIR__ . '/helpers/git.php';
 		$this->git      = new Helpers\Git( $this );
+	}
+
+	/**
+	 * Write to the stdout channel.
+	 *
+	 * Uses echo by default so output-buffering (ob_start) behavior is
+	 * unchanged for existing callers; writes to an injected stream via
+	 * fwrite() when one has been set (see setStreams()).
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  string $text Text to write.
+	 *
+	 * @return void
+	 */
+	protected function writeStdout( $text ) {
+		if ( null === $this->stdout ) {
+			echo $text;
+		} else {
+			fwrite( $this->stdout, $text );
+		}
+	}
+
+	/**
+	 * Write to the stderr channel (STDERR by default, or an injected stream).
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  string $text Text to write.
+	 *
+	 * @return void
+	 */
+	protected function writeStderr( $text ) {
+		$stream = $this->stderr;
+		if ( null === $stream ) {
+			$stream = defined( 'STDERR' ) ? STDERR : fopen( 'php://stderr', 'w' );
+		}
+
+		fwrite( $stream, $text );
+	}
+
+	/**
+	 * Override the stdout/stderr stream handles.
+	 *
+	 * Primarily for tests: inject in-memory streams (e.g. fopen('php://memory'))
+	 * to capture and assert output without a subprocess. Pass null to leave a
+	 * stream unchanged.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  resource|null $stdout Stream handle for result/stdout output.
+	 * @param  resource|null $stderr Stream handle for diagnostic/stderr output.
+	 *
+	 * @return Helpers
+	 */
+	public function setStreams( $stdout = null, $stderr = null ) {
+		if ( null !== $stdout ) {
+			$this->stdout = $stdout;
+		}
+
+		if ( null !== $stderr ) {
+			$this->stderr = $stderr;
+		}
+
+		return $this;
 	}
 
 	/**
@@ -435,7 +525,7 @@ class Helpers {
 	 */
 	public function err( $text, $lineBreak = true ) {
 		if ( ! $this->isSilent() ) {
-			echo $this->getErr( $text, $lineBreak );
+			$this->writeStdout( $this->getErr( $text, $lineBreak ) );
 		}
 
 		return $this;
@@ -458,6 +548,87 @@ class Helpers {
 	}
 
 	/**
+	 * Emit the tool's RESULT to STDOUT -- the machine-consumable output meant
+	 * to be captured or piped (e.g. `bash "$(myscript ...)"`).
+	 *
+	 * NOT gated by isSilent(): the result IS the output. Silent/porcelain mode
+	 * suppresses chatter, never the result itself. Use the *Stderr() methods
+	 * for diagnostics so a captured stdout stays pristine.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  string  $text      Result to output.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return Helpers
+	 */
+	public function output( $text, $lineBreak = true ) {
+		$this->writeStdout( $text . ( $lineBreak ? PHP_EOL : '' ) );
+
+		return $this;
+	}
+
+	/**
+	 * Output a formatted message to STDERR if the silent flag is not set.
+	 *
+	 * Stderr-routed sibling of msg(): use for progress/info that must not
+	 * contaminate a captured stdout.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  string  $text      Message to output.
+	 * @param  string  $color     Optional color for message.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return Helpers
+	 */
+	public function msgStderr( $text, $color = '', $lineBreak = true ) {
+		if ( ! $this->isSilent() ) {
+			$this->writeStderr( $this->getMsg( $text, $color, $lineBreak ) );
+		}
+
+		return $this;
+	}
+
+	/**
+	 * Output a formatted error message to STDERR.
+	 *
+	 * NOT gated by isSilent(): errors must survive --silent/--porcelain --
+	 * that capture mode is exactly when stderr matters most. (Mirroring err()'s
+	 * silent-gating here would swallow errors during capture.)
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  string  $text      Error message to output.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return Helpers
+	 */
+	public function errStderr( $text, $lineBreak = true ) {
+		$this->writeStderr( $this->getErr( $text, $lineBreak ) );
+
+		return $this;
+	}
+
+	/**
+	 * Outputs a formatted error message to STDERR and exits with a given code.
+	 *
+	 * Stderr-correct sibling of exitErr().
+	 *
+	 * @since  {{next}}
+	 *
+	 * @param  string  $args      Error message to output.
+	 * @param  integer $code      Exit code. Default, 1.
+	 * @param  boolean $lineBreak Whether to add a trailing line-break. Default, true.
+	 *
+	 * @return Helpers
+	 */
+	public function exitErrStderr( $args, $code = 1, $lineBreak = true ) {
+		$this->errStderr( $args, $lineBreak );
+		exit( $code );
+	}
+
+	/**
 	 * Output formatted success message if the silent flag is not set.
 	 *
 	 * @since 1.4.2
@@ -469,7 +640,7 @@ class Helpers {
 	 */
 	public function successMsg( $text, $lineBreak = true ) {
 		if ( ! $this->isSilent() ) {
-			echo $this->getSuccessMsg( $text, $lineBreak );
+			$this->writeStdout( $this->getSuccessMsg( $text, $lineBreak ) );
 		}
 
 		return $this;
@@ -516,7 +687,7 @@ class Helpers {
 	 */
 	public function msg( $text, $color = '', $lineBreak = true ) {
 		if ( ! $this->isSilent() ) {
-			echo $this->getMsg( $text, $color, $lineBreak );
+			$this->writeStdout( $this->getMsg( $text, $color, $lineBreak ) );
 		}
 
 		return $this;
