@@ -687,7 +687,7 @@ class Graveyard {
 					// (fresh/non-resumed, ambiguous, or a native agent session). Detected,
 					// not buryable → forces abort (unless --force skips it, alive).
 					$entry['kind'] = 'claude-untargetable';
-					$untargetable[] = ['ref' => $ref, 'title' => $surf['title'] ?? ''];
+					$untargetable[] = ['ref' => $ref, 'title' => $surf['title'] ?? '', 'type' => $type];
 				}
 
 				$layout[] = $entry;
@@ -696,6 +696,80 @@ class Graveyard {
 		}
 
 		return ['layout' => $layout, 'members' => $members, 'untargetable' => $untargetable];
+	}
+
+	/**
+	 * PURE. Human reason WHY a detected Claude surface is untargetable, from injectable
+	 * facts, so the abort report tells JT whether to fix, wait, or --force:
+	 *   type              cmux surface type
+	 *   has_script        surface launched via a cmux resume wrapper
+	 *   has_shell         that wrapper's shell chain is alive
+	 *   has_claude        a live claude process exists under it
+	 *   has_session_file  that claude has a ~/.claude/sessions/<pid>.json
+	 *   cwd_conflict      statusline cwd could not be uniquely matched (ambiguous)
+	 */
+	public function untargetableReasonFor(array $f): string {
+		$type = $f['type'] ?? 'terminal';
+		if ($type !== 'terminal' && $type !== 'browser') {
+			return 'cmux-native agent session (not a Claude CLI terminal) — unsupported by bury';
+		}
+		if (empty($f['has_script'])) {
+			return !empty($f['cwd_conflict'])
+				? 'fresh/non-resumed Claude — statusline cwd matches multiple sessions (ambiguous); can\'t bind safely'
+				: 'fresh/non-resumed Claude — no unique statusline-cwd match to bind it';
+		}
+		if (empty($f['has_shell']))   { return 'resumed surface with no live shell — stale; nothing to bury'; }
+		if (empty($f['has_claude']))  { return 'resumed Claude not running (exited or never launched) — no live session to bury'; }
+		if (empty($f['has_session_file'])) { return 'Claude running but no session file yet (no conversation) — wait, or start a turn'; }
+		if (!empty($f['bound_elsewhere'])) {
+			$sid = substr((string) ($f['session_id'] ?? ''), 0, 8);
+			return "duplicate live view of session {$sid} (already bound to {$f['bound_elsewhere']}) — close this extra tab";
+		}
+		if (!empty($f['session_reason'])) { return (string) $f['session_reason']; }
+		return 'live Claude session present but could not be bound to this surface (ambiguous)';
+	}
+
+	/** Gather untargetable-surface facts (I/O) and delegate to untargetableReasonFor(). */
+	protected function diagnoseUntargetableSurface(string $ref, string $type, array $debug, array $proc): string {
+		$script = $debug[$ref]['script'] ?? null;
+		$roots  = [];
+		if ($script !== null) {
+			foreach ($proc as $pid => $info) {
+				if (strpos($info['cmd'], $script) !== false) { $roots[] = $pid; }
+			}
+		}
+		$claude = null;
+		foreach ($roots as $r) {
+			$c = $this->cmux->descendantClaudePid($proc, (int) $r);
+			if ($c) { $claude = $c; break; }
+		}
+		$sid = $claude !== null ? $this->cmux->sessionIdForPid((int) $claude) : null;
+
+		// If this surface's session is live but bound to a DIFFERENT surface, it's a
+		// duplicate view (same session on two surfaces; the join deduped to the other).
+		$boundElsewhere = null; $sessionReason = null;
+		if ($sid !== null) {
+			foreach ($this->liveSessions() as $lr) {
+				if ($lr['session_id'] !== $sid) { continue; }
+				if (($lr['targetable'] ?? false) && $lr['surface_ref'] !== '' && $lr['surface_ref'] !== $ref) {
+					$boundElsewhere = $lr['surface_ref'];
+				} else {
+					$sessionReason = $lr['reason'] ?: null;
+				}
+				break;
+			}
+		}
+
+		return $this->untargetableReasonFor([
+			'type'             => $type,
+			'has_script'       => $script !== null,
+			'has_shell'        => (bool) $roots,
+			'has_claude'       => $claude !== null,
+			'has_session_file' => $sid !== null,
+			'session_id'       => $sid,
+			'bound_elsewhere'  => $boundElsewhere,
+			'session_reason'   => $sessionReason,
+		]);
 	}
 
 	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): void {
@@ -736,11 +810,17 @@ class Graveyard {
 			}
 		}
 
-		// Abort on any detected-but-unbindable Claude, unless --force skips them.
+		// Abort on any detected-but-unbindable Claude, unless --force skips them. Each
+		// line carries the SPECIFIC reason so JT knows whether to fix, wait, or --force.
 		if ($cls['untargetable']) {
+			$w     = $this->termWidth();
+			$proc  = $this->cmux->parseProcTable($this->cmux->psProcTable());
+			$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
 			$this->cli->msg('Workspace "' . $wsTitle . '" has ' . count($cls['untargetable']) . ' Claude surface(s) not safely targetable:', 'yellow');
 			foreach ($cls['untargetable'] as $u) {
-				$this->cli->msg('  ' . $u['ref'] . '  ' . $u['title'], 'yellow');
+				$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc);
+				$this->cli->msg('  ' . $this->ellipsizeText($u['ref'] . '  ' . $this->stripGlyph((string) $u['title']), $w - 2), 'yellow');
+				$this->cli->msg('      ↳ ' . $this->ellipsizeText($reason, $w - 8), 'yellow');
 			}
 			if (!$force) {
 				$this->cli->exitErr('Refusing to partially destroy a workspace. Resolve these (or re-run with --force to skip them and leave them alive).');

@@ -414,6 +414,15 @@ $wsAgent = ['panes' => [['index' => 0, 'surfaces' => [
 $ca = $gy->classifyWorkspaceLayout($wsAgent, [], []); // note: not in isClaudeByRef
 ok(count($ca['untargetable']) === 1 && $ca['layout'][0]['kind'] === 'claude-untargetable', 'classify: agentSession → claude-untargetable (never shell)');
 
+// untargetableReasonFor: specific reason per fact-set (dotfiles product-gap ask)
+ok(str_contains($gy->untargetableReasonFor(['type' => 'agentSession']), 'cmux-native agent session'), 'reason: native agent session');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => false]), 'not running'), 'reason: resumed Claude exited (surface:34 case)');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => false]), 'no live shell'), 'reason: stale surface, no shell');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => false]), 'no session file yet'), 'reason: running but no conversation');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false]), 'no unique statusline-cwd match'), 'reason: fresh, no unique cwd match');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false, 'cwd_conflict' => true]), 'multiple sessions'), 'reason: fresh, ambiguous cwd');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => true, 'session_id' => '93de80a4-x', 'bound_elsewhere' => 'surface:33']), 'duplicate live view of session 93de80a4') && str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => true, 'session_id' => '93de80a4-x', 'bound_elsewhere' => 'surface:33']), 'surface:33'), 'reason: duplicate view (surface:34 case)');
+
 // groupTombstones + tombstoneLine
 $ts = [
 	['session_id' => 'aaaa1111', 'group_id' => 'g1', 'group_pos' => 1, 'group_title' => 'ws', 'buried_at' => '2026-07-14', 'workspace_title' => 'ws', 'summary' => 's2'],
