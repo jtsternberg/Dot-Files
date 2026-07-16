@@ -318,6 +318,27 @@ ok($gy->transcriptMatchesSession("anything", '') === true, 'gate2: empty needle 
 // how /export renders it — must match (regression: raw <command-*> tags never appear rendered).
 ok($gy->transcriptMatchesSession("❯ /monorepo-address-pr-review\n  ⎿ …", '/monorepo-address-pr-review') === true, 'gate2: slash-command summary needle matches rendered transcript');
 
+// GATE 2 tail-anchored matching (compaction / bridging / caveat-opening fix, dotfiles-c8a).
+// genuineTurns: skips synthetic/command/tool-only; keeps role+text.
+$g2entries = [
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => '<local-command-caveat>Caveat: machine noise']]]], // caveat → skipped by isSyntheticEntry
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => 'the original first request about widgets']]]],
+	['type' => 'user', 'isMeta' => true, 'message' => ['content' => [['type' => 'text', 'text' => 'Continue from where you left off.']]]], // synthetic
+	['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => 'Published the review with two findings fixed']]]],
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => 'review again, copilot made updates']]]],
+];
+$gt = $gy->genuineTurns($g2entries);
+ok(count($gt) === 3, 'genuineTurns: drops caveat + synthetic + keeps 3 genuine');
+ok($gt[0]['text'] === 'the original first request about widgets', 'genuineTurns: first genuine text');
+
+// A compacted export contains only RECENT turns (not the first). Tail-anchored gate 2 passes.
+$compactedExport = "…summary…\n❯ review again, copilot made updates\n⏺ Published the review with two findings fixed\n";
+$needles = array_map(fn($t) => $t['text'], $gt);
+ok($gy->transcriptBelongsToSession($compactedExport, $needles) === true, 'gate2: passes when a RECENT turn matches even though first turn is absent (compaction)');
+ok($gy->transcriptBelongsToSession("an entirely unrelated session transcript", $needles) === false, 'gate2: refuses a genuine mis-target (no recent turn matches)');
+ok($gy->transcriptBelongsToSession("anything", []) === true, 'gate2: no needles → cannot assert → does not block');
+ok($gy->transcriptBelongsToSession("anything", ['   ', '']) === true, 'gate2: only-blank needles → does not block');
+
 // ---------------------------------------------------------------------------
 // peek: renderTurns (dotfiles-48w) — pure rendering of genuine JSONL turns
 // ---------------------------------------------------------------------------
@@ -402,7 +423,7 @@ $ts = [
 [$groups, $loose] = $gy->groupTombstones($ts);
 ok(count($groups['g1']) === 2 && count($loose) === 1, 'groupTombstones: splits grouped vs loose');
 ok($groups['g1'][0]['session_id'] === 'bbbb2222', 'groupTombstones: members sorted by group_pos');
-ok(strpos($gy->tombstoneLine($ts[2]), 'cccc3333') === 0, 'tombstoneLine: starts with short id');
+// (tombstoneLine removed — replaced by width-aware lsEntryLines below)
 
 // ---------------------------------------------------------------------------
 // contentProbeBind fallback (dotfiles-c15)
@@ -438,6 +459,53 @@ ok(($gy->contentProbeBind($fresh3, $unbound3, $screens3)['f-4'] ?? null) === 'su
 
 // no surface matches → no bind
 ok($gy->contentProbeBind([['session_id' => 'f-5', 'cwd' => '/nope', 'tty' => 't']], $unbound, $screens) === [], 'contentProbeBind: no cwd match → no bind');
+
+// ---------------------------------------------------------------------------
+// Width-aware output formatting (dotfiles-rgk) — 60/80/120 cols via injected width
+// ---------------------------------------------------------------------------
+// ellipsize / ellipsizeLeft
+ok($gy->ellipsizeText('hello world', 8) === 'hello w…', 'ellipsizeText: truncates with …');
+ok($gy->ellipsizeText('short', 20) === 'short', 'ellipsizeText: no-op when it fits');
+ok($gy->ellipsizeLeft('/a/b/c/deep', 6) === '…/deep', 'ellipsizeLeft: keeps the tail');
+
+// shortenCwd: home→~, elide middle, always ≤ max
+$home = '/Users/JT';
+ok($gy->shortenCwd('/Users/JT/Sites/x', $home, 40) === '~/Sites/x', 'shortenCwd: home → ~');
+$long = '/Users/JT/Sites/lindris-monorepo/local-frontend/lindris-frontend';
+foreach ([20, 30, 40] as $mx) {
+	$s = $gy->shortenCwd($long, $home, $mx);
+	ok(mb_strlen($s) <= $mx, "shortenCwd: fits within $mx");
+	ok(str_contains($s, 'lindris-frontend') || str_contains($s, '…'), "shortenCwd: keeps tail or elides at $mx");
+}
+
+// titleizeSummary: prefer clean human text; fall back off bare slash-command / noise
+ok($gy->titleizeSummary(['summary' => '/hotline:ringing [CALL_ID: a0be3ca9] [MODE: quick_call]', 'tab_title' => '✳ Hotline call with lindris', 'workspace_title' => 'ws']) === 'Hotline call with lindris', 'titleize: bare slash-command falls back to session title');
+ok($gy->titleizeSummary(['summary' => 'add a sync subcommand to the CLI', 'tab_title' => 'Terminal', 'workspace_title' => 'ws']) === 'add a sync subcommand to the CLI', 'titleize: prefers clean human summary');
+ok($gy->titleizeSummary(['summary' => '', 'tab_title' => 'Terminal', 'workspace_title' => 'my-workspace']) === 'my-workspace', 'titleize: falls back to workspace title');
+// caveat-family: summarizeUserText must skip a <local-command-caveat> turn (the fe4e5b02 bug),
+// and titleize must not surface a leaked "Caveat: The messages below…" summary.
+ok($gy->summarizeUserText('<local-command-caveat>Caveat: The messages below were generated by the user') === '', 'summarizeUserText: skips <local-command-caveat> turn');
+ok($gy->summarizeUserText('<command-args>1234 careful</command-args>') === '', 'summarizeUserText: skips bare <command-args> turn');
+ok($gy->titleizeSummary(['summary' => 'Caveat: The messages below were generated by the user while running local commands.', 'tab_title' => '✳ PR Review Checklist', 'workspace_title' => 'ws']) === 'PR Review Checklist', 'titleize: leaked caveat summary falls back to session title');
+
+// lsEntryLines: NEVER exceeds width, no wrap, at 60/80/120 with a nasty spaced/long entry
+$tomb = ['session_id' => 'abcd1234ef', 'buried_at' => '2026-07-15',
+	'summary' => '/hotline:ringing [CALL_ID: a0be] [MODE: quick_call]', 'tab_title' => '✳ Review property spec for accessory dwelling unit rezoning',
+	'workspace_title' => 'Hankinsville ADU feasibility', 'cwd' => '/Users/JT/Documents/Southport UDO'];
+foreach ([60, 80, 120] as $W) {
+	foreach ([0, 4] as $indent) {
+		$e = $gy->lsEntryLines($tomb, $W, $home, $indent);
+		ok(mb_strlen($e['primary']) <= $W, "lsEntryLines: primary ≤ $W (indent $indent)");
+		ok($e['secondary'] === null || mb_strlen($e['secondary']) <= $W, "lsEntryLines: secondary ≤ $W (indent $indent)");
+	}
+	ok(mb_strlen($gy->groupHeaderLine('Hankinsville ADU feasibility', 3, '2026-07-15', $W)) <= $W, "groupHeaderLine ≤ $W");
+	$cand = ['session_id' => 'abcd1234ef', 'idle_seconds' => 5875200, 'busy' => false, 'targetable' => true,
+		'tab_title' => '✳ Review property spec for accessory dwelling', 'workspace_title' => 'Hankinsville', 'cwd' => $long];
+	ok(mb_strlen($gy->candidateLine($cand, $W, $home)) <= $W, "candidateLine ≤ $W");
+}
+// stacked vs single-line: narrow stacks (secondary present), wide is single line
+ok($gy->lsEntryLines($tomb, 60, $home, 0)['secondary'] !== null, 'lsEntryLines: narrow (60) stacks to 2 lines');
+ok($gy->lsEntryLines($tomb, 120, $home, 0)['secondary'] === null, 'lsEntryLines: wide (120) is single line');
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

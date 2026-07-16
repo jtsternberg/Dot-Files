@@ -327,7 +327,13 @@ class Graveyard {
 		}
 
 		// Machine-generated noise that isn't a human prompt — skip to the next entry.
-		$noisePrefixes = ['<command-message>', '<local-command-stdout>', 'Base directory for this skill:', 'Caveat:'];
+		// Wrapper tags mirror Cmux::isSyntheticEntry (incl. <local-command-caveat>, the
+		// one whose omission let a "Caveat: …" turn become a tombstone summary); the
+		// plain-text prefixes catch the same content after tag-stripping.
+		$noisePrefixes = [
+			'<command-message>', '<command-args>', '<local-command-stdout>', '<local-command-caveat>',
+			'Base directory for this skill:', 'Caveat: The messages below',
+		];
 		foreach ($noisePrefixes as $prefix) {
 			if (stripos($text, $prefix) === 0) { return ''; }
 		}
@@ -570,25 +576,27 @@ class Graveyard {
 		}
 
 		// GATE 2 (post-export, pre-teardown): confirm the exported transcript actually
-		// belongs to the target before anything destructive. The needle is the session's
-		// derived summary — the SAME first meaningful turn deriveSummary() pulls from the
-		// JSONL, tag-stripped so it matches how /export renders it (a slash-command turn
-		// renders as "/foo", not the raw <command-*> tags). The transcript is already
-		// safe on disk, so a mismatch aborts teardown (session left ALIVE).
-		$summary  = $this->deriveSummary($sess);
+		// belongs to the target before anything destructive. Match on the session's
+		// RECENT genuine turns (tag-stripped) rather than its first turn: /export renders
+		// only the post-compaction / current-bridge conversation, and opening turns are
+		// often machine caveats or skill preambles absent from the export — so the tail is
+		// the reliable anchor. The transcript is already safe on disk, so a mismatch aborts
+		// teardown (session left ALIVE).
 		$exported = (string) @file_get_contents($this->transcriptPath($sess['session_id']));
-		if (!$this->transcriptMatchesSession($exported, $summary)) {
-			$this->cli->err("  Refusing to tear down {$id} (gate 2): exported transcript does not match this session's first turn — leaving it ALIVE (transcript kept for inspection).");
+		$needles  = $this->recentTurnNeedles((string) $sess['session_id'], (string) $sess['cwd']);
+		if (!$this->transcriptBelongsToSession($exported, $needles)) {
+			$this->cli->err("  Refusing to tear down {$id} (gate 2): exported transcript does not match this session's recent turns — leaving it ALIVE (transcript kept for inspection).");
 			return false;
 		}
 
+		$summary = $this->deriveSummary($sess);
 		$tomb = $this->buildTombstone($sess, [
 			'workspace_title' => $sess['workspace_title'],
 			'tab_title'       => $sess['tab_title'],
 		], $summary, gmdate('Y-m-d\TH:i:s\Z'), $group);
 		file_put_contents($this->metaPath($sess['session_id']), json_encode($tomb, JSON_PRETTY_PRINT));
 		$this->upsertIndex($tomb);
-		$this->cli->successMsg("  Buried: {$summary}");
+		$this->cli->successMsg($this->ellipsizeText("  Buried: " . $this->cleanSummaryText($summary, getenv('HOME') ?: ''), $this->termWidth()));
 
 		if (!$autoConfirm && !$this->cli->confirm("  Close the cmux tab and kill this session now?")) {
 			$this->cli->msg('  Left the tab open; transcript is archived.', 'yellow');
@@ -810,27 +818,158 @@ class Graveyard {
 		if (is_dir($dir)) { @rmdir($dir); }
 	}
 
+	# =========================================================================
+	# Width-aware output formatting (dotfiles-rgk). Pure formatters take an
+	# explicit $width so they're testable at 60/80/120 cols without a real tty.
+	# =========================================================================
+
+	/** Terminal width from COLUMNS or `tput cols`; clamped, fallback 80. */
+	protected function termWidth(): int {
+		$c = getenv('COLUMNS');
+		if ($c !== false && ctype_digit(trim($c))) { return max(40, (int) trim($c)); }
+		$t = trim((string) shell_exec('tput cols 2>/dev/null'));
+		if ($t !== '' && ctype_digit($t)) { return max(40, (int) $t); }
+		return 80;
+	}
+
+	/** PURE. Truncate to at most $max display chars, appending … when cut. */
+	public function ellipsizeText(string $s, int $max): string {
+		$s = trim($s);
+		if ($max <= 0) { return ''; }
+		if (mb_strlen($s) <= $max) { return $s; }
+		if ($max === 1) { return '…'; }
+		return rtrim(mb_substr($s, 0, $max - 1)) . '…';
+	}
+
+	/** PURE. Truncate from the LEFT with a leading … (keeps the tail). */
+	public function ellipsizeLeft(string $s, int $max): string {
+		if ($max <= 0) { return ''; }
+		if (mb_strlen($s) <= $max) { return $s; }
+		if ($max === 1) { return '…'; }
+		return '…' . mb_substr($s, -($max - 1));
+	}
+
+	/** PURE. Strip Claude's leading status glyph (e.g. ✳/⠂) from a tab title. */
+	public function stripGlyph(string $title): string {
+		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));
+	}
+
+	/** PURE. Strip machine noise from a raw summary: <tags>, [MACHINE_KEY: ...], home→~. */
+	public function cleanSummaryText(string $s, string $home = ''): string {
+		$s = preg_replace('/<[^>]*>/', ' ', $s);               // <command-message> …
+		$s = preg_replace('/\[[A-Z0-9_]+:[^\]]*\]/', ' ', $s); // [CALL_ID: …] [MODE: …]
+		if ($home !== '') { $s = str_replace($home, '~', $s); }
+		return trim(preg_replace('/\s+/', ' ', $s));
+	}
+
+	/**
+	 * PURE. A title-like label for a tombstone: prefer a cleaned first-prompt summary,
+	 * but fall back to the session's own title when the summary is empty or just a bare
+	 * slash-command (e.g. "/hotline:ringing"), then the workspace title.
+	 */
+	public function titleizeSummary(array $t, string $home = ''): string {
+		$sum = $this->cleanSummaryText((string) ($t['summary'] ?? ''), $home);
+		// A summary that's actually machine noise (a leaked caveat / skill preamble from
+		// an older tombstone) is not a title — treat it as empty so we fall back.
+		if (stripos($sum, 'Caveat: The messages below') === 0 || stripos($sum, 'Base directory for this skill:') === 0) { $sum = ''; }
+		$tab = $this->stripGlyph((string) ($t['tab_title'] ?? ''));
+		$goodTab = ($tab !== '' && $tab !== 'Terminal');
+		if (($sum === '' || $sum[0] === '/') && $goodTab) { return $tab; }
+		if ($sum !== '') { return $sum; }
+		if ($goodTab) { return $tab; }
+		$ws = trim((string) ($t['workspace_title'] ?? ''));
+		return $ws !== '' ? $ws : '(untitled)';
+	}
+
+	/** PURE. Home→~, then elide middle components with … so the result fits $max. */
+	public function shortenCwd(string $cwd, string $home, int $max): string {
+		$cwd = rtrim($cwd, '/');
+		if ($cwd === '' || $max <= 0) { return ''; }
+		if ($home !== '' && ($cwd === $home || strncmp($cwd, $home . '/', strlen($home) + 1) === 0)) {
+			$cwd = '~' . substr($cwd, strlen($home));
+		}
+		if (mb_strlen($cwd) <= $max) { return $cwd; }
+
+		$abs    = ($cwd[0] === '/');
+		$comps  = array_values(array_filter(explode('/', $cwd), fn($p) => $p !== ''));
+		$prefix = $abs ? '' : (string) array_shift($comps); // '' (leading /) or '~'/first comp
+		$tail   = [];
+		for ($i = count($comps) - 1; $i >= 0; $i--) {
+			$try = $prefix . '/…/' . implode('/', array_merge([$comps[$i]], $tail));
+			if (mb_strlen($try) <= $max) { array_unshift($tail, $comps[$i]); }
+			else { break; }
+		}
+		if ($tail) { return $prefix . '/…/' . implode('/', $tail); }
+		return $this->ellipsizeLeft($cwd, $max); // nothing fits with prefix → keep the tail
+	}
+
+	/**
+	 * PURE. One tombstone entry as display lines that never exceed $width and never
+	 * wrap. Returns ['primary'=>string, 'secondary'=>?string]. Wide terminals get a
+	 * single line (id · title · cwd · date); below the threshold it stacks the title on
+	 * line 1 and dim cwd·date on line 2 — one consistent shape for grouped & loose.
+	 */
+	public function lsEntryLines(array $t, int $width, string $home, int $indent = 0): array {
+		$id    = substr((string) $t['session_id'], 0, 8);
+		$date  = substr((string) ($t['buried_at'] ?? ''), 0, 10);
+		$title = $this->titleizeSummary($t, $home);
+		$cwd   = (string) ($t['cwd'] ?? '');
+		$pad   = str_repeat(' ', $indent);
+		$STACK_BELOW = 100;
+
+		if ($width >= $STACK_BELOW) {
+			$avail = $width - $indent - 8 - 6 - strlen($date); // id + three 2-space gaps + date
+			if ($avail >= 24) {
+				$cwdMax   = min(40, intdiv($avail, 2));
+				$shortCwd = $this->shortenCwd($cwd, $home, $cwdMax);
+				$titleTxt = $this->ellipsizeText($title, $avail - mb_strlen($shortCwd));
+				return ['primary' => $pad . $id . '  ' . $titleTxt . '  ' . $shortCwd . '  ' . $date, 'secondary' => null];
+			}
+		}
+
+		// Stacked: bright title line + dim, indented cwd·date line. (Do NOT run the
+		// secondary through ellipsizeText — it trims the leading indent; the fields are
+		// already sized to fit within $width here.)
+		$titleTxt  = $this->ellipsizeText($title, $width - $indent - 8 - 2);
+		$primary   = $pad . $id . '  ' . $titleTxt;
+		$dPad      = str_repeat(' ', $indent + 2);
+		$cwdMax    = $width - mb_strlen($dPad) - 3 - strlen($date);
+		$shortCwd  = $this->shortenCwd($cwd, $home, max(0, $cwdMax));
+		$secondary = $dPad . ($shortCwd !== '' ? $shortCwd . ' · ' : '') . $date;
+		return ['primary' => $primary, 'secondary' => $secondary];
+	}
+
+	/** PURE. Group header line, truncated to $width. */
+	public function groupHeaderLine(string $title, int $count, string $date, int $width): string {
+		$meta = sprintf('  (%d session%s)  %s', $count, $count === 1 ? '' : 's', $date);
+		$titleMax = $width - 2 - mb_strlen($meta); // "▸ "
+		return '▸ ' . $this->ellipsizeText($title, max(4, $titleMax)) . $meta;
+	}
+
 	public function listTombstones(): void {
 		$tombs = $this->readIndex()['tombstones'] ?? [];
 		if (!$tombs) { $this->cli->msg('Graveyard is empty.', 'yellow'); return; }
 		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
 
-		// Grouped view: workspace groups first (header + members), then loose tombstones.
+		$w    = $this->termWidth();
+		$home = getenv('HOME') ?: '';
 		[$groups, $loose] = $this->groupTombstones($tombs);
+
 		foreach ($groups as $gid => $members) {
 			$title = $members[0]['group_title'] ?? '(workspace)';
-			$this->cli->msg(sprintf('▸ workspace "%s"  group %s  %s  (%d session%s)',
-				$title, substr($gid, 0, 8), substr($members[0]['buried_at'] ?? '', 0, 10),
-				count($members), count($members) === 1 ? '' : 's'), 'green');
-			$this->cli->msg('  resurrect: graveyard resurrect --workspace ' . substr($gid, 0, 8), 'cyan');
-			foreach ($members as $t) {
-				$this->cli->msg('    ' . $this->tombstoneLine($t));
-			}
+			$date  = substr($members[0]['buried_at'] ?? '', 0, 10);
+			$this->cli->msg($this->groupHeaderLine($title, count($members), $date, $w), 'green');
+			$this->cli->msg('  ↻ graveyard resurrect --workspace ' . substr($gid, 0, 8), 'blue');
+			foreach ($members as $t) { $this->printLsEntry($t, $w, $home, 4); }
 		}
-		foreach ($loose as $t) {
-			$this->cli->msg($this->tombstoneLine($t));
-			$this->cli->msg("          cwd: " . ($t['cwd'] ?? ''), 'cyan');
-		}
+		if ($groups && $loose) { $this->cli->msg(''); }
+		foreach ($loose as $t) { $this->printLsEntry($t, $w, $home, 0); }
+	}
+
+	protected function printLsEntry(array $t, int $width, string $home, int $indent): void {
+		$lines = $this->lsEntryLines($t, $width, $home, $indent);
+		$this->cli->msg($lines['primary']);
+		if ($lines['secondary'] !== null) { $this->cli->msg($lines['secondary'], 'cyan'); }
 	}
 
 	/** PURE: split tombstones into [group_id => members[], loose[]], preserving order. */
@@ -849,14 +988,6 @@ class Graveyard {
 		return [$groups, $loose];
 	}
 
-	/** PURE: one-line tombstone summary. */
-	public function tombstoneLine(array $t): string {
-		return sprintf('%s  %-24.24s  %-10.10s  %s',
-			substr($t['session_id'], 0, 8),
-			$t['workspace_title'] ?: '(untitled)',
-			substr($t['buried_at'] ?? '', 0, 10),
-			$t['summary'] ?? '');
-	}
 
 	public function resolveTombstone(string $prefix): ?array {
 		$tombs = $this->readIndex()['tombstones'] ?? [];
@@ -1127,20 +1258,36 @@ class Graveyard {
 			return;
 		}
 		if (!$rows) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
+		$w    = $this->termWidth();
+		$home = getenv('HOME') ?: '';
 		foreach ($rows as $r) {
 			$targetable = $r['targetable'] ?? true;
-			$this->cli->msg(sprintf(
-				'%s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
-				substr($r['session_id'], 0, 8),
-				$this->idleHuman((int) $r['idle_seconds']),
-				$r['busy'] ? 'busy' : 'idle',
-				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
-				$r['cwd']
-			), $targetable ? '' : 'yellow');
+			$this->cli->msg($this->candidateLine($r, $w, $home), $targetable ? '' : 'yellow');
 			if (!$targetable) {
-				$this->cli->msg('          ⚠ untargetable: ' . $r['reason'], 'yellow');
+				$this->cli->msg($this->ellipsizeText('          ⚠ ' . $r['reason'], $w), 'yellow');
 			}
 		}
+	}
+
+	/** PURE. One width-bounded candidate line: id · idle · state · title · cwd (· ⚠ if untargetable). */
+	public function candidateLine(array $r, int $width, string $home): string {
+		$id    = substr((string) $r['session_id'], 0, 8);
+		$idle  = $this->idleHuman((int) $r['idle_seconds']);
+		$state = ($r['busy'] ?? false) ? 'busy' : 'idle';
+		$flag  = ($r['targetable'] ?? true) ? '' : ' ⚠';
+		$title = $this->stripGlyph((string) ($r['tab_title'] ?? ''));
+		if ($title === '' || $title === 'Terminal') { $title = (string) ($r['workspace_title'] ?? ''); }
+		if ($title === '') { $title = '(untitled)'; }
+		$left = sprintf('%s  %-4s %-4s', $id, $idle, $state);
+
+		$avail = $width - mb_strlen($left) - 2 - mb_strlen($flag);
+		if ($avail < 24) {
+			return $left . '  ' . $this->ellipsizeText($title, max(0, $avail)) . $flag;
+		}
+		$cwdMax   = min(40, intdiv($avail, 2));
+		$shortCwd = $this->shortenCwd((string) ($r['cwd'] ?? ''), $home, $cwdMax);
+		$titleTxt = $this->ellipsizeText($title, $avail - 2 - mb_strlen($shortCwd));
+		return $left . '  ' . $titleTxt . '  ' . $shortCwd . $flag;
 	}
 
 	public function buryIds(array $sessionIds, bool $autoConfirm, bool $force = false): void {
@@ -1367,8 +1514,10 @@ class Graveyard {
 		}
 		$s = $matches[0];
 
-		$this->cli->msg(sprintf('%s  %s', substr($s['session_id'], 0, 8), $s['workspace_title'] ?: $s['tab_title']), 'cyan');
-		$this->cli->msg(sprintf('cwd: %s   model: %s   idle: %s', $s['cwd'], $s['model'] ?: '(unknown)', $this->idleHuman((int) $s['idle_seconds'])), 'cyan');
+		$w = $this->termWidth();
+		$home = getenv('HOME') ?: '';
+		$this->cli->msg($this->ellipsizeText(substr($s['session_id'], 0, 8) . '  ' . $this->stripGlyph((string) ($s['tab_title'] ?: $s['workspace_title'])), $w), 'cyan');
+		$this->cli->msg($this->ellipsizeText(sprintf('%s   %s   idle %s', $this->shortenCwd((string) $s['cwd'], $home, max(20, $w - 30)), $s['model'] ?: '(unknown)', $this->idleHuman((int) $s['idle_seconds'])), $w), 'cyan');
 		if (!($s['targetable'] ?? true)) {
 			$this->cli->msg('⚠ untargetable: ' . $s['reason'], 'yellow');
 		}
@@ -1394,8 +1543,14 @@ class Graveyard {
 	 * (both classified by Cmux::isSyntheticEntry) and tool-only turns with no text.
 	 * Remaining text is tag-stripped, whitespace-collapsed, and truncated.
 	 */
-	public function renderTurns(array $entries, int $limit = 6, int $width = 160): string {
-		$turns = [];
+	/**
+	 * PURE. Genuine conversation turns from decoded JSONL entries: user/assistant turns
+	 * that are not synthetic/command noise (Cmux::isSyntheticEntry) and carry text.
+	 * Returns [['role'=>'user'|'assistant','text'=>string], ...] with text tag-stripped
+	 * and whitespace-collapsed. Shared by renderTurns (peek) and gate 2.
+	 */
+	public function genuineTurns(array $entries): array {
+		$out = [];
 		foreach ($entries as $e) {
 			$type = $e['type'] ?? '';
 			if ($type !== 'user' && $type !== 'assistant') { continue; }
@@ -1410,16 +1565,52 @@ class Graveyard {
 					if (is_array($c) && ($c['type'] ?? '') === 'text') { $text .= ($text === '' ? '' : ' ') . ($c['text'] ?? ''); }
 				}
 			}
-
-			// Genuine turns only reach here (command/synthetic already skipped). Clean
-			// defensively: strip any stray tags, collapse whitespace.
 			$text = trim(preg_replace('/\s+/', ' ', preg_replace('/<[^>]+>/', ' ', $text)));
 			if ($text === '') { continue; } // tool-only / empty turn
-			if (mb_strlen($text) > $width) { $text = mb_substr($text, 0, $width - 1) . '…'; }
-			$turns[] = ($type === 'user' ? '❯ ' : '⏺ ') . $text;
+			$out[] = ['role' => $type, 'text' => $text];
 		}
+		return $out;
+	}
 
+	public function renderTurns(array $entries, int $limit = 6, int $width = 160): string {
+		$turns = [];
+		foreach ($this->genuineTurns($entries) as $t) {
+			$text = mb_strlen($t['text']) > $width ? mb_substr($t['text'], 0, $width - 1) . '…' : $t['text'];
+			$turns[] = ($t['role'] === 'user' ? '❯ ' : '⏺ ') . $text;
+		}
 		$turns = array_slice($turns, -$limit);
 		return $turns ? implode("\n", $turns) . "\n" : '';
+	}
+
+	/**
+	 * Needles for GATE 2 (dotfiles-c8a fix): the text of the LAST $count genuine turns
+	 * from a session's JSONL. Matching on the tail (not the first turn) survives
+	 * compaction, session bridging, and machine-caveat/skill-preamble opening turns —
+	 * all of which mean the first turn may be absent from the rendered /export, while
+	 * recent turns are always present.
+	 */
+	public function recentTurnNeedles(string $sessionId, string $cwd, int $count = 6): array {
+		$jsonl = $this->cmux->jsonlPathFor($sessionId, $cwd);
+		if (!is_file($jsonl)) { return []; }
+		$entries = [];
+		foreach (file($jsonl) as $line) { $e = json_decode($line, true); if ($e) { $entries[] = $e; } }
+		$turns = $this->genuineTurns($entries);
+		$tail  = array_slice($turns, -$count);
+		return array_map(fn($t) => $t['text'], $tail);
+	}
+
+	/**
+	 * PURE. GATE 2: does the exported transcript belong to the target? Passes if ANY of
+	 * the session's recent genuine turns appears in the rendered transcript. Returns
+	 * true when there are no usable needles (cannot assert → do not block).
+	 */
+	public function transcriptBelongsToSession(string $transcriptText, array $needles): bool {
+		$hasNeedle = false;
+		foreach ($needles as $n) {
+			if (trim((string) $n) === '') { continue; }
+			$hasNeedle = true;
+			if ($this->transcriptMatchesSession($transcriptText, (string) $n)) { return true; }
+		}
+		return !$hasNeedle;
 	}
 }
