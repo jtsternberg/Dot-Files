@@ -275,6 +275,41 @@ ok($gy->statuslineMatchesSession('… 📁 /asana-cli | 🌿 main', '/Users/JT/C
 ok($gy->statuslineMatchesSession('… 📁 /Boss', '/Users/JT/Code/asana-cli') === false, 'gate1: cwd mismatch blocks');
 ok($gy->statuslineMatchesSession('a plain shell prompt $', '/Users/JT/Code/asana-cli') === false, 'gate1: no REPL statusline blocks');
 
+// GATE 1 regression: SPACED paths (the Hankinsville/Southport UDO bug). extractStatuslineCwd
+// must not stop at the first space, and matching must be robust to spaces / ~ / elision.
+ok($gy->extractStatuslineCwd('[Opus] | 📁 /Southport UDO | 🌿 main') === '/Southport UDO', 'extractStatuslineCwd: keeps spaced path (not "/Southport")');
+ok($gy->extractStatuslineCwd('📁 /Southport UDO') === '/Southport UDO', 'extractStatuslineCwd: spaced path, no trailing separator');
+ok($gy->extractStatuslineCwd("📁 /a b c │ x") === '/a b c', 'extractStatuslineCwd: stops at box-drawing │ separator');
+ok($gy->statuslineMatchesSession('📁 /Southport UDO | 🌿 m', '/Users/JT/Documents/Southport UDO') === true, 'gate1: spaced basename matches (Hankinsville repro)');
+ok($gy->statuslineMatchesSession('📁 ~/Documents/Southport UDO', '/Users/JT/Documents/Southport UDO') === true, 'gate1: ~-abbreviated multi-component suffix matches');
+ok($gy->statuslineMatchesSession('📁 …/Documents/Southport UDO | x', '/Users/JT/Documents/Southport UDO') === true, 'gate1: elided leading components (…) match by suffix');
+ok($gy->statuslineMatchesSession('📁 /Southport UDO', '/Users/JT/Documents/Northport UDO') === false, 'gate1: different spaced dir still blocks');
+ok($gy->statuslineMatchesSession('📁 /UDO', '/Users/JT/Documents/Southport UDO') === false, 'gate1: partial last-component (not a full component) does not match');
+
+// -y / --force must NOT bypass a gate refusal — only the confirm prompt. A Graveyard
+// whose surface always shows a MISMATCHED statusline must still be refused at gate 1
+// even with force=true AND autoConfirm=true, and must write no tombstone.
+$stub = new class($cli, $cmux) extends Graveyard {
+	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string {
+		return '[Opus] | 📁 /totally-different-dir | 🌿 main';
+	}
+};
+$fakeSess = ['session_id' => 'zztest-gate1', 'cwd' => '/Users/JT/x', 'surface_ref' => 'surface:1',
+	'workspace_ref' => 'ws:1', 'targetable' => true, 'reason' => '', 'idle_seconds' => 999999,
+	'tab_title' => 't', 'workspace_title' => 'w', 'pid' => 0, 'model' => null, 'skip_perms' => false];
+ok($stub->buryOne($fakeSess, true, true) === false, '-y/force does NOT bypass gate 1 (mismatched statusline refused)');
+ok(!is_file($stub->metaPath('zztest-gate1')), 'gate-1 refusal under -y/force writes no tombstone');
+
+// pathTailComponents
+ok($gy->pathTailComponents('/Users/JT/Documents/Southport UDO') === ['Users','JT','Documents','Southport UDO'], 'pathTailComponents: spaced component preserved');
+ok($gy->pathTailComponents('~/Code/asana-cli') === ['Code','asana-cli'], 'pathTailComponents: drops leading ~');
+ok($gy->pathTailComponents('…/a/b') === ['a','b'], 'pathTailComponents: drops elision marker');
+
+// Whitespace-on-path sweep (same family as phase-1 encodeProjectKey): a spaced cwd must
+// round-trip to a valid project key and jsonl path with no space-splitting.
+ok($cmux->encodeProjectKey('/Users/JT/Documents/Southport UDO') === '-Users-JT-Documents-Southport-UDO', 'sweep: encodeProjectKey handles spaces');
+ok(strpos($cmux->jsonlPathFor('sid', '/Users/JT/Documents/Southport UDO'), 'Southport-UDO/sid.jsonl') !== false, 'sweep: jsonlPathFor handles spaced cwd');
+
 // GATE 2: transcript belongs to session
 ok($gy->transcriptMatchesSession("… conversation …\n> Fix the login bug now\n…", 'Fix the login bug now') === true, 'gate2: matching first prompt passes');
 ok($gy->transcriptMatchesSession("some other session entirely", 'Fix the login bug now') === false, 'gate2: mismatched transcript blocks');
@@ -282,6 +317,27 @@ ok($gy->transcriptMatchesSession("anything", '') === true, 'gate2: empty needle 
 // gate2: a slash-command session's needle is the tag-stripped summary ("/foo"), which is
 // how /export renders it — must match (regression: raw <command-*> tags never appear rendered).
 ok($gy->transcriptMatchesSession("❯ /monorepo-address-pr-review\n  ⎿ …", '/monorepo-address-pr-review') === true, 'gate2: slash-command summary needle matches rendered transcript');
+
+// GATE 2 tail-anchored matching (compaction / bridging / caveat-opening fix, dotfiles-c8a).
+// genuineTurns: skips synthetic/command/tool-only; keeps role+text.
+$g2entries = [
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => '<local-command-caveat>Caveat: machine noise']]]], // caveat → skipped by isSyntheticEntry
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => 'the original first request about widgets']]]],
+	['type' => 'user', 'isMeta' => true, 'message' => ['content' => [['type' => 'text', 'text' => 'Continue from where you left off.']]]], // synthetic
+	['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => 'Published the review with two findings fixed']]]],
+	['type' => 'user', 'message' => ['content' => [['type' => 'text', 'text' => 'review again, copilot made updates']]]],
+];
+$gt = $gy->genuineTurns($g2entries);
+ok(count($gt) === 3, 'genuineTurns: drops caveat + synthetic + keeps 3 genuine');
+ok($gt[0]['text'] === 'the original first request about widgets', 'genuineTurns: first genuine text');
+
+// A compacted export contains only RECENT turns (not the first). Tail-anchored gate 2 passes.
+$compactedExport = "…summary…\n❯ review again, copilot made updates\n⏺ Published the review with two findings fixed\n";
+$needles = array_map(fn($t) => $t['text'], $gt);
+ok($gy->transcriptBelongsToSession($compactedExport, $needles) === true, 'gate2: passes when a RECENT turn matches even though first turn is absent (compaction)');
+ok($gy->transcriptBelongsToSession("an entirely unrelated session transcript", $needles) === false, 'gate2: refuses a genuine mis-target (no recent turn matches)');
+ok($gy->transcriptBelongsToSession("anything", []) === true, 'gate2: no needles → cannot assert → does not block');
+ok($gy->transcriptBelongsToSession("anything", ['   ', '']) === true, 'gate2: only-blank needles → does not block');
 
 // ---------------------------------------------------------------------------
 // peek: renderTurns (dotfiles-48w) — pure rendering of genuine JSONL turns
@@ -307,6 +363,158 @@ ok(substr_count($r2, "\n") === 2 && strpos($r2, 'Done — added sync.') !== fals
 ok($gy->renderTurns([], 6) === '', 'renderTurns: empty entries → empty string');
 $long = ['type' => 'assistant', 'message' => ['content' => [['type' => 'text', 'text' => str_repeat('x', 300)]]]];
 ok(mb_substr(trim($gy->renderTurns([$long], 6)), -1) === '…', 'renderTurns: long turn truncated with ellipsis');
+
+// ---------------------------------------------------------------------------
+// Workspace-level (grouped) bury (dotfiles-c8a)
+// ---------------------------------------------------------------------------
+// uuidv4 shape
+$uu = $cmux->uuidv4();
+ok((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $uu), 'uuidv4: valid v4 shape');
+ok($cmux->uuidv4() !== $cmux->uuidv4(), 'uuidv4: unique');
+
+// resolveWorkspaceNode: ref, title substring, ambiguity
+$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+	['ref' => 'workspace:9', 'title' => 'asana-skill update', 'panes' => []],
+	['ref' => 'workspace:12', 'title' => 'boss backend', 'panes' => []],
+	['ref' => 'workspace:13', 'title' => 'boss frontend', 'panes' => []],
+]]]];
+ok($cmux->resolveWorkspaceNode($wtree, 'workspace:12')['title'] === 'boss backend', 'resolveWorkspaceNode: exact ref');
+ok($cmux->resolveWorkspaceNode($wtree, 'asana')['ref'] === 'workspace:9', 'resolveWorkspaceNode: title substring');
+ok($cmux->resolveWorkspaceNode($wtree, 'nope') === null, 'resolveWorkspaceNode: no match → null');
+$threwWs = false; try { $cmux->resolveWorkspaceNode($wtree, 'boss'); } catch (\RuntimeException $e) { $threwWs = true; }
+ok($threwWs, 'resolveWorkspaceNode: ambiguous title throws');
+
+// classifyWorkspaceLayout: claude member (bound), untargetable claude (fresh), shell, browser
+$wsNode = ['panes' => [
+	['index' => 0, 'surfaces' => [
+		['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'claude a', 'index_in_pane' => 0],
+		['ref' => 'surface:2', 'type' => 'terminal', 'title' => 'fresh claude', 'index_in_pane' => 1],
+	]],
+	['index' => 1, 'surfaces' => [
+		['ref' => 'surface:3', 'type' => 'terminal', 'title' => 'a shell', 'index_in_pane' => 0],
+		['ref' => 'surface:4', 'type' => 'browser', 'title' => 'docs', 'url' => 'https://x', 'index_in_pane' => 1],
+	]],
+]];
+$liveByRef = ['surface:1' => ['session_id' => 'sid-1', 'cwd' => '/a', 'targetable' => true, 'tab_title' => 'claude a']];
+$isClaudeByRef = ['surface:1' => true, 'surface:2' => true, 'surface:3' => false, 'surface:4' => false];
+$c = $gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef);
+ok(count($c['members']) === 1 && $c['members'][0]['session_id'] === 'sid-1', 'classify: one bound claude member');
+ok($c['members'][0]['group_pos'] === 0, 'classify: member carries group_pos');
+ok(count($c['untargetable']) === 1 && $c['untargetable'][0]['ref'] === 'surface:2', 'classify: fresh claude → untargetable (abort trigger)');
+ok(count($c['layout']) === 4, 'classify: full layout captured');
+$kinds = array_column($c['layout'], 'kind');
+ok($kinds === ['claude', 'claude-untargetable', 'shell', 'browser'], 'classify: per-surface kinds correct');
+ok($c['layout'][3]['url'] === 'https://x', 'classify: browser url recorded');
+
+// classify: a cmux-native agentSession surface (no tty, not in isClaudeByRef) must be
+// treated as Claude (untargetable → abort), NEVER as a shell that gets silently closed.
+$wsAgent = ['panes' => [['index' => 0, 'surfaces' => [
+	['ref' => 'surface:9', 'type' => 'agentSession', 'title' => 'Claude Code · React', 'index_in_pane' => 0],
+]]]];
+$ca = $gy->classifyWorkspaceLayout($wsAgent, [], []); // note: not in isClaudeByRef
+ok(count($ca['untargetable']) === 1 && $ca['layout'][0]['kind'] === 'claude-untargetable', 'classify: agentSession → claude-untargetable (never shell)');
+
+// untargetableReasonFor: specific reason per fact-set (dotfiles product-gap ask)
+ok(str_contains($gy->untargetableReasonFor(['type' => 'agentSession']), 'cmux-native agent session'), 'reason: native agent session');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => false]), 'not running'), 'reason: resumed Claude exited (surface:34 case)');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => false]), 'no live shell'), 'reason: stale surface, no shell');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => false]), 'no session file yet'), 'reason: running but no conversation');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false]), 'no unique statusline-cwd match'), 'reason: fresh, no unique cwd match');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false, 'cwd_conflict' => true]), 'multiple sessions'), 'reason: fresh, ambiguous cwd');
+ok(str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => true, 'session_id' => '93de80a4-x', 'bound_elsewhere' => 'surface:33']), 'duplicate live view of session 93de80a4') && str_contains($gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => true, 'session_id' => '93de80a4-x', 'bound_elsewhere' => 'surface:33']), 'surface:33'), 'reason: duplicate view (surface:34 case)');
+
+// groupTombstones + tombstoneLine
+$ts = [
+	['session_id' => 'aaaa1111', 'group_id' => 'g1', 'group_pos' => 1, 'group_title' => 'ws', 'buried_at' => '2026-07-14', 'workspace_title' => 'ws', 'summary' => 's2'],
+	['session_id' => 'bbbb2222', 'group_id' => 'g1', 'group_pos' => 0, 'group_title' => 'ws', 'buried_at' => '2026-07-14', 'workspace_title' => 'ws', 'summary' => 's1'],
+	['session_id' => 'cccc3333', 'buried_at' => '2026-07-13', 'workspace_title' => 'loose', 'summary' => 's3'],
+];
+[$groups, $loose] = $gy->groupTombstones($ts);
+ok(count($groups['g1']) === 2 && count($loose) === 1, 'groupTombstones: splits grouped vs loose');
+ok($groups['g1'][0]['session_id'] === 'bbbb2222', 'groupTombstones: members sorted by group_pos');
+// (tombstoneLine removed — replaced by width-aware lsEntryLines below)
+
+// ---------------------------------------------------------------------------
+// contentProbeBind fallback (dotfiles-c15)
+// ---------------------------------------------------------------------------
+$fresh = [
+	['session_id' => 'f-1', 'cwd' => '/Users/JT/Code/asana-cli', 'tty' => 'ttys010'],
+	['session_id' => 'f-2', 'cwd' => '/Users/JT/Boss', 'tty' => 'ttys011'],
+];
+$unbound = [
+	'surface:1' => ['tty' => 'ttys010'],
+	'surface:2' => ['tty' => 'ttys011'],
+	'surface:3' => ['tty' => 'ttys012'],
+];
+$screens = [
+	'surface:1' => '… 📁 /asana-cli | 🌿 main',
+	'surface:2' => '… 📁 /Boss | 🌿 main',
+	'surface:3' => 'plain shell $',
+];
+$b = $gy->contentProbeBind($fresh, $unbound, $screens);
+ok(($b['f-1'] ?? null) === 'surface:1' && ($b['f-2'] ?? null) === 'surface:2', 'contentProbeBind: unique cwd matches bind');
+
+// ambiguous: two surfaces show the same cwd → no bind unless tty breaks the tie
+$fresh2 = [['session_id' => 'f-3', 'cwd' => '/Users/JT/Code/asana-cli', 'tty' => 'ttysZZ']];
+$unbound2 = ['surface:1' => ['tty' => 'ttysAA'], 'surface:2' => ['tty' => 'ttysBB']];
+$screens2 = ['surface:1' => '📁 /asana-cli', 'surface:2' => '📁 /asana-cli'];
+ok($gy->contentProbeBind($fresh2, $unbound2, $screens2) === [], 'contentProbeBind: ambiguous cwd (no tty match) → no bind');
+
+// tty tiebreak: same cwd on two surfaces, session tty matches exactly one
+$fresh3 = [['session_id' => 'f-4', 'cwd' => '/x', 'tty' => 'ttysBB']];
+$unbound3 = ['surface:1' => ['tty' => 'ttysAA'], 'surface:2' => ['tty' => 'ttysBB']];
+$screens3 = ['surface:1' => '📁 /x', 'surface:2' => '📁 /x'];
+ok(($gy->contentProbeBind($fresh3, $unbound3, $screens3)['f-4'] ?? null) === 'surface:2', 'contentProbeBind: tty breaks a cwd tie');
+
+// no surface matches → no bind
+ok($gy->contentProbeBind([['session_id' => 'f-5', 'cwd' => '/nope', 'tty' => 't']], $unbound, $screens) === [], 'contentProbeBind: no cwd match → no bind');
+
+// ---------------------------------------------------------------------------
+// Width-aware output formatting (dotfiles-rgk) — 60/80/120 cols via injected width
+// ---------------------------------------------------------------------------
+// ellipsize / ellipsizeLeft
+ok($gy->ellipsizeText('hello world', 8) === 'hello w…', 'ellipsizeText: truncates with …');
+ok($gy->ellipsizeText('short', 20) === 'short', 'ellipsizeText: no-op when it fits');
+ok($gy->ellipsizeLeft('/a/b/c/deep', 6) === '…/deep', 'ellipsizeLeft: keeps the tail');
+
+// shortenCwd: home→~, elide middle, always ≤ max
+$home = '/Users/JT';
+ok($gy->shortenCwd('/Users/JT/Sites/x', $home, 40) === '~/Sites/x', 'shortenCwd: home → ~');
+$long = '/Users/JT/Sites/lindris-monorepo/local-frontend/lindris-frontend';
+foreach ([20, 30, 40] as $mx) {
+	$s = $gy->shortenCwd($long, $home, $mx);
+	ok(mb_strlen($s) <= $mx, "shortenCwd: fits within $mx");
+	ok(str_contains($s, 'lindris-frontend') || str_contains($s, '…'), "shortenCwd: keeps tail or elides at $mx");
+}
+
+// titleizeSummary: prefer clean human text; fall back off bare slash-command / noise
+ok($gy->titleizeSummary(['summary' => '/hotline:ringing [CALL_ID: a0be3ca9] [MODE: quick_call]', 'tab_title' => '✳ Hotline call with lindris', 'workspace_title' => 'ws']) === 'Hotline call with lindris', 'titleize: bare slash-command falls back to session title');
+ok($gy->titleizeSummary(['summary' => 'add a sync subcommand to the CLI', 'tab_title' => 'Terminal', 'workspace_title' => 'ws']) === 'add a sync subcommand to the CLI', 'titleize: prefers clean human summary');
+ok($gy->titleizeSummary(['summary' => '', 'tab_title' => 'Terminal', 'workspace_title' => 'my-workspace']) === 'my-workspace', 'titleize: falls back to workspace title');
+// caveat-family: summarizeUserText must skip a <local-command-caveat> turn (the fe4e5b02 bug),
+// and titleize must not surface a leaked "Caveat: The messages below…" summary.
+ok($gy->summarizeUserText('<local-command-caveat>Caveat: The messages below were generated by the user') === '', 'summarizeUserText: skips <local-command-caveat> turn');
+ok($gy->summarizeUserText('<command-args>1234 careful</command-args>') === '', 'summarizeUserText: skips bare <command-args> turn');
+ok($gy->titleizeSummary(['summary' => 'Caveat: The messages below were generated by the user while running local commands.', 'tab_title' => '✳ PR Review Checklist', 'workspace_title' => 'ws']) === 'PR Review Checklist', 'titleize: leaked caveat summary falls back to session title');
+
+// lsEntryLines: NEVER exceeds width, no wrap, at 60/80/120 with a nasty spaced/long entry
+$tomb = ['session_id' => 'abcd1234ef', 'buried_at' => '2026-07-15',
+	'summary' => '/hotline:ringing [CALL_ID: a0be] [MODE: quick_call]', 'tab_title' => '✳ Review property spec for accessory dwelling unit rezoning',
+	'workspace_title' => 'Hankinsville ADU feasibility', 'cwd' => '/Users/JT/Documents/Southport UDO'];
+foreach ([60, 80, 120] as $W) {
+	foreach ([0, 4] as $indent) {
+		$e = $gy->lsEntryLines($tomb, $W, $home, $indent);
+		ok(mb_strlen($e['primary']) <= $W, "lsEntryLines: primary ≤ $W (indent $indent)");
+		ok($e['secondary'] === null || mb_strlen($e['secondary']) <= $W, "lsEntryLines: secondary ≤ $W (indent $indent)");
+	}
+	ok(mb_strlen($gy->groupHeaderLine('Hankinsville ADU feasibility', 3, '2026-07-15', $W)) <= $W, "groupHeaderLine ≤ $W");
+	$cand = ['session_id' => 'abcd1234ef', 'idle_seconds' => 5875200, 'busy' => false, 'targetable' => true,
+		'tab_title' => '✳ Review property spec for accessory dwelling', 'workspace_title' => 'Hankinsville', 'cwd' => $long];
+	ok(mb_strlen($gy->candidateLine($cand, $W, $home)) <= $W, "candidateLine ≤ $W");
+}
+// stacked vs single-line: narrow stacks (secondary present), wide is single line
+ok($gy->lsEntryLines($tomb, 60, $home, 0)['secondary'] !== null, 'lsEntryLines: narrow (60) stacks to 2 lines');
+ok($gy->lsEntryLines($tomb, 120, $home, 0)['secondary'] === null, 'lsEntryLines: wide (120) is single line');
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

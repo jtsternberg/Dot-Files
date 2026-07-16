@@ -255,6 +255,41 @@ class Cmux {
 		return $out;
 	}
 
+	/** Generate a v4 UUID (for graveyard group ids). */
+	public function uuidv4(): string {
+		$b = random_bytes(16);
+		$b[6] = chr((ord($b[6]) & 0x0f) | 0x40);
+		$b[8] = chr((ord($b[8]) & 0x3f) | 0x80);
+		return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($b), 4));
+	}
+
+	/**
+	 * PURE. Resolve a workspace node from a cmux tree by exact ref (workspace:N) or
+	 * case-insensitive title substring. Returns ['ref','title','node','window_ref'] or
+	 * null (none) / throws \RuntimeException on ambiguous title match.
+	 */
+	public function resolveWorkspaceNode(array $tree, string $nameOrRef): ?array {
+		$matches = [];
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$ref   = $ws['ref'] ?? '';
+				$title = $ws['title'] ?? '';
+				if ($ref === $nameOrRef) {
+					return ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
+				}
+				if ($nameOrRef !== '' && stripos($title, $nameOrRef) !== false) {
+					$matches[] = ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
+				}
+			}
+		}
+		if (count($matches) === 1) { return $matches[0]; }
+		if (count($matches) > 1) {
+			$titles = implode(', ', array_map(fn($m) => "{$m['ref']} \"{$m['title']}\"", $matches));
+			throw new \RuntimeException("Ambiguous workspace '{$nameOrRef}' — matches: {$titles}");
+		}
+		return null;
+	}
+
 	/** sessionId recorded in ~/.claude/sessions/<pid>.json for a live pid, or null. */
 	public function sessionIdForPid(int $pid): ?string {
 		if ($pid <= 0 || !$this->pidIsAlive($pid)) { return null; }
