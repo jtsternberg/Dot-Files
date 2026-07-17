@@ -160,6 +160,16 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('copied', strtolower($html));
 	}
 
+	public function testPageHtmlContainsModalScroll(): void
+	{
+		// Wheel-scrolling the transcript to its end must NOT chain into the
+		// background page: the body locks while the dialog is open, and the
+		// scrollable regions contain their own overscroll.
+		$html = $this->gy->pageHtml([$this->tomb('scr00001-full', 'scroll test')], '2026-07-17');
+		$this->assertStringContainsString('body:has(dialog#plot[open])', $html);
+		$this->assertStringContainsString('overscroll-behavior', $html);
+	}
+
 	public function testPageHtmlHasGothicFlourishes(): void
 	{
 		// JT's v1-header favorites, ported forward — the crest above the title and

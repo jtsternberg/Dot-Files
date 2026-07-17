@@ -1527,9 +1527,10 @@ fieldset.plot legend {
 }
 fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
 .plot-stones { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 1.1rem; padding-top: .35rem; }
+body:has(dialog#plot[open]) { overflow: hidden; }
 dialog#plot { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
 dialog#plot::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }
-dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; }
+dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; overscroll-behavior: contain; }
 .card {
 	background: linear-gradient(180deg, #21261f, var(--stone) 32%);
 	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
@@ -1549,7 +1550,7 @@ dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; }
 .card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
 .crypt-cap { margin: .8rem 0 0; font: .68rem var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--moss); }
 #m-body pre {
-	max-height: 50vh; overflow: auto; margin: .4rem 0 0;
+	max-height: 50vh; overflow: auto; overscroll-behavior: contain; margin: .4rem 0 0;
 	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
 	padding: .9rem 1rem; white-space: pre-wrap; overflow-wrap: anywhere;
 	font: .8rem/1.55 var(--mono); color: #b9c0ae;
