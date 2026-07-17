@@ -342,4 +342,4 @@ export ENABLE_LSP_TOOL=1
 export PATH="/Users/JT/.local/bin:$PATH"
 
 # kimi-code
-export PATH="/Users/JT/.kimi-code/bin:$PATH"
+export PATH="$HOME/.kimi-code/bin:$PATH"
