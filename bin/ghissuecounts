@@ -26,7 +26,6 @@ namespace JT;
 
 require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
-require_once dirname(__DIR__) . '/misc/RepoConfigTrait.php';
 
 
 $helpyHelperton = $cli->getHelp();
