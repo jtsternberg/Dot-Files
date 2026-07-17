@@ -21,8 +21,9 @@ namespace JT;
 # graveyard candidates [--porcelain]
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
+# graveyard search <term> [--full-text] [--json]  (search buried sessions)
 # graveyard show <id>
-# graveyard resurrect <id> [--from-transcript]
+# graveyard resurrect <id|name> [--from-transcript]   (name = workspace/tab title substring; unique match required)
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -42,11 +43,12 @@ $helpyHelperton
 		'bury --workspace <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force.',
 		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
 		'-y'              => 'Skip confirmations',
-		'candidates [--porcelain]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated, agent-readable)',
+		'candidates [--porcelain] [--json]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated; --json: structured rows — both agent-readable)',
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
-		'ls'              => 'List buried sessions',
+		'ls'              => 'List buried sessions (--json: structured {workspaces,sessions})',
+		'search <term>'   => 'Search buried sessions on workspace/tab/cwd/summary (case-insensitive, newest-first). --full-text also greps rendered transcripts; --json emits structured rows',
 		'show <id>'       => 'Open a buried transcript in your editor',
-		'resurrect <id>'     => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript',
+		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
 		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 	]);
@@ -92,13 +94,17 @@ switch ($sub) {
 			}
 		}
 		break;
-	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain')); break;
+	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain'), $cli->hasFlag('json')); break;
 	case 'peek':
 		$turns = $cli->hasFlag('turns') ? max(1, (int) $cli->getFlag('turns')) : 6;
 		$gy->peekSession((string) $cli->getArg(2), $turns);
 		break;
 	case '_preview':   $gy->printPreview((string) $cli->getArg(2)); break;
-	case 'ls':        $gy->listTombstones(); break;
+	case 'ls':
+		if ($cli->hasFlag('json')) { $gy->listTombstonesJson(); }
+		else { $gy->listTombstones(); }
+		break;
+	case 'search':    $gy->printSearch((string) $cli->getArg(2), $cli->hasFlag('json'), $cli->hasFlag('full-text')); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
 	case 'resurrect':
 		if ($cli->hasFlag('workspace')) {

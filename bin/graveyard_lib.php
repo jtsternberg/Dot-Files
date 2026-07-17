@@ -1033,9 +1033,21 @@ class Graveyard {
 	}
 
 	public function listTombstones(): void {
+		$this->printTombstones(false);
+	}
+
+	public function listTombstonesJson(): void {
+		$this->printTombstones(true);
+	}
+
+	protected function printTombstones(bool $json): void {
 		$tombs = $this->readIndex()['tombstones'] ?? [];
-		if (!$tombs) { $this->cli->msg('Graveyard is empty.', 'yellow'); return; }
+		if (!$tombs) {
+			if ($json) { echo json_encode(['workspaces' => [], 'sessions' => []], JSON_PRETTY_PRINT) . "\n"; return; }
+			$this->cli->msg('Graveyard is empty.', 'yellow'); return;
+		}
 		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
+		if ($json) { echo json_encode($this->lsJson($tombs), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"; return; }
 
 		$w    = $this->termWidth();
 		$home = getenv('HOME') ?: '';
@@ -1075,6 +1087,59 @@ class Graveyard {
 	}
 
 
+	/**
+	 * Search buried tombstones by a case-insensitive term across the human-meaningful
+	 * metadata (workspace_title/tab_title/cwd/summary). With $fullText, also grep the
+	 * rendered transcript body for tombstones whose metadata didn't already match.
+	 * Results are sorted newest-first (buried_at desc). Returns the matching tombstones.
+	 */
+	public function searchTombstones(string $term, bool $fullText = false): array {
+		$needle = mb_strtolower(trim($term));
+		$tombs  = $this->readIndex()['tombstones'] ?? [];
+		$hits   = [];
+		foreach ($tombs as $t) {
+			$meta = mb_strtolower(implode(' ', [
+				(string) ($t['workspace_title'] ?? ''),
+				(string) ($t['tab_title'] ?? ''),
+				(string) ($t['cwd'] ?? ''),
+				(string) ($t['summary'] ?? ''),
+			]));
+			if ($needle !== '' && str_contains($meta, $needle)) { $hits[] = $t; continue; }
+
+			if ($fullText) {
+				$tp = $this->transcriptPath($t['session_id']);
+				if ($needle !== '' && is_file($tp) && $this->fileContains($tp, $needle)) { $hits[] = $t; }
+			}
+		}
+		usort($hits, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
+		return $hits;
+	}
+
+	/** Streamed case-insensitive substring scan — reads line-by-line instead of slurping the file. */
+	protected function fileContains(string $path, string $needleLower): bool {
+		$h = @fopen($path, 'r');
+		if (!$h) { return false; }
+		$found = false;
+		while (($line = fgets($h)) !== false) {
+			if (str_contains(mb_strtolower($line), $needleLower)) { $found = true; break; }
+		}
+		fclose($h);
+		return $found;
+	}
+
+	/** PURE: a search hit reduced to the stable JSON-friendly field set. */
+	public function searchRowJson(array $t): array {
+		return [
+			'session_id'      => $t['session_id'] ?? '',
+			'workspace_title' => $t['workspace_title'] ?? '',
+			'tab_title'       => $t['tab_title'] ?? '',
+			'cwd'             => $t['cwd'] ?? '',
+			'summary'         => $t['summary'] ?? '',
+			'buried_at'       => $t['buried_at'] ?? '',
+			'last_active'     => $t['last_active'] ?? null,
+		];
+	}
+
 	public function resolveTombstone(string $prefix): ?array {
 		$tombs = $this->readIndex()['tombstones'] ?? [];
 		$matches = array_values(array_filter($tombs, fn($t) => str_starts_with($t['session_id'], $prefix)));
@@ -1084,6 +1149,71 @@ class Graveyard {
 			foreach ($matches as $m) { $this->cli->msg('  ' . substr($m['session_id'], 0, 12) . '  ' . $m['summary']); }
 		}
 		return null;
+	}
+
+	/**
+	 * Resolve a buried tombstone by fuzzy reference: exact session-id, unique session-id
+	 * prefix, OR a workspace/tab title substring (case-insensitive) — the same resolution
+	 * order as the live-session matchIdentifier(). Returns a result shape (no side-channel
+	 * state): ['match' => ?tombstone, 'candidates' => tombstones[] (the ambiguous set),
+	 * 'ambiguous' => bool]. Ambiguity is reported and yields match=null, never auto-picked.
+	 */
+	public function resolveTombstoneFuzzy(string $ref): array {
+		$none = ['match' => null, 'candidates' => [], 'ambiguous' => false];
+		$tombs = $this->readIndex()['tombstones'] ?? [];
+		if (!$tombs || $ref === '') { return $none; }
+
+		// 1) exact session-id
+		$exact = array_values(array_filter($tombs, fn($t) => ($t['session_id'] ?? null) === $ref));
+		if (count($exact) === 1) { return ['match' => $exact[0], 'candidates' => [], 'ambiguous' => false]; }
+
+		// 2) unique session-id prefix (explicit so prefix wins over title, stays backward-compatible)
+		$prefix = array_values(array_filter($tombs, fn($t) => str_starts_with((string) ($t['session_id'] ?? ''), $ref)));
+		if (count($prefix) === 1) { return ['match' => $prefix[0], 'candidates' => [], 'ambiguous' => false]; }
+		if (count($prefix) > 1) {
+			$this->reportAmbiguousTombstones($ref, $prefix);
+			return ['match' => null, 'candidates' => $prefix, 'ambiguous' => true];
+		}
+
+		// 3) title substring via the shared matcher (workspace_title/tab_title)
+		$byTitle = $this->matchIdentifier($tombs, $ref);
+		if (count($byTitle) === 1) { return ['match' => $byTitle[0], 'candidates' => [], 'ambiguous' => false]; }
+		if (count($byTitle) > 1) {
+			$this->reportAmbiguousTombstones($ref, $byTitle);
+			return ['match' => null, 'candidates' => $byTitle, 'ambiguous' => true];
+		}
+
+		return $none;
+	}
+
+	/** Convenience: the matched tombstone, or null when none/ambiguous. */
+	public function findTombstone(string $ref): ?array {
+		return $this->resolveTombstoneFuzzy($ref)['match'];
+	}
+
+	protected function reportAmbiguousTombstones(string $ref, array $matches): void {
+		$this->cli->msg("'{$ref}' is ambiguous — matches " . count($matches) . ' buried session(s):', 'yellow');
+		foreach ($matches as $m) {
+			$this->cli->msg(sprintf(
+				'  %s  %-24.24s  %.40s  %s',
+				substr((string) $m['session_id'], 0, 8),
+				$m['workspace_title'] ?? '',
+				$m['tab_title'] ?? '',
+				substr((string) ($m['buried_at'] ?? ''), 0, 10)
+			));
+		}
+	}
+
+	public function printSearch(string $term, bool $json, bool $fullText): void {
+		$hits = $this->searchTombstones($term, $fullText);
+		if ($json) {
+			echo json_encode(array_map(fn($t) => $this->searchRowJson($t), $hits), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+			return;
+		}
+		if (!$hits) { $this->cli->msg("No buried sessions match '{$term}'.", 'yellow'); return; }
+		$w    = $this->termWidth();
+		$home = getenv('HOME') ?: '';
+		foreach ($hits as $t) { $this->printLsEntry($t, $w, $home, 0); }
 	}
 
 	public function showTombstone(string $prefix): void {
@@ -1098,8 +1228,14 @@ class Graveyard {
 	}
 
 	public function resurrect(string $prefix, bool $fromTranscript = false): void {
-		$t = $this->resolveTombstone($prefix);
-		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
+		$res = $this->resolveTombstoneFuzzy($prefix);
+		$t   = $res['match'];
+		if (!$t) {
+			if ($res['ambiguous']) {
+				$this->cli->exitErr("'{$prefix}' is ambiguous — narrow it or pass a full session-id.");
+			}
+			$this->cli->exitErr("No buried session matches '{$prefix}'.");
+		}
 
 		$jsonl         = $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
 		$hasJsonl      = is_file($jsonl);
@@ -1337,8 +1473,40 @@ class Graveyard {
 		return $secs . 's';
 	}
 
-	public function printCandidates(bool $porcelain): void {
+	/** PURE: a candidate row reduced to the stable JSON-friendly field set (idle_seconds stays numeric). */
+	public function candidatesJson(array $rows): array {
+		return array_map(fn($r) => [
+			'session_id'      => $r['session_id'] ?? '',
+			'idle_seconds'    => (int) ($r['idle_seconds'] ?? 0),
+			'busy'            => (bool) ($r['busy'] ?? false),
+			'targetable'      => (bool) ($r['targetable'] ?? true),
+			'reason'          => $r['reason'] ?? '',
+			'workspace_title' => $r['workspace_title'] ?? '',
+			'tab_title'       => $r['tab_title'] ?? '',
+			'cwd'             => $r['cwd'] ?? '',
+		], $rows);
+	}
+
+	/** PURE: buried tombstones as {workspaces:[{group_id,title,sessions[]}], sessions:[loose...]}. */
+	public function lsJson(array $tombs): array {
+		[$groups, $loose] = $this->groupTombstones($tombs);
+		$workspaces = [];
+		foreach ($groups as $gid => $members) {
+			$workspaces[] = [
+				'group_id' => $gid,
+				'title'    => $members[0]['group_title'] ?? '',
+				'sessions' => array_map(fn($t) => $this->searchRowJson($t), $members),
+			];
+		}
+		return [
+			'workspaces' => $workspaces,
+			'sessions'   => array_map(fn($t) => $this->searchRowJson($t), $loose),
+		];
+	}
+
+	public function printCandidates(bool $porcelain, bool $json = false): void {
 		$rows = $this->candidates();
+		if ($json) { echo json_encode($this->candidatesJson($rows), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"; return; }
 		if ($porcelain) {
 			foreach ($rows as $r) { echo $this->formatCandidatePorcelain($r) . "\n"; }
 			return;
