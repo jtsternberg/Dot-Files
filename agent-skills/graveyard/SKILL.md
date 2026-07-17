@@ -14,57 +14,30 @@ buried sessions works regardless.
 
 JT asks for this conversationally — *"any good candidates worth burying?"*,
 *"look in the graveyard for the ollama session,"* *"resurrect the tailscale
-workspace."* The current help is the source of truth (don't mirror the command
-list here — it bitrots):
+workspace."* The CLI does the heavy lifting; the current help is the source of
+truth (don't mirror the command list here — it bitrots):
 
 !`graveyard --help 2>&1`
 
-The three cases below cover almost everything he asks for.
+Every verb has a machine-readable mode (`--json` on `ls`, `candidates`,
+`search`), so prefer flags over scraping human output when you need to filter
+or rank.
 
-## 1. Find good bury candidates ("what's worth burying?")
+## The three things JT asks for
 
-`graveyard candidates` lists live buryable sessions sorted by idle time. Run it,
-then surface the most-idle ones — idle duration, workspace/tab, cwd — and let
-him pick. Don't bury anything without a nod. `--porcelain` gives tab-separated
-rows if you want to filter/rank programmatically.
+**Candidates worth burying** — `graveyard candidates` (live, sorted by idle
+time). Present the most-idle ones (idle duration, workspace/tab, cwd) and let
+him pick. Don't bury without a nod.
 
-## 2. Resurrect a workspace by fuzzy name ("resurrect the tailscale one")
+**Search buried sessions for a topic** — `graveyard search <term>` matches
+workspace/tab/cwd/summary (case-insensitive, newest-first). Widen/split the
+term if dry; add `--full-text` to also grep transcript bodies before concluding
+nothing's there. If it still misses, say so plainly.
 
-Buried workspaces are keyed by an opaque group id, but JT names them loosely.
-Map his phrase to a group by scanning `graveyard ls` — each buried workspace
-prints its title and the exact `graveyard resurrect --workspace <group>` line.
-Fuzzy-match his phrase against the titles, confirm the one you landed on
-(*"the 'tailscale setup' workspace — 3 sessions, buried 2026-07-17?"*), then run
-that printed command. If two titles are plausibly what he meant, ask which
-rather than guessing. Single buried session instead of a workspace? Same idea,
-but `graveyard resurrect <id>` with the 8-char session id.
-
-## 3. Search buried sessions for a topic ("anything about ollama?")
-
-There's no `search` subcommand, so search the index directly instead of
-rediscovering where things live. The index is `~/.claude-graveyard/index.json`;
-each tombstone carries
-`session_id`, `workspace_title`, `tab_title`, `cwd`, `model`, `summary`,
-`buried_at`, `last_active`.
-
-```bash
-~/.venvs/genai/bin/python3 - "ollama" <<'PY'
-import json, sys, pathlib
-q = sys.argv[1].lower()
-idx = json.loads(pathlib.Path("~/.claude-graveyard/index.json").expanduser().read_text())
-for t in idx["tombstones"]:
-    hay = " ".join(str(t.get(k, "")) for k in
-                    ("workspace_title", "tab_title", "cwd", "summary")).lower()
-    if q in hay:
-        print(f"{t['session_id'][:8]}  [{t.get('workspace_title','')}]  "
-              f"{t.get('tab_title','')}  — {t.get('cwd','')}  ({t.get('buried_at','')})")
-PY
-```
-
-Swap in the real topic; widen/split the term if dry (try `router` *and*
-`linksys`). Metadata summaries are short — if the index misses, full-text grep
-the rendered transcripts under `~/.claude-graveyard/sessions/` before giving up.
-Report matches newest-first (8-char id, workspace/tab, cwd, date); if nothing
-hits, say so plainly. Then offer the next step — `graveyard show <id>` to read
-it, or resurrect (never resurrect unprompted; it rebuilds a cmux workspace and
-relaunches Claude).
+**Resurrect by fuzzy name** — `graveyard resurrect <name>` accepts a
+workspace/tab title substring; a unique match resumes in place. If it's
+ambiguous the CLI lists the candidates — pick with him (or narrow the phrase),
+never guess. `graveyard resurrect --workspace <group>` for a whole buried
+workspace; `graveyard ls` prints each group's exact `resurrect --workspace`
+line. Resurrecting rebuilds a cmux workspace and relaunches Claude, so confirm
+before running it.
