@@ -25,8 +25,10 @@ helper that sends prompts outside trusted providers.
    (Yes, the filename is really misspelled `additonal`.)
 2. **`kimi` CLI** — installed to `~/.kimi-code/bin`, added to PATH in `.zshrc`.
 3. **`kimi-pi` only** — requires the `moonshot` provider in
-   `~/.pi/agent/models.json` (user-level config, NOT managed by this repo —
-   fresh machines need this added manually):
+   `~/.pi/agent/models.json`. That file is managed by this repo at
+   `pi/agent/models.json`; `php symdotfiles` symlinks it into place via its
+   nested-links block (skips if the destination already exists; `hard`
+   backs a real file up to `.bak` before replacing). Current contents:
    ```json
    {
      "providers": {

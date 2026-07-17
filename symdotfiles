@@ -69,6 +69,7 @@ $ignore = array(
 	'.zshrc.pre-oh-my-zsh',
 	'.gitconfig-macos',   // platform-specific; symlinked as ~/.gitconfig-local
 	'.gitconfig-linux',   // platform-specific; symlinked as ~/.gitconfig-local
+	'pi',                 // nested; pi/agent/models.json is symlinked as ~/.pi/agent/models.json
 );
 $ignore_begins = array(
 	'.',
@@ -167,6 +168,51 @@ if ( ! $dirs_only ) {
 		}
 	} else {
 		do_notice( "    : No platform gitconfig found at $platform_gitconfig", false, false );
+	}
+}
+
+// Symlink nested files that live inside app dirs in $HOME (too stateful to
+// symlink the whole dir). Add 'repo/path' => 'home/path' entries as needed.
+if ( ! $dirs_only ) {
+	$nested_links = array(
+		'pi/agent/models.json' => '.pi/agent/models.json',
+	);
+
+	foreach ( $nested_links as $repo_rel => $home_rel ) {
+		$repo_file = $working_dir . '/' . $repo_rel;
+		$home_file = $destination_dir . $home_rel;
+
+		do_notice( "Symlinking nested file ($repo_rel)", true, "\n" );
+
+		if ( ! file_exists( $repo_file ) ) {
+			do_notice( "    : No repo file found at $repo_file", false, false );
+			continue;
+		}
+
+		if ( file_exists( $home_file ) || is_link( $home_file ) ) {
+			if ( ! $hard ) {
+				do_notice( "    : $home_file exists, skipping (use 'hard' to overwrite)", false, false );
+				continue;
+			}
+			if ( ! $testrun ) {
+				// Back up a real file before replacing it; symlinks can just go.
+				if ( is_file( $home_file ) && ! is_link( $home_file ) ) {
+					rename( $home_file, $home_file . '.bak' );
+				} else {
+					unlink( $home_file );
+				}
+				symlink( $repo_file, $home_file );
+			}
+			do_notice( "    : $home_file -> $repo_file (backup at $home_file.bak if it was a real file)", false, false );
+		} else {
+			if ( ! $testrun ) {
+				if ( ! is_dir( dirname( $home_file ) ) ) {
+					mkdir( dirname( $home_file ), 0777, true );
+				}
+				symlink( $repo_file, $home_file );
+			}
+			do_notice( "    : $home_file -> $repo_file", false, false );
+		}
 	}
 }
 

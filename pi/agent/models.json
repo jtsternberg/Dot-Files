@@ -1,0 +1,59 @@
+{
+  "providers": {
+    "moonshot": {
+      "api": "openai-completions",
+      "apiKey": "$MOONSHOT_API_KEY",
+      "baseUrl": "https://api.moonshot.ai/v1",
+      "models": [
+        {
+          "contextWindow": 1000000,
+          "id": "kimi-k3",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true
+        },
+        {
+          "contextWindow": 262144,
+          "id": "kimi-k2.7-code",
+          "input": [
+            "text"
+          ]
+        }
+      ]
+    },
+    "ollama": {
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "models": [
+        {
+          "_launch": true,
+          "contextWindow": 262144,
+          "id": "qwen3-coder:latest",
+          "input": [
+            "text"
+          ]
+        },
+        {
+          "_launch": true,
+          "contextWindow": 262144,
+          "id": "gemma4:26b-nvfp4",
+          "input": [
+            "text"
+          ],
+          "reasoning": true
+        },
+        {
+          "_launch": true,
+          "id": "gemma4:12b-nvfp4",
+          "input": [
+            "text"
+          ],
+          "reasoning": true
+        }
+      ]
+    }
+  }
+}
