@@ -82,17 +82,23 @@ if ($newPath) {
 
 // Get optional command to run before exec $SHELL
 $shellCmd = $cli->getFlag('cmd', 'git status || echo "no git"');
-/*
-exec $SHELL -c git status || echo "no git"; exec $SHELL'
 
-exec $SHELL -c 'git status || echo \"no git\"; exec $SHELL'
- */
+// Run custom command in the new shell before exec $SHELL, then hand off to an
+// interactive shell. The whole "<cmd>; exec $SHELL" string becomes a single
+// -c argument, shell-quoted via escapeshellarg() so arbitrary commands
+// (single/double quotes, $vars, backslashes) survive intact.
+//
+// preg_replace_callback (not preg_replace) is required: the escaped arg is
+// injected verbatim, whereas preg_replace would reinterpret $1/\1 in it as
+// backreferences and corrupt commands like `sed 's/a/$1/'`.
+$replacement = 'exec $SHELL -c ' . escapeshellarg($shellCmd . '; exec $SHELL');
 
-// Run custom command in the new shell before exec $SHELL
-// Replace everything from 'exec $SHELL' to the end of the file
-$updatedContent = preg_replace(
+// Replace everything from 'exec $SHELL' to the end of the file.
+$updatedContent = preg_replace_callback(
 	'/exec \$SHELL.*/s',
-	'exec $SHELL -c \'' . addslashes($shellCmd) . '; exec $SHELL\'',
+	function () use ( $replacement ) {
+		return $replacement;
+	},
 	$updatedContent
 );
 
