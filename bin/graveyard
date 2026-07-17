@@ -22,6 +22,7 @@ namespace JT;
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
 # graveyard search <term> [--full-text] [--json]  (search buried sessions)
+# graveyard page [--no-open]   (self-contained HTML overview of all buried sessions)
 # graveyard show <id>
 # graveyard resurrect <id|name> [--from-transcript]   (name = workspace/tab title substring; unique match required)
 # =============================================================================
@@ -47,6 +48,7 @@ $helpyHelperton
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions (--json: structured {workspaces,sessions})',
 		'search <term>'   => 'Search buried sessions on workspace/tab/cwd/summary (case-insensitive, newest-first). --full-text also greps rendered transcripts; --json emits structured rows',
+		'page [--no-open]' => 'Regenerate a self-contained HTML overview of every buried session (card per session: title, dates, cwd, click-to-expand transcript) at ~/.claude-graveyard/page.html and open it in your browser (--no-open: just write the file)',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
 		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
@@ -105,6 +107,7 @@ switch ($sub) {
 		else { $gy->listTombstones(); }
 		break;
 	case 'search':    $gy->printSearch((string) $cli->getArg(2), $cli->hasFlag('json'), $cli->hasFlag('full-text')); break;
+	case 'page':      $gy->page(!$cli->hasFlag('no-open')); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
 	case 'resurrect':
 		if ($cli->hasFlag('workspace')) {

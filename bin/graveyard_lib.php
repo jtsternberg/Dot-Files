@@ -28,6 +28,7 @@ class Graveyard {
 	public function workspaceGroupDir(string $group): string { return $this->storeRoot() . "/workspaces/{$group}"; }
 	public function manifestPath(string $group): string { return $this->workspaceGroupDir($group) . '/manifest.json'; }
 	public function indexPath(): string { return $this->storeRoot() . '/index.json'; }
+	public function pageFilePath(): string { return $this->storeRoot() . '/page.html'; }
 
 	public function parseDuration(string $s): int {
 		if (!preg_match('/^(\d+)([smhd]?)$/', trim($s), $m)) {
@@ -1225,6 +1226,191 @@ class Graveyard {
 		if ($editor) { shell_exec('code -r ' . escapeshellarg($path)); }
 		else { $ed = getenv('EDITOR') ?: 'vi'; $this->cli->runCommand($ed . ' ' . escapeshellarg($path)); }
 		$this->cli->successMsg("Opened {$path}");
+	}
+
+	# =========================================================================
+	# graveyard page (dotfiles-pnl): self-contained HTML overview of the store.
+	# =========================================================================
+
+	/**
+	 * Regenerate the HTML overview of every tombstone (newest-first), write it to
+	 * pageFilePath(), and open it in the browser unless $openInBrowser is false or
+	 * no platform opener exists. Returns the written path.
+	 */
+	public function page(bool $openInBrowser = true): string {
+		$tombs = $this->readIndex()['tombstones'] ?? [];
+		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
+
+		$transcripts = [];
+		foreach ($tombs as $t) {
+			$tp = $this->transcriptPath((string) $t['session_id']);
+			if (is_file($tp)) { $transcripts[$t['session_id']] = (string) file_get_contents($tp); }
+		}
+
+		$path = $this->pageFilePath();
+		file_put_contents($path, $this->pageHtml($tombs, $transcripts, gmdate('Y-m-d\TH:i:s\Z'), getenv('HOME') ?: ''));
+		$this->cli->successMsg('Wrote ' . $path . ' (' . count($tombs) . ' session(s)).');
+
+		if ($openInBrowser) {
+			$opener = PHP_OS_FAMILY === 'Darwin' ? 'open' : 'xdg-open';
+			if (trim((string) shell_exec('command -v ' . $opener . ' 2>/dev/null')) !== '') {
+				shell_exec($opener . ' ' . escapeshellarg($path) . ' >/dev/null 2>&1 &');
+			} else {
+				$this->cli->msg("No '{$opener}' on PATH — open the file manually.", 'yellow');
+			}
+		}
+		return $path;
+	}
+
+	/**
+	 * PURE. Self-contained HTML overview: one headstone card per tombstone (title,
+	 * short id, cwd, buried/last-active dates, model) with the archived transcript
+	 * in a <details> crypt that opens scrolled to the LATEST end. No external
+	 * assets; one tiny inline <script> for the scroll. Order preserved — the
+	 * caller sorts. All user content (titles, cwds, transcripts) is escaped.
+	 */
+	public function pageHtml(array $tombs, array $transcriptsById, string $generatedAt, string $home = ''): string {
+		$e = fn(string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+		$cards = [];
+		$i = 0;
+		foreach ($tombs as $t) {
+			$sid    = (string) ($t['session_id'] ?? '');
+			$title  = $this->titleizeSummary($t, $home);
+			$cwd    = $this->shortenCwd((string) ($t['cwd'] ?? ''), $home, 200);
+			$ws     = trim((string) ($t['workspace_title'] ?? ''));
+			$tab    = $this->stripGlyph((string) ($t['tab_title'] ?? ''));
+			$buried = substr((string) ($t['buried_at'] ?? ''), 0, 10);
+			$active = substr((string) ($t['last_active'] ?? ''), 0, 10);
+			$model  = (string) ($t['model'] ?? '');
+
+			$where = implode(' · ', array_filter([$cwd, $ws . ($tab !== '' ? ' / ' . $tab : '')], fn($p) => trim($p) !== ''));
+			$dates = 'buried ' . $buried
+				. ($active !== '' ? ' · last active ' . $active : '')
+				. ($model !== '' ? ' · ' . $model : '');
+
+			if (isset($transcriptsById[$sid]) && is_string($transcriptsById[$sid])) {
+				$body = '<details><summary>Transcript</summary><pre>' . $e($transcriptsById[$sid]) . '</pre></details>';
+			} else {
+				$body = '<p class="none">(no transcript archived)</p>';
+			}
+
+			$cards[] = '  <article class="card" style="--i:' . min($i, 12) . '">' . "\n"
+				. '    <header><h2>' . $e($title) . '</h2><code>' . $e(substr($sid, 0, 8)) . '</code></header>' . "\n"
+				. ($where !== '' ? '    <p class="meta">' . $e($where) . '</p>' . "\n" : '')
+				. '    <p class="meta">' . $e($dates) . '</p>' . "\n"
+				. '    ' . $body . "\n"
+				. '  </article>';
+			$i++;
+		}
+
+		$count   = count($tombs);
+		$listing = $cards
+			? implode("\n", $cards)
+			: '  <p class="none empty">🪦<br>The graveyard is empty — no sessions lie here yet.</p>';
+
+		return '<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Graveyard</title>
+<style>
+:root {
+	color-scheme: dark;
+	--bg: #0b0d0b;
+	--mist: #12160f;
+	--stone: #1b1f1a;
+	--stone-edge: #2e342c;
+	--inscription: #e9e4d6;
+	--weathered: #9aa294;
+	--moss: #a8c196;
+	--crypt: #070907;
+	--serif: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+	--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+	margin: 0; padding: 4rem 1rem 5rem;
+	background:
+		radial-gradient(ellipse 90% 45% at 50% -8%, rgba(168,193,150,.07), transparent 65%),
+		linear-gradient(var(--mist), var(--bg) 45%) fixed,
+		var(--bg);
+	color: var(--inscription);
+	font: 15px/1.6 var(--serif);
+}
+header.top { max-width: 720px; margin: 0 auto 3rem; text-align: center; }
+header.top .glyph { display: block; font-size: 1.9rem; margin-bottom: .6rem; filter: grayscale(.4) brightness(.9); }
+h1 { margin: 0; font: 500 clamp(1.5rem, 4vw, 2.2rem)/1.2 var(--serif); letter-spacing: .22em; text-transform: uppercase; }
+header.top .meta { margin-top: .7rem; }
+.divider { display: flex; align-items: center; gap: .9rem; margin-top: 1.6rem; color: var(--weathered); }
+.divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid rgba(154,162,148,.35); }
+.meta { color: var(--weathered); font: .8rem var(--mono); letter-spacing: .04em; }
+main { max-width: 720px; margin: 0 auto; display: grid; gap: 2.25rem; }
+.card {
+	background: linear-gradient(180deg, #21261f, var(--stone) 32%);
+	border: 1px solid var(--stone-edge);
+	border-bottom: 3px solid var(--stone-edge);
+	border-radius: 22px 22px 6px 6px;
+	padding: 1.35rem 1.6rem 1.15rem;
+	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 30px -18px rgba(0,0,0,.85);
+	animation: rise .5s ease-out both;
+	animation-delay: calc(var(--i, 0) * 45ms);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+.card header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding-bottom: .6rem; margin-bottom: .55rem; border-bottom: 1px solid rgba(233,228,214,.09); }
+.card h2 { margin: 0; font-size: 1.12rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+code { font: .78rem var(--mono); color: var(--weathered); letter-spacing: .08em; white-space: nowrap; }
+.card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
+details { margin-top: .9rem; }
+summary {
+	cursor: pointer; list-style: none; display: inline-block;
+	font: .74rem var(--mono); letter-spacing: .14em; text-transform: uppercase;
+	color: var(--moss); border: 1px solid rgba(168,193,150,.35); border-radius: 999px;
+	padding: .35rem .95rem; transition: background .15s ease, border-color .15s ease;
+}
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "✦ "; }
+summary:hover { background: rgba(168,193,150,.09); border-color: var(--moss); }
+pre {
+	max-height: 28rem; overflow: auto; margin: .8rem 0 0;
+	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
+	padding: .9rem 1rem; white-space: pre-wrap; overflow-wrap: anywhere;
+	font: .8rem/1.55 var(--mono); color: #b9c0ae;
+}
+details[open] pre { animation: exhume .25s ease-out; }
+@keyframes exhume { from { opacity: 0; transform: translateY(-4px); } }
+.none { color: #6b7263; font-style: italic; font-size: .88rem; }
+.empty { text-align: center; font-size: 1rem; line-height: 2.2; padding: 2rem 0; }
+footer { max-width: 720px; margin: 3.5rem auto 0; text-align: center; }
+@media (prefers-reduced-motion: reduce) {
+	.card, details[open] pre { animation: none; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="glyph">🪦</span>
+  <h1>The Claude Graveyard</h1>
+  <p class="meta">' . $count . ' session' . ($count === 1 ? '' : 's') . ' lie' . ($count === 1 ? 's' : '') . ' here · generated ' . $e($generatedAt) . '</p>
+  <div class="divider">❦</div>
+</header>
+<main>
+' . $listing . '
+</main>
+<footer class="meta">resurrect a session: graveyard resurrect &lt;id&gt;</footer>
+<script>
+document.querySelectorAll("details").forEach(function (d) {
+	d.addEventListener(\'toggle\', function () {
+		if (!d.open) { return; }
+		var p = d.querySelector("pre");
+		if (p) { p.scrollTop = p.scrollHeight; }
+	});
+});
+</script>
+</body>
+</html>
+';
 	}
 
 	public function resurrect(string $prefix, bool $fromTranscript = false): void {
