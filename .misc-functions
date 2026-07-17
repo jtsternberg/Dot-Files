@@ -283,3 +283,20 @@ count-str-length() {
     trimmed_string="${string##*( )}"
     echo "${#trimmed_string}" | tr -d '\n';
 }
+# Claude Code harness powered by Moonshot Kimi (Anthropic-compatible API).
+# Requires MOONSHOT_API_KEY (set it in private/additonal_aliases.sh).
+yolo-kimi() {
+	if [[ -z "$MOONSHOT_API_KEY" ]]; then
+		echo "MOONSHOT_API_KEY not set — get a key at platform.moonshot.ai and export it in private/additonal_aliases.sh" >&2
+		return 1
+	fi
+	echo "\033[1;33m⚠️  KIMI MODE — prompts go to Moonshot AI (China). Personal/public work ONLY — no work code, secrets, or customer data.\033[0m"
+	# Small-model alternative: kimi-k2.7-code-highspeed — sameish model - faster, separately priced variant - ~180-260 tok/s output, pricier
+	# Models list: https://platform.kimi.ai/docs/models
+	# K2.7 Code:   https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart
+	ANTHROPIC_BASE_URL="https://api.moonshot.ai/anthropic" \
+	ANTHROPIC_AUTH_TOKEN="$MOONSHOT_API_KEY" \
+	ANTHROPIC_MODEL="${KIMI_MODEL:-kimi-k3}" \
+	ANTHROPIC_SMALL_FAST_MODEL="${KIMI_SMALL_MODEL:-kimi-k2.7-code}" \
+	claude --dangerously-skip-permissions "$@"
+}
