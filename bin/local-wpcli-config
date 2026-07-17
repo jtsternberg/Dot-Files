@@ -44,7 +44,7 @@ class Local_WP_CLI_Config_Generator {
 	public $wd = '';
 
 	public function __construct( $argv ) {
-		$this->helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+		$this->helpers = require_once dirname(__DIR__) . '/src/bootstrap.php';
 		$this->wd = $this->guessWorkingDirectory();
 
 		if ( $curr_user = get_current_user() ) {

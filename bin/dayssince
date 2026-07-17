@@ -23,7 +23,7 @@ namespace JT;
 # dayssince Q4 2024           # Fourth quarter of 2024
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton

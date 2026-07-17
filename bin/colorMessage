@@ -18,7 +18,7 @@
 # colors [color] [message] [newLine]
 # =============================================================================
 
-$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 if ( 'demo' === $cli->getArg( 1 ) ) {
 	$colors = [

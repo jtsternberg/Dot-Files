@@ -20,7 +20,7 @@
 # git-nexttag [key]
 # =============================================================================
 
-$cli = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 try {
 	$nextTag = $cli->git->getNextTag( $cli->getFlag( 'type', $cli->getArg( 1 ) ) );

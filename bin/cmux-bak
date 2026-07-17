@@ -26,7 +26,7 @@ namespace JT;
 # cmux-bak audit [--file=<path>] [--dry-run] [--verbose]
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
@@ -46,7 +46,6 @@ if ($helpyHelperton->batSignal) {
 	exit(0);
 }
 
-require_once dirname(__DIR__) . '/misc/helpers/cmux.php';
 require_once __DIR__ . '/cmux-bak_lib.php';
 
 try {

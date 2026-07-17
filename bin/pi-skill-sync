@@ -31,7 +31,7 @@ namespace JT;
 # pi-skill-sync <search-term-or-path> [--parent] [--project] [--desc] [--dry-run] [-y]
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $helpyHelperton = $cli->getHelp();
 

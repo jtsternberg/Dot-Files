@@ -36,7 +36,7 @@ namespace JT;
 # ollama-why [<command>] [<model>] [<note>] [--when=<text>] [--speed=<text>] [--tags=<csv>] [--tested=<text>] [--location=<local|sd|both>]
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $helpyHelperton = $cli->getHelp();
 

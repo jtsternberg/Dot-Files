@@ -209,7 +209,7 @@ function commands( LocalHoser $localhoser ) {
 	return $methods;
 }
 
-$helpers = require_once dirname( __DIR__ ) . '/misc/helpers.php';
+$helpers = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $localhoser  = new LocalHoser( $helpers );
 $command = $helpers->getArg( 1, '' );
 
