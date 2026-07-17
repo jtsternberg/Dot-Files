@@ -48,7 +48,7 @@ $helpyHelperton
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions (--json: structured {workspaces,sessions})',
 		'search <term>'   => 'Search buried sessions on workspace/tab/cwd/summary (case-insensitive, newest-first). --full-text also greps rendered transcripts; --json emits structured rows',
-		'page [--no-open]' => 'Regenerate a self-contained HTML overview of every buried session (card per session: title, dates, cwd, click-to-expand transcript) at ~/.claude-graveyard/page.html and open it in your browser (--no-open: just write the file)',
+		'page [--no-open]' => 'Regenerate the self-contained HTML overview of every buried session at ~/.claude-graveyard/page.html — a full-width field of headstones; clicking one opens the full card and loads its transcript JIT from page-data/ — and open it in your browser (--no-open: just write the files)',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
 		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
