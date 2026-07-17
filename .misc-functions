@@ -291,17 +291,20 @@ yolo-kimi() {
 		return 1
 	fi
 	echo "\033[1;33m⚠️  KIMI MODE — prompts go to Moonshot AI (China). Personal/public work ONLY — no work code, secrets, or customer data.\033[0m"
-	# Small-model alternative: kimi-k2.7-code-highspeed — sameish model - faster, separately priced variant - ~180-260 tok/s output, pricier
+	# Naming: Moonshot AI = company — API/keys at api.moonshot.ai + platform.moonshot.ai.
+	# Kimi = product brand — docs at platform.kimi.ai.
 	# Models list: https://platform.kimi.ai/docs/models
 	# K2.7 Code:   https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart
+	# Small-model alternative: kimi-k2.7-code-highspeed — sameish model - faster, separately priced variant - ~180-260 tok/s output, pricier
 	ANTHROPIC_BASE_URL="https://api.moonshot.ai/anthropic" \
 	ANTHROPIC_AUTH_TOKEN="$MOONSHOT_API_KEY" \
 	ANTHROPIC_MODEL="${KIMI_MODEL:-kimi-k3}" \
 	ANTHROPIC_SMALL_FAST_MODEL="${KIMI_SMALL_MODEL:-kimi-k2.7-code}" \
+	CLAUDE_CODE_AUTO_COMPACT_WINDOW="${KIMI_CONTEXT_WINDOW:-1000000}" \
 	claude --dangerously-skip-permissions "$@"
 }
 
-# Pi coding agent powered by Moonshot Kimi (provider defined in ~/.pi/agent/models.json).
+# Pi coding agent powered by Moonshot Kimi (provider defined in pi/agent/models.json, symlinked to ~/.pi/agent/models.json by symdotfiles).
 kimi-pi() {
 	if [[ -z "$MOONSHOT_API_KEY" ]]; then
 		echo "MOONSHOT_API_KEY not set — get a key at platform.moonshot.ai and export it in private/additonal_aliases.sh" >&2

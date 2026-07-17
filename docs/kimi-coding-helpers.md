@@ -100,6 +100,11 @@ KIMI_MODEL=kimi-k2.7-code-highspeed yolo-kimi
 - Models list: <https://platform.kimi.ai/docs/models>
 - K2.7 Code quickstart: <https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart>
 
+Naming: **Moonshot AI** is the company — API endpoints and keys live at
+`api.moonshot.ai` / `platform.moonshot.ai`. **Kimi** is the product brand —
+docs live at `platform.kimi.ai`. Same company, two domains; don't let the
+mismatch fool you.
+
 ## Adding helpers for other models (the pattern)
 
 Every helper is the same five lines of anatomy:
