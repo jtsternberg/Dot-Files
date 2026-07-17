@@ -77,11 +77,32 @@ Aider (via litellm) speaks OpenAI-compatible APIs:
 ```sh
 OPENAI_API_BASE="https://api.moonshot.ai/v1" \
 OPENAI_API_KEY="$MOONSHOT_API_KEY" \
-aider --model "openai/${KIMI_MODEL:-kimi-k3}" --yes-always "$@"
+aider --model "openai/${KIMI_MODEL:-kimi-k3}" \
+	--model-settings-file "$HOME/.dotfiles/aider/kimi.model.settings.yml" \
+	--model-metadata-file "$HOME/.dotfiles/aider/kimi.model.metadata.json" \
+	--yes-always "$@"
 ```
 
 The `openai/` model prefix tells litellm to use the OpenAI-compatible path
 with `OPENAI_API_BASE` rather than a native provider integration.
+
+The two `aider/` config files exist because aider treats Kimi as an unknown
+model and Moonshot has a hard temperature constraint:
+
+- `aider/kimi.model.settings.yml`
+  ([schema](https://aider.chat/docs/config/adv-model-settings.html)) —
+  Moonshot **requires temperature = 1.0** for both kimi-k3 and kimi-k2.7-code
+  ("any other value will result in an error"), so `use_temperature: false`
+  stops aider managing it and `extra_params: {temperature: 1}` pins it.
+  Also switches the edit format from aider's unknown-model default `whole`
+  to `diff`, enables the repo map, and wires `openai/kimi-k2.7-code` as the
+  weak model (commit messages etc.).
+- `aider/kimi.model.metadata.json` — registers the context windows
+  (1M / 262144) so aider stops warning "Unknown context window size and
+  costs". Costs deliberately omitted — unverified; don't fabricate.
+
+Both are passed via CLI flags (not symlinked to `~/.aider*`) so they only
+affect Kimi runs, never your default aider setup.
 
 ## Models & overrides
 

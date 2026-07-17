@@ -315,6 +315,8 @@ kimi-pi() {
 }
 
 # Aider powered by Moonshot Kimi (OpenAI-compatible endpoint).
+# Model settings/metadata in aider/ fix Moonshot's temperature=1.0 requirement
+# and register context windows (aider defaults: whole edit format, unknown ctx).
 kimi-aider() {
 	if [[ -z "$MOONSHOT_API_KEY" ]]; then
 		echo "MOONSHOT_API_KEY not set — get a key at platform.moonshot.ai and export it in private/additonal_aliases.sh" >&2
@@ -323,5 +325,8 @@ kimi-aider() {
 	echo "\033[1;33m⚠️  KIMI MODE — prompts go to Moonshot AI (China). Personal/public work ONLY — no work code, secrets, or customer data.\033[0m"
 	OPENAI_API_BASE="https://api.moonshot.ai/v1" \
 	OPENAI_API_KEY="$MOONSHOT_API_KEY" \
-	aider --model "openai/${KIMI_MODEL:-kimi-k3}" --yes-always "$@"
+	aider --model "openai/${KIMI_MODEL:-kimi-k3}" \
+		--model-settings-file "$HOME/.dotfiles/aider/kimi.model.settings.yml" \
+		--model-metadata-file "$HOME/.dotfiles/aider/kimi.model.metadata.json" \
+		--yes-always "$@"
 }

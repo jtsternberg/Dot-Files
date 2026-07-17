@@ -1,0 +1,23 @@
+# Aider model settings for Moonshot Kimi models (loaded by kimi-aider in .misc-functions).
+#
+# Why this file exists:
+#  - Moonshot requires temperature = 1.0 for kimi-k3 and kimi-k2.7-code — any
+#    other value errors: "invalid temperature: only 1 is allowed for this
+#    model". So stop aider from managing temperature (use_temperature: false)
+#    and pin exactly 1 via extra_params (forwarded to litellm).
+#  - Aider defaults unknown models to "whole" edit format; Kimi handles
+#    "diff" (cheaper output tokens, standard for capable models).
+# Schema: https://aider.chat/docs/config/adv-model-settings.html
+- name: openai/kimi-k3
+  edit_format: diff
+  weak_model_name: openai/kimi-k2.7-code
+  use_repo_map: true
+  use_temperature: false
+  extra_params:
+    temperature: 1
+- name: openai/kimi-k2.7-code
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  extra_params:
+    temperature: 1

@@ -1,0 +1,13 @@
+{
+  "openai/kimi-k3": {
+    "max_input_tokens": 1000000,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  },
+  "openai/kimi-k2.7-code": {
+    "max_input_tokens": 262144,
+    "max_output_tokens": 32768,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  }
+}

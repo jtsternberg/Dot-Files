@@ -70,6 +70,7 @@ $ignore = array(
 	'.gitconfig-macos',   // platform-specific; symlinked as ~/.gitconfig-local
 	'.gitconfig-linux',   // platform-specific; symlinked as ~/.gitconfig-local
 	'pi',                 // nested; pi/agent/models.json is symlinked as ~/.pi/agent/models.json
+	'aider',              // config only; passed to aider via --model-settings-file/--model-metadata-file
 );
 $ignore_begins = array(
 	'.',
