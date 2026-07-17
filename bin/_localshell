@@ -35,7 +35,11 @@ $helpyHelperton
 $helpyHelperton
 	->setScriptName('bash "$(_localshell)"')
 	->setDescription("Manages configuration for LocalWP's Site Shell scripts to modify directory paths.\n\nScript returns the path to the LocalWP site shell script. To run the\nLocalWP site shell script, you need to run `bash \"$(_localshell)\"`")
-	->setupDefaultCommand([])
+	->setupDefaultCommand([
+		'[--cmd=<command>]' => "One-off command to run in the LocalWP shell env for THIS
+                         invocation only (not saved to config). Overrides the
+                         saved 'cmd'. E.g. `localshell --cmd='bin/devwatch'`.",
+	])
 	->setup('_localshell', [
 		'config' => [
 			'[edit] --scriptPath=<path> [--destinationPath=<path>] [--cmd=<command>]',
@@ -174,8 +178,14 @@ if (empty($cli->getArg(1))) {
 		$cmd[] = escapeshellarg($destinationPath);
 	}
 
-	if (isset($config['cmd'])) {
-		$cmd[] = '--cmd=' . escapeshellarg($config['cmd']);
+	// A one-off `--cmd` flag overrides the saved config for THIS run only
+	// (never persisted). Lets `localshell --cmd='bin/devwatch'` inject a
+	// command into the LocalWP shell env for a single invocation.
+	$cmdOverride = $cli->getFlag('cmd');
+	$shellCmd = null !== $cmdOverride ? $cmdOverride : ($config['cmd'] ?? null);
+
+	if (null !== $shellCmd && '' !== $shellCmd) {
+		$cmd[] = '--cmd=' . escapeshellarg($shellCmd);
 	}
 
 	// Execute localshellupdater

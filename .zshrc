@@ -141,11 +141,17 @@ alias brewcompletions="/opt/homebrew/share/zsh/site-functions"
 
 # Local shell
 localshell() {
-	if [ $# -eq 0 ]; then
-		bash "$(_localshell)"
-	else
-		_localshell "$@"
-	fi
+	# Subcommands operate on the tool itself (save config, edit, help) and must
+	# not launch the shell. Everything else launches the LocalWP shell, passing
+	# through one-off overrides like `localshell --cmd='bin/devwatch'`.
+	case "$1" in
+		config|edit|help|-h|--help)
+			_localshell "$@"
+			;;
+		*)
+			bash "$(_localshell "$@")"
+			;;
+	esac
 }
 
 ## Git functions
