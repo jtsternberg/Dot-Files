@@ -298,9 +298,8 @@ yolo-kimi() {
 	# Small-model alternative: kimi-k2.7-code-highspeed — sameish model - faster, separately priced variant - ~180-260 tok/s output, pricier
 	ANTHROPIC_BASE_URL="https://api.moonshot.ai/anthropic" \
 	ANTHROPIC_AUTH_TOKEN="$MOONSHOT_API_KEY" \
-	ANTHROPIC_MODEL="${KIMI_MODEL:-kimi-k3}" \
+	ANTHROPIC_MODEL="${KIMI_MODEL:-kimi-k3}[1m]" \
 	ANTHROPIC_SMALL_FAST_MODEL="${KIMI_SMALL_MODEL:-kimi-k2.7-code}" \
-	CLAUDE_CODE_AUTO_COMPACT_WINDOW="${KIMI_CONTEXT_WINDOW:-1000000}" \
 	claude --dangerously-skip-permissions "$@"
 }
 
