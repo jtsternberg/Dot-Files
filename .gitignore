@@ -67,3 +67,5 @@ notes-dropbox-sync/notes-dropbox-sync-launcher
 
 # Beads / Dolt files (added by bd init)
 .beads/proxieddb/
+
+.phpunit.cache

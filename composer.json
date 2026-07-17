@@ -14,5 +14,16 @@
         "files": [
             "misc/bootstrap.php"
         ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "JT\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11"
     }
 }

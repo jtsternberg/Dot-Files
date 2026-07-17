@@ -102,6 +102,35 @@ $helpyHelperton
 - Exit 0 for success, 1 for error
 - Colors: red=errors, green=success, yellow=info/warning
 
+### Testing
+
+Tests use PHPUnit (`composer require --dev phpunit/phpunit`). Run the suite with:
+
+```bash
+composer test
+```
+
+Test files live in `tests/`, are named `*Test.php`, and extend `JT\Tests\TestCase`
+(base class in `tests/TestCase.php`, which hands each test a fresh `$this->cli`,
+`$this->cmux`, and `$this->gy`). Config is `phpunit.xml.dist`; bootstrap is
+`tests/bootstrap.php`. Test classes autoload via the `JT\Tests\` PSR-4 map
+(`autoload-dev` in `composer.json`), so the directory case must match the
+namespace (`tests/Graveyard/` for `JT\Tests\Graveyard`) — this matters on Linux.
+
+**Write CLI scripts to be testable.** PHPUnit tests classes and methods, not
+procedural entry scripts. So keep a `bin/<tool>` entry script thin and put its
+real logic in a companion class it `require`s — either a `bin/<tool>_lib.php`
+class (namespace `JT`) or a helper under `misc/` (namespace `JT\CLI` /
+`JT\Helpers`). Tests then target the class directly. `bin/graveyard` +
+`bin/graveyard_lib.php` (class `JT\Graveyard`) and `misc/helpers/cmux.php`
+(class `JT\Helpers\Cmux`), covered by `tests/Graveyard/` and `tests/Helpers/`,
+are the reference pattern. New scripts should follow it so they are born
+testable rather than needing later extraction.
+
+Note: lib files with lowercase/snake filenames (`cmux.php`, `graveyard_lib.php`)
+can't be PSR-4-autoloaded (PSR-4 wants `Cmux.php`), so `tests/bootstrap.php`
+`require`s them explicitly — the same way their entry scripts do at runtime.
+
 ## Content Conversion Tools
 
 - `html-to-markdown <file.html>` - Convert HTML to Markdown (outputs to stdout)
