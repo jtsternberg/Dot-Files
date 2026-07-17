@@ -1291,6 +1291,17 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. A family plot's accent hue, derived deterministically from the group
+	 * id: the same family always wears the same color across regenerations.
+	 * Picks from a muted palette of well-separated hues (used via CSS
+	 * --plot-hue for the fence, legend, and a faint bg tint).
+	 */
+	public function plotHue(string $groupId): int {
+		$palette = [30, 60, 95, 160, 205, 255, 300, 345];
+		return $palette[crc32($groupId) % count($palette)];
+	}
+
+	/**
 	 * PURE. Order tombstones into render units for the page: loose stones and
 	 * "family plots" (workspace groups), newest-first. A plot's sort key is its
 	 * newest member's buried_at; its members keep their original tab order
@@ -1303,7 +1314,7 @@ class Graveyard {
 		foreach ($loose as $t) {
 			$units[] = ['type' => 'stone', 'sort' => (string) ($t['buried_at'] ?? ''), 'tomb' => $t, 'ord' => $ord++];
 		}
-		foreach ($groups as $members) {
+		foreach ($groups as $gid => $members) {
 			$max = '';
 			foreach ($members as $m) {
 				$b = (string) ($m['buried_at'] ?? '');
@@ -1314,6 +1325,7 @@ class Graveyard {
 				'type'    => 'plot',
 				'sort'    => $max,
 				'title'   => $title !== '' ? $title : '(family plot)',
+				'hue'     => $this->plotHue((string) $gid),
 				'members' => $members,
 				'ord'     => $ord++,
 			];
@@ -1442,7 +1454,7 @@ class Graveyard {
 			foreach ($u['members'] as $t) { $stones[] = $this->stoneHtml($t, $i++, $home); }
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
-			$rows[] = '    <fieldset class="plot"><legend>' . $e($u['title']) . '</legend>'
+			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '"><legend>' . $e($u['title']) . '</legend>'
 				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
 		}
 
@@ -1526,11 +1538,12 @@ main#yard > .stone { flex: 1 1 172px; max-width: 230px; }
 .none { color: #6b7263; font-style: italic; font-size: .88rem; }
 fieldset.plot {
 	flex: 0 1 auto; max-width: 100%; min-width: 0; margin: 0; padding: 0 .9rem .95rem;
-	border: 1px dashed rgba(154,162,148,.35); border-radius: 12px;
+	border: 1px dashed hsl(var(--plot-hue, 95) 34% 62% / .6); border-radius: 12px;
+	background: hsl(var(--plot-hue, 95) 30% 58% / .075);
 }
 fieldset.plot legend {
 	padding: 0 .55rem; font: .72rem var(--mono); letter-spacing: .18em;
-	text-transform: uppercase; color: var(--moss);
+	text-transform: uppercase; color: hsl(var(--plot-hue, 95) 42% 72%);
 }
 fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
 .plot-stones { display: flex; flex-wrap: wrap; gap: 1.1rem; padding-top: .35rem; }

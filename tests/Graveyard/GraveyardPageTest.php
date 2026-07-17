@@ -162,6 +162,22 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('copied', strtolower($html));
 	}
 
+	public function testPageHtmlPlotsGetDeterministicHues(): void
+	{
+		// Each family plot gets a muted accent hue (fence, legend, bg tint)
+		// derived from its group id — stable across regenerations, so the same
+		// family always wears the same color, and neighbors differ.
+		$hue = $this->gy->plotHue('g-alpha');
+		$this->assertSame($hue, $this->gy->plotHue('g-alpha')); // deterministic
+		$this->assertContains($hue, [30, 60, 95, 160, 205, 255, 300, 345]); // muted palette
+		$this->assertNotSame($this->gy->plotHue('g-alpha'), $this->gy->plotHue('g-beta'));
+
+		$t1 = $this->tomb('hue11111-full', 'm1', '2026-07-10T00:00:00Z');
+		$t1['group_id'] = 'g-alpha'; $t1['group_title'] = 'A'; $t1['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t1], '2026-07-17');
+		$this->assertStringContainsString('--plot-hue:' . $hue, $html); // fieldset inline style
+	}
+
 	public function testPageHtmlTranscriptPathIsCopyable(): void
 	{
 		// Below the transcript, the modal shows the transcript's file path —
