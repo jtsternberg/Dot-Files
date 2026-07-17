@@ -460,17 +460,20 @@ git commit -m "move graveyard/cmux-bak libs into src/ as PSR-4 classes, drop tra
 
 ### Task 5: Unify the composer-pattern scripts, drop legacy autoload, docs
 
+> **Executed before Task 4** (T4 is gated on the parallel graveyard session; nothing here depends on T4 — only the final `_lib.php` sweep expectation does, noted below). Two deviations discovered in execution: `misc/gtag` is a full PHP CLI on the old plain pattern (rewired too), and the AGENTS.md "Testing" paragraph rewrite is **deferred to Task 4** (it documents the post-T4 lib layout).
+
 **Files:**
 - Modify: `bin/hisi-fetch`, `bin/hisi-publish`, `bin/jt-blog-fetch`, `bin/jt-blog-publish`, `bin/jt-blog-delete`, `bin/jt-blog-media` (bootstrap convergence)
-- Modify: `composer.json` (remove legacy mappings + `files`)
+- Modify: `misc/gtag` (same convergence — found via the final sweep)
+- Modify: `composer.json` (remove `"files"` autoload)
 - Delete: `misc/bootstrap.php`
-- Modify: `AGENTS.md` (CLI Helpers Setup + Testing sections)
+- Modify: `AGENTS.md` (CLI Helpers Setup + `$cli->git` path; **Testing paragraph deferred to T4**)
 
 **Interfaces:**
 - Consumes: everything prior.
 - Produces: a single bootstrap idiom across all 26 scripts; composer autoload reduced to `"JT\\": "src/"` + `"JT\\Tests\\": "tests/"` (dev); updated contributor docs.
 
-- [ ] **Step 1: Converge the 6 composer-pattern scripts**
+- [x] **Step 1: Converge the 6 composer-pattern scripts**
 
 In each of the 6 files, find:
 ```php
@@ -488,23 +491,15 @@ grep -l "getCli( \$argv )" bin/hisi-* bin/jt-blog-* | wc -l   # 6 before
 grep -l "getCli( \$argv )" bin/hisi-* bin/jt-blog-* | wc -l   # 0 after
 ```
 
-- [ ] **Step 2: Drop legacy autoload config**
+- [x] **Step 2: Drop the `"files"` autoload + delete `misc/bootstrap.php`**
 
-In `composer.json`, replace the whole `autoload` block with:
-
-```json
-"autoload": {
-    "psr-4": {
-        "JT\\": "src/"
-    }
-},
-```
+(Legacy psr-4 mappings were already dropped in Task 3 — see its Step 8.) In `composer.json`, remove the `"files": ["misc/bootstrap.php"]` entry so `autoload` is just `"psr-4": {"JT\\": "src/"}`.
 
 Then: `git rm misc/bootstrap.php && composer dump-autoload`
 
-- [ ] **Step 3: Update AGENTS.md**
+- [x] **Step 3: Update AGENTS.md (Testing paragraph is Task 4's)**
 
-Two edits:
+Two edits done in T5:
 1. "CLI Helpers Setup" section — replace:
    ```php
    $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -515,7 +510,9 @@ Two edits:
    $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
    $helpyHelperton = $cli->getHelp();
    ```
-2. "Testing" section — replace the paragraph about `bin/<tool>_lib.php` companion libs and the snake-case/`tests/bootstrap.php` caveat with the new convention:
+2. `$cli->git` reference — `misc/helpers/git.php` → `src/CLI/Helpers/Git.php`.
+
+Deferred to Task 4 (documents the post-T4 layout): "Testing" section — replace the paragraph about `bin/<tool>_lib.php` companion libs and the snake-case/`tests/bootstrap.php` caveat with the new convention:
    ```markdown
    **Write CLI scripts to be testable.** Keep `bin/<tool>` entry scripts thin and
    put the real logic in a PSR-4 class under `src/` (e.g. `src/Graveyard.php` →
@@ -529,9 +526,9 @@ Two edits:
 ```bash
 grep -rn "misc/helpers\|misc/bootstrap\|_lib\.php" bin tests src AGENTS.md composer.json | grep -v phploy-source
 ```
-Expected: no hits (or only intentional historical mentions in comments).
+Expected after T4: no hits (or only intentional historical mentions). Run pre-T4, the known-until-T4 hits are `bin/graveyard` (3 requires), `bin/cmux-bak` (lib require), `tests/bootstrap.php` (2 lib requires), AGENTS.md Testing paragraph (deferred).
 
-- [ ] **Step 5: Full verification**
+- [x] **Step 5: Full verification**
 
 ```bash
 composer dump-autoload && composer test
