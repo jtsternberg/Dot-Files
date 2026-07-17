@@ -459,12 +459,18 @@ class Graveyard {
 	 * PURE. GATE 2 predicate: does an exported transcript belong to the target? Assert
 	 * the session's first meaningful prompt appears in the rendered transcript text
 	 * (whitespace-insensitive). Empty needle → cannot assert → do not block.
+	 *
+	 * Needles come from genuineTurns(), which reads the raw JSONL and keeps inline
+	 * markdown (**bold**, `code`, _em_). Claude Code's /export STRIPS those markers
+	 * from the rendered transcript, so a literal substring test false-negatives on
+	 * any turn that leads with formatting. Normalize markdown on both sides at compare
+	 * time only — genuineTurns()/peek/tombstone output stay untouched.
 	 */
 	public function transcriptMatchesSession(string $transcriptText, string $firstPrompt): bool {
-		$needle = trim(preg_replace('/\s+/', ' ', mb_substr($firstPrompt, 0, 60)));
+		$demark = fn(string $s): string => preg_replace('/[`*_]/', '', preg_replace('/\s+/', ' ', $s));
+		$needle = trim($demark(mb_substr($firstPrompt, 0, 60)));
 		if ($needle === '') { return true; }
-		$hay = preg_replace('/\s+/', ' ', $transcriptText);
-		return mb_strpos($hay, $needle) !== false;
+		return mb_strpos($demark($transcriptText), $needle) !== false;
 	}
 
 	public function teardown(array $sess): bool {

@@ -196,6 +196,23 @@ final class GraveyardTest extends TestCase
 		$this->assertTrue($this->gy->transcriptMatchesSession("❯ /monorepo-address-pr-review\n  ⎿ …", '/monorepo-address-pr-review'));
 	}
 
+	public function testGate2IgnoresInlineMarkdown(): void
+	{
+		// Claude Code's /export strips inline markdown (**bold**, `code`, _em_) when
+		// rendering a transcript, but genuineTurns() needles keep it. Gate 2 must
+		// compare markdown-insensitively or it deterministically refuses to bury any
+		// session whose recent turns lead with formatting (regression: 83599b0f).
+		$needle   = '**8/8 ✅** all `combined` events fixed';
+		$rendered = "…summary…\n⏺ 8/8 ✅ all combined events fixed\n";
+		$this->assertTrue($this->gy->transcriptMatchesSession($rendered, $needle));
+
+		// And through the needle-list gate-2 entry point.
+		$this->assertTrue($this->gy->transcriptBelongsToSession($rendered, [$needle]));
+
+		// A genuine mismatch must still block (stripping markers must not over-match).
+		$this->assertFalse($this->gy->transcriptMatchesSession("an unrelated session entirely", $needle));
+	}
+
 	public function testGate2TailAnchoredMatching(): void
 	{
 		$g2entries = [
