@@ -17,6 +17,7 @@ if ( ! function_exists( 'getCli' ) ) {
 	 * @return \JT\CLI\Helpers The CLI instance
 	 */
 	function getCli( $argv = [] ) {
-		return require JT_DOTFILES_DIR . '/misc/helpers.php';
+		require_once JT_DOTFILES_DIR . '/misc/helpers.php';
+		return \JT\CLI\Helpers::getInstance()->setArgs( $argv );
 	}
 }
