@@ -8,10 +8,7 @@
     "autoload": {
         "psr-4": {
             "JT\\": "src/"
-        },
-        "files": [
-            "misc/bootstrap.php"
-        ]
+        }
     },
     "autoload-dev": {
         "psr-4": {

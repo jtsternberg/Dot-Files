@@ -43,7 +43,7 @@ namespace JT;
 ### CLI Helpers Setup
 
 ```php
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $helpyHelperton = $cli->getHelp();
 ```
 
@@ -80,7 +80,7 @@ $helpyHelperton = $cli->getHelp();
 - `runCommandWithExitCode($cmd)` - Execute and return exit code
 - `getCommandOutputAndExitCode($cmd)` - Get stdout, stderr, and exit code
 
-**Git operations:** Available via `$cli->git` (see `misc/helpers/git.php`)
+**Git operations:** Available via `$cli->git` (see `src/CLI/Helpers/Git.php`)
 
 ### Help Documentation Patterns
 

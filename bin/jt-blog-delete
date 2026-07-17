@@ -5,9 +5,7 @@
 
 namespace JT\CLI;
 
-require_once dirname( __DIR__ ) . '/vendor/autoload.php';
-
-$cli = getCli( $argv );
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 use JT\CLI\Commands\SiteCommand;
 
