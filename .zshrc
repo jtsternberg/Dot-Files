@@ -340,3 +340,6 @@ export ENABLE_LSP_TOOL=1
 
 # Added by Antigravity CLI installer
 export PATH="/Users/JT/.local/bin:$PATH"
+
+# kimi-code
+export PATH="/Users/JT/.kimi-code/bin:$PATH"
