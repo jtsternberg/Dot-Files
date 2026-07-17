@@ -1,6 +1,6 @@
 # src/ PSR-4 Consolidation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Consolidate all repo PHP classes into `src/` under a single PSR-4 `JT\` root with one runtime bootstrap idiom, replacing the ad-hoc requires (`misc/helpers.php`, `misc/helpers/*`, `misc/RepoConfigTrait.php`, `bin/*_lib.php`).
 
@@ -50,7 +50,7 @@ Two bootstrap idioms exist today: 20 scripts do `$cli = require_once dirname(__D
 - Consumes: `JT\CLI\Helpers` (still at `misc/helpers.php` in this task — autoloaded via the legacy `JT\CLI\` → `misc/` mapping... **not** — it is hand-required; `src/bootstrap.php` must not depend on it existing at autoload time. The test requires it explicitly, see below).
 - Produces: `src/bootstrap.php` returning a `JT\CLI\Helpers` instance; `getCli(array $args = []): \JT\CLI\Helpers`; `JT_DOTFILES_DIR` constant; the `JT\` → `src/` autoloader all later tasks rely on.
 
-- [ ] **Step 1: Create `src/bootstrap.php`**
+- [x] **Step 1: Create `src/bootstrap.php`**
 
 ```php
 <?php
@@ -93,7 +93,7 @@ if ( ! function_exists( 'getCli' ) ) {
 return getCli( isset( $argv ) ? $argv : [] );
 ```
 
-- [ ] **Step 2: Add the `JT\` root to composer.json (keep legacy mappings)**
+- [x] **Step 2: Add the `JT\` root to composer.json (keep legacy mappings)**
 
 Edit `autoload.psr-4` to:
 
@@ -108,7 +108,7 @@ Edit `autoload.psr-4` to:
 
 Composer's longest-prefix rule keeps `JT\CLI\*` resolving from `misc/` until those files move; the new root only catches classes nothing else claims (none exist in `src/` yet — this is dormant infrastructure).
 
-- [ ] **Step 3: Ignore `src` in symdotfiles**
+- [x] **Step 3: Ignore `src` in symdotfiles**
 
 In `symdotfiles`' `$ignore` array, after the `'aider'` line add:
 
@@ -116,12 +116,12 @@ In `symdotfiles`' `$ignore` array, after the `'aider'` line add:
 	'src',                // PSR-4 class tree; loaded via src/bootstrap.php, not $HOME symlinks
 ```
 
-- [ ] **Step 4: Dump the autoloader**
+- [x] **Step 4: Dump the autoloader**
 
 Run: `composer dump-autoload`
 Expected: `Generating autoload files` with no errors.
 
-- [ ] **Step 5: Write the bootstrap smoke test**
+- [x] **Step 5: Write the bootstrap smoke test**
 
 Create `tests/Cli/BootstrapTest.php`:
 
@@ -146,12 +146,12 @@ class BootstrapTest extends TestCase
 
 (`JT\CLI\Helpers` is already loaded by `tests/bootstrap.php`'s explicit require — this test only proves the new glue works, not the autoloader, which has nothing to load yet.)
 
-- [ ] **Step 6: Run the suite**
+- [x] **Step 6: Run the suite**
 
 Run: `composer test`
 Expected: new test passes; **7 pre-existing GraveyardPageTest failures**; all else green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/bootstrap.php composer.json symdotfiles tests/Cli/BootstrapTest.php
@@ -172,7 +172,7 @@ git commit -m "add src/ PSR-4 bootstrap foundation with composer-independent aut
 - Consumes: the dormant `JT\` → `src/` mappings from Task 1 (both the composer root and `src/bootstrap.php`'s autoloader).
 - Produces: `JT\CLI\Commands\*`, `JT\CLI\Traits\*`, `JT\RepoConfigTrait` loadable from `src/` by both loaders. Note `bin/gituserlog`/`bin/ghissuecounts` keep their `vendor/autoload.php` + `misc/helpers.php` requires (later tasks); `RepoConfigTrait` uses `adhocore/json-comment` from vendor, which both loaders still provide.
 
-- [ ] **Step 1: Move the files**
+- [x] **Step 1: Move the files**
 
 ```bash
 mkdir -p src/CLI/Commands src/CLI/Traits
@@ -181,7 +181,7 @@ git mv misc/traits/CategoryTaxonomyTrait.php src/CLI/Traits/
 git mv misc/RepoConfigTrait.php src/RepoConfigTrait.php
 ```
 
-- [ ] **Step 2: Delete the two hand-requires**
+- [x] **Step 2: Delete the two hand-requires**
 
 In `bin/gituserlog` delete line 25:
 ```php
@@ -189,7 +189,7 @@ require_once dirname(__DIR__) . '/misc/RepoConfigTrait.php';
 ```
 In `bin/ghissuecounts` delete line 29 (same content). (`JT\RepoConfigTrait` now autoloads: composer's root catches it for these vendor-requiring scripts.)
 
-- [ ] **Step 3: Regenerate + verify class resolution**
+- [x] **Step 3: Regenerate + verify class resolution**
 
 ```bash
 composer dump-autoload
@@ -197,17 +197,17 @@ php -r 'require "vendor/autoload.php"; var_dump(class_exists("JT\\CLI\\Commands\
 ```
 Expected: `bool(true)` ×3.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `composer test`
 Expected: green except the 7 pre-existing GraveyardPageTest failures.
 
-- [ ] **Step 5: Smoke the consumers**
+- [x] **Step 5: Smoke the consumers**
 
 Run: `php bin/ghissuecounts --help | head -3 && php bin/hisi-fetch --help | head -3`
 Expected: each prints its help header (no "class not found").
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A src misc bin/gituserlog bin/ghissuecounts
@@ -233,7 +233,7 @@ git commit -m "move PSR-4-ready commands/traits/RepoConfigTrait into src/"
 - Consumes: Task 1's `src/bootstrap.php`; Task 2's layout.
 - Produces: `JT\CLI\Exception` → `src/CLI/Exception.php`; `JT\CLI\Helpers` → `src/CLI/Helpers.php`; `JT\CLI\Helpers\{Help,Git}` → `src/CLI/Helpers/`; `JT\Helpers\Cmux` → `src/Helpers/Cmux.php`; the universal bootstrap line `$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';` in all 20 plain scripts.
 
-- [ ] **Step 1: Create `src/CLI/Exception.php`**
+- [x] **Step 1: Create `src/CLI/Exception.php`**
 
 ```php
 <?php
@@ -249,7 +249,7 @@ class Exception extends \Exception {
 }
 ```
 
-- [ ] **Step 2: Create `src/CLI/Helpers.php` from `misc/helpers.php`**
+- [x] **Step 2: Create `src/CLI/Helpers.php` from `misc/helpers.php`**
 
 Copy `misc/helpers.php` to `src/CLI/Helpers.php`, then make exactly four edits:
 1. Delete the `class Exception extends \Exception {...}` block (lines 15–18, including its docblock) — it now lives in `src/CLI/Exception.php`.
@@ -266,7 +266,7 @@ Copy `misc/helpers.php` to `src/CLI/Helpers.php`, then make exactly four edits:
 
 Keep the file-level docblock; update it to note the move if you like, but do not reformat anything else.
 
-- [ ] **Step 3: Move the helper libs**
+- [x] **Step 3: Move the helper libs**
 
 ```bash
 mkdir -p src/CLI/Helpers src/Helpers
@@ -275,7 +275,7 @@ git mv misc/helpers/git.php src/CLI/Helpers/Git.php
 git mv misc/helpers/cmux.php src/Helpers/Cmux.php
 ```
 
-- [ ] **Step 4: Swap the bootstrap line in the plain scripts (except `bin/graveyard`)**
+- [x] **Step 4: Swap the bootstrap line in the plain scripts (except `bin/graveyard`)**
 
 Two spacing variants exist in the repo (`dirname(__DIR__)` ×16, `dirname( __DIR__ )` ×8 — 24 plain scripts total). One extended-regex sed catches both:
 
@@ -288,7 +288,7 @@ grep -rn "misc/helpers\.php" bin/ | grep -v phploy-source
 
 Expected: exactly one hit — `bin/graveyard`, deliberately left on the shim until Task 4. (The 6 composer-pattern scripts don't contain this string; they're Task 5. `sed -i ''` is macOS syntax — this is a one-time local migration command, not committed code.)
 
-- [ ] **Step 5: Delete the cmux.php require in cmux-bak only**
+- [x] **Step 5: Delete the cmux.php require in cmux-bak only**
 
 In `bin/cmux-bak` delete:
 ```php
@@ -296,7 +296,7 @@ require_once dirname(__DIR__) . '/misc/helpers/cmux.php';
 ```
 (Find it with `grep -n "misc/helpers/cmux.php" bin/cmux-bak`.) Leave its `*_lib.php` require in place — Task 4 handles those. **Do not touch `bin/graveyard`'s identical require** — the shim in Step 6 keeps it working until Task 4.
 
-- [ ] **Step 6: Convert `misc/helpers.php` to a shim; shim `misc/helpers/cmux.php`**
+- [x] **Step 6: Convert `misc/helpers.php` to a shim; shim `misc/helpers/cmux.php`**
 
 After the `git mv` in Step 3, `misc/helpers/cmux.php` no longer exists — recreate it as a forwarding shim, and replace `misc/helpers.php`'s contents with a forwarding shim, so the still-unrewired `bin/graveyard` keeps working:
 
@@ -318,7 +318,7 @@ require_once dirname(__DIR__, 2) . '/src/Helpers/Cmux.php';
 
 (`src/bootstrap.php`'s autoloader makes the second shim redundant for autoload-aware callers, but `bin/graveyard` `require_once`s this exact path — it must exist and load the class.)
 
-- [ ] **Step 6b: Make `misc/bootstrap.php`'s `getCli()` return the singleton (not require a file)**
+- [x] **Step 6b: Make `misc/bootstrap.php`'s `getCli()` return the singleton (not require a file)** *(done early, in Task 1 — pi applied it when its BootstrapTest exposed the redeclare bug)*
 
 Change its body to:
 ```php
@@ -328,7 +328,7 @@ Change its body to:
 ```
 Rationale: with `misc/helpers.php` reduced to a shim forwarding to `src/bootstrap.php`, the old `require_once misc/helpers.php` body creates a cycle (getCli → shim → src/bootstrap → getCli → already-in-progress require → `true`) that leaves the 6 composer-pattern scripts with `$cli === true`. Returning the singleton via autoload breaks the cycle for the whole T3→T5 window. (`Helpers` autoloads via composer's `JT\` → `src/` fall-through once `src/CLI/Helpers.php` exists — i.e. from this task on.)
 
-- [ ] **Step 7: Slim tests/bootstrap.php (transitional form)**
+- [x] **Step 7: Slim tests/bootstrap.php (transitional form)**
 
 Replace its contents with:
 
@@ -345,14 +345,18 @@ require_once dirname(__DIR__) . '/bin/graveyard_lib.php';   // JT\Graveyard (unt
 require_once dirname(__DIR__) . '/bin/cmux-bak_lib.php';    // JT\CmuxBak (until Task 4)
 ```
 
-- [ ] **Step 8: Regenerate + run the suite**
+- [x] **Step 8: Drop the legacy psr-4 mappings NOW (not Task 5)**
+
+Remove `"JT\\CLI\\": "misc/"`, `"JT\\CLI\\Commands\\": "misc/commands/"`, `"JT\\CLI\\Traits\\": "misc/traits/"` from `composer.json`, leaving `"JT\\": "src/"` + the `"files"` entry (Task 5 removes that). Rationale — **case-insensitive-FS collision**: composer's PSR-4 probe for `JT\CLI\Helpers` tries `misc/Helpers.php` first; on macOS APFS that case-insensitively matches the `misc/helpers.php` *shim*, which forwards to `src/bootstrap.php` → legacy `getCli()` → re-requests the same class mid-autoload → "Class not found". All `JT\CLI\*` classes live under `src/` after this task, so the legacy mappings are dead weight with a live footgun. (Discovered executing T3: only `BootstrapTest` errored, but the trace `misc/Helpers.php:4 → src/bootstrap.php → misc/bootstrap.php` proves the shim was being autoload-included.)
+
+- [x] **Step 9: Regenerate + run the suite**
 
 ```bash
 composer dump-autoload && composer test
 ```
 Expected: green except the 7 pre-existing GraveyardPageTest failures.
 
-- [ ] **Step 9: Smoke the rewired scripts**
+- [x] **Step 10: Smoke the rewired scripts**
 
 ```bash
 php bin/cmux-bak --help | head -3
@@ -361,7 +365,7 @@ php bin/dayssince --help | head -3
 ```
 Expected: each prints its help header, no PHP errors.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add -A src misc bin tests/bootstrap.php
