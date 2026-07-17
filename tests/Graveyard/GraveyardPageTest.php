@@ -148,4 +148,122 @@ final class GraveyardPageTest extends TestCase
 			'newest tombstone renders before the older one'
 		);
 	}
+
+	public function testPageHtmlSessionIdIsClickToCopy(): void
+	{
+		// The modal's session id copies the FULL id to the clipboard on click
+		// (for `graveyard resurrect <id>`), with a "copied" confirmation.
+		$html = $this->gy->pageHtml([$this->tomb('copy0001-full', 'copy me')], '2026-07-17');
+		$this->assertStringContainsString('id="m-id"', $html);
+		$this->assertStringContainsString('navigator.clipboard', $html);
+		$this->assertStringContainsString('writeText', $html);
+		$this->assertStringContainsString('copied', strtolower($html));
+	}
+
+	public function testPageHtmlHasGothicFlourishes(): void
+	{
+		// JT's v1-header favorites, ported forward — the crest above the title and
+		// the skull set into the divider — plus more in the same spirit: a coffin
+		// divider in the footer, drifting ground mist, corner cobwebs, and an
+		// "exhumed transcript" caption above the modal's transcript.
+		$html = $this->gy->pageHtml([$this->tomb('flr00001-full', 'fancy')], '2026-07-17');
+
+		$this->assertLessThan(strpos($html, '<h1'), strpos($html, 'class="crest"'));
+		$this->assertStringContainsString('💀', $html);      // header divider
+		$this->assertStringContainsString('⚰', $html);       // footer divider
+		$this->assertStringContainsString('class="fog"', $html);
+		$this->assertStringContainsString('@keyframes drift', $html);
+		$this->assertStringContainsString('🕸', $html);       // cobweb corners
+		$this->assertStringContainsString('crypt-cap', $html);
+		$this->assertStringContainsString('⛏ exhuming…', $html);
+	}
+
+	public function testPageUnitsOrdersPlotsAndLooseNewestFirst(): void
+	{
+		$mk = function (string $sid, string $buried, ?string $gid = null, ?int $pos = null): array {
+			$t = $this->tomb($sid, "title {$sid}", $buried . 'T00:00:00Z');
+			if ($gid !== null) { $t['group_id'] = $gid; $t['group_title'] = 'Fam'; $t['group_pos'] = $pos; }
+			return $t;
+		};
+		$units = $this->gy->pageUnits([
+			$mk('looseA', '2026-07-17'),
+			$mk('g1m2', '2026-07-15', 'g1', 1),
+			$mk('looseB', '2026-07-16'),
+			$mk('g1m1', '2026-07-15', 'g1', 0),
+		]);
+
+		$this->assertSame(['stone', 'stone', 'plot'], array_column($units, 'type'));
+		$this->assertSame('looseA', $units[0]['tomb']['session_id']);
+		$this->assertSame('looseB', $units[1]['tomb']['session_id']);
+		// plot members render in original tab order (group_pos), not buried_at order
+		$this->assertSame(['g1m1', 'g1m2'], array_column($units[2]['members'], 'session_id'));
+		$this->assertSame('Fam', $units[2]['title']);
+	}
+
+	public function testManifestPositionsMapsClaudeMembersOnly(): void
+	{
+		$pos = $this->gy->manifestPositions([
+			'layout' => [
+				['pane_index' => 0, 'index_in_pane' => 2, 'kind' => 'claude', 'claude_session_id' => 'sid-a'],
+				['pane_index' => 0, 'index_in_pane' => 3, 'kind' => 'shell', 'claude_session_id' => null],
+				['pane_index' => 1, 'index_in_pane' => 0, 'kind' => 'browser', 'claude_session_id' => null],
+			],
+		]);
+		$this->assertSame(['sid-a' => ['pane' => 0, 'tab' => 2]], $pos);
+	}
+
+	public function testPageHtmlRendersWorkspaceGroupAsPlot(): void
+	{
+		$t1 = $this->tomb('plt11111-full', 'member one', '2026-07-10T00:00:00Z');
+		$t1['group_id'] = 'g1'; $t1['group_title'] = 'Fam Plot'; $t1['group_pos'] = 0;
+		$t2 = $this->tomb('plt22222-full', 'member two', '2026-07-10T00:00:00Z');
+		$t2['group_id'] = 'g1'; $t2['group_title'] = 'Fam Plot'; $t2['group_pos'] = 1;
+		// Older than the plot: units sort newest-first, so the lone stone trails it.
+		$loose = $this->tomb('loose001-full', 'lone stone', '2026-07-09T00:00:00Z');
+
+		$html = $this->gy->pageHtml([$t1, $t2, $loose], '2026-07-17');
+
+		$this->assertSame(1, substr_count($html, 'class="plot"'));
+		$this->assertStringContainsString('<legend>Fam Plot</legend>', $html);
+		// members are fenced inside the plot; the loose stone is outside it
+		$this->assertLessThan(strpos($html, 'member one'), strpos($html, '<legend>Fam Plot</legend>'));
+		$this->assertLessThan(strpos($html, '</fieldset>'), strpos($html, 'member two'));
+		$this->assertGreaterThan(strpos($html, '</fieldset>'), strpos($html, 'lone stone'));
+	}
+
+	public function testPageHtmlShowsPaneTabSuffixWhenKnown(): void
+	{
+		$t = $this->tomb('plt00001-full', 'positioned', '2026-07-10T00:00:00Z');
+		$t['group_id'] = 'g1'; $t['group_title'] = 'Fam'; $t['group_pos'] = 0;
+		$t['plot_pos'] = ['pane' => 0, 'tab' => 1]; // 0-based storage → 1-based display
+		$html = $this->gy->pageHtml([$t], '2026-07-17');
+		$this->assertStringContainsString('[P1,T2]', $html);
+	}
+
+	public function testPageRendersPlotsFromManifestPositions(): void
+	{
+		$gid = 'grp-uuid-1';
+		$t1 = $this->tomb('plt11111-full', 'plot member one', '2026-07-10T00:00:00Z');
+		$t1['group_id'] = $gid; $t1['group_title'] = 'Fam'; $t1['group_pos'] = 0;
+		$t2 = $this->tomb('plt22222-full', 'plot member two', '2026-07-10T00:00:00Z');
+		$t2['group_id'] = $gid; $t2['group_title'] = 'Fam'; $t2['group_pos'] = 1;
+		$root = $this->makeRoot([$t1, $t2]);
+		@mkdir($root . '/workspaces/' . $gid, 0755, true);
+		file_put_contents($root . '/workspaces/' . $gid . '/manifest.json', json_encode([
+			'group_id' => $gid, 'group_title' => 'Fam',
+			'layout' => [
+				['group_pos' => 0, 'pane_index' => 0, 'index_in_pane' => 0, 'kind' => 'claude', 'claude_session_id' => 'plt11111-full'],
+				['group_pos' => 1, 'pane_index' => 1, 'index_in_pane' => 2, 'kind' => 'claude', 'claude_session_id' => 'plt22222-full'],
+				['group_pos' => 2, 'pane_index' => 1, 'index_in_pane' => 3, 'kind' => 'shell'],
+			],
+		]));
+
+		$gy = new Graveyard($this->cli, $this->cmux);
+		$html = (string) file_get_contents($gy->page(false));
+
+		$this->assertStringContainsString('class="plot"', $html);
+		$this->assertStringContainsString('Fam', $html);
+		$this->assertStringContainsString('[P1,T1]', $html); // member one: pane 0+1, tab 0+1
+		$this->assertStringContainsString('[P2,T3]', $html); // member two: pane 1+1, tab 2+1
+	}
 }

@@ -1245,6 +1245,7 @@ class Graveyard {
 	public function page(bool $openInBrowser = true): string {
 		$tombs = $this->readIndex()['tombstones'] ?? [];
 		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
+		$tombs = $this->stampPlotPositions($tombs);
 
 		$dir = $this->pageDataDir();
 		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
@@ -1290,50 +1291,158 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Order tombstones into render units for the page: loose stones and
+	 * "family plots" (workspace groups), newest-first. A plot's sort key is its
+	 * newest member's buried_at; its members keep their original tab order
+	 * (group_pos, via groupTombstones). Ties keep input order.
+	 */
+	public function pageUnits(array $tombs): array {
+		[$groups, $loose] = $this->groupTombstones($tombs);
+		$units = [];
+		$ord = 0;
+		foreach ($loose as $t) {
+			$units[] = ['type' => 'stone', 'sort' => (string) ($t['buried_at'] ?? ''), 'tomb' => $t, 'ord' => $ord++];
+		}
+		foreach ($groups as $members) {
+			$max = '';
+			foreach ($members as $m) {
+				$b = (string) ($m['buried_at'] ?? '');
+				if (strcmp($b, $max) > 0) { $max = $b; }
+			}
+			$title = trim((string) ($members[0]['group_title'] ?? ''));
+			$units[] = [
+				'type'    => 'plot',
+				'sort'    => $max,
+				'title'   => $title !== '' ? $title : '(family plot)',
+				'members' => $members,
+				'ord'     => $ord++,
+			];
+		}
+		usort($units, fn($a, $b) => strcmp($b['sort'], $a['sort']) ?: ($a['ord'] <=> $b['ord']));
+		return array_map(function ($u) { unset($u['ord']); return $u; }, $units);
+	}
+
+	/**
+	 * PURE. Map a workspace manifest's claude members to their layout positions:
+	 * claude_session_id => ['pane' => pane_index, 'tab' => index_in_pane] (0-based).
+	 * Non-claude surfaces and unbound entries are skipped.
+	 */
+	public function manifestPositions(array $manifest): array {
+		$out = [];
+		foreach ($manifest['layout'] ?? [] as $e) {
+			if (($e['kind'] ?? '') !== 'claude') { continue; }
+			$sid = (string) ($e['claude_session_id'] ?? '');
+			if ($sid === '') { continue; }
+			$out[$sid] = [
+				'pane' => (int) ($e['pane_index'] ?? 0),
+				'tab'  => (int) ($e['index_in_pane'] ?? 0),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * I/O. Stamp each grouped tombstone with its 'plot_pos' (pane/tab) read from the
+	 * workspace group's manifest, when one is on disk. Ungrouped tombs and groups
+	 * without a manifest are left untouched.
+	 */
+	protected function stampPlotPositions(array $tombs): array {
+		$gids = [];
+		foreach ($tombs as $t) {
+			$g = (string) ($t['group_id'] ?? '');
+			if ($g !== '') { $gids[$g] = true; }
+		}
+		$posByGid = [];
+		foreach (array_keys($gids) as $gid) {
+			$mp = $this->manifestPath($gid);
+			if (!is_file($mp)) { continue; }
+			$m = json_decode((string) @file_get_contents($mp), true);
+			if (is_array($m)) { $posByGid[$gid] = $this->manifestPositions($m); }
+		}
+		foreach ($tombs as &$t) {
+			$g   = (string) ($t['group_id'] ?? '');
+			$sid = (string) ($t['session_id'] ?? '');
+			if ($g !== '' && isset($posByGid[$g][$sid])) { $t['plot_pos'] = $posByGid[$g][$sid]; }
+		}
+		unset($t);
+		return $tombs;
+	}
+
+	/**
+	 * PURE. One headstone <button>: title + buried-date/short-id meta, with the
+	 * modal's display strings riding in escaped data-* attributes (the modal fills
+	 * via textContent — no HTML injection). A tombstone carrying a plot_pos (pane/
+	 * tab from the workspace manifest, 0-based) shows a 1-based [P…,T…] suffix on
+	 * both the stone meta and the modal dates line.
+	 */
+	protected function stoneHtml(array $t, int $i, string $home): string {
+		$e = fn(string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+		$sid    = (string) ($t['session_id'] ?? '');
+		$sid8   = substr($sid, 0, 8);
+		$title  = $this->titleizeSummary($t, $home);
+		$cwd    = $this->shortenCwd((string) ($t['cwd'] ?? ''), $home, 200);
+		$ws     = trim((string) ($t['workspace_title'] ?? ''));
+		$tab    = $this->stripGlyph((string) ($t['tab_title'] ?? ''));
+		$buried = substr((string) ($t['buried_at'] ?? ''), 0, 10);
+		$active = substr((string) ($t['last_active'] ?? ''), 0, 10);
+		$model  = (string) ($t['model'] ?? '');
+
+		$pos = '';
+		if (isset($t['plot_pos']['pane'], $t['plot_pos']['tab'])) {
+			$pos = ' [P' . ((int) $t['plot_pos']['pane'] + 1) . ',T' . ((int) $t['plot_pos']['tab'] + 1) . ']';
+		}
+
+		$where = implode(' · ', array_filter([$cwd, $ws . ($tab !== '' ? ' / ' . $tab : '')], fn($p) => trim($p) !== ''));
+		$dates = 'buried ' . $buried
+			. ($active !== '' ? ' · last active ' . $active : '')
+			. ($model !== '' ? ' · ' . $model : '')
+			. $pos;
+
+		return '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
+			. ' data-id="' . $e($sid) . '"'
+			. ' data-sid8="' . $e($sid8) . '"'
+			. ' data-title="' . $e($title) . '"'
+			. ' data-where="' . $e($where) . '"'
+			. ' data-dates="' . $e($dates) . '">'
+			. '<span class="stone-title">' . $e($title) . '</span>'
+			. '<span class="stone-meta">' . $e($buried) . ' · ' . $e($sid8) . $e($pos) . '</span>'
+			. '</button>';
+	}
+
+	/**
 	 * PURE. Self-contained HTML overview: a full-width FIELD of compact headstones
-	 * (auto-fill grid), one per tombstone. Clicking a stone opens a <dialog> with
-	 * the full card; the transcript loads JIT from page-data/<id>.js (see page())
-	 * and scrolls to the latest end. Display strings ride in escaped data-*
-	 * attributes and the modal fills via textContent — no HTML injection from
-	 * titles/cwds/transcripts. Order preserved — the caller sorts. No external
-	 * assets; one inline <script>.
+	 * (auto-fill grid), with workspace groups fenced into "family plots" (a
+	 * <fieldset> per group, legend = group title, members in tab order). Clicking
+	 * a stone opens a <dialog> with the full card; the transcript loads JIT from
+	 * page-data/<id>.js (see page()) and scrolls to the latest end. The modal's
+	 * session id is click-to-copy (full id → clipboard, "copied ✓" flash).
+	 * Display strings ride in escaped data-* attributes and the modal fills via
+	 * textContent — no HTML injection from titles/cwds/transcripts. Units are
+	 * rendered in pageUnits() order (newest-first). No external assets; one
+	 * inline <script>.
 	 */
 	public function pageHtml(array $tombs, string $generatedAt, string $home = ''): string {
 		$e = fn(string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-		$stones = [];
+		$rows = [];
 		$i = 0;
-		foreach ($tombs as $t) {
-			$sid    = (string) ($t['session_id'] ?? '');
-			$sid8   = substr($sid, 0, 8);
-			$title  = $this->titleizeSummary($t, $home);
-			$cwd    = $this->shortenCwd((string) ($t['cwd'] ?? ''), $home, 200);
-			$ws     = trim((string) ($t['workspace_title'] ?? ''));
-			$tab    = $this->stripGlyph((string) ($t['tab_title'] ?? ''));
-			$buried = substr((string) ($t['buried_at'] ?? ''), 0, 10);
-			$active = substr((string) ($t['last_active'] ?? ''), 0, 10);
-			$model  = (string) ($t['model'] ?? '');
-
-			$where = implode(' · ', array_filter([$cwd, $ws . ($tab !== '' ? ' / ' . $tab : '')], fn($p) => trim($p) !== ''));
-			$dates = 'buried ' . $buried
-				. ($active !== '' ? ' · last active ' . $active : '')
-				. ($model !== '' ? ' · ' . $model : '');
-
-			$stones[] = '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
-				. ' data-id="' . $e($sid) . '"'
-				. ' data-sid8="' . $e($sid8) . '"'
-				. ' data-title="' . $e($title) . '"'
-				. ' data-where="' . $e($where) . '"'
-				. ' data-dates="' . $e($dates) . '">'
-				. '<span class="stone-title">' . $e($title) . '</span>'
-				. '<span class="stone-meta">' . $e($buried) . ' · ' . $e($sid8) . '</span>'
-				. '</button>';
-			$i++;
+		foreach ($this->pageUnits($tombs) as $u) {
+			if ($u['type'] === 'stone') {
+				$rows[] = $this->stoneHtml($u['tomb'], $i++, $home);
+				continue;
+			}
+			$stones = [];
+			foreach ($u['members'] as $t) { $stones[] = $this->stoneHtml($t, $i++, $home); }
+			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
+			// grid fieldsets wrong) — the inner div carries the stone grid instead.
+			$rows[] = '    <fieldset class="plot"><legend>' . $e($u['title']) . '</legend>'
+				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
 		}
 
 		$count   = count($tombs);
-		$listing = $stones
-			? implode("\n", $stones)
+		$listing = $rows
+			? implode("\n", $rows)
 			: '    <p class="none empty">🪦<br>The graveyard is empty — no sessions lie here yet.</p>';
 
 		return '<!DOCTYPE html>
@@ -1366,11 +1475,25 @@ body {
 	color: var(--inscription);
 	font: 15px/1.6 var(--serif);
 }
-header.top { display: flex; align-items: baseline; gap: 1rem; padding: 0 clamp(1rem, 3.5vw, 3rem) 1rem; margin-bottom: 2rem; border-bottom: 1px solid rgba(154,162,148,.25); }
-header.top .glyph { font-size: 1.35rem; filter: grayscale(.4) brightness(.9); }
-h1 { margin: 0; font: 500 clamp(1.05rem, 2.2vw, 1.5rem)/1.2 var(--serif); letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
-header.top .meta { margin-left: auto; text-align: right; }
+header.top { text-align: center; padding: 0 clamp(1rem, 3.5vw, 3rem); margin-bottom: 1.6rem; }
+.crest { font-size: 2.1rem; line-height: 1.25; filter: grayscale(.4) brightness(.9); text-shadow: 0 6px 16px rgba(0,0,0,.65); }
+h1 { margin: .3rem 0 .45rem; font: 500 clamp(1.05rem, 2.2vw, 1.5rem)/1.2 var(--serif); letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
+header.top .meta { margin: 0; }
 .meta { color: var(--weathered); font: .78rem var(--mono); letter-spacing: .04em; }
+.divider { display: flex; align-items: center; gap: 1rem; margin: 1.15rem 0 0; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(154,162,148,.4), transparent); }
+.divider span { font-size: .95rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
+.web { position: fixed; top: .3rem; z-index: 2; font-size: 1.55rem; opacity: .25; filter: grayscale(.6); pointer-events: none; }
+.web-l { left: .45rem; }
+.web-r { right: .45rem; transform: scaleX(-1); }
+.fog {
+	position: fixed; left: 0; right: 0; bottom: 0; height: 32vh; z-index: 1; pointer-events: none;
+	background:
+		radial-gradient(ellipse 65% 100% at 18% 105%, rgba(154,162,148,.09), transparent 70%),
+		radial-gradient(ellipse 55% 90% at 78% 105%, rgba(154,162,148,.07), transparent 70%);
+	animation: drift 26s ease-in-out infinite alternate;
+}
+@keyframes drift { from { transform: translateX(-2.5%); } to { transform: translateX(2.5%); } }
 main#yard { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 1.1rem; padding: 0 clamp(1rem, 3.5vw, 3rem); }
 .stone {
 	appearance: none; -webkit-appearance: none; font: inherit; text-align: left; cursor: pointer;
@@ -1394,6 +1517,16 @@ main#yard { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px
 .stone-meta { margin-top: auto; font: .66rem var(--mono); color: var(--weathered); letter-spacing: .05em; }
 .empty { grid-column: 1 / -1; text-align: center; font-size: 1rem; line-height: 2.2; padding: 3rem 0; }
 .none { color: #6b7263; font-style: italic; font-size: .88rem; }
+fieldset.plot {
+	grid-column: 1 / -1; min-width: 0; margin: 0; padding: 0 .9rem .95rem;
+	border: 1px dashed rgba(154,162,148,.35); border-radius: 12px;
+}
+fieldset.plot legend {
+	padding: 0 .55rem; font: .72rem var(--mono); letter-spacing: .18em;
+	text-transform: uppercase; color: var(--moss);
+}
+fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
+.plot-stones { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 1.1rem; padding-top: .35rem; }
 dialog#plot { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
 dialog#plot::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }
 dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; }
@@ -1404,12 +1537,19 @@ dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; }
 	padding: 1.35rem 1.6rem 1.15rem;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 30px -18px rgba(0,0,0,.85);
 }
-.card header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding-bottom: .6rem; margin-bottom: .55rem; border-bottom: 1px solid rgba(233,228,214,.09); }
+.card header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0 1.8rem .6rem 0; margin-bottom: .55rem; border-bottom: 1px solid rgba(233,228,214,.09); }
 .card h2 { margin: 0; font-size: 1.12rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
-.card code { font: .78rem var(--mono); color: var(--weathered); letter-spacing: .08em; white-space: nowrap; }
+.idcopy {
+	background: none; border: 1px solid transparent; border-radius: 6px; cursor: copy;
+	font: .78rem var(--mono); color: var(--weathered); letter-spacing: .08em;
+	padding: .12rem .45rem; white-space: nowrap; flex-shrink: 0;
+}
+.idcopy:hover, .idcopy:focus-visible { color: var(--inscription); border-color: var(--stone-edge); outline: none; }
+.idcopy.ok { color: var(--moss); }
 .card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
+.crypt-cap { margin: .8rem 0 0; font: .68rem var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--moss); }
 #m-body pre {
-	max-height: 50vh; overflow: auto; margin: .8rem 0 0;
+	max-height: 50vh; overflow: auto; margin: .4rem 0 0;
 	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
 	padding: .9rem 1rem; white-space: pre-wrap; overflow-wrap: anywhere;
 	font: .8rem/1.55 var(--mono); color: #b9c0ae;
@@ -1419,8 +1559,11 @@ dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; }
 #m-close { position: absolute; top: .7rem; right: .9rem; background: none; border: none; color: var(--weathered); font-size: 1rem; cursor: pointer; padding: .25rem; }
 #m-close:hover { color: var(--inscription); }
 footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: center; }
+footer .divider { margin: 0 0 1.1rem; }
+footer p { margin: .3rem 0; }
+footer .epitaph { color: #6b7263; }
 @media (prefers-reduced-motion: reduce) {
-	.stone, #m-body pre { animation: none; }
+	.stone, #m-body pre, .fog { animation: none; }
 }
 @media (max-width: 560px) {
 	h1 { letter-spacing: .12em; }
@@ -1429,24 +1572,32 @@ footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: cent
 </style>
 </head>
 <body>
+<span class="web web-l" aria-hidden="true">🕸</span>
+<span class="web web-r" aria-hidden="true">🕸</span>
 <header class="top">
-  <span class="glyph">🪦</span>
+  <div class="crest" aria-hidden="true">🪦</div>
   <h1>The Claude Graveyard</h1>
   <p class="meta">' . $count . ' session' . ($count === 1 ? '' : 's') . ' lie' . ($count === 1 ? 's' : '') . ' here · generated ' . $e($generatedAt) . '</p>
+  <div class="divider" aria-hidden="true"><span>💀</span></div>
 </header>
 <main id="yard">
 ' . $listing . '
 </main>
-<footer class="meta">resurrect a session: graveyard resurrect &lt;id&gt;</footer>
+<footer class="meta">
+  <div class="divider" aria-hidden="true"><span>⚰️</span></div>
+  <p>resurrect a session: graveyard resurrect &lt;id&gt;</p>
+  <p class="epitaph">❦</p>
+</footer>
 <dialog id="plot">
   <article class="card">
     <form method="dialog"><button id="m-close" aria-label="Close">✕</button></form>
-    <header><h2 id="m-title"></h2><code id="m-id"></code></header>
+    <header><h2 id="m-title"></h2><button type="button" id="m-id" class="idcopy" title="copy full session id"></button></header>
     <p class="meta" id="m-where"></p>
     <p class="meta" id="m-dates"></p>
     <div id="m-body"></div>
   </article>
 </dialog>
+<div class="fog" aria-hidden="true"></div>
 <script>
 (function () {
 	var dlg = document.getElementById("plot");
@@ -1455,9 +1606,14 @@ footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: cent
 	var mWhere = document.getElementById("m-where");
 	var mDates = document.getElementById("m-dates");
 	var mBody = document.getElementById("m-body");
+	var currentId = "";
 
 	function showTranscript(text) {
 		mBody.innerHTML = "";
+		var cap = document.createElement("div");
+		cap.className = "crypt-cap";
+		cap.textContent = "⚰ exhumed transcript";
+		mBody.appendChild(cap);
 		var pre = document.createElement("pre");
 		pre.textContent = text;
 		mBody.appendChild(pre);
@@ -1465,7 +1621,7 @@ footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: cent
 	}
 
 	function exhume(id) {
-		mBody.innerHTML = \'<p class="none">exhuming…</p>\';
+		mBody.innerHTML = \'<p class="none">⛏ exhuming…</p>\';
 		if (window.GYT && Object.prototype.hasOwnProperty.call(window.GYT, id)) {
 			showTranscript(window.GYT[id]);
 			return;
@@ -1477,11 +1633,44 @@ footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: cent
 		document.head.appendChild(s);
 	}
 
+	function legacyCopy() {
+		var ta = document.createElement("textarea");
+		ta.value = currentId;
+		ta.setAttribute("readonly", "");
+		ta.style.position = "fixed";
+		ta.style.opacity = "0";
+		document.body.appendChild(ta);
+		ta.select();
+		try { document.execCommand("copy"); } catch (err) {}
+		document.body.removeChild(ta);
+	}
+
+	mId.addEventListener("click", function () {
+		if (!currentId) { return; }
+		var flash = function () {
+			mId.textContent = "copied ✓";
+			mId.classList.add("ok");
+			setTimeout(function () {
+				mId.textContent = mId.dataset.sid8;
+				mId.classList.remove("ok");
+			}, 900);
+		};
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(currentId).then(flash, function () { legacyCopy(); flash(); });
+		} else {
+			legacyCopy();
+			flash();
+		}
+	});
+
 	document.querySelectorAll(".stone").forEach(function (b) {
 		b.addEventListener("click", function () {
 			var d = b.dataset;
+			currentId = d.id;
 			mTitle.textContent = d.title;
 			mId.textContent = d.sid8;
+			mId.dataset.sid8 = d.sid8;
+			mId.classList.remove("ok");
 			mWhere.textContent = d.where;
 			mDates.textContent = d.dates;
 			dlg.showModal();
