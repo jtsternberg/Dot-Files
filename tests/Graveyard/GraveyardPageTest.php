@@ -55,7 +55,9 @@ final class GraveyardPageTest extends TestCase
 
 		$this->assertSame(2, substr_count($html, 'class="stone"'));
 		$this->assertStringContainsString('id="yard"', $html);       // the field
-		$this->assertStringContainsString('auto-fill', $html);       // fills wide screens
+		$this->assertStringContainsString('flex-wrap: wrap', $html); // masonry-style packing
+		// nothing spans the full row — plots hug their stones, no dead space
+		$this->assertStringNotContainsString('grid-column: 1 / -1', $html);
 		$this->assertStringContainsString('fix the bug', $html);
 		$this->assertStringContainsString('abc12345', $html);        // short id on the stone
 		$this->assertStringContainsString('2026-07-15', $html);      // buried date on the stone
@@ -158,6 +160,30 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('navigator.clipboard', $html);
 		$this->assertStringContainsString('writeText', $html);
 		$this->assertStringContainsString('copied', strtolower($html));
+	}
+
+	public function testPageHtmlTranscriptPathIsCopyable(): void
+	{
+		// Below the transcript, the modal shows the transcript's file path —
+		// displayed with the home dir collapsed to ~/, but copying yields the
+		// FULL absolute path (same clipboard + "copied ✓" flash as the id).
+		putenv('GRAVEYARD_ROOT=/tmp/gyhome/.claude-graveyard');
+		$html = $this->gy->pageHtml([$this->tomb('tpath001-full', 'path test')], '2026-07-17', '/tmp/gyhome');
+
+		$this->assertStringContainsString('data-tpath="/tmp/gyhome/.claude-graveyard/sessions/tpath001-full/transcript.txt"', $html);
+		$this->assertStringContainsString('data-tpath-short="~/.claude-graveyard/sessions/tpath001-full/transcript.txt"', $html);
+		$this->assertStringContainsString('id="m-tpath"', $html);
+	}
+
+	public function testPageHtmlCloseButtonIsAMedallion(): void
+	{
+		// The modal close button is a circular "wax seal" medallion (bordered
+		// circle, glyph centered, moss hover) — not a bare text ✕.
+		$html = $this->gy->pageHtml([$this->tomb('cls00001-full', 'close test')], '2026-07-17');
+		$this->assertStringContainsString('id="m-close"', $html);
+		$this->assertStringContainsString('#m-close {', $html);
+		$this->assertStringContainsString('border-radius: 50%', $html);
+		$this->assertStringContainsString('place-items: center', $html);
 	}
 
 	public function testPageHtmlContainsModalScroll(): void

@@ -1393,6 +1393,10 @@ class Graveyard {
 			$pos = ' [P' . ((int) $t['plot_pos']['pane'] + 1) . ',T' . ((int) $t['plot_pos']['tab'] + 1) . ']';
 		}
 
+		// The modal shows the transcript path (display: ~/-collapsed; copy: FULL path).
+		$tpath      = $this->transcriptPath($sid);
+		$tpathShort = $home !== '' ? str_replace($home, '~', $tpath) : $tpath;
+
 		$where = implode(' · ', array_filter([$cwd, $ws . ($tab !== '' ? ' / ' . $tab : '')], fn($p) => trim($p) !== ''));
 		$dates = 'buried ' . $buried
 			. ($active !== '' ? ' · last active ' . $active : '')
@@ -1404,7 +1408,9 @@ class Graveyard {
 			. ' data-sid8="' . $e($sid8) . '"'
 			. ' data-title="' . $e($title) . '"'
 			. ' data-where="' . $e($where) . '"'
-			. ' data-dates="' . $e($dates) . '">'
+			. ' data-dates="' . $e($dates) . '"'
+			. ' data-tpath="' . $e($tpath) . '"'
+			. ' data-tpath-short="' . $e($tpathShort) . '">'
 			. '<span class="stone-title">' . $e($title) . '</span>'
 			. '<span class="stone-meta">' . $e($buried) . ' · ' . $e($sid8) . $e($pos) . '</span>'
 			. '</button>';
@@ -1494,7 +1500,8 @@ header.top .meta { margin: 0; }
 	animation: drift 26s ease-in-out infinite alternate;
 }
 @keyframes drift { from { transform: translateX(-2.5%); } to { transform: translateX(2.5%); } }
-main#yard { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 1.1rem; padding: 0 clamp(1rem, 3.5vw, 3rem); }
+main#yard { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.1rem; padding: 0 clamp(1rem, 3.5vw, 3rem); }
+main#yard > .stone { flex: 1 1 172px; max-width: 230px; }
 .stone {
 	appearance: none; -webkit-appearance: none; font: inherit; text-align: left; cursor: pointer;
 	color: var(--inscription);
@@ -1515,10 +1522,10 @@ main#yard { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px
 }
 .stone-title { font: 600 .86rem/1.35 var(--serif); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .stone-meta { margin-top: auto; font: .66rem var(--mono); color: var(--weathered); letter-spacing: .05em; }
-.empty { grid-column: 1 / -1; text-align: center; font-size: 1rem; line-height: 2.2; padding: 3rem 0; }
+.empty { flex: 1 1 100%; text-align: center; font-size: 1rem; line-height: 2.2; padding: 3rem 0; }
 .none { color: #6b7263; font-style: italic; font-size: .88rem; }
 fieldset.plot {
-	grid-column: 1 / -1; min-width: 0; margin: 0; padding: 0 .9rem .95rem;
+	flex: 0 1 auto; max-width: 100%; min-width: 0; margin: 0; padding: 0 .9rem .95rem;
 	border: 1px dashed rgba(154,162,148,.35); border-radius: 12px;
 }
 fieldset.plot legend {
@@ -1526,7 +1533,8 @@ fieldset.plot legend {
 	text-transform: uppercase; color: var(--moss);
 }
 fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
-.plot-stones { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 1.1rem; padding-top: .35rem; }
+.plot-stones { display: flex; flex-wrap: wrap; gap: 1.1rem; padding-top: .35rem; }
+.plot-stones .stone { flex: 0 0 172px; }
 body:has(dialog#plot[open]) { overflow: hidden; }
 dialog#plot { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
 dialog#plot::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }
@@ -1557,8 +1565,26 @@ dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; oversc
 	animation: exhume .25s ease-out;
 }
 @keyframes exhume { from { opacity: 0; transform: translateY(-4px); } }
-#m-close { position: absolute; top: .7rem; right: .9rem; background: none; border: none; color: var(--weathered); font-size: 1rem; cursor: pointer; padding: .25rem; }
-#m-close:hover { color: var(--inscription); }
+#m-close {
+	position: absolute; top: .85rem; right: .95rem; width: 1.9rem; height: 1.9rem;
+	border-radius: 50%; background: rgba(233,228,214,.04);
+	border: 1px solid var(--stone-edge); color: var(--weathered);
+	font-size: .8rem; line-height: 1; display: grid; place-items: center;
+	cursor: pointer; padding: 0;
+	transition: color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+#m-close:hover, #m-close:focus-visible {
+	color: var(--moss); border-color: rgba(168,193,150,.6); outline: none;
+	box-shadow: 0 0 0 1px rgba(168,193,150,.25), 0 0 12px rgba(168,193,150,.15);
+	transform: rotate(90deg);
+}
+.tpath {
+	display: block; margin: .55rem 0 0; padding: 0; background: none; border: none;
+	font: .68rem var(--mono); color: var(--weathered); letter-spacing: .04em;
+	cursor: copy; text-align: left; overflow-wrap: anywhere;
+}
+.tpath:hover, .tpath:focus-visible { color: var(--inscription); outline: none; }
+.tpath.ok { color: var(--moss); }
 footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: center; }
 footer .divider { margin: 0 0 1.1rem; }
 footer p { margin: .3rem 0; }
@@ -1596,6 +1622,7 @@ footer .epitaph { color: #6b7263; }
     <p class="meta" id="m-where"></p>
     <p class="meta" id="m-dates"></p>
     <div id="m-body"></div>
+    <button type="button" id="m-tpath" class="tpath" title="copy full transcript path"></button>
   </article>
 </dialog>
 <div class="fog" aria-hidden="true"></div>
@@ -1607,7 +1634,9 @@ footer .epitaph { color: #6b7263; }
 	var mWhere = document.getElementById("m-where");
 	var mDates = document.getElementById("m-dates");
 	var mBody = document.getElementById("m-body");
+	var mTpath = document.getElementById("m-tpath");
 	var currentId = "";
+	var currentTpath = "";
 
 	function showTranscript(text) {
 		mBody.innerHTML = "";
@@ -1634,9 +1663,9 @@ footer .epitaph { color: #6b7263; }
 		document.head.appendChild(s);
 	}
 
-	function legacyCopy() {
+	function legacyCopyText(text) {
 		var ta = document.createElement("textarea");
-		ta.value = currentId;
+		ta.value = text;
 		ta.setAttribute("readonly", "");
 		ta.style.position = "fixed";
 		ta.style.opacity = "0";
@@ -1646,32 +1675,45 @@ footer .epitaph { color: #6b7263; }
 		document.body.removeChild(ta);
 	}
 
-	mId.addEventListener("click", function () {
-		if (!currentId) { return; }
+	function copyFlash(btn, text, restore) {
 		var flash = function () {
-			mId.textContent = "copied ✓";
-			mId.classList.add("ok");
+			btn.textContent = "copied ✓";
+			btn.classList.add("ok");
 			setTimeout(function () {
-				mId.textContent = mId.dataset.sid8;
-				mId.classList.remove("ok");
+				btn.textContent = restore;
+				btn.classList.remove("ok");
 			}, 900);
 		};
 		if (navigator.clipboard && navigator.clipboard.writeText) {
-			navigator.clipboard.writeText(currentId).then(flash, function () { legacyCopy(); flash(); });
+			navigator.clipboard.writeText(text).then(flash, function () { legacyCopyText(text); flash(); });
 		} else {
-			legacyCopy();
+			legacyCopyText(text);
 			flash();
 		}
+	}
+
+	mId.addEventListener("click", function () {
+		if (!currentId) { return; }
+		copyFlash(mId, currentId, mId.dataset.sid8);
+	});
+
+	mTpath.addEventListener("click", function () {
+		if (!currentTpath) { return; }
+		copyFlash(mTpath, currentTpath, mTpath.dataset.short);
 	});
 
 	document.querySelectorAll(".stone").forEach(function (b) {
 		b.addEventListener("click", function () {
 			var d = b.dataset;
 			currentId = d.id;
+			currentTpath = d.tpath;
 			mTitle.textContent = d.title;
 			mId.textContent = d.sid8;
 			mId.dataset.sid8 = d.sid8;
 			mId.classList.remove("ok");
+			mTpath.textContent = d.tpathShort;
+			mTpath.dataset.short = d.tpathShort;
+			mTpath.classList.remove("ok");
 			mWhere.textContent = d.where;
 			mDates.textContent = d.dates;
 			dlg.showModal();
