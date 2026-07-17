@@ -220,11 +220,12 @@ git commit -m "move PSR-4-ready commands/traits/RepoConfigTrait into src/"
 
 **Files:**
 - Create: `src/CLI/Exception.php`
-- Create: `src/CLI/Helpers.php` (from `misc/helpers.php`, three edits)
+- Create: `src/CLI/Helpers.php` (from `misc/helpers.php`, four edits)
 - Move: `misc/helpers/help.php` → `src/CLI/Helpers/Help.php`; `misc/helpers/git.php` → `src/CLI/Helpers/Git.php`; `misc/helpers/cmux.php` → `src/Helpers/Cmux.php`
 - Modify: the plain-pattern `bin/` scripts (bootstrap line swap) — **except `bin/graveyard`** (parallel session owns it until Task 4)
 - Modify: `bin/cmux-bak` (delete the `misc/helpers/cmux.php` require)
 - Modify: `misc/helpers.php` → forwarding shim; create `misc/helpers/cmux.php` forwarding shim (both keep the untouched `bin/graveyard` running until Task 4)
+- Modify: `misc/bootstrap.php` (`getCli()` returns the singleton via autoload — breaks a require cycle with the shim)
 - Modify: `tests/bootstrap.php` (slim)
 - Delete: nothing in this task — shim removal happens in Task 4
 
@@ -250,8 +251,8 @@ class Exception extends \Exception {
 
 - [ ] **Step 2: Create `src/CLI/Helpers.php` from `misc/helpers.php`**
 
-Copy `misc/helpers.php` to `src/CLI/Helpers.php`, then make exactly three edits:
-1. Delete the `class Exception extends \Exception {...}` block (lines 15–18) — it now lives in `src/CLI/Exception.php`.
+Copy `misc/helpers.php` to `src/CLI/Helpers.php`, then make exactly four edits:
+1. Delete the `class Exception extends \Exception {...}` block (lines 15–18, including its docblock) — it now lives in `src/CLI/Exception.php`.
 2. Delete the file's last line, `return Helpers::getInstance()->setArgs( $argv );` — a class file must have no side effects.
 3. In `getHelp()`, delete the `require_once __DIR__ . '/helpers/help.php';` line so it reads:
 
@@ -260,6 +261,8 @@ Copy `misc/helpers.php` to `src/CLI/Helpers.php`, then make exactly three edits:
 		return new Helpers\Help( $this, $scriptName, $commands );
 	}
 ```
+
+4. In `__construct()`, delete the `require_once __DIR__ . '/helpers/git.php';` line (line ~155) — `Helpers\Git` autoloads from `src/CLI/Helpers/Git.php`; the require would fatal on the old relative path after the move.
 
 Keep the file-level docblock; update it to note the move if you like, but do not reformat anything else.
 
@@ -274,11 +277,13 @@ git mv misc/helpers/cmux.php src/Helpers/Cmux.php
 
 - [ ] **Step 4: Swap the bootstrap line in the plain scripts (except `bin/graveyard`)**
 
+Two spacing variants exist in the repo (`dirname(__DIR__)` ×16, `dirname( __DIR__ )` ×8 — 24 plain scripts total). One extended-regex sed catches both:
+
 ```bash
-grep -rl "dirname(__DIR__) . '/misc/helpers.php'" bin/ | grep -v phploy-source | grep -v '^bin/graveyard$' | while read f; do
-  sed -i '' "s|dirname(__DIR__) . '/misc/helpers.php'|dirname(__DIR__) . '/src/bootstrap.php'|g" "$f"
+grep -rlE "dirname\( ?__DIR__ ?\) . '/misc/helpers\.php'" bin/ | grep -v phploy-source | grep -v '^bin/graveyard$' | while read f; do
+  sed -i '' -E "s|dirname\( ?__DIR__ ?\) \. '/misc/helpers\.php'|dirname(__DIR__) . '/src/bootstrap.php'|g" "$f"
 done
-grep -rn "misc/helpers.php" bin/ | grep -v phploy-source
+grep -rn "misc/helpers\.php" bin/ | grep -v phploy-source
 ```
 
 Expected: exactly one hit — `bin/graveyard`, deliberately left on the shim until Task 4. (The 6 composer-pattern scripts don't contain this string; they're Task 5. `sed -i ''` is macOS syntax — this is a one-time local migration command, not committed code.)
@@ -312,6 +317,16 @@ require_once dirname(__DIR__, 2) . '/src/Helpers/Cmux.php';
 ```
 
 (`src/bootstrap.php`'s autoloader makes the second shim redundant for autoload-aware callers, but `bin/graveyard` `require_once`s this exact path — it must exist and load the class.)
+
+- [ ] **Step 6b: Make `misc/bootstrap.php`'s `getCli()` return the singleton (not require a file)**
+
+Change its body to:
+```php
+	function getCli( $argv = [] ) {
+		return \JT\CLI\Helpers::getInstance()->setArgs( $argv );
+	}
+```
+Rationale: with `misc/helpers.php` reduced to a shim forwarding to `src/bootstrap.php`, the old `require_once misc/helpers.php` body creates a cycle (getCli → shim → src/bootstrap → getCli → already-in-progress require → `true`) that leaves the 6 composer-pattern scripts with `$cli === true`. Returning the singleton via autoload breaks the cycle for the whole T3→T5 window. (`Helpers` autoloads via composer's `JT\` → `src/` fall-through once `src/CLI/Helpers.php` exists — i.e. from this task on.)
 
 - [ ] **Step 7: Slim tests/bootstrap.php (transitional form)**
 
