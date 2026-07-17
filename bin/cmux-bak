@@ -5,7 +5,7 @@ namespace JT;
 # Backup and restore cmux workspace/session state
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.1.0
+# Version 0.2.0
 #
 # Saves all cmux workspaces, panes, and surfaces to ~/.config/cmux/bak.json,
 # capturing each terminal's CWD and any active Claude Code session ID.
@@ -16,8 +16,14 @@ namespace JT;
 # missing: resumes dead Claude sessions in existing workspaces, and recreates
 # workspaces that are gone entirely.
 #
+# `audit` is a read-only diff: it compares the backup's Claude sessions against
+# what's actually running now (matched by session id via the deterministic
+# session↔surface join) and reports which conversations did not re-open — then
+# offers to resume the missing ones into their existing surfaces.
+#
 # Usage:
 # cmux-bak [--restore] [--file=<path>] [--dry-run] [--verbose]
+# cmux-bak audit [--file=<path>] [--dry-run] [--verbose]
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/misc/helpers.php';
@@ -26,8 +32,9 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('cmux-bak')
 	->setDescription('Backup and restore cmux workspace/session state.')
-	->setSampleUsage('[--restore] [--file=<path>] [--dry-run] [--verbose]')
+	->setSampleUsage('[audit] [--restore] [--file=<path>] [--dry-run] [--verbose]')
 	->buildDocs([
+		'audit'          => 'Report which backed-up Claude sessions are not running now, then offer to resume them',
 		'--restore'      => 'Restore from backup, auditing existing workspaces first',
 		'--file=<path>'  => 'Backup file path (default: ~/.config/cmux/bak.json)',
 		'--dry-run'      => 'Show what would be done without making changes',
@@ -67,7 +74,9 @@ class CmuxBak {
 			$this->cli->exitErr('cmux is not reachable. Is cmux running?');
 		}
 
-		if ($this->cli->hasFlag('restore')) {
+		if ($this->cli->hasArg('audit')) {
+			$this->audit();
+		} elseif ($this->cli->hasFlag('restore')) {
 			$this->restore();
 		} else {
 			$this->backup();
@@ -406,6 +415,180 @@ class CmuxBak {
 		}
 
 		$this->cli->successMsg('Restore complete.');
+	}
+
+	// ── Audit ───────────────────────────────────────────────────────────────
+
+	/**
+	 * Read-only diff: which backed-up Claude sessions are still running?
+	 *
+	 * Liveness is matched by session id (not tty/title, both of which drift):
+	 * the deterministic session↔surface join reports every live Claude and
+	 * where it currently lives. A backed-up session absent from that set did
+	 * not re-open. For the missing ones we offer to resume into their existing
+	 * surface (dead-session-in-live-surface — the common post-restart case);
+	 * a vanished workspace/surface is deferred to `--restore` to recreate.
+	 */
+	protected function audit() {
+		if (!file_exists($this->bakFile)) {
+			$this->cli->exitErr("Backup file not found: {$this->bakFile}\nRun cmux-bak first.");
+		}
+
+		$backup = json_decode(file_get_contents($this->bakFile), true);
+		$this->cli->msg('Auditing against backup from: ' . ($backup['timestamp'] ?? 'unknown'), 'yellow');
+		if ($this->dryRun) {
+			$this->cli->msg('(dry run — no changes will be made)', 'cyan');
+		}
+		$this->cli->lineBreak();
+
+		// Live session_id → current location, via the deterministic join.
+		$liveById = [];
+		$rows = $this->cmux->joinSessionsToSurfaces(
+			$this->cmux->loadClaudeSessionsByPid(),
+			$this->cmux->parseProcTable($this->cmux->psProcTable()),
+			$this->cmux->parseDebugTerminals($this->cmux->debugTerminals())
+		);
+		foreach ($rows as $r) {
+			if (!empty($r['session_id'])) {
+				$liveById[$r['session_id']] = $r;
+			}
+		}
+
+		$missing = [];
+		$running = 0;
+		$total   = 0;
+
+		foreach ($backup['workspaces'] ?? [] as $bakWs) {
+			$wsTitle = $bakWs['title'] ?? '';
+			foreach ($bakWs['panes'] ?? [] as $bakPane) {
+				foreach ($bakPane['surfaces'] ?? [] as $bakSurf) {
+					$sid = $bakSurf['claude_session_id'] ?? null;
+					if (($bakSurf['type'] ?? 'terminal') !== 'terminal' || !$sid) {
+						continue;
+					}
+
+					$total++;
+					$label = substr($bakSurf['title'] ?? '', 0, 45);
+
+					if (isset($liveById[$sid])) {
+						$running++;
+						$loc   = $liveById[$sid];
+						$where = $loc['surface_ref']
+							? "{$loc['workspace_ref']} / {$loc['surface_ref']}"
+							: '(live, surface unbound)';
+						$this->cli->msg("  ✓ {$label} — running [{$where}]", 'green');
+					} else {
+						$short   = substr($sid, 0, 8);
+						$bakCwd  = $bakSurf['cwd'] ?? '';
+						$hasTx   = $bakCwd && file_exists($this->cmux->jsonlPathFor($sid, $bakCwd));
+						$note    = $hasTx ? 'resumable' : 'transcript NOT found';
+						$this->cli->msg("  ✗ {$label} — NOT running ({$short}…, {$note})", 'yellow');
+						$missing[] = [
+							'ws_title'   => $wsTitle,
+							'surf'       => $bakSurf,
+							'session_id' => $sid,
+							'resumable'  => $hasTx,
+						];
+					}
+				}
+			}
+		}
+
+		$this->cli->lineBreak();
+		$this->cli->msg(
+			"Backed-up Claude sessions: {$total} — running: {$running}, missing: " . count($missing),
+			'cyan'
+		);
+
+		if (!$missing) {
+			$this->cli->successMsg('All backed-up Claude sessions are live. Nothing to restore.');
+			return;
+		}
+
+		if ($this->dryRun) {
+			$this->cli->msg('(dry run — re-run without --dry-run to resume the missing session(s))', 'cyan');
+			return;
+		}
+
+		$this->cli->lineBreak();
+		if (!$this->cli->confirm('Resume the ' . count($missing) . ' missing session(s)?')) {
+			$this->cli->msg('Left as-is.', 'cyan');
+			return;
+		}
+
+		$tree = $this->cmux->tree();
+		foreach ($missing as $m) {
+			$this->resumeMissing($tree, $liveById, $m);
+		}
+
+		$this->cli->successMsg('Audit resume complete.');
+	}
+
+	/**
+	 * Resume one missing session into its existing surface, matched by workspace
+	 * title + (normalized) surface title. Skips — pointing at `--restore` — when
+	 * the workspace or surface is gone, and refuses to clobber a surface that
+	 * already hosts a live Claude.
+	 */
+	protected function resumeMissing(array $tree, array $liveById, array $m) {
+		$surf  = $m['surf'];
+		$sid   = $m['session_id'];
+		$label = substr($surf['title'] ?? '', 0, 45);
+		$this->cli->msg("Resuming '{$label}'");
+
+		if (!$m['resumable']) {
+			$this->cli->err('    Transcript not found — cannot resume. Skipping.');
+			return;
+		}
+
+		$currentWs = $this->cmux->findWorkspaceByTitle($tree, $m['ws_title']);
+		if (!$currentWs) {
+			$this->cli->msg("    ✗ Workspace '{$m['ws_title']}' is gone — run `cmux-bak --restore` to recreate it.", 'yellow');
+			return;
+		}
+		$wsRef = $currentWs['ref'] ?? '';
+
+		$target   = null;
+		$wantRaw  = $surf['title'] ?? '';
+		$wantNorm = $this->normalizeTitle($wantRaw);
+		foreach ($currentWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $s) {
+				$raw = $s['title'] ?? '';
+				if ($raw === $wantRaw || $this->normalizeTitle($raw) === $wantNorm) {
+					$target = $s;
+					break 2;
+				}
+			}
+		}
+		if (!$target) {
+			$this->cli->msg("    ✗ Surface not found in '{$m['ws_title']}' — run `cmux-bak --restore` to recreate it.", 'yellow');
+			return;
+		}
+		$surfRef = $target['ref'] ?? '';
+
+		// Don't clobber a live Claude already running on this surface.
+		foreach ($liveById as $liveSid => $row) {
+			if (($row['surface_ref'] ?? '') === $surfRef) {
+				$short = substr($liveSid, 0, 8);
+				$this->cli->msg("    ✓ A Claude session ({$short}…) is already running here — leaving it.", 'cyan');
+				return;
+			}
+		}
+
+		$bakCwd    = $surf['cwd'] ?? '';
+		$skipPerms = $surf['claude_skip_permissions'] ?? false;
+		$model     = $surf['claude_model'] ?? null;
+
+		if ($bakCwd) {
+			$this->cli->msg("    → cd {$bakCwd}");
+			$this->cmux->sendToSurface($surfRef, $wsRef, "cd {$bakCwd}\n");
+			if (!$this->dryRun) {
+				usleep(300000);
+			}
+		}
+		$resumeCmd = $this->cmux->buildResumeCommand($sid, $skipPerms, $model);
+		$this->cli->msg("    → {$resumeCmd}");
+		$this->cmux->sendToSurface($surfRef, $wsRef, "{$resumeCmd}\n");
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
