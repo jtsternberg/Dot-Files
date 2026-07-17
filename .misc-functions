@@ -300,3 +300,25 @@ yolo-kimi() {
 	ANTHROPIC_SMALL_FAST_MODEL="${KIMI_SMALL_MODEL:-kimi-k2.7-code}" \
 	claude --dangerously-skip-permissions "$@"
 }
+
+# Pi coding agent powered by Moonshot Kimi (provider defined in ~/.pi/agent/models.json).
+kimi-pi() {
+	if [[ -z "$MOONSHOT_API_KEY" ]]; then
+		echo "MOONSHOT_API_KEY not set — get a key at platform.moonshot.ai and export it in private/additonal_aliases.sh" >&2
+		return 1
+	fi
+	echo "\033[1;33m⚠️  KIMI MODE — prompts go to Moonshot AI (China). Personal/public work ONLY — no work code, secrets, or customer data.\033[0m"
+	pi --provider moonshot --model "${KIMI_MODEL:-kimi-k3}" "$@"
+}
+
+# Aider powered by Moonshot Kimi (OpenAI-compatible endpoint).
+kimi-aider() {
+	if [[ -z "$MOONSHOT_API_KEY" ]]; then
+		echo "MOONSHOT_API_KEY not set — get a key at platform.moonshot.ai and export it in private/additonal_aliases.sh" >&2
+		return 1
+	fi
+	echo "\033[1;33m⚠️  KIMI MODE — prompts go to Moonshot AI (China). Personal/public work ONLY — no work code, secrets, or customer data.\033[0m"
+	OPENAI_API_BASE="https://api.moonshot.ai/v1" \
+	OPENAI_API_KEY="$MOONSHOT_API_KEY" \
+	aider --model "openai/${KIMI_MODEL:-kimi-k3}" --yes-always "$@"
+}
