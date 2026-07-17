@@ -20,3 +20,4 @@ $argv = $argv ?? [];                                        // helpers.php ends 
 require_once dirname(__DIR__) . '/misc/helpers.php';        // JT\CLI\Helpers (+ Exception)
 require_once dirname(__DIR__) . '/misc/helpers/cmux.php';   // JT\Helpers\Cmux
 require_once dirname(__DIR__) . '/bin/graveyard_lib.php';   // JT\Graveyard
+require_once dirname(__DIR__) . '/bin/cmux-bak_lib.php';    // JT\CmuxBak
