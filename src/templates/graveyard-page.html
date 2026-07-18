@@ -326,12 +326,37 @@ footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: cent
 footer .divider { margin: 0 0 1.1rem; }
 footer p { margin: .3rem 0; }
 footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
+/* Easter egg: hover the footer coffin and it jiggles as a ghost drifts up
+   out of it and fades. Re-hovering re-spawns the ghost (the animation is
+   only attached while hovered, so leaving + re-entering restarts it). */
+.coffin { position: relative; display: inline-block; cursor: default; }
+.coffin:hover { animation: coffin-jiggle .5s ease-in-out; }
+@keyframes coffin-jiggle {
+	0%, 100% { transform: rotate(0); }
+	20% { transform: rotate(-6deg); }
+	40% { transform: rotate(5deg); }
+	60% { transform: rotate(-3deg); }
+	80% { transform: rotate(2deg); }
+}
+.coffin::after {
+	content: "👻"; position: absolute; left: 50%; top: .1em; font-size: 2.2rem;
+	transform: translate(-50%, 0); opacity: 0; pointer-events: none; filter: grayscale(.2);
+}
+.coffin:hover::after { animation: ghost-rise 2.6s ease-out forwards; }
+@keyframes ghost-rise {
+	0% { opacity: 0; transform: translate(-50%, 0) scale(.8); }
+	15% { opacity: .7; }
+	55% { opacity: .55; transform: translate(calc(-50% - 12px), -70px) scale(1); }
+	100% { opacity: 0; transform: translate(calc(-50% + 16px), -140px) scale(1.05); }
+}
 @media (prefers-reduced-motion: reduce) {
 	.stone, #m-body pre, .fog { animation: none; }
 	.stone:hover, .stone:focus-visible { transform: none; }
 	.burying { animation: none; }
 	.moon, .bat { animation: none; }
 	.bat { display: none; }
+	.coffin:hover, .coffin:hover::after { animation: none; }
+	.coffin::after { display: none; }
 }
 @media (max-width: 560px) {
 	h1 { letter-spacing: .12em; }
@@ -363,7 +388,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
   <p class="none empty" x-cloak x-show="search.trim() && !hasMatches()">🔍<br>Nothing here matches “<span x-text="search.trim()"></span>”.</p>
 </main>
 <footer class="meta">
-  <div class="divider" aria-hidden="true"><span>⚰️</span></div>
+  <div class="divider" aria-hidden="true"><span class="coffin">⚰️</span></div>
   <p>resurrect a session: <code>graveyard resurrect &lt;id&gt;</code></p>
   <p class="epitaph">❦</p>
 </footer>
