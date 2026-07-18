@@ -1639,6 +1639,17 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 }
 .cmd:hover, .cmd:focus-visible { border-color: rgba(168,193,150,.4); color: var(--inscription); outline: none; }
 .cmd.ok { color: var(--moss); border-color: rgba(168,193,150,.4); }
+.actions { margin-top: 1rem; padding-top: .85rem; border-top: 1px solid rgba(233,228,214,.09); }
+.actions .crypt-cap { margin: 0 0 .35rem; }
+.namefield {
+	width: 100%; appearance: none; -webkit-appearance: none;
+	background: rgba(233,228,214,.03); color: var(--inscription);
+	border: 1px solid var(--stone-edge); border-radius: 8px;
+	padding: .45rem .7rem; font: .85rem var(--serif);
+	transition: border-color .16s ease, box-shadow .16s ease;
+}
+.namefield:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
+.actions .cmd { margin-top: .5rem; }
 .tpath {
 	display: block; margin: .55rem 0 0; padding: 0; background: none; border: none;
 	font: .68rem var(--mono); color: var(--weathered); letter-spacing: .04em;
@@ -1691,6 +1702,11 @@ footer .epitaph { color: #6b7263; }
     <p class="meta" id="m-dates" x-text="item.dates"></p>
     <div id="m-body" x-ref="body"></div>
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, \'path\')" x-text="copied.path ? \'copied ✓\' : item.tpathShort" title="copy full transcript path"></button>
+    <div class="actions">
+      <p class="crypt-cap">✎ rename this session</p>
+      <input class="namefield" type="text" x-model="renameName" spellcheck="false" autocomplete="off" aria-label="Session name">
+      <button type="button" class="cmd" x-show="renameName.trim() && renameName.trim() !== (item.title || \'\').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), \'rn\')" x-text="copied.rn ? \'copied ✓\' : renameCmd()"></button>
+    </div>
   </article>
 </dialog>
 <dialog id="plotmodal" x-ref="plotdlg" @close="onClose()" @click.self="$refs.plotdlg.close()">
@@ -1708,6 +1724,11 @@ footer .epitaph { color: #6b7263; }
     </ul>
     <p class="crypt-cap">↻ resurrect the whole plot</p>
     <button type="button" class="cmd" :class="{ ok: copied.res }" @click="copy(plot.resurrect, \'res\')" x-text="copied.res ? \'copied ✓\' : plot.resurrect" title="copy resurrect command"></button>
+    <div class="actions">
+      <p class="crypt-cap">✎ rename this plot</p>
+      <input class="namefield" type="text" x-model="renamePlotName" spellcheck="false" autocomplete="off" aria-label="Plot name">
+      <button type="button" class="cmd" x-show="renamePlotName.trim() && renamePlotName.trim() !== (plot.title || \'\').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), \'rnp\')" x-text="copied.rnp ? \'copied ✓\' : renamePlotCmd()"></button>
+    </div>
   </article>
 </dialog>
 <div class="fog" aria-hidden="true"></div>
@@ -1719,6 +1740,11 @@ document.addEventListener("alpine:init", function () {
 			plot: {},
 			copied: {},
 			search: "",
+			renameName: "",
+			renamePlotName: "",
+			shq: function (s) { return JSON.stringify((s || "").trim()); }, // double-quoted, JSON-escaped
+			renameCmd: function () { return "graveyard rename " + (this.item.sid8 || "") + " " + this.shq(this.renameName); },
+			renamePlotCmd: function () { return "graveyard rename --workspace " + (this.plot.gid8 || "") + " " + this.shq(this.renamePlotName); },
 			matchText: function (text) {
 				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
 			},
@@ -1745,6 +1771,7 @@ document.addEventListener("alpine:init", function () {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort
 				};
+				this.renameName = d.title;
 				this.copied = {};
 				this.$refs.dlg.showModal();
 				this.exhume(d.id);
@@ -1757,6 +1784,7 @@ document.addEventListener("alpine:init", function () {
 					resurrect: "graveyard resurrect --workspace " + el.dataset.gid8,
 					members: stones.map(function (s) { return { sid8: s.dataset.sid8, title: s.dataset.title }; })
 				};
+				this.renamePlotName = el.dataset.title;
 				this.copied = {};
 				this.$refs.plotdlg.showModal();
 			},

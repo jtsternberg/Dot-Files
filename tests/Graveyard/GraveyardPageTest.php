@@ -136,6 +136,23 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('resurrect --workspace', $html);   // whole-group command
 	}
 
+	public function testPageHtmlRenameAffordance(): void
+	{
+		// Both the stone modal and the plot modal expose an editable name that
+		// produces a copyable `graveyard rename …` command (session by id, group
+		// by --workspace). The verb is built later; the UI just emits the command.
+		$t = $this->tomb('rn000001-full', 'old name');
+		$t['group_id'] = 'ggg11111-x'; $t['group_title'] = 'Old Plot'; $t['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t], '2026-07-17');
+
+		$this->assertStringContainsString('x-model="renameName"', $html);          // stone rename input
+		$this->assertStringContainsString('x-model="renamePlotName"', $html);      // plot rename input
+		$this->assertStringContainsString('renameCmd()', $html);
+		$this->assertStringContainsString('renamePlotCmd()', $html);
+		$this->assertStringContainsString('graveyard rename ', $html);             // session command prefix
+		$this->assertStringContainsString('graveyard rename --workspace ', $html); // group command prefix
+	}
+
 	public function testPageHtmlEmptyGraveyard(): void
 	{
 		$html = $this->gy->pageHtml([], '2026-07-17T20:00:00Z');
