@@ -1302,6 +1302,21 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. How many columns a family plot lays its members across — its "shape".
+	 * Derived from the group id + a per-page seed (the generation stamp), so the
+	 * arrangement is stable within a page but shuffles across regenerations:
+	 * sometimes a single row (cols = n), sometimes a stack (1), sometimes a
+	 * square/rectangle in between. Always 1..n. Singletons are always 1 column.
+	 */
+	public function plotColumns(string $groupId, int $memberCount, string $seed): int {
+		if ($memberCount <= 1) { return 1; }
+		$cands = array_values(array_unique([1, 2, (int) ceil(sqrt($memberCount)), $memberCount]));
+		sort($cands);
+		$pick = $cands[crc32($groupId . '|' . $seed) % count($cands)];
+		return max(1, min($pick, $memberCount));
+	}
+
+	/**
 	 * PURE. Order tombstones into render units for the page: loose stones and
 	 * "family plots" (workspace groups), newest-first. A plot's sort key is its
 	 * newest member's buried_at; its members keep their original tab order
@@ -1476,7 +1491,8 @@ class Graveyard {
 			foreach ($u['members'] as $t) { $stones[] = $this->stoneHtml($t, $i++, $home); }
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
-			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '" data-title="' . $e($u['title']) . '" data-gid="' . $e((string) ($u['gid'] ?? '')) . '" data-gid8="' . $e((string) ($u['gid8'] ?? '')) . '" x-show="plotVisible($el)" @click="showPlot($el)"><legend>' . $e($u['title']) . '</legend>'
+			$cols = $this->plotColumns((string) ($u['gid'] ?? ''), count($u['members']), $generatedAt);
+			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '; --cols:' . $cols . '" data-title="' . $e($u['title']) . '" data-gid="' . $e((string) ($u['gid'] ?? '')) . '" data-gid8="' . $e((string) ($u['gid8'] ?? '')) . '" x-show="plotVisible($el)" @click="showPlot($el)"><legend>' . $e($u['title']) . '</legend>'
 				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
 		}
 
@@ -1580,8 +1596,8 @@ fieldset.plot legend {
 	text-transform: uppercase; color: hsl(var(--plot-hue, 95) 42% 72%);
 }
 fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
-.plot-stones { display: flex; flex-wrap: wrap; gap: 1.1rem; padding-top: .35rem; }
-.plot-stones .stone { flex: 0 0 172px; }
+.plot-stones { display: grid; grid-template-columns: repeat(var(--cols, 1), 172px); gap: 1.1rem; padding-top: .35rem; }
+.plot-stones .stone { width: 172px; }
 body:has(dialog#plot[open]), body:has(dialog#plotmodal[open]) { overflow: hidden; }
 dialog#plot, dialog#plotmodal { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
 dialog#plot::backdrop, dialog#plotmodal::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }

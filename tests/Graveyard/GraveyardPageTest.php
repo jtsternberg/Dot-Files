@@ -171,6 +171,30 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('graveyard delete --workspace ', $html); // group command
 	}
 
+	public function testPlotColumnsVaryDeterministically(): void
+	{
+		// A plot's internal shape (column count) derives from its group id + a
+		// per-page seed: deterministic within a page, varying across plots (and
+		// across regenerations as the seed changes), always 1..memberCount.
+		$this->assertSame(1, $this->gy->plotColumns('g', 1, 'seedA')); // singletons are one column
+		$c = $this->gy->plotColumns('g-x', 4, 'seedA');
+		$this->assertSame($c, $this->gy->plotColumns('g-x', 4, 'seedA')); // deterministic
+		$this->assertGreaterThanOrEqual(1, $c);
+		$this->assertLessThanOrEqual(4, $c);
+
+		// shapes vary across plots for a fixed seed (not all identical)
+		$vals = array_map(fn($g) => $this->gy->plotColumns($g, 4, 'seedA'), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+		$this->assertGreaterThan(1, count(array_unique($vals)));
+
+		// rendered: the plot carries a --cols custom property driving its grid
+		$t1 = $this->tomb('col11111-full', 'one', '2026-07-10T00:00:00Z');
+		$t1['group_id'] = 'cols-gid'; $t1['group_title'] = 'C'; $t1['group_pos'] = 0;
+		$t2 = $this->tomb('col22222-full', 'two', '2026-07-10T00:00:00Z');
+		$t2['group_id'] = 'cols-gid'; $t2['group_title'] = 'C'; $t2['group_pos'] = 1;
+		$html = $this->gy->pageHtml([$t1, $t2], '2026-07-17');
+		$this->assertStringContainsString('--cols:', $html);
+	}
+
 	public function testPageHtmlEmptyGraveyard(): void
 	{
 		$html = $this->gy->pageHtml([], '2026-07-17T20:00:00Z');
