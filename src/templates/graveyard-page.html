@@ -40,13 +40,25 @@ code {
 	padding: .08em .4em; letter-spacing: .02em;
 }
 .divider { display: flex; align-items: center; gap: 1rem; margin: 1.15rem 0 0; }
+.divider.top {
+	z-index: -1;
+	height: 1.5rem;
+}
+.divider.top div {
+	opacity: .1;
+	font-size: 12rem;
+	position: absolute;
+	top: 0;
+	left: 50%;
+	transform: translateX(-50%);
+}
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(154,162,148,.4), transparent); }
 .divider { gap: 1.25rem; }
-.divider span { font-size: 1.9rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
+.divider span { font-size: 5.9rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
 .toolbar { display: flex; justify-content: center; margin: 1.1rem 0 0; }
 .search {
 	width: min(30rem, 82vw); appearance: none; -webkit-appearance: none;
-	background: rgba(233,228,214,.03); color: var(--inscription);
+	background: rgba(233,228,214,.08); color: var(--inscription);
 	border: 1px solid var(--stone-edge); border-radius: 999px;
 	padding: .5rem 1rem; font: .82rem var(--mono); letter-spacing: .04em;
 	transition: border-color .16s ease, box-shadow .16s ease;
@@ -110,7 +122,7 @@ fieldset.plot legend {
 	padding: 0 .55rem; font: .72rem var(--mono); letter-spacing: .18em;
 	text-transform: uppercase; color: hsl(var(--plot-hue, 95) 42% 72%);
 }
-fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
+fieldset.plot legend::before { content: "🥀"; filter: grayscale(.45); font-size: 1.5rem; vertical-align: -.35em; margin-right: .3rem; }
 .plot-stones { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 1.1rem; padding-top: .35rem; }
 .plot-stones .stone { width: auto; min-width: 0; }
 body:has(dialog#plot[open]), body:has(dialog#plotmodal[open]) { overflow: hidden; }
@@ -135,6 +147,8 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 .idcopy.ok { color: var(--moss); }
 .card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
 .crypt-cap { margin: .8rem 0 0; font: .68rem var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--moss); }
+.cap-glyph { font-size: 1.5rem; vertical-align: -.35em; }
+.dgr-glyph { font-size: 1.25rem; vertical-align: -.2em; }
 .plot-backlink {
 	display: inline-block; margin: .35rem 0 0; padding: .18rem .5rem;
 	background: none; border: 1px solid var(--stone-edge); border-radius: 999px;
@@ -225,7 +239,7 @@ dialog#plotmodal .card header { border-bottom-color: hsl(var(--pm-hue, 95) 30% 5
 footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: center; }
 footer .divider { margin: 0 0 1.1rem; }
 footer p { margin: .3rem 0; }
-footer .epitaph { color: #6b7263; font-size: 1.5rem; line-height: 1; }
+footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 @media (prefers-reduced-motion: reduce) {
 	.stone, #m-body pre, .fog { animation: none; }
 }
@@ -239,13 +253,17 @@ footer .epitaph { color: #6b7263; font-size: 1.5rem; line-height: 1; }
 <span class="web web-l" aria-hidden="true">🕸</span>
 <span class="web web-r" aria-hidden="true">🕸</span>
 <header class="top">
-  <div class="crest" aria-hidden="true">🪦</div>
-  <h1>The Claude Graveyard</h1>
-  <p class="meta">%%SUMMARY%%</p>
-  <div class="divider" aria-hidden="true"><span>💀</span></div>
-  <div class="toolbar">
-    <input type="search" class="search" x-model="search" @input.debounce.50ms="relayout()" placeholder="search the graveyard…" aria-label="Search buried sessions" spellcheck="false" autocomplete="off">
-  </div>
+	<div style="display: flex;justify-content: center;gap: 15px;">
+		<div class="crest" aria-hidden="true">🪦</div>
+		<div>
+			<h1>The Claude Graveyard</h1>
+			<p class="meta">%%SUMMARY%%</p>
+		</div>
+	</div>
+	<div class="divider top" aria-hidden="true"><div>💀</div></div>
+	<div class="toolbar">
+	<input type="search" class="search" x-model="search" @input.debounce.50ms="relayout()" placeholder="search the graveyard…" aria-label="Search buried sessions" spellcheck="false" autocomplete="off">
+	</div>
 </header>
 <main id="yard" x-init="$nextTick(() => relayout())">
 %%LISTING%%
@@ -273,7 +291,7 @@ footer .epitaph { color: #6b7263; font-size: 1.5rem; line-height: 1; }
       <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="live && apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
       <p class="save-note" x-cloak x-show="live">changes save automatically</p>
       <button type="button" class="cmd" x-cloak x-show="!live && renameName.trim() && renameName.trim() !== (item.title || '').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), 'rn')" x-text="copied.rn ? 'copied ✓' : renameCmd()"></button>
-      <button type="button" class="danger-btn" x-show="live || !confirmStone" @click="live ? apiDeleteStone() : (confirmStone = true)">☠ delete this session…</button>
+      <button type="button" class="danger-btn" x-show="live || !confirmStone" @click="live ? apiDeleteStone() : (confirmStone = true)"><span class="dgr-glyph">☠</span> delete this session…</button>
       <div x-show="!live && confirmStone" x-cloak>
         <p class="warn">Permanent — removes the tombstone and its transcript for good. Run:</p>
         <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="copy(deleteCmd(), 'del')" x-text="copied.del ? 'copied ✓' : deleteCmd()"></button>
@@ -288,7 +306,7 @@ footer .epitaph { color: #6b7263; font-size: 1.5rem; line-height: 1; }
       <h2 class="plot-name" x-text="plot.title"></h2>
       <span class="plot-count" x-text="(plot.members ? plot.members.length : 0) + (plot.members && plot.members.length === 1 ? ' session' : ' sessions')"></span>
     </header>
-    <p class="crypt-cap">🥀 family plot</p>
+    <p class="crypt-cap"><span class="cap-glyph">🥀</span> family plot</p>
     <ul class="member-list">
       <template x-for="m in plot.members" :key="m.sid8">
         <li @click="openMember(m.sid8)" title="open this session"><span class="member-id" x-text="m.sid8"></span><span class="member-title" x-text="m.title"></span></li>
@@ -301,7 +319,7 @@ footer .epitaph { color: #6b7263; font-size: 1.5rem; line-height: 1; }
       <input class="namefield" type="text" x-model="renamePlotName" @input.debounce.600ms="live && apiRenamePlot()" spellcheck="false" autocomplete="off" aria-label="Plot name">
       <p class="save-note" x-cloak x-show="live">changes save automatically</p>
       <button type="button" class="cmd" x-cloak x-show="!live && renamePlotName.trim() && renamePlotName.trim() !== (plot.title || '').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), 'rnp')" x-text="copied.rnp ? 'copied ✓' : renamePlotCmd()"></button>
-      <button type="button" class="danger-btn" x-show="live || !confirmPlot" @click="live ? apiDeletePlot() : (confirmPlot = true)">☠ delete this whole plot…</button>
+      <button type="button" class="danger-btn" x-show="live || !confirmPlot" @click="live ? apiDeletePlot() : (confirmPlot = true)"><span class="dgr-glyph">☠</span> delete this whole plot…</button>
       <div x-show="!live && confirmPlot" x-cloak>
         <p class="warn">Permanent — removes every session in this plot and its manifest. Run:</p>
         <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="copy(deletePlotCmd(), 'delp')" x-text="copied.delp ? 'copied ✓' : deletePlotCmd()"></button>
