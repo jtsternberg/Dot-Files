@@ -279,7 +279,7 @@ dialog#plotmodal .card header { border-bottom-color: hsl(var(--pm-hue, 95) 30% 5
 .plot-name { font: 600 1.12rem/1.35 var(--serif); color: hsl(var(--pm-hue, 95) 40% 80%); }
 .plot-count { font: .72rem var(--mono); color: var(--weathered); letter-spacing: .08em; white-space: nowrap; flex-shrink: 0; }
 .member-list { list-style: none; margin: .5rem 0 0; padding: 0; }
-.member-list li { display: flex; gap: .6rem; align-items: baseline; padding: .3rem 0; border-bottom: 1px solid rgba(233,228,214,.06); cursor: pointer; border-radius: 5px; transition: background .14s ease; }
+.member-list li { display: flex; gap: .6rem; align-items: baseline; padding: .3rem .2rem; border-bottom: 1px solid rgba(233,228,214,.06); cursor: pointer; border-radius: 5px; transition: background .14s ease; }
 .member-list li:hover { background: hsl(var(--pm-hue, 95) 35% 55% / .1); }
 .member-id { font: .68rem var(--mono); color: var(--moss); letter-spacing: .05em; flex-shrink: 0; }
 .member-title { font-size: .86rem; overflow-wrap: anywhere; }
@@ -488,7 +488,7 @@ document.addEventListener("alpine:init", function () {
 				});
 			},
 			apiDeleteStone: function () {
-				if (!confirm('Permanently delete "' + (this.item.title || "") + '"? This cannot be undone.')) { return; }
+				if (!confirm('Permanently delete "' + (this.item.title || "") + '"? This grave and its transcript are gone for good.')) { return; }
 				var self = this;
 				this.apiCall("/api/delete", { scope: "session", id: this.item.id }).then(function (res) {
 					if (!res.ok) { alert("Delete failed: " + (res.error || "unknown error")); return; }
@@ -508,7 +508,7 @@ document.addEventListener("alpine:init", function () {
 				});
 			},
 			apiDeletePlot: function () {
-				if (!confirm('Permanently delete the whole "' + (this.plot.title || "") + '" plot? This cannot be undone.')) { return; }
+				if (!confirm('Permanently delete the whole "' + (this.plot.title || "") + '" plot? Every grave in it is gone for good.')) { return; }
 				var self = this;
 				this.apiCall("/api/delete", { scope: "group", id: this.plot.gid }).then(function (res) {
 					if (!res.ok) { alert("Delete failed: " + (res.error || "unknown error")); return; }
@@ -692,7 +692,7 @@ document.addEventListener("alpine:init", function () {
 				var s = document.createElement("script");
 				s.src = "page-data/" + encodeURIComponent(id) + ".js";
 				s.onload = function () { render(window.GYT[id]); };
-				s.onerror = function () { body.innerHTML = '<p class="none">(no transcript archived)</p>'; };
+				s.onerror = function () { body.innerHTML = '<p class="none">(no transcript lies here)</p>'; };
 				document.head.appendChild(s);
 			},
 			// Resurrection ritual: resurrection is always a CLI act, so both static
