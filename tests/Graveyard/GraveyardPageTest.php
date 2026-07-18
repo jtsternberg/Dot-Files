@@ -88,6 +88,18 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringNotContainsString('<details', $html);           // v1 expander is gone
 	}
 
+	public function testPageInlinesAlpineComponent(): void
+	{
+		// The page is driven by Alpine.js, inlined (self-contained — no external
+		// <script src>), with a root graveyard() component wiring the modal.
+		$html = $this->gy->pageHtml([$this->tomb('alp00001-full', 'alpine test')], '2026-07-17');
+		$this->assertStringContainsString('x-data="graveyard()"', $html);    // root component
+		$this->assertStringContainsString('Alpine.data("graveyard"', $html); // component defined
+		$this->assertStringContainsString('alpine:init', $html);             // registered before init
+		$this->assertStringNotContainsString('<script src=', $html);         // inlined, not linked
+		$this->assertStringContainsString('@click="show(', $html);           // declarative stone open
+	}
+
 	public function testPageHtmlEmptyGraveyard(): void
 	{
 		$html = $this->gy->pageHtml([], '2026-07-17T20:00:00Z');

@@ -1416,6 +1416,7 @@ class Graveyard {
 			. $pos;
 
 		return '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
+			. ' @click="show($el)"'
 			. ' data-id="' . $e($sid) . '"'
 			. ' data-sid8="' . $e($sid8) . '"'
 			. ' data-title="' . $e($title) . '"'
@@ -1426,6 +1427,24 @@ class Graveyard {
 			. '<span class="stone-title">' . $e($title) . '</span>'
 			. '<span class="stone-meta">' . $e($buried) . ' · ' . $e($sid8) . $e($pos) . '</span>'
 			. '</button>';
+	}
+
+	/**
+	 * I/O. The inlined Alpine.js source (vendored asset), so the generated page
+	 * stays self-contained — no external <script src>, which file:// and a strict
+	 * CSP both forbid. Resolves the asset relative to this lib whether it lives in
+	 * bin/ (pre-migration) or src/ (post-migration). Empty string if not found —
+	 * the page still renders, just non-interactive (and the Alpine test fails loud).
+	 */
+	protected function alpineJs(): string {
+		foreach ([
+			dirname(__DIR__) . '/src/assets/alpine.min.js', // lib in bin/
+			__DIR__ . '/assets/alpine.min.js',              // lib moved into src/
+			__DIR__ . '/../src/assets/alpine.min.js',
+		] as $p) {
+			if (is_file($p)) { return rtrim((string) file_get_contents($p)); }
+		}
+		return '';
 	}
 
 	/**
@@ -1611,7 +1630,7 @@ footer .epitaph { color: #6b7263; }
 }
 </style>
 </head>
-<body>
+<body x-data="graveyard()">
 <span class="web web-l" aria-hidden="true">🕸</span>
 <span class="web web-r" aria-hidden="true">🕸</span>
 <header class="top">
@@ -1628,117 +1647,87 @@ footer .epitaph { color: #6b7263; }
   <p>resurrect a session: graveyard resurrect &lt;id&gt;</p>
   <p class="epitaph">❦</p>
 </footer>
-<dialog id="plot">
+<dialog id="plot" x-ref="dlg" @close="onClose()" @click.self="$refs.dlg.close()">
   <article class="card">
     <form method="dialog"><button id="m-close" aria-label="Close">✕</button></form>
-    <header><h2 id="m-title"></h2><button type="button" id="m-id" class="idcopy" title="copy full session id"></button></header>
-    <p class="meta" id="m-where"></p>
-    <p class="meta" id="m-dates"></p>
-    <div id="m-body"></div>
-    <button type="button" id="m-tpath" class="tpath" title="copy full transcript path"></button>
+    <header>
+      <h2 id="m-title" x-text="item.title"></h2>
+      <button type="button" id="m-id" class="idcopy" :class="{ ok: copiedId }" @click="copy(item.id, \'id\')" x-text="copiedId ? \'copied ✓\' : item.sid8" title="copy full session id"></button>
+    </header>
+    <p class="meta" id="m-where" x-text="item.where"></p>
+    <p class="meta" id="m-dates" x-text="item.dates"></p>
+    <div id="m-body" x-ref="body"></div>
+    <button type="button" id="m-tpath" class="tpath" :class="{ ok: copiedPath }" @click="copy(item.tpath, \'path\')" x-text="copiedPath ? \'copied ✓\' : item.tpathShort" title="copy full transcript path"></button>
   </article>
 </dialog>
 <div class="fog" aria-hidden="true"></div>
 <script>
-(function () {
-	var dlg = document.getElementById("plot");
-	var mTitle = document.getElementById("m-title");
-	var mId = document.getElementById("m-id");
-	var mWhere = document.getElementById("m-where");
-	var mDates = document.getElementById("m-dates");
-	var mBody = document.getElementById("m-body");
-	var mTpath = document.getElementById("m-tpath");
-	var currentId = "";
-	var currentTpath = "";
-
-	function showTranscript(text) {
-		mBody.innerHTML = "";
-		var cap = document.createElement("div");
-		cap.className = "crypt-cap";
-		cap.textContent = "⚰ exhumed transcript";
-		mBody.appendChild(cap);
-		var pre = document.createElement("pre");
-		pre.textContent = text;
-		mBody.appendChild(pre);
-		pre.scrollTop = pre.scrollHeight;
-	}
-
-	function exhume(id) {
-		mBody.innerHTML = \'<p class="none">⛏ exhuming…</p>\';
-		if (window.GYT && Object.prototype.hasOwnProperty.call(window.GYT, id)) {
-			showTranscript(window.GYT[id]);
-			return;
-		}
-		var s = document.createElement("script");
-		s.src = "page-data/" + encodeURIComponent(id) + ".js";
-		s.onload = function () { showTranscript(window.GYT[id]); };
-		s.onerror = function () { mBody.innerHTML = \'<p class="none">(no transcript archived)</p>\'; };
-		document.head.appendChild(s);
-	}
-
-	function legacyCopyText(text) {
-		var ta = document.createElement("textarea");
-		ta.value = text;
-		ta.setAttribute("readonly", "");
-		ta.style.position = "fixed";
-		ta.style.opacity = "0";
-		document.body.appendChild(ta);
-		ta.select();
-		try { document.execCommand("copy"); } catch (err) {}
-		document.body.removeChild(ta);
-	}
-
-	function copyFlash(btn, text, restore) {
-		var flash = function () {
-			btn.textContent = "copied ✓";
-			btn.classList.add("ok");
-			setTimeout(function () {
-				btn.textContent = restore;
-				btn.classList.remove("ok");
-			}, 900);
+document.addEventListener("alpine:init", function () {
+	Alpine.data("graveyard", function () {
+		return {
+			item: {},
+			copiedId: false,
+			copiedPath: false,
+			show: function (el) {
+				var d = el.dataset;
+				this.item = {
+					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
+					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort
+				};
+				this.copiedId = false;
+				this.copiedPath = false;
+				this.$refs.dlg.showModal();
+				this.exhume(d.id);
+			},
+			onClose: function () { this.copiedId = false; this.copiedPath = false; },
+			exhume: function (id) {
+				var body = this.$refs.body;
+				body.innerHTML = \'<p class="none">⛏ exhuming…</p>\';
+				var render = function (text) {
+					body.innerHTML = "";
+					var cap = document.createElement("div");
+					cap.className = "crypt-cap";
+					cap.textContent = "⚰ exhumed transcript";
+					body.appendChild(cap);
+					var pre = document.createElement("pre");
+					pre.textContent = text;
+					body.appendChild(pre);
+					pre.scrollTop = pre.scrollHeight;
+				};
+				if (window.GYT && Object.prototype.hasOwnProperty.call(window.GYT, id)) { render(window.GYT[id]); return; }
+				var s = document.createElement("script");
+				s.src = "page-data/" + encodeURIComponent(id) + ".js";
+				s.onload = function () { render(window.GYT[id]); };
+				s.onerror = function () { body.innerHTML = \'<p class="none">(no transcript archived)</p>\'; };
+				document.head.appendChild(s);
+			},
+			copy: function (text, which) {
+				if (!text) { return; }
+				var self = this;
+				var flash = function () {
+					if (which === "id") { self.copiedId = true; setTimeout(function () { self.copiedId = false; }, 900); }
+					else { self.copiedPath = true; setTimeout(function () { self.copiedPath = false; }, 900); }
+				};
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(text).then(flash, function () { self.legacyCopy(text); flash(); });
+				} else { this.legacyCopy(text); flash(); }
+			},
+			legacyCopy: function (text) {
+				var ta = document.createElement("textarea");
+				ta.value = text;
+				ta.setAttribute("readonly", "");
+				ta.style.position = "fixed";
+				ta.style.opacity = "0";
+				document.body.appendChild(ta);
+				ta.select();
+				try { document.execCommand("copy"); } catch (err) {}
+				document.body.removeChild(ta);
+			}
 		};
-		if (navigator.clipboard && navigator.clipboard.writeText) {
-			navigator.clipboard.writeText(text).then(flash, function () { legacyCopyText(text); flash(); });
-		} else {
-			legacyCopyText(text);
-			flash();
-		}
-	}
-
-	mId.addEventListener("click", function () {
-		if (!currentId) { return; }
-		copyFlash(mId, currentId, mId.dataset.sid8);
 	});
-
-	mTpath.addEventListener("click", function () {
-		if (!currentTpath) { return; }
-		copyFlash(mTpath, currentTpath, mTpath.dataset.short);
-	});
-
-	document.querySelectorAll(".stone").forEach(function (b) {
-		b.addEventListener("click", function () {
-			var d = b.dataset;
-			currentId = d.id;
-			currentTpath = d.tpath;
-			mTitle.textContent = d.title;
-			mId.textContent = d.sid8;
-			mId.dataset.sid8 = d.sid8;
-			mId.classList.remove("ok");
-			mTpath.textContent = d.tpathShort;
-			mTpath.dataset.short = d.tpathShort;
-			mTpath.classList.remove("ok");
-			mWhere.textContent = d.where;
-			mDates.textContent = d.dates;
-			dlg.showModal();
-			exhume(d.id);
-		});
-	});
-
-	dlg.addEventListener("click", function (e) {
-		if (e.target === dlg) { dlg.close(); }
-	});
-})();
+});
 </script>
+<script>' . $this->alpineJs() . '</script>
 </body>
 </html>
 ';
