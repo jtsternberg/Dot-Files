@@ -63,6 +63,28 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('2026-07-15', $html);      // buried date on the stone
 	}
 
+	public function testStoneCrackedIsSeededByTitle(): void
+	{
+		foreach (['fix the bug', 'FIX login', 'failing test', 'error handling', 'broken pipe'] as $t) {
+			$this->assertTrue($this->gy->stoneCracked($t), "expected cracked: $t");
+		}
+		foreach (['write the docs', 'add feature', 'refactor layout'] as $t) {
+			$this->assertFalse($this->gy->stoneCracked($t), "expected intact: $t");
+		}
+	}
+
+	public function testPageHtmlMarksCrackedStones(): void
+	{
+		$html = $this->gy->pageHtml([
+			$this->tomb('abc12345-full', 'fix the bug'),      // matches -> cracked
+			$this->tomb('def67890-full', 'write the docs'),   // no match -> intact
+		], '2026-07-17');
+
+		$this->assertSame(1, substr_count($html, ' cracked"'));     // exactly one cracked stone
+		$this->assertStringContainsString('.stone.cracked', $html); // the chipped CSS ships
+		$this->assertSame(2, substr_count($html, 'class="stone crown-')); // both still carry a crown class
+	}
+
 	public function testPageHtmlEscapesStoneContentAndAttributes(): void
 	{
 		// Note: summaries get tag-stripped at titleize time, so the title payload is

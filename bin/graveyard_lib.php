@@ -1600,6 +1600,16 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Whether a headstone should wear a "cracked" (chipped) silhouette —
+	 * decided deterministically from its title. Sessions whose work was about a
+	 * bug/fix/failure/error/breakage get a fractured top edge, so trouble reads
+	 * at a glance and stays stable across regenerations (no per-render random).
+	 */
+	public function stoneCracked(string $title): bool {
+		return (bool) preg_match('/bug|fix|fail|error|broken/i', $title);
+	}
+
+	/**
 	 * PURE. Order tombstones into render units for the page: loose stones and
 	 * "family plots" (workspace groups), newest-first. A plot's sort key is its
 	 * newest member's buried_at; its members keep their original tab order
@@ -1718,7 +1728,7 @@ class Graveyard {
 
 		return $this->renderPartial('stone', [
 			'I'           => (string) min($i, 20),
-			'CROWN'       => 'crown-' . $this->stoneCrown($sid),
+			'CROWN'       => 'crown-' . $this->stoneCrown($sid) . ($this->stoneCracked($title) ? ' cracked' : ''),
 			'SID'         => $e($sid),
 			'SID8'        => $e($sid8),
 			'TITLE'       => $e($title),

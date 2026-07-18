@@ -157,6 +157,10 @@ dialog#plotmodal .card { overflow: auto; }
 .crown-3 { border-radius: 26px 26px 0 0; corner-shape: scoop scoop square square; }                              /* scooped shoulders */
 .crown-4 { border-radius: 46% 46% 0 0 / 46px 46px 0 0; corner-shape: superellipse(0.75) superellipse(0.75) square square; } /* pointier arch */
 .crown-5 { border-radius: 16px 16px 0 0; corner-shape: notch notch square square; }                              /* stepped shoulders */
+/* Cracked headstones (seeded by title match — bug/fix/fail/error/broken):
+   a chipped/fractured top edge replaces the crown silhouette so trouble reads
+   at a glance. clip-path overrides the crown corner-shape for these stones. */
+.stone.cracked { clip-path: polygon(0 7%, 58% 0, 71% 10%, 100% 3%, 100% 100%, 0 100%); }
 .card header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0 1.8rem .6rem 0; margin-bottom: .55rem; border-bottom: 1px solid rgba(233,228,214,.09); }
 .card h2 { margin: 0; font-size: 1.12rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .idcopy {
