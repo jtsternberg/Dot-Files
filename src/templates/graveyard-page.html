@@ -90,7 +90,8 @@ main#yard {
 	color: var(--inscription);
 	background: linear-gradient(180deg, #23291f, var(--stone) 45%);
 	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
-	border-radius: 46% 46% 6px 6px / 26px 26px 6px 6px;
+	border-radius: 46% 46% 14px 14px / 26px 26px 14px 14px;
+	corner-shape: round round bevel bevel; /* arched crown, chiseled base */
 	padding: 1.4rem .95rem .8rem; min-height: 8.25rem;
 	display: flex; flex-direction: column; gap: .4rem;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 14px 22px -16px rgba(0,0,0,.85);
@@ -109,7 +110,8 @@ main#yard {
 .none { color: #6b7263; font-style: italic; font-size: .88rem; }
 fieldset.plot {
 	min-width: 0; margin: 0; padding: 0 .9rem .95rem;
-	border: 1px dashed hsl(var(--plot-hue, 95) 34% 62% / .6); border-radius: 12px;
+	border: 1px dashed hsl(var(--plot-hue, 95) 34% 62% / .6); border-radius: 14px;
+	corner-shape: bevel; /* chamfered plot fence */
 	background: hsl(var(--plot-hue, 95) 30% 58% / .075);
 	cursor: pointer;
 	transition: border-color .16s ease, box-shadow .16s ease;
@@ -132,7 +134,8 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 .card {
 	background: linear-gradient(180deg, #21261f, var(--stone) 32%);
 	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
-	border-radius: 22px 22px 6px 6px;
+	border-radius: 22px 22px 16px 16px;
+	corner-shape: round round bevel bevel; /* stone-slab base */
 	padding: 1.35rem 1.6rem 1.15rem;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 30px -18px rgba(0,0,0,.85);
 }
@@ -148,7 +151,7 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 .card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
 .crypt-cap { margin: .8rem 0 0; font: .68rem var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--moss); }
 .cap-glyph { font-size: 1.5rem; vertical-align: -.35em; }
-.dgr-glyph { font-size: 1.25rem; vertical-align: -.2em; }
+.dgr-glyph { font-size: 1.25rem; vertical-align: -.1em; }
 .plot-backlink {
 	display: inline-block; margin: .35rem 0 0; padding: .18rem .5rem;
 	background: none; border: 1px solid var(--stone-edge); border-radius: 999px;
@@ -186,7 +189,8 @@ dialog#plotmodal .card {
 	background: linear-gradient(180deg, #262b21, #1d2218 60%);
 	/* A chunky dashed "fence" — the fieldset.plot fence, zoomed in. */
 	border: 3px dashed hsl(var(--pm-hue, 95) 36% 58% / .7);
-	border-radius: 12px;
+	border-radius: 16px;
+	corner-shape: bevel; /* chamfered fence, matching the plots */
 	box-shadow: inset 0 0 0 1px hsl(var(--pm-hue, 95) 30% 45% / .15), 0 18px 30px -18px rgba(0,0,0,.85);
 }
 dialog#plotmodal .card header { border-bottom-color: hsl(var(--pm-hue, 95) 30% 50% / .25); }
