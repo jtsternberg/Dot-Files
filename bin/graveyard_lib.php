@@ -28,7 +28,7 @@ class Graveyard {
 	public function workspaceGroupDir(string $group): string { return $this->storeRoot() . "/workspaces/{$group}"; }
 	public function manifestPath(string $group): string { return $this->workspaceGroupDir($group) . '/manifest.json'; }
 	public function indexPath(): string { return $this->storeRoot() . '/index.json'; }
-	public function pageFilePath(): string { return $this->storeRoot() . '/page.html'; }
+	public function pageFilePath(): string { return $this->storeRoot() . '/index.html'; }
 	public function pageDataDir(): string { return $this->storeRoot() . '/page-data'; }
 	public function transcriptJsPath(string $id): string { return $this->pageDataDir() . "/{$id}.js"; }
 
@@ -1391,7 +1391,7 @@ class Graveyard {
 
 	# =========================================================================
 	# graveyard serve (dotfiles-vn5.1): PHP built-in server + tiny JSON API,
-	# progressively enhancing page.html's copy-command UI into live mutation.
+	# progressively enhancing index.html's copy-command UI into live mutation.
 	# =========================================================================
 
 	/**
@@ -1450,17 +1450,28 @@ class Graveyard {
 	}
 
 	/**
-	 * Verb. Boot PHP's built-in server rooted at the store, serving page.html +
+	 * Verb. Boot PHP's built-in server rooted at the store, serving index.html +
 	 * page-data/ as static files plus the JSON API (via bin/graveyard_router.php)
-	 * for live rename/delete. Localhost-only bind. Regenerates the page first so
-	 * it's fresh, opens the browser, then blocks until the server exits (Ctrl+C).
+	 * for live rename/delete. BIND is always 127.0.0.1 (the Host header used for
+	 * display/open doesn't affect what the server accepts connections on). The
+	 * browser is opened at a pretty `http://<host>:<port>/` — default host
+	 * `graveyard.localhost`, which every modern browser resolves to 127.0.0.1
+	 * with zero config (the *.localhost TLD is reserved for loopback, RFC 6761)
+	 * — no /etc/hosts edit, no sudo. CLI tools (curl etc.) may not resolve
+	 * *.localhost via the OS resolver, so the plain IP URL is also printed as a
+	 * fallback. Regenerates the page first so it's fresh, then blocks until the
+	 * server exits (Ctrl+C).
 	 */
-	public function serve(int $port = 8787): string {
+	public function serve(int $port = 8787, string $host = 'graveyard.localhost'): string {
 		$this->page(false);
-		$root   = $this->storeRoot();
-		$router = __DIR__ . '/graveyard_router.php';
-		$url    = "http://127.0.0.1:{$port}/page.html";
+		$root    = $this->storeRoot();
+		$router  = __DIR__ . '/graveyard_router.php';
+		$url     = "http://{$host}:{$port}/";
+		$ipUrl   = "http://127.0.0.1:{$port}/";
 		$this->cli->successMsg("Serving the graveyard at {$url} (Ctrl+C to stop)");
+		if ($url !== $ipUrl) {
+			$this->cli->msg("  (if that doesn't resolve, try {$ipUrl})", 'yellow');
+		}
 
 		$opener = PHP_OS_FAMILY === 'Darwin' ? 'open' : 'xdg-open';
 		if (trim((string) shell_exec('command -v ' . $opener . ' 2>/dev/null')) !== '') {
@@ -1485,7 +1496,7 @@ class Graveyard {
 	 * Regenerate the HTML overview of every tombstone (newest-first), write it to
 	 * pageFilePath(), and open it in the browser unless $openInBrowser is false or
 	 * no platform opener exists. Transcripts ship as per-session page-data/<id>.js
-	 * files (JSONP-style — fetch() is CORS-blocked on file://) so page.html stays
+	 * files (JSONP-style — fetch() is CORS-blocked on file://) so index.html stays
 	 * lean and the modal loads them JIT. Stale page-data files are pruned.
 	 * Returns the written path.
 	 */

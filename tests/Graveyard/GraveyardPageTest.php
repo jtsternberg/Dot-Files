@@ -11,7 +11,7 @@ use JT\Graveyard;
  *  - the page is a full-viewport FIELD of compact headstones (auto-fill grid),
  *    one per tombstone: title, buried date, short id
  *  - clicking a stone opens a <dialog> modal with the full card
- *  - transcripts are NOT embedded in page.html — the modal injects
+ *  - transcripts are NOT embedded in index.html — the modal injects
  *    page-data/<id>.js (written at generation time; JSONP-style, because
  *    fetch() is CORS-blocked on file://) on first open, caches it, and
  *    scrolls the transcript to the latest end
@@ -287,7 +287,7 @@ final class GraveyardPageTest extends TestCase
 
 		$gy = new Graveyard($this->cli, $this->cmux);
 		$path = $gy->page(false); // false: do not open a browser
-		$this->assertSame($root . '/page.html', $path);
+		$this->assertSame($root . '/index.html', $path);
 
 		$html = (string) file_get_contents($path);
 		$this->assertStringNotContainsString('old transcript body', $html); // JIT, not embedded

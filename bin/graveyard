@@ -49,8 +49,8 @@ $helpyHelperton
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions (--json: structured {workspaces,sessions})',
 		'search <term>'   => 'Search buried sessions on workspace/tab/cwd/summary (case-insensitive, newest-first). --full-text also greps rendered transcripts; --json emits structured rows',
-		'page [--no-open]' => 'Regenerate the self-contained HTML overview of every buried session at ~/.claude-graveyard/page.html — a full-width field of headstones; clicking one opens the full card and loads its transcript JIT from page-data/ — and open it in your browser (--no-open: just write the files)',
-		'serve [--port=8787]' => 'Boot a localhost-only server for the same page — over http it progressively enhances rename/delete into live actions (JSON API) instead of copy-command; blocks until Ctrl+C',
+		'page [--no-open]' => 'Regenerate the self-contained HTML overview of every buried session at ~/.claude-graveyard/index.html — a full-width field of headstones; clicking one opens the full card and loads its transcript JIT from page-data/ — and open it in your browser (--no-open: just write the files)',
+		'serve [--port=8787] [--host=graveyard.localhost]' => 'Boot a localhost-only server for the same page — over http it progressively enhances rename/delete into live actions (JSON API) instead of copy-command; opens http://<host>:<port>/ (a *.localhost name resolves to 127.0.0.1 with zero config in any modern browser; --host overrides it e.g. for a real /etc/hosts entry); blocks until Ctrl+C',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
 		'rename <id> "<name>"' => 'Give a buried session a custom display name (used as its title on the page and matchable by `resurrect <name>`). <id> resolved fuzzily (session-id exact/prefix or title substring).',
@@ -120,7 +120,8 @@ switch ($sub) {
 	case 'page':      $gy->page(!$cli->hasFlag('no-open')); break;
 	case 'serve':
 		$port = $cli->hasFlag('port') ? (int) $cli->getFlag('port') : 8787;
-		$gy->serve($port > 0 ? $port : 8787);
+		$host = $cli->hasFlag('host') ? (string) $cli->getFlag('host') : 'graveyard.localhost';
+		$gy->serve($port > 0 ? $port : 8787, $host !== '' ? $host : 'graveyard.localhost');
 		break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
 	case 'rename':

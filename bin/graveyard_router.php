@@ -5,7 +5,7 @@ namespace JT;
 # graveyard_router — router script for `php -S` used by `graveyard serve`.
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Serves the store's static files (page.html, page-data/) as-is, and answers
+# Serves the store's static files (index.html, page-data/) as-is, and answers
 # the tiny JSON API (POST /api/rename, POST /api/delete) via
 # Graveyard::handleApi() — the same rename/delete/purge core the CLI verbs
 # use. Bound to 127.0.0.1 only by the launching `serve` command; this router
