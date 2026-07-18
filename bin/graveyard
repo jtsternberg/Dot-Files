@@ -35,7 +35,7 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('graveyard')
 	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux.')
-	->setSampleUsage('<bury|ls|show|resurrect> [args]')
+	->setSampleUsage('<bury|ls|search|show|rename|delete|resurrect|page> [args]')
 	->buildDocs([
 		'bury' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection',
 		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
@@ -51,6 +51,8 @@ $helpyHelperton
 		'page [--no-open]' => 'Regenerate the self-contained HTML overview of every buried session at ~/.claude-graveyard/page.html — a full-width field of headstones; clicking one opens the full card and loads its transcript JIT from page-data/ — and open it in your browser (--no-open: just write the files)',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
+		'rename <id> "<name>"' => 'Give a buried session a custom display name (used as its title on the page and matchable by `resurrect <name>`). <id> resolved fuzzily (session-id exact/prefix or title substring).',
+		'rename --workspace <group> "<name>"' => 'Retitle a whole workspace group (every member + the manifest), so ls/page/resurrect all show the new plot name.',
 		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 	]);
@@ -109,6 +111,20 @@ switch ($sub) {
 	case 'search':    $gy->printSearch((string) $cli->getArg(2), $cli->hasFlag('json'), $cli->hasFlag('full-text')); break;
 	case 'page':      $gy->page(!$cli->hasFlag('no-open')); break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
+	case 'rename':
+		if ($cli->hasFlag('workspace')) {
+			$g = (string) $cli->getFlag('workspace');
+			$name = ($g === '') ? (string) $cli->getArg(3) : (string) $cli->getArg(2); // space vs =value form
+			if ($g === '') { $g = (string) $cli->getArg(2); }
+			if ($g === '' || $name === '') { $cli->exitErr('Usage: graveyard rename --workspace <group> "<name>"'); }
+			$gy->renameGroup($g, $name);
+		} else {
+			$ref  = (string) $cli->getArg(2);
+			$name = (string) $cli->getArg(3);
+			if ($ref === '' || $name === '') { $cli->exitErr('Usage: graveyard rename <id> "<name>"'); }
+			$gy->renameSession($ref, $name);
+		}
+		break;
 	case 'resurrect':
 		if ($cli->hasFlag('workspace')) {
 			$g = (string) $cli->getFlag('workspace');

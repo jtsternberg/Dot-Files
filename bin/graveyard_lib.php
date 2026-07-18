@@ -61,9 +61,78 @@ class Graveyard {
 			fn($t) => ($t['session_id'] ?? null) !== ($entry['session_id'] ?? null)
 		));
 		$idx['tombstones'][] = $entry;
+		$this->writeIndex($idx);
+	}
+
+	/** I/O. Write the whole index atomically-ish (LOCK_EX). See dotfiles-8tp for full RMW locking. */
+	public function writeIndex(array $idx): void {
 		$dir = dirname($this->indexPath());
 		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
-		file_put_contents($this->indexPath(), json_encode($idx, JSON_PRETTY_PRINT));
+		file_put_contents($this->indexPath(), json_encode($idx, JSON_PRETTY_PRINT), LOCK_EX);
+	}
+
+	/**
+	 * I/O. Stamp a custom display name on a buried session (exact session id).
+	 * titleizeSummary and the fuzzy resolver both prefer it, so the page shows
+	 * it and `resurrect <name>` finds it. Returns false if no such session.
+	 */
+	public function setSessionName(string $sessionId, string $name): bool {
+		$name = trim($name);
+		$idx  = $this->readIndex();
+		$found = false;
+		foreach ($idx['tombstones'] as &$t) {
+			if (($t['session_id'] ?? null) === $sessionId) { $t['name'] = $name; $found = true; }
+		}
+		unset($t);
+		if ($found) { $this->writeIndex($idx); }
+		return $found;
+	}
+
+	/**
+	 * I/O. Retitle a whole workspace group: every member tombstone's group_title
+	 * plus the manifest's group_title (so ls/page/resurrect all agree). Returns
+	 * the number of member tombstones retitled.
+	 */
+	public function setGroupName(string $groupId, string $name): int {
+		$name = trim($name);
+		$idx  = $this->readIndex();
+		$n = 0;
+		foreach ($idx['tombstones'] as &$t) {
+			if (($t['group_id'] ?? null) === $groupId) { $t['group_title'] = $name; $n++; }
+		}
+		unset($t);
+		if ($n > 0) { $this->writeIndex($idx); }
+		$mp = $this->manifestPath($groupId);
+		if (is_file($mp)) {
+			$m = json_decode((string) @file_get_contents($mp), true);
+			if (is_array($m)) { $m['group_title'] = $name; file_put_contents($mp, json_encode($m, JSON_PRETTY_PRINT), LOCK_EX); }
+		}
+		return $n;
+	}
+
+	/** Verb. Resolve a session (fuzzy) and give it a custom display name. */
+	public function renameSession(string $ref, string $name): void {
+		$name = trim($name);
+		if ($name === '') { $this->cli->exitErr('Refusing to set an empty name.'); }
+		$res = $this->resolveTombstoneFuzzy($ref);
+		$t   = $res['match'];
+		if (!$t) {
+			if ($res['ambiguous']) { $this->cli->exitErr("'{$ref}' is ambiguous — narrow it or pass a full session-id."); }
+			$this->cli->exitErr("No buried session matches '{$ref}'.");
+		}
+		$this->setSessionName((string) $t['session_id'], $name);
+		$this->cli->successMsg('Renamed ' . substr((string) $t['session_id'], 0, 8) . " → \"{$name}\".");
+	}
+
+	/** Verb. Resolve a workspace group (by id prefix) and retitle the whole plot. */
+	public function renameGroup(string $prefix, string $name): void {
+		$name = trim($name);
+		if ($name === '') { $this->cli->exitErr('Refusing to set an empty name.'); }
+		$m = $this->resolveGroup($prefix);
+		if (!$m) { $this->cli->exitErr("No single workspace group matches '{$prefix}'."); return; }
+		$n = $this->setGroupName((string) $m['group_id'], $name);
+		$this->cli->successMsg('Renamed workspace ' . substr((string) $m['group_id'], 0, 8)
+			. " ({$n} session" . ($n === 1 ? '' : 's') . ") → \"{$name}\".");
 	}
 
 	public function buildTombstone(array $session, array $surface, string $summary, string $buriedAt, ?array $group = null): array {
@@ -957,6 +1026,9 @@ class Graveyard {
 	 * slash-command (e.g. "/hotline:ringing"), then the workspace title.
 	 */
 	public function titleizeSummary(array $t, string $home = ''): string {
+		// A custom name (via `graveyard rename`) always wins as the display title.
+		$name = trim((string) ($t['name'] ?? ''));
+		if ($name !== '') { return $name; }
 		$sum = $this->cleanSummaryText((string) ($t['summary'] ?? ''), $home);
 		// A summary that's actually machine noise (a leaked caveat / skill preamble from
 		// an older tombstone) is not a title — treat it as empty so we fall back.
@@ -2025,9 +2097,10 @@ document.addEventListener("alpine:init", function () {
 
 		$needle = mb_strtolower($id);
 		$nameMatches = array_values(array_filter($rows, function ($r) use ($needle) {
-			$title = mb_strtolower((string) ($r['workspace_title'] ?? ''));
-			$tab   = mb_strtolower((string) ($r['tab_title'] ?? ''));
-			return ($needle !== '' && (str_contains($title, $needle) || str_contains($tab, $needle)));
+			$title  = mb_strtolower((string) ($r['workspace_title'] ?? ''));
+			$tab    = mb_strtolower((string) ($r['tab_title'] ?? ''));
+			$custom = mb_strtolower((string) ($r['name'] ?? '')); // `graveyard rename` display name
+			return ($needle !== '' && (str_contains($title, $needle) || str_contains($tab, $needle) || str_contains($custom, $needle)));
 		}));
 		if ($nameMatches) { return $nameMatches; }
 
