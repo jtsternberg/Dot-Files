@@ -1390,6 +1390,94 @@ class Graveyard {
 	}
 
 	# =========================================================================
+	# graveyard serve (dotfiles-vn5.1): PHP built-in server + tiny JSON API,
+	# progressively enhancing page.html's copy-command UI into live mutation.
+	# =========================================================================
+
+	/**
+	 * PURE-ish (fs mutations only, no HTTP/socket I/O). Handle one JSON API
+	 * request for the router `php -S` runs. Never shells out with user input —
+	 * ids are resolved fuzzily against the current store, same as the CLI
+	 * verbs, before any mutation touches disk. Returns ['status'=>int,'body'=>array].
+	 */
+	public function handleApi(string $method, string $path, array $body): array {
+		if ($method !== 'POST') {
+			return ['status' => 405, 'body' => ['ok' => false, 'error' => 'method not allowed']];
+		}
+		if ($path !== '/api/rename' && $path !== '/api/delete') {
+			return ['status' => 404, 'body' => ['ok' => false, 'error' => 'not found']];
+		}
+
+		$scope = (string) ($body['scope'] ?? '');
+		$id    = (string) ($body['id'] ?? '');
+		if ($scope !== 'session' && $scope !== 'group') {
+			return ['status' => 400, 'body' => ['ok' => false, 'error' => "invalid scope '{$scope}'"]];
+		}
+
+		if ($path === '/api/rename') {
+			$name = trim((string) ($body['name'] ?? ''));
+			if ($name === '') {
+				return ['status' => 400, 'body' => ['ok' => false, 'error' => 'name required']];
+			}
+			if ($scope === 'session') {
+				$t = $this->resolveTombstoneFuzzy($id)['match'];
+				if (!$t) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'session not found']]; }
+				$this->setSessionName((string) $t['session_id'], $name);
+			} else {
+				$m = $this->resolveGroup($id);
+				if (!$m) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'group not found']]; }
+				$this->setGroupName((string) $m['group_id'], $name);
+			}
+			$this->page(false);
+			return ['status' => 200, 'body' => ['ok' => true, 'name' => $name]];
+		}
+
+		if ($path === '/api/delete') {
+			if ($scope === 'session') {
+				$t = $this->resolveTombstoneFuzzy($id)['match'];
+				if (!$t) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'session not found']]; }
+				$this->purgeSession((string) $t['session_id']);
+			} else {
+				$m = $this->resolveGroup($id);
+				if (!$m) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'group not found']]; }
+				$this->purgeGroup((string) $m['group_id']);
+			}
+			$this->page(false);
+			return ['status' => 200, 'body' => ['ok' => true]];
+		}
+
+		return ['status' => 404, 'body' => ['ok' => false, 'error' => 'not found']]; // unreachable: guarded above
+	}
+
+	/**
+	 * Verb. Boot PHP's built-in server rooted at the store, serving page.html +
+	 * page-data/ as static files plus the JSON API (via bin/graveyard_router.php)
+	 * for live rename/delete. Localhost-only bind. Regenerates the page first so
+	 * it's fresh, opens the browser, then blocks until the server exits (Ctrl+C).
+	 */
+	public function serve(int $port = 8787): string {
+		$this->page(false);
+		$root   = $this->storeRoot();
+		$router = __DIR__ . '/graveyard_router.php';
+		$url    = "http://127.0.0.1:{$port}/page.html";
+		$this->cli->successMsg("Serving the graveyard at {$url} (Ctrl+C to stop)");
+
+		$opener = PHP_OS_FAMILY === 'Darwin' ? 'open' : 'xdg-open';
+		if (trim((string) shell_exec('command -v ' . $opener . ' 2>/dev/null')) !== '') {
+			shell_exec($opener . ' ' . escapeshellarg($url) . ' >/dev/null 2>&1 &');
+		}
+
+		$cmd = sprintf(
+			'php -S 127.0.0.1:%d -t %s %s',
+			$port,
+			escapeshellarg($root),
+			escapeshellarg($router)
+		);
+		passthru($cmd);
+		return $url;
+	}
+
+	# =========================================================================
 	# graveyard page (dotfiles-pnl): self-contained HTML overview of the store.
 	# =========================================================================
 
