@@ -1650,6 +1650,17 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 }
 .namefield:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
 .actions .cmd { margin-top: .5rem; }
+.danger-btn {
+	appearance: none; -webkit-appearance: none; margin-top: .85rem; cursor: pointer;
+	background: none; border: 1px solid rgba(196,110,110,.35); border-radius: 8px;
+	color: #c46e6e; font: .74rem var(--mono); letter-spacing: .06em;
+	padding: .4rem .7rem; transition: border-color .16s ease, color .16s ease, background .16s ease;
+}
+.danger-btn:hover, .danger-btn:focus-visible { border-color: rgba(196,110,110,.7); background: rgba(196,110,110,.08); outline: none; }
+.warn { margin: .85rem 0 0; font: .72rem/1.5 var(--mono); color: #c98a8a; letter-spacing: .02em; }
+.cmd.danger-cmd { border-color: rgba(196,110,110,.35); }
+.cmd.danger-cmd:hover, .cmd.danger-cmd:focus-visible { border-color: rgba(196,110,110,.6); }
+.cmd.danger-cmd.ok { color: var(--moss); border-color: rgba(168,193,150,.4); }
 .tpath {
 	display: block; margin: .55rem 0 0; padding: 0; background: none; border: none;
 	font: .68rem var(--mono); color: var(--weathered); letter-spacing: .04em;
@@ -1706,6 +1717,11 @@ footer .epitaph { color: #6b7263; }
       <p class="crypt-cap">✎ rename this session</p>
       <input class="namefield" type="text" x-model="renameName" spellcheck="false" autocomplete="off" aria-label="Session name">
       <button type="button" class="cmd" x-show="renameName.trim() && renameName.trim() !== (item.title || \'\').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), \'rn\')" x-text="copied.rn ? \'copied ✓\' : renameCmd()"></button>
+      <button type="button" class="danger-btn" x-show="!confirmStone" @click="confirmStone = true">☠ delete this session…</button>
+      <div x-show="confirmStone" x-cloak>
+        <p class="warn">Permanent — removes the tombstone and its transcript for good. Run:</p>
+        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="copy(deleteCmd(), \'del\')" x-text="copied.del ? \'copied ✓\' : deleteCmd()"></button>
+      </div>
     </div>
   </article>
 </dialog>
@@ -1728,6 +1744,11 @@ footer .epitaph { color: #6b7263; }
       <p class="crypt-cap">✎ rename this plot</p>
       <input class="namefield" type="text" x-model="renamePlotName" spellcheck="false" autocomplete="off" aria-label="Plot name">
       <button type="button" class="cmd" x-show="renamePlotName.trim() && renamePlotName.trim() !== (plot.title || \'\').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), \'rnp\')" x-text="copied.rnp ? \'copied ✓\' : renamePlotCmd()"></button>
+      <button type="button" class="danger-btn" x-show="!confirmPlot" @click="confirmPlot = true">☠ delete this whole plot…</button>
+      <div x-show="confirmPlot" x-cloak>
+        <p class="warn">Permanent — removes every session in this plot and its manifest. Run:</p>
+        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="copy(deletePlotCmd(), \'delp\')" x-text="copied.delp ? \'copied ✓\' : deletePlotCmd()"></button>
+      </div>
     </div>
   </article>
 </dialog>
@@ -1742,9 +1763,13 @@ document.addEventListener("alpine:init", function () {
 			search: "",
 			renameName: "",
 			renamePlotName: "",
+			confirmStone: false,
+			confirmPlot: false,
 			shq: function (s) { return JSON.stringify((s || "").trim()); }, // double-quoted, JSON-escaped
 			renameCmd: function () { return "graveyard rename " + (this.item.sid8 || "") + " " + this.shq(this.renameName); },
 			renamePlotCmd: function () { return "graveyard rename --workspace " + (this.plot.gid8 || "") + " " + this.shq(this.renamePlotName); },
+			deleteCmd: function () { return "graveyard delete " + (this.item.sid8 || ""); },
+			deletePlotCmd: function () { return "graveyard delete --workspace " + (this.plot.gid8 || ""); },
 			matchText: function (text) {
 				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
 			},
@@ -1772,6 +1797,7 @@ document.addEventListener("alpine:init", function () {
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort
 				};
 				this.renameName = d.title;
+				this.confirmStone = false;
 				this.copied = {};
 				this.$refs.dlg.showModal();
 				this.exhume(d.id);
@@ -1785,10 +1811,11 @@ document.addEventListener("alpine:init", function () {
 					members: stones.map(function (s) { return { sid8: s.dataset.sid8, title: s.dataset.title }; })
 				};
 				this.renamePlotName = el.dataset.title;
+				this.confirmPlot = false;
 				this.copied = {};
 				this.$refs.plotdlg.showModal();
 			},
-			onClose: function () { this.copied = {}; },
+			onClose: function () { this.copied = {}; this.confirmStone = false; this.confirmPlot = false; },
 			exhume: function (id) {
 				var body = this.$refs.body;
 				body.innerHTML = \'<p class="none">⛏ exhuming…</p>\';

@@ -153,6 +153,24 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('graveyard rename --workspace ', $html); // group command prefix
 	}
 
+	public function testPageHtmlDeleteAffordance(): void
+	{
+		// Both modals expose a permanent-delete affordance gated behind an
+		// explicit confirm (confirmStone/confirmPlot); only then is the copyable
+		// `graveyard delete …` command revealed (session by id, group by
+		// --workspace). Verb built later.
+		$t = $this->tomb('del00001-full', 'doomed');
+		$t['group_id'] = 'ddd11111-x'; $t['group_title'] = 'Doomed Plot'; $t['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t], '2026-07-17');
+
+		$this->assertStringContainsString('confirmStone', $html);              // stone confirm gate
+		$this->assertStringContainsString('confirmPlot', $html);               // plot confirm gate
+		$this->assertStringContainsString('deleteCmd()', $html);
+		$this->assertStringContainsString('deletePlotCmd()', $html);
+		$this->assertStringContainsString('graveyard delete ', $html);             // session command
+		$this->assertStringContainsString('graveyard delete --workspace ', $html); // group command
+	}
+
 	public function testPageHtmlEmptyGraveyard(): void
 	{
 		$html = $this->gy->pageHtml([], '2026-07-17T20:00:00Z');
