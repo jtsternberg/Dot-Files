@@ -237,7 +237,9 @@ dialog#ritual { margin: auto; padding: 0; border: none; background: transparent;
 dialog#ritual::backdrop { background: rgba(4,6,4,.82); backdrop-filter: blur(3px); }
 .ritual-card { text-align: center; border-radius: 16px 16px 0 0; corner-shape: round round square square; }
 .ritual-card .medallion { position: absolute; }
-.shovel { font-size: 2.75rem; line-height: 1; filter: grayscale(.35); }
+.shovel { font-size: 2.75rem; line-height: 1; filter: grayscale(.35); display: inline-block; }
+.shovel.digging { animation: dig .6s ease; }
+@keyframes dig { 50% { transform: translateY(-18px) rotate(12deg); filter: grayscale(.35) drop-shadow(0 18px 3px #463b25); } }
 .ritual-card h2 { margin: .6rem 0 .5rem; font-size: 1.2rem; font-weight: 600; }
 .ritual-lead { margin: 0 auto 1rem; max-width: 30rem; color: var(--weathered); font-size: .9rem; line-height: 1.55; }
 .ritual-cmd { text-align: left; }
@@ -357,6 +359,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 	.bat { display: none; }
 	.coffin:hover, .coffin:hover::after { animation: none; }
 	.coffin::after { display: none; }
+	.shovel.digging { animation: none; }
 }
 @media (max-width: 560px) {
 	h1 { letter-spacing: .12em; }
@@ -449,7 +452,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 <dialog id="ritual" x-ref="ritualdlg" @click.self="$refs.ritualdlg.close()">
   <article class="card ritual-card">
     <form method="dialog"><button class="medallion" aria-label="Close">✕</button></form>
-    <div class="shovel" aria-hidden="true">🪏</div>
+    <div class="shovel" x-ref="shovel" aria-hidden="true">🪏</div>
     <h2>You need to do some digging.</h2>
     <p class="ritual-lead">Resurrection is a command-line rite — the graveyard can't raise this one for you. The ritual below has been copied to your clipboard.</p>
     <button type="button" class="cmd ritual-cmd" @click="copyRitual(false)" x-text="ritual.command" title="copy the resurrection command"></button>
@@ -720,6 +723,16 @@ document.addEventListener("alpine:init", function () {
 				s.onerror = function () { body.innerHTML = '<p class="none">(no transcript lies here)</p>'; };
 				document.head.appendChild(s);
 			},
+			// Re-triggerable shovel "dig" — remove + reflow + re-add so repeated
+			// copies replay the animation. Skipped under prefers-reduced-motion.
+			digShovel: function () {
+				if (this.reduceMotion()) { return; }
+				var el = this.$refs.shovel;
+				if (!el) { return; }
+				el.classList.remove("digging");
+				void el.offsetWidth;
+				el.classList.add("digging");
+			},
 			// Resurrection ritual: resurrection is always a CLI act, so both static
 			// and live modes route the "prepare resurrection" buttons here. Close any
 			// open modal, show the ritual card, and auto-copy the command with a
@@ -729,10 +742,12 @@ document.addEventListener("alpine:init", function () {
 				if (this.$refs.plotdlg && this.$refs.plotdlg.open) { this.$refs.plotdlg.close(); }
 				this.ritual = { command: command, confirm: "" };
 				this.$refs.ritualdlg.showModal();
+				this.digShovel();
 				this.copyRitual(true);
 			},
 			copyRitual: function (initial) {
 				var self = this;
+				this.digShovel();
 				var okMsg = initial ? "The ritual has been copied to your clipboard." : "Copied again.";
 				if (navigator.clipboard && navigator.clipboard.writeText) {
 					navigator.clipboard.writeText(this.ritual.command).then(
