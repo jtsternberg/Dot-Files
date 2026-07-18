@@ -95,14 +95,15 @@ main#yard {
 	padding: 1.4rem .95rem .8rem; min-height: 8.25rem;
 	display: flex; flex-direction: column; gap: .4rem;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 14px 22px -16px rgba(0,0,0,.85);
-	transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+	transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, filter .18s ease;
 	animation: rise .45s ease-out both;
 	animation-delay: calc(var(--i, 0) * 30ms);
 }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 .stone:hover, .stone:focus-visible {
-	transform: translateY(-3px); border-color: rgba(168,193,150,.6); outline: none;
-	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 26px -16px rgba(0,0,0,.9), 0 0 0 1px rgba(168,193,150,.25);
+	transform: translateY(-6px) rotate(-1.3deg); border-color: rgba(168,193,150,.6); outline: none;
+	filter: brightness(1.09);
+	box-shadow: inset 0 1px 0 rgba(233,228,214,.07), 0 22px 34px -16px rgba(0,0,0,.92), 0 0 0 1px rgba(168,193,150,.28);
 }
 .stone-title { font: 600 .86rem/1.35 var(--serif); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .stone-meta { margin-top: auto; font: .66rem var(--mono); color: var(--weathered); letter-spacing: .05em; }
@@ -260,6 +261,7 @@ footer p { margin: .3rem 0; }
 footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 @media (prefers-reduced-motion: reduce) {
 	.stone, #m-body pre, .fog { animation: none; }
+	.stone:hover, .stone:focus-visible { transform: none; }
 }
 @media (max-width: 560px) {
 	h1 { letter-spacing: .12em; }
