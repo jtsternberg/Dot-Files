@@ -66,6 +66,10 @@ code {
 .search::placeholder { color: #6b7263; }
 .search:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
 .search::-webkit-search-cancel-button { filter: grayscale(1) brightness(1.4); cursor: pointer; }
+.grain {
+	position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .13;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.28'/%3E%3C/svg%3E");
+}
 .web { position: fixed; top: .3rem; z-index: 2; font-size: 2.4rem; opacity: .25; filter: grayscale(.6); pointer-events: none; }
 .web-l { left: .45rem; }
 .web-r { right: .45rem; transform: scaleX(-1); }
@@ -270,6 +274,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 </style>
 </head>
 <body x-data="graveyard()">
+<div class="grain" aria-hidden="true"></div>
 <span class="web web-l" aria-hidden="true">🕸</span>
 <span class="web web-r" aria-hidden="true">🕸</span>
 <header class="top">
