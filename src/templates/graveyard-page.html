@@ -88,6 +88,8 @@ main#yard {
 	align-items: start; /* items size to content (not stretched) so row-span math is exact */
 	justify-content: center; gap: 1.1rem;
 	padding: 0 clamp(1rem, 3.5vw, 3rem);
+	z-index: 1;
+	position: relative;
 }
 .stone {
 	appearance: none; -webkit-appearance: none; font: inherit; text-align: left; cursor: pointer;
@@ -208,6 +210,25 @@ dialog#plotmodal .card { overflow: auto; }
 	transition: opacity .22s ease, transform .22s ease;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* Resurrection ritual — a centered CLI-rite interstitial above the other modals. */
+dialog#ritual { margin: auto; padding: 0; border: none; background: transparent; width: min(560px, 92vw); }
+dialog#ritual::backdrop { background: rgba(4,6,4,.82); backdrop-filter: blur(3px); }
+.ritual-card { text-align: center; border-radius: 16px 16px 0 0; corner-shape: round round square square; }
+.ritual-card .medallion { position: absolute; }
+.shovel { font-size: 2.75rem; line-height: 1; filter: grayscale(.35); }
+.ritual-card h2 { margin: .6rem 0 .5rem; font-size: 1.2rem; font-weight: 600; }
+.ritual-lead { margin: 0 auto 1rem; max-width: 30rem; color: var(--weathered); font-size: .9rem; line-height: 1.55; }
+.ritual-cmd { text-align: left; }
+.ritual-actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; margin-top: 1rem; }
+.action {
+	appearance: none; -webkit-appearance: none; cursor: pointer;
+	background: rgba(233,228,214,.04); border: 1px solid var(--stone-edge); border-radius: 8px;
+	color: var(--inscription); font: .78rem var(--mono); letter-spacing: .04em; padding: .5rem .85rem;
+	transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+.action:hover, .action:focus-visible { color: var(--moss); border-color: rgba(168,193,150,.5); background: rgba(168,193,150,.07); outline: none; }
+.resurrect-btn { margin-bottom: .6rem; }
+.copy-confirm { min-height: 1.1rem; margin: .9rem 0 0; color: var(--moss); font: .72rem var(--mono); letter-spacing: .04em; }
 .medallion {
 	position: absolute; top: .85rem; right: .95rem; width: 1.9rem; height: 1.9rem;
 	border-radius: 50%; background: rgba(233,228,214,.04);
@@ -333,6 +354,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
     <div id="m-body" x-ref="body"></div>
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
     <div class="actions">
+      <button type="button" class="action resurrect-btn" @click="openRitual('graveyard resurrect ' + (item.sid8 || ''))"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
       <p class="crypt-cap">✎ rename this session<span class="save-hint" x-cloak x-show="live && saved.rn"> — saved ✓</span></p>
       <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="live && apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
       <p class="save-note" x-cloak x-show="live">changes save automatically</p>
@@ -359,7 +381,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
       </template>
     </ul>
     <p class="crypt-cap">↻ resurrect the whole plot</p>
-    <button type="button" class="cmd" :class="{ ok: copied.res }" @click="copy(plot.resurrect, 'res')" x-text="copied.res ? 'copied ✓' : plot.resurrect" title="copy resurrect command"></button>
+    <button type="button" class="action resurrect-btn" @click="openRitual(plot.resurrect)"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
     <div class="actions">
       <p class="crypt-cap">✎ rename this plot<span class="save-hint" x-cloak x-show="live && saved.rnp"> — saved ✓</span></p>
       <input class="namefield" type="text" x-model="renamePlotName" @input.debounce.600ms="live && apiRenamePlot()" spellcheck="false" autocomplete="off" aria-label="Plot name">
@@ -373,6 +395,20 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
     </div>
   </article>
 </dialog>
+<dialog id="ritual" x-ref="ritualdlg" @click.self="$refs.ritualdlg.close()">
+  <article class="card ritual-card">
+    <form method="dialog"><button class="medallion" aria-label="Close">✕</button></form>
+    <div class="shovel" aria-hidden="true">🪏</div>
+    <h2>You need to do some digging.</h2>
+    <p class="ritual-lead">Resurrection is a command-line rite — the graveyard can't raise this one for you. The ritual below has been copied to your clipboard.</p>
+    <button type="button" class="cmd ritual-cmd" @click="copyRitual(false)" x-text="ritual.command" title="copy the resurrection command"></button>
+    <div class="ritual-actions">
+      <button type="button" class="action" @click="copyRitual(false)">📋 copy ritual again</button>
+      <button type="button" class="action" @click="$refs.ritualdlg.close()">return to the graveyard</button>
+    </div>
+    <p class="copy-confirm" role="status" aria-live="polite" x-text="ritual.confirm"></p>
+  </article>
+</dialog>
 <div class="fog" aria-hidden="true"></div>
 <div class="toast" id="gy-toast" role="status" aria-live="polite"></div>
 <script>
@@ -381,6 +417,7 @@ document.addEventListener("alpine:init", function () {
 		return {
 			item: {},
 			plot: {},
+			ritual: { command: "", confirm: "" },
 			copied: {},
 			search: "",
 			// Progressive enhancement (dotfiles-vn5.2): over http://localhost the
@@ -631,6 +668,30 @@ document.addEventListener("alpine:init", function () {
 				s.onload = function () { render(window.GYT[id]); };
 				s.onerror = function () { body.innerHTML = '<p class="none">(no transcript archived)</p>'; };
 				document.head.appendChild(s);
+			},
+			// Resurrection ritual: resurrection is always a CLI act, so both static
+			// and live modes route the "prepare resurrection" buttons here. Close any
+			// open modal, show the ritual card, and auto-copy the command with a
+			// confirmation (or a fallback message if the clipboard is blocked).
+			openRitual: function (command) {
+				if (this.$refs.dlg && this.$refs.dlg.open) { this.$refs.dlg.close(); }
+				if (this.$refs.plotdlg && this.$refs.plotdlg.open) { this.$refs.plotdlg.close(); }
+				this.ritual = { command: command, confirm: "" };
+				this.$refs.ritualdlg.showModal();
+				this.copyRitual(true);
+			},
+			copyRitual: function (initial) {
+				var self = this;
+				var okMsg = initial ? "The ritual has been copied to your clipboard." : "Copied again.";
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(this.ritual.command).then(
+						function () { self.ritual.confirm = okMsg; },
+						function () { self.ritual.confirm = "Clipboard access was blocked — select the command above to copy it."; }
+					);
+				} else {
+					try { this.legacyCopy(this.ritual.command); this.ritual.confirm = okMsg; }
+					catch (e) { this.ritual.confirm = "Clipboard access was blocked — select the command above to copy it."; }
+				}
 			},
 			copy: function (text, key) {
 				if (!text) { return; }
