@@ -268,11 +268,11 @@ footer .epitaph { color: #6b7263; }
     <div class="actions">
       <p class="crypt-cap">✎ rename this session</p>
       <input class="namefield" type="text" x-model="renameName" spellcheck="false" autocomplete="off" aria-label="Session name">
-      <button type="button" class="cmd" x-show="renameName.trim() && renameName.trim() !== (item.title || '').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), 'rn')" x-text="copied.rn ? 'copied ✓' : renameCmd()"></button>
+      <button type="button" class="cmd" x-show="renameName.trim() && renameName.trim() !== (item.title || '').trim()" :class="{ ok: copied.rn }" @click="live ? apiRenameStone() : copy(renameCmd(), 'rn')" x-text="live ? 'Rename' : (copied.rn ? 'copied ✓' : renameCmd())"></button>
       <button type="button" class="danger-btn" x-show="!confirmStone" @click="confirmStone = true">☠ delete this session…</button>
       <div x-show="confirmStone" x-cloak>
-        <p class="warn">Permanent — removes the tombstone and its transcript for good. Run:</p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="copy(deleteCmd(), 'del')" x-text="copied.del ? 'copied ✓' : deleteCmd()"></button>
+        <p class="warn" x-text="live ? 'Permanent — removes the tombstone and its transcript for good.' : 'Permanent — removes the tombstone and its transcript for good. Run:'"></p>
+        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="live ? apiDeleteStone() : copy(deleteCmd(), 'del')" x-text="live ? 'Delete permanently' : (copied.del ? 'copied ✓' : deleteCmd())"></button>
       </div>
     </div>
   </article>
@@ -295,11 +295,11 @@ footer .epitaph { color: #6b7263; }
     <div class="actions">
       <p class="crypt-cap">✎ rename this plot</p>
       <input class="namefield" type="text" x-model="renamePlotName" spellcheck="false" autocomplete="off" aria-label="Plot name">
-      <button type="button" class="cmd" x-show="renamePlotName.trim() && renamePlotName.trim() !== (plot.title || '').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), 'rnp')" x-text="copied.rnp ? 'copied ✓' : renamePlotCmd()"></button>
+      <button type="button" class="cmd" x-show="renamePlotName.trim() && renamePlotName.trim() !== (plot.title || '').trim()" :class="{ ok: copied.rnp }" @click="live ? apiRenamePlot() : copy(renamePlotCmd(), 'rnp')" x-text="live ? 'Rename' : (copied.rnp ? 'copied ✓' : renamePlotCmd())"></button>
       <button type="button" class="danger-btn" x-show="!confirmPlot" @click="confirmPlot = true">☠ delete this whole plot…</button>
       <div x-show="confirmPlot" x-cloak>
-        <p class="warn">Permanent — removes every session in this plot and its manifest. Run:</p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="copy(deletePlotCmd(), 'delp')" x-text="copied.delp ? 'copied ✓' : deletePlotCmd()"></button>
+        <p class="warn" x-text="live ? 'Permanent — removes every session in this plot and its manifest.' : 'Permanent — removes every session in this plot and its manifest. Run:'"></p>
+        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="live ? apiDeletePlot() : copy(deletePlotCmd(), 'delp')" x-text="live ? 'Delete permanently' : (copied.delp ? 'copied ✓' : deletePlotCmd())"></button>
       </div>
     </div>
   </article>
@@ -313,6 +313,10 @@ document.addEventListener("alpine:init", function () {
 			plot: {},
 			copied: {},
 			search: "",
+			// Progressive enhancement (dotfiles-vn5.2): over http://localhost the
+			// page was served by `graveyard serve` and its JSON API is reachable;
+			// over file:// there's no server, so the copy-command UI stays as-is.
+			live: (typeof location !== "undefined" && location.protocol.indexOf("http") === 0),
 			renameName: "",
 			renamePlotName: "",
 			confirmStone: false,
@@ -322,6 +326,86 @@ document.addEventListener("alpine:init", function () {
 			renamePlotCmd: function () { return "graveyard rename --workspace " + (this.plot.gid8 || "") + " " + this.shq(this.renamePlotName); },
 			deleteCmd: function () { return "graveyard delete " + (this.item.sid8 || ""); },
 			deletePlotCmd: function () { return "graveyard delete --workspace " + (this.plot.gid8 || ""); },
+			// dotfiles-vn5.3 -- live mutation via the JSON API `graveyard serve` exposes.
+			// Rename needs no confirm(); delete (session or plot) is native-confirm()-gated
+			// BEFORE the fetch -- this confirm() requirement is serve-only, never added to
+			// the file:// copy-command path.
+			apiCall: function (path, payload) {
+				return fetch(path, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload)
+				}).then(function (r) { return r.json(); });
+			},
+			apiRenameStone: function () {
+				var name = this.renameName.trim();
+				if (!name || name === (this.item.title || "").trim()) { return; }
+				var self = this;
+				this.apiCall("/api/rename", { scope: "session", id: this.item.id, name: name }).then(function (res) {
+					if (!res.ok) { alert("Rename failed: " + (res.error || "unknown error")); return; }
+					self.item.title = name;
+					self.renameStoneDom(self.item.id, name);
+				});
+			},
+			apiDeleteStone: function () {
+				if (!confirm('Permanently delete "' + (this.item.title || "") + '"? This cannot be undone.')) { return; }
+				var self = this;
+				this.apiCall("/api/delete", { scope: "session", id: this.item.id }).then(function (res) {
+					if (!res.ok) { alert("Delete failed: " + (res.error || "unknown error")); return; }
+					self.removeStoneDom(self.item.id);
+					self.$refs.dlg.close();
+				});
+			},
+			apiRenamePlot: function () {
+				var name = this.renamePlotName.trim();
+				if (!name || name === (this.plot.title || "").trim()) { return; }
+				var self = this;
+				this.apiCall("/api/rename", { scope: "group", id: this.plot.gid, name: name }).then(function (res) {
+					if (!res.ok) { alert("Rename failed: " + (res.error || "unknown error")); return; }
+					self.plot.title = name;
+					self.renamePlotDom(self.plot.gid, name);
+				});
+			},
+			apiDeletePlot: function () {
+				if (!confirm('Permanently delete the whole "' + (this.plot.title || "") + '" plot? This cannot be undone.')) { return; }
+				var self = this;
+				this.apiCall("/api/delete", { scope: "group", id: this.plot.gid }).then(function (res) {
+					if (!res.ok) { alert("Delete failed: " + (res.error || "unknown error")); return; }
+					self.removePlotDom(self.plot.gid);
+					self.$refs.plotdlg.close();
+				});
+			},
+			cssEsc: function (s) {
+				return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/(["\\])/g, "\\$1");
+			},
+			renameStoneDom: function (id, name) {
+				var el = document.querySelector('.stone[data-id="' + this.cssEsc(id) + '"]');
+				if (!el) { return; }
+				el.dataset.title = name;
+				var t = el.querySelector(".stone-title");
+				if (t) { t.textContent = name; }
+			},
+			removeStoneDom: function (id) {
+				var el = document.querySelector('.stone[data-id="' + this.cssEsc(id) + '"]');
+				if (!el) { return; }
+				var plotEl = el.closest("fieldset.plot");
+				el.remove();
+				if (plotEl && !plotEl.querySelector(".stone")) { plotEl.remove(); }
+				this.relayout();
+			},
+			renamePlotDom: function (gid, name) {
+				var el = document.querySelector('fieldset.plot[data-gid="' + this.cssEsc(gid) + '"]');
+				if (!el) { return; }
+				el.dataset.title = name;
+				var legend = el.querySelector("legend");
+				if (legend) { legend.textContent = name; }
+			},
+			removePlotDom: function (gid) {
+				var el = document.querySelector('fieldset.plot[data-gid="' + this.cssEsc(gid) + '"]');
+				if (!el) { return; }
+				el.remove();
+				this.relayout();
+			},
 			matchText: function (text) {
 				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
 			},
@@ -388,6 +472,7 @@ document.addEventListener("alpine:init", function () {
 				var stones = [].slice.call(el.querySelectorAll(".stone"));
 				this.plot = {
 					title: el.dataset.title,
+					gid: el.dataset.gid,
 					gid8: el.dataset.gid8,
 					hue: el.style.getPropertyValue("--plot-hue") || 95,
 					resurrect: "graveyard resurrect --workspace " + el.dataset.gid8,

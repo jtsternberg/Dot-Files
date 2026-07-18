@@ -1400,6 +1400,18 @@ class Graveyard {
 	 * ids are resolved fuzzily against the current store, same as the CLI
 	 * verbs, before any mutation touches disk. Returns ['status'=>int,'body'=>array].
 	 */
+	/**
+	 * I/O. Regenerate the page without leaking $cli's success message into
+	 * stdout — the API path runs under `php -S`, so anything printed here
+	 * would land ahead of handleApi()'s JSON in the HTTP response body and
+	 * break the client's response.json() parse.
+	 */
+	protected function regeneratePageSilently(): void {
+		ob_start();
+		$this->page(false);
+		ob_end_clean();
+	}
+
 	public function handleApi(string $method, string $path, array $body): array {
 		if ($method !== 'POST') {
 			return ['status' => 405, 'body' => ['ok' => false, 'error' => 'method not allowed']];
@@ -1428,7 +1440,7 @@ class Graveyard {
 				if (!$m) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'group not found']]; }
 				$this->setGroupName((string) $m['group_id'], $name);
 			}
-			$this->page(false);
+			$this->regeneratePageSilently();
 			return ['status' => 200, 'body' => ['ok' => true, 'name' => $name]];
 		}
 
@@ -1442,7 +1454,7 @@ class Graveyard {
 				if (!$m) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'group not found']]; }
 				$this->purgeGroup((string) $m['group_id']);
 			}
-			$this->page(false);
+			$this->regeneratePageSilently();
 			return ['status' => 200, 'body' => ['ok' => true]];
 		}
 

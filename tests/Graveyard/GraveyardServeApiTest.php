@@ -158,4 +158,22 @@ final class GraveyardServeApiTest extends TestCase
 		$res = $gy->handleApi('POST', '/api/nope', []);
 		$this->assertSame(404, $res['status']);
 	}
+
+	/**
+	 * Regression: handleApi() regenerates the page after a mutation, but that
+	 * regeneration must never print to stdout — under `php -S` this is a live
+	 * HTTP request, and any leaked text lands ahead of the JSON body the
+	 * client's response.json() parses, silently breaking the live UI.
+	 */
+	public function testMutationsDoNotLeakOutputIntoTheResponse(): void
+	{
+		$this->makeRoot([$this->tomb('sess1234-full', 'original summary')]);
+		$gy = new Graveyard($this->cli, $this->cmux);
+
+		ob_start();
+		$gy->handleApi('POST', '/api/rename', ['scope' => 'session', 'id' => 'sess1234-full', 'name' => 'New Name']);
+		$leaked = ob_get_clean();
+
+		$this->assertSame('', $leaked, 'handleApi() must not print anything (it would corrupt the HTTP JSON response)');
+	}
 }
