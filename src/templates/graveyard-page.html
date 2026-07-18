@@ -30,7 +30,7 @@ body {
 	font: 15px/1.6 var(--serif);
 }
 header.top { text-align: center; padding: 0 clamp(1rem, 3.5vw, 3rem); margin-bottom: 1.6rem; }
-.crest { font-size: 2.1rem; line-height: 1.25; filter: grayscale(.4) brightness(.9); text-shadow: 0 6px 16px rgba(0,0,0,.65); }
+.crest { font-size: 3rem; line-height: 1.25; filter: grayscale(.4) brightness(.9); text-shadow: 0 6px 16px rgba(0,0,0,.65); }
 h1 { margin: .3rem 0 .45rem; font: 500 clamp(1.05rem, 2.2vw, 1.5rem)/1.2 var(--serif); letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
 header.top .meta { margin: 0; }
 .meta { color: var(--weathered); font: .78rem var(--mono); letter-spacing: .04em; }
@@ -41,7 +41,8 @@ code {
 }
 .divider { display: flex; align-items: center; gap: 1rem; margin: 1.15rem 0 0; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(154,162,148,.4), transparent); }
-.divider span { font-size: .95rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
+.divider { gap: 1.25rem; }
+.divider span { font-size: 1.9rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
 .toolbar { display: flex; justify-content: center; margin: 1.1rem 0 0; }
 .search {
 	width: min(30rem, 82vw); appearance: none; -webkit-appearance: none;
@@ -53,7 +54,7 @@ code {
 .search::placeholder { color: #6b7263; }
 .search:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
 .search::-webkit-search-cancel-button { filter: grayscale(1) brightness(1.4); cursor: pointer; }
-.web { position: fixed; top: .3rem; z-index: 2; font-size: 1.55rem; opacity: .25; filter: grayscale(.6); pointer-events: none; }
+.web { position: fixed; top: .3rem; z-index: 2; font-size: 2.4rem; opacity: .25; filter: grayscale(.6); pointer-events: none; }
 .web-l { left: .45rem; }
 .web-r { right: .45rem; transform: scaleX(-1); }
 .fog {
@@ -224,7 +225,7 @@ dialog#plotmodal .card header { border-bottom-color: hsl(var(--pm-hue, 95) 30% 5
 footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: center; }
 footer .divider { margin: 0 0 1.1rem; }
 footer p { margin: .3rem 0; }
-footer .epitaph { color: #6b7263; }
+footer .epitaph { color: #6b7263; font-size: 1.5rem; line-height: 1; }
 @media (prefers-reduced-motion: reduce) {
 	.stone, #m-body pre, .fog { animation: none; }
 }
