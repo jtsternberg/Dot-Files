@@ -1590,21 +1590,21 @@ class Graveyard {
 			. ($active !== '' ? ' · last active ' . $active : '')
 			. ($model !== '' ? ' · ' . $model : '')
 			. $pos;
+		$groupTitle = trim((string) ($t['group_title'] ?? ''));
 
-		return '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
-			. ' @click.stop="show($el)"'
-			. ' x-show="stoneVisible($el)"'
-			. ' data-cols="1"'
-			. ' data-id="' . $e($sid) . '"'
-			. ' data-sid8="' . $e($sid8) . '"'
-			. ' data-title="' . $e($title) . '"'
-			. ' data-where="' . $e($where) . '"'
-			. ' data-dates="' . $e($dates) . '"'
-			. ' data-tpath="' . $e($tpath) . '"'
-			. ' data-tpath-short="' . $e($tpathShort) . '">'
-			. '<span class="stone-title">' . $e($title) . '</span>'
-			. '<span class="stone-meta">' . $e($buried) . ' · ' . $e($sid8) . $e($pos) . '</span>'
-			. '</button>';
+		return $this->renderPartial('stone', [
+			'I'           => (string) min($i, 20),
+			'SID'         => $e($sid),
+			'SID8'        => $e($sid8),
+			'TITLE'       => $e($title),
+			'WHERE'       => $e($where),
+			'DATES'       => $e($dates),
+			'TPATH'       => $e($tpath),
+			'TPATH_SHORT' => $e($tpathShort),
+			'GROUP_TITLE' => $e($groupTitle),
+			'BURIED'      => $e($buried),
+			'POS'         => $e($pos),
+		]);
 	}
 
 	/**
@@ -1641,6 +1641,31 @@ class Graveyard {
 		return '';
 	}
 
+	/** @var array<string,string> partial template cache */
+	protected array $partialCache = [];
+
+	/**
+	 * I/O. Render a per-item HTML partial from src/templates/partials/<name>.html,
+	 * substituting %%KEY%% placeholders with $vars (values must be pre-escaped by
+	 * the caller). Cached per name. Keeps stone/plot markup out of PHP strings.
+	 */
+	protected function renderPartial(string $name, array $vars): string {
+		if (!isset($this->partialCache[$name])) {
+			$tpl = '';
+			foreach ([
+				dirname(__DIR__) . "/src/templates/partials/{$name}.html",
+				__DIR__ . "/templates/partials/{$name}.html",
+				__DIR__ . "/../src/templates/partials/{$name}.html",
+			] as $p) {
+				if (is_file($p)) { $tpl = rtrim((string) file_get_contents($p), "\n"); break; }
+			}
+			$this->partialCache[$name] = $tpl;
+		}
+		$map = [];
+		foreach ($vars as $k => $v) { $map['%%' . $k . '%%'] = $v; }
+		return strtr($this->partialCache[$name], $map);
+	}
+
 	/**
 	 * PURE. Self-contained HTML overview: a full-width FIELD of compact headstones
 	 * (auto-fill grid), with workspace groups fenced into "family plots" (a
@@ -1668,8 +1693,14 @@ class Graveyard {
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
 			$cols = $this->plotColumns((string) ($u['gid'] ?? ''), count($u['members']), $generatedAt);
-			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '; --cols:' . $cols . '" data-cols="' . $cols . '" data-title="' . $e($u['title']) . '" data-gid="' . $e((string) ($u['gid'] ?? '')) . '" data-gid8="' . $e((string) ($u['gid8'] ?? '')) . '" x-show="plotVisible($el)" @click="showPlot($el)"><legend>' . $e($u['title']) . '</legend>'
-				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
+			$rows[] = $this->renderPartial('plot', [
+				'HUE'    => (string) (int) $u['hue'],
+				'COLS'   => (string) $cols,
+				'TITLE'  => $e($u['title']),
+				'GID'    => $e((string) ($u['gid'] ?? '')),
+				'GID8'   => $e((string) ($u['gid8'] ?? '')),
+				'STONES' => implode("\n", $stones),
+			]);
 		}
 
 		$count   = count($tombs);
