@@ -195,6 +195,23 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('--cols:', $html);
 	}
 
+	public function testLiveModeAutoSaveAndOneTapDelete(): void
+	{
+		// In serve/live mode: rename auto-saves debounced (no button); delete is a
+		// single button → confirm()+API. The .cmd copy-command boxes are static-only
+		// (gated !live) — they're the CLI-command UI, wrong for progressive enhancement.
+		$t = $this->tomb('lv000001-full', 'x');
+		$t['group_id'] = 'lvgid-uuid'; $t['group_title'] = 'LV'; $t['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t], '2026-07-17');
+
+		$this->assertStringContainsString('@input.debounce.600ms="live && apiRenameStone()"', $html); // stone auto-save
+		$this->assertStringContainsString('@input.debounce.600ms="live && apiRenamePlot()"', $html);  // plot auto-save
+		$this->assertStringContainsString('@click="live ? apiDeleteStone() : (confirmStone = true)"', $html); // one-tap delete
+		$this->assertStringContainsString('@click="live ? apiDeletePlot() : (confirmPlot = true)"', $html);
+		$this->assertStringContainsString('x-show="!live && renameName.trim()', $html); // copy-cmd button is static-only
+		$this->assertStringContainsString('x-show="!live && confirmStone"', $html);      // reveal step is static-only
+	}
+
 	public function testTombstoneModalHasPlotBacklink(): void
 	{
 		// A member session's tombstone modal shows a backlink to its plot modal;

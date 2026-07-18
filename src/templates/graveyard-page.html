@@ -201,6 +201,8 @@ dialog#plotmodal .card header { border-bottom-color: hsl(var(--pm-hue, 95) 30% 5
 }
 .namefield:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
 .actions .cmd { margin-top: .5rem; }
+.save-hint { color: var(--moss); letter-spacing: .06em; }
+.save-note { margin: .35rem 0 0; font: .64rem var(--mono); color: #6b7263; letter-spacing: .06em; }
 .danger-btn {
 	appearance: none; -webkit-appearance: none; margin-top: .85rem; cursor: pointer;
 	background: none; border: 1px solid rgba(196,110,110,.35); border-radius: 8px;
@@ -266,13 +268,14 @@ footer .epitaph { color: #6b7263; }
     <div id="m-body" x-ref="body"></div>
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
     <div class="actions">
-      <p class="crypt-cap">✎ rename this session</p>
-      <input class="namefield" type="text" x-model="renameName" spellcheck="false" autocomplete="off" aria-label="Session name">
-      <button type="button" class="cmd" x-show="renameName.trim() && renameName.trim() !== (item.title || '').trim()" :class="{ ok: copied.rn }" @click="live ? apiRenameStone() : copy(renameCmd(), 'rn')" x-text="live ? 'Rename' : (copied.rn ? 'copied ✓' : renameCmd())"></button>
-      <button type="button" class="danger-btn" x-show="!confirmStone" @click="confirmStone = true">☠ delete this session…</button>
-      <div x-show="confirmStone" x-cloak>
-        <p class="warn" x-text="live ? 'Permanent — removes the tombstone and its transcript for good.' : 'Permanent — removes the tombstone and its transcript for good. Run:'"></p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="live ? apiDeleteStone() : copy(deleteCmd(), 'del')" x-text="live ? 'Delete permanently' : (copied.del ? 'copied ✓' : deleteCmd())"></button>
+      <p class="crypt-cap">✎ rename this session<span class="save-hint" x-cloak x-show="live && saved.rn"> — saved ✓</span></p>
+      <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="live && apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
+      <p class="save-note" x-cloak x-show="live">changes save automatically</p>
+      <button type="button" class="cmd" x-cloak x-show="!live && renameName.trim() && renameName.trim() !== (item.title || '').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), 'rn')" x-text="copied.rn ? 'copied ✓' : renameCmd()"></button>
+      <button type="button" class="danger-btn" x-show="live || !confirmStone" @click="live ? apiDeleteStone() : (confirmStone = true)">☠ delete this session…</button>
+      <div x-show="!live && confirmStone" x-cloak>
+        <p class="warn">Permanent — removes the tombstone and its transcript for good. Run:</p>
+        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="copy(deleteCmd(), 'del')" x-text="copied.del ? 'copied ✓' : deleteCmd()"></button>
       </div>
     </div>
   </article>
@@ -293,13 +296,14 @@ footer .epitaph { color: #6b7263; }
     <p class="crypt-cap">↻ resurrect the whole plot</p>
     <button type="button" class="cmd" :class="{ ok: copied.res }" @click="copy(plot.resurrect, 'res')" x-text="copied.res ? 'copied ✓' : plot.resurrect" title="copy resurrect command"></button>
     <div class="actions">
-      <p class="crypt-cap">✎ rename this plot</p>
-      <input class="namefield" type="text" x-model="renamePlotName" spellcheck="false" autocomplete="off" aria-label="Plot name">
-      <button type="button" class="cmd" x-show="renamePlotName.trim() && renamePlotName.trim() !== (plot.title || '').trim()" :class="{ ok: copied.rnp }" @click="live ? apiRenamePlot() : copy(renamePlotCmd(), 'rnp')" x-text="live ? 'Rename' : (copied.rnp ? 'copied ✓' : renamePlotCmd())"></button>
-      <button type="button" class="danger-btn" x-show="!confirmPlot" @click="confirmPlot = true">☠ delete this whole plot…</button>
-      <div x-show="confirmPlot" x-cloak>
-        <p class="warn" x-text="live ? 'Permanent — removes every session in this plot and its manifest.' : 'Permanent — removes every session in this plot and its manifest. Run:'"></p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="live ? apiDeletePlot() : copy(deletePlotCmd(), 'delp')" x-text="live ? 'Delete permanently' : (copied.delp ? 'copied ✓' : deletePlotCmd())"></button>
+      <p class="crypt-cap">✎ rename this plot<span class="save-hint" x-cloak x-show="live && saved.rnp"> — saved ✓</span></p>
+      <input class="namefield" type="text" x-model="renamePlotName" @input.debounce.600ms="live && apiRenamePlot()" spellcheck="false" autocomplete="off" aria-label="Plot name">
+      <p class="save-note" x-cloak x-show="live">changes save automatically</p>
+      <button type="button" class="cmd" x-cloak x-show="!live && renamePlotName.trim() && renamePlotName.trim() !== (plot.title || '').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), 'rnp')" x-text="copied.rnp ? 'copied ✓' : renamePlotCmd()"></button>
+      <button type="button" class="danger-btn" x-show="live || !confirmPlot" @click="live ? apiDeletePlot() : (confirmPlot = true)">☠ delete this whole plot…</button>
+      <div x-show="!live && confirmPlot" x-cloak>
+        <p class="warn">Permanent — removes every session in this plot and its manifest. Run:</p>
+        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="copy(deletePlotCmd(), 'delp')" x-text="copied.delp ? 'copied ✓' : deletePlotCmd()"></button>
       </div>
     </div>
   </article>
@@ -321,6 +325,12 @@ document.addEventListener("alpine:init", function () {
 			renamePlotName: "",
 			confirmStone: false,
 			confirmPlot: false,
+			saved: {}, // live-mode "saved ✓" flash flags, keyed rn/rnp
+			flashSaved: function (key) {
+				this.saved[key] = true;
+				var self = this;
+				setTimeout(function () { self.saved[key] = false; }, 1400);
+			},
 			shq: function (s) { return JSON.stringify((s || "").trim()); }, // double-quoted, JSON-escaped
 			renameCmd: function () { return "graveyard rename " + (this.item.sid8 || "") + " " + this.shq(this.renameName); },
 			renamePlotCmd: function () { return "graveyard rename --workspace " + (this.plot.gid8 || "") + " " + this.shq(this.renamePlotName); },
@@ -345,6 +355,7 @@ document.addEventListener("alpine:init", function () {
 					if (!res.ok) { alert("Rename failed: " + (res.error || "unknown error")); return; }
 					self.item.title = name;
 					self.renameStoneDom(self.item.id, name);
+					self.flashSaved("rn");
 				});
 			},
 			apiDeleteStone: function () {
@@ -364,6 +375,7 @@ document.addEventListener("alpine:init", function () {
 					if (!res.ok) { alert("Rename failed: " + (res.error || "unknown error")); return; }
 					self.plot.title = name;
 					self.renamePlotDom(self.plot.gid, name);
+					self.flashSaved("rnp");
 				});
 			},
 			apiDeletePlot: function () {
