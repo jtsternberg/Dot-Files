@@ -142,6 +142,5 @@ under epics `dotfiles-55n`, `dotfiles-bgs`, `dotfiles-vn5`.
 1. Expect more "flourish" requests — keep the per-bead commit + agent-browser
    visual-verify rhythm (epic `dotfiles-rqj` closed; open a new epic for the
    next round).
-2. Gotcha for the next agent: commits are SSH-signed via the 1Password agent.
-   If commits fail with "1Password: agent returned an error", 1Password is
-   locked/needs approval — ask JT to unlock; don't disable `commit.gpgsign`.
+2. Gotcha for the next agent: commits must be signed. If signing errors,
+   stop and ask JT — never disable `commit.gpgsign` or work around it.
