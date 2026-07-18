@@ -192,6 +192,22 @@ dialog#plotmodal .card { overflow: auto; }
 	animation: exhume .25s ease-out;
 }
 @keyframes exhume { from { opacity: 0; transform: translateY(-4px); } }
+/* Live delete: the stone/plot sinks into the earth before it's removed. */
+.burying { animation: sink .78s ease-in forwards; pointer-events: none; }
+@keyframes sink {
+	0% { transform: translateY(0); opacity: 1; }
+	70% { transform: translateY(46px); opacity: .5; filter: brightness(.55); }
+	100% { transform: translateY(92px); opacity: 0; }
+}
+.toast {
+	position: fixed; left: 50%; bottom: 1.75rem; transform: translate(-50%, 1rem); opacity: 0;
+	background: var(--crypt); border: 1px solid var(--stone-edge); border-radius: 999px;
+	padding: .55rem 1.05rem; z-index: 300; pointer-events: none;
+	font: .74rem var(--mono); color: var(--inscription); letter-spacing: .04em;
+	box-shadow: 0 10px 24px -12px rgba(0,0,0,.9);
+	transition: opacity .22s ease, transform .22s ease;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
 .medallion {
 	position: absolute; top: .85rem; right: .95rem; width: 1.9rem; height: 1.9rem;
 	border-radius: 50%; background: rgba(233,228,214,.04);
@@ -270,6 +286,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 @media (prefers-reduced-motion: reduce) {
 	.stone, #m-body pre, .fog { animation: none; }
 	.stone:hover, .stone:focus-visible { transform: none; }
+	.burying { animation: none; }
 }
 @media (max-width: 560px) {
 	h1 { letter-spacing: .12em; }
@@ -357,6 +374,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
   </article>
 </dialog>
 <div class="fog" aria-hidden="true"></div>
+<div class="toast" id="gy-toast" role="status" aria-live="polite"></div>
 <script>
 document.addEventListener("alpine:init", function () {
 	Alpine.data("graveyard", function () {
@@ -411,8 +429,8 @@ document.addEventListener("alpine:init", function () {
 				var self = this;
 				this.apiCall("/api/delete", { scope: "session", id: this.item.id }).then(function (res) {
 					if (!res.ok) { alert("Delete failed: " + (res.error || "unknown error")); return; }
-					self.removeStoneDom(self.item.id);
 					self.$refs.dlg.close();
+					self.buryThenRemove('.stone[data-id="' + self.cssEsc(self.item.id) + '"]', function () { self.removeStoneDom(self.item.id); }, "The session has been returned to the earth.");
 				});
 			},
 			apiRenamePlot: function () {
@@ -431,12 +449,34 @@ document.addEventListener("alpine:init", function () {
 				var self = this;
 				this.apiCall("/api/delete", { scope: "group", id: this.plot.gid }).then(function (res) {
 					if (!res.ok) { alert("Delete failed: " + (res.error || "unknown error")); return; }
-					self.removePlotDom(self.plot.gid);
 					self.$refs.plotdlg.close();
+					self.buryThenRemove('fieldset.plot[data-gid="' + self.cssEsc(self.plot.gid) + '"]', function () { self.removePlotDom(self.plot.gid); }, "The whole plot has been returned to the earth.");
 				});
 			},
 			cssEsc: function (s) {
 				return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/(["\\])/g, "\\$1");
+			},
+			reduceMotion: function () {
+				return typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+			},
+			// Live delete flourish: play the "sink into the earth" animation on the
+			// target element, THEN run remover + toast. Under prefers-reduced-motion
+			// (or if the element is gone) skip straight to removal, keeping the toast.
+			buryThenRemove: function (selector, remover, message) {
+				var self = this;
+				var el = document.querySelector(selector);
+				var done = function () { remover(); self.toast(message); };
+				if (!el || this.reduceMotion()) { done(); return; }
+				el.classList.add("burying");
+				setTimeout(done, 780);
+			},
+			toast: function (message) {
+				var t = document.getElementById("gy-toast");
+				if (!t) { return; }
+				t.textContent = message;
+				t.classList.add("show");
+				clearTimeout(this._toastTimer);
+				this._toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2400);
 			},
 			renameStoneDom: function (id, name) {
 				var el = document.querySelector('.stone[data-id="' + this.cssEsc(id) + '"]');
