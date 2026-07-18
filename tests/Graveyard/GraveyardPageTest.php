@@ -195,6 +195,18 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('--cols:', $html);
 	}
 
+	public function testTombstoneModalHasPlotBacklink(): void
+	{
+		// A member session's tombstone modal shows a backlink to its plot modal;
+		// stones carry data-group-title and the modal binds item.plotTitle.
+		$t = $this->tomb('bk000001-full', 'member');
+		$t['group_id'] = 'bkgid-uuid'; $t['group_title'] = 'Back Plot'; $t['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t], '2026-07-17');
+		$this->assertStringContainsString('data-group-title="Back Plot"', $html); // stone carries its plot title
+		$this->assertStringContainsString('backToPlot', $html);                   // backlink handler
+		$this->assertStringContainsString('item.plotTitle', $html);               // shown in the tombstone modal
+	}
+
 	public function testPageStylesCodeAndTemplateExtracted(): void
 	{
 		// <code> is styled, and the page is assembled from the template file

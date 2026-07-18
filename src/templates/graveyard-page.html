@@ -134,6 +134,15 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 .idcopy.ok { color: var(--moss); }
 .card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
 .crypt-cap { margin: .8rem 0 0; font: .68rem var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--moss); }
+.plot-backlink {
+	display: inline-block; margin: .35rem 0 0; padding: .18rem .5rem;
+	background: none; border: 1px solid var(--stone-edge); border-radius: 999px;
+	color: var(--weathered); font: .7rem var(--mono); letter-spacing: .04em; cursor: pointer;
+	transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+.plot-backlink:hover, .plot-backlink:focus-visible {
+	color: var(--moss); border-color: rgba(168,193,150,.5); background: rgba(168,193,150,.06); outline: none;
+}
 #m-body pre {
 	max-height: 50vh; overflow: auto; overscroll-behavior: contain; margin: .4rem 0 0;
 	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
@@ -252,6 +261,7 @@ footer .epitaph { color: #6b7263; }
     </header>
     <p class="meta" id="m-where" x-text="item.where"></p>
     <p class="meta" id="m-dates" x-text="item.dates"></p>
+    <button type="button" class="plot-backlink" x-cloak x-show="item.plotTitle" @click="backToPlot()">⤴ part of the “<span x-text="item.plotTitle"></span>” plot</button>
     <div id="m-body" x-ref="body"></div>
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
     <div class="actions">
@@ -360,9 +370,12 @@ document.addEventListener("alpine:init", function () {
 			},
 			show: function (el) {
 				var d = el.dataset;
+				var plotEl = el.closest("fieldset.plot");
+				this._itemPlotEl = plotEl;
 				this.item = {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
-					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort
+					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort,
+					plotTitle: plotEl ? plotEl.dataset.title : ""
 				};
 				this.renameName = d.title;
 				this.confirmStone = false;
@@ -398,6 +411,10 @@ document.addEventListener("alpine:init", function () {
 						return;
 					}
 				}
+			},
+			// From a member's tombstone modal, jump back up to its plot modal.
+			backToPlot: function () {
+				if (this._itemPlotEl) { this.$refs.dlg.close(); this.showPlot(this._itemPlotEl); }
 			},
 			onClose: function () { this.copied = {}; this.confirmStone = false; this.confirmPlot = false; },
 			exhume: function (id) {
