@@ -97,7 +97,7 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('Alpine.data("graveyard"', $html); // component defined
 		$this->assertStringContainsString('alpine:init', $html);             // registered before init
 		$this->assertStringNotContainsString('<script src=', $html);         // inlined, not linked
-		$this->assertStringContainsString('@click="show(', $html);           // declarative stone open
+		$this->assertStringContainsString('@click.stop="show(', $html);      // declarative stone open
 	}
 
 	public function testPageHasSearchFilter(): void
@@ -115,6 +115,25 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('x-show="stoneVisible($el)"', $html); // stones filter
 		$this->assertStringContainsString('x-show="plotVisible($el)"', $html);  // plots filter
 		$this->assertStringContainsString('data-title="Gamma Plot"', $html);    // plot title for matching
+	}
+
+	public function testPageHtmlPlotDetailsAndResurrectCommand(): void
+	{
+		// Clicking a plot's background (not a member stone) opens a details dialog
+		// with the group name, members, and a copyable whole-group resurrect
+		// command (graveyard resurrect --workspace <8-char group id>). Member
+		// clicks must NOT bubble to the plot handler.
+		$t1 = $this->tomb('pd111111-full', 'member one', '2026-07-10T00:00:00Z');
+		$t1['group_id'] = 'abcd1234-uuid-rest'; $t1['group_title'] = 'My Plot'; $t1['group_pos'] = 0;
+		$t2 = $this->tomb('pd222222-full', 'member two', '2026-07-10T00:00:00Z');
+		$t2['group_id'] = 'abcd1234-uuid-rest'; $t2['group_title'] = 'My Plot'; $t2['group_pos'] = 1;
+		$html = $this->gy->pageHtml([$t1, $t2], '2026-07-17');
+
+		$this->assertStringContainsString('data-gid8="abcd1234"', $html);   // short group id on the fieldset
+		$this->assertStringContainsString('@click="showPlot($el)"', $html); // click plot bg → details
+		$this->assertStringContainsString('@click.stop="show($el)"', $html); // member click doesn't bubble
+		$this->assertStringContainsString('id="plotmodal"', $html);          // dedicated plot dialog
+		$this->assertStringContainsString('resurrect --workspace', $html);   // whole-group command
 	}
 
 	public function testPageHtmlEmptyGraveyard(): void
@@ -226,7 +245,8 @@ final class GraveyardPageTest extends TestCase
 		// circle, glyph centered, moss hover) — not a bare text ✕.
 		$html = $this->gy->pageHtml([$this->tomb('cls00001-full', 'close test')], '2026-07-17');
 		$this->assertStringContainsString('id="m-close"', $html);
-		$this->assertStringContainsString('#m-close {', $html);
+		$this->assertStringContainsString('class="medallion"', $html); // shared by both modals' close buttons
+		$this->assertStringContainsString('.medallion {', $html);
 		$this->assertStringContainsString('border-radius: 50%', $html);
 		$this->assertStringContainsString('place-items: center', $html);
 	}

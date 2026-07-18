@@ -1325,6 +1325,8 @@ class Graveyard {
 				'type'    => 'plot',
 				'sort'    => $max,
 				'title'   => $title !== '' ? $title : '(family plot)',
+				'gid'     => (string) $gid,
+				'gid8'    => substr((string) $gid, 0, 8),
 				'hue'     => $this->plotHue((string) $gid),
 				'members' => $members,
 				'ord'     => $ord++,
@@ -1416,7 +1418,7 @@ class Graveyard {
 			. $pos;
 
 		return '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
-			. ' @click="show($el)"'
+			. ' @click.stop="show($el)"'
 			. ' x-show="stoneVisible($el)"'
 			. ' data-id="' . $e($sid) . '"'
 			. ' data-sid8="' . $e($sid8) . '"'
@@ -1474,7 +1476,7 @@ class Graveyard {
 			foreach ($u['members'] as $t) { $stones[] = $this->stoneHtml($t, $i++, $home); }
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
-			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '" data-title="' . $e($u['title']) . '" x-show="plotVisible($el)"><legend>' . $e($u['title']) . '</legend>'
+			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '" data-title="' . $e($u['title']) . '" data-gid="' . $e((string) ($u['gid'] ?? '')) . '" data-gid8="' . $e((string) ($u['gid8'] ?? '')) . '" x-show="plotVisible($el)" @click="showPlot($el)"><legend>' . $e($u['title']) . '</legend>'
 				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
 		}
 
@@ -1580,10 +1582,10 @@ fieldset.plot legend {
 fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
 .plot-stones { display: flex; flex-wrap: wrap; gap: 1.1rem; padding-top: .35rem; }
 .plot-stones .stone { flex: 0 0 172px; }
-body:has(dialog#plot[open]) { overflow: hidden; }
-dialog#plot { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
-dialog#plot::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }
-dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; overscroll-behavior: contain; }
+body:has(dialog#plot[open]), body:has(dialog#plotmodal[open]) { overflow: hidden; }
+dialog#plot, dialog#plotmodal { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
+dialog#plot::backdrop, dialog#plotmodal::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }
+dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh; overflow: auto; overscroll-behavior: contain; }
 .card {
 	background: linear-gradient(180deg, #21261f, var(--stone) 32%);
 	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
@@ -1610,7 +1612,7 @@ dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; oversc
 	animation: exhume .25s ease-out;
 }
 @keyframes exhume { from { opacity: 0; transform: translateY(-4px); } }
-#m-close {
+.medallion {
 	position: absolute; top: .85rem; right: .95rem; width: 1.9rem; height: 1.9rem;
 	border-radius: 50%; background: rgba(233,228,214,.04);
 	border: 1px solid var(--stone-edge); color: var(--weathered);
@@ -1618,11 +1620,25 @@ dialog#plot .card { position: relative; max-height: 86vh; overflow: auto; oversc
 	cursor: pointer; padding: 0;
 	transition: color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
-#m-close:hover, #m-close:focus-visible {
+.medallion:hover, .medallion:focus-visible {
 	color: var(--moss); border-color: rgba(168,193,150,.6); outline: none;
 	box-shadow: 0 0 0 1px rgba(168,193,150,.25), 0 0 12px rgba(168,193,150,.15);
 	transform: rotate(90deg);
 }
+.plot-name { font: 600 1.12rem/1.35 var(--serif); }
+.plot-count { font: .72rem var(--mono); color: var(--weathered); letter-spacing: .08em; white-space: nowrap; flex-shrink: 0; }
+.member-list { list-style: none; margin: .5rem 0 0; padding: 0; }
+.member-list li { display: flex; gap: .6rem; align-items: baseline; padding: .3rem 0; border-bottom: 1px solid rgba(233,228,214,.06); }
+.member-id { font: .68rem var(--mono); color: var(--moss); letter-spacing: .05em; flex-shrink: 0; }
+.member-title { font-size: .86rem; overflow-wrap: anywhere; }
+.cmd {
+	display: block; width: 100%; margin: .35rem 0 0; text-align: left; cursor: copy;
+	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
+	padding: .6rem .8rem; font: .78rem var(--mono); color: #b9c0ae; letter-spacing: .03em; overflow-wrap: anywhere;
+	transition: border-color .16s ease, color .16s ease;
+}
+.cmd:hover, .cmd:focus-visible { border-color: rgba(168,193,150,.4); color: var(--inscription); outline: none; }
+.cmd.ok { color: var(--moss); border-color: rgba(168,193,150,.4); }
 .tpath {
 	display: block; margin: .55rem 0 0; padding: 0; background: none; border: none;
 	font: .68rem var(--mono); color: var(--weathered); letter-spacing: .04em;
@@ -1666,15 +1682,32 @@ footer .epitaph { color: #6b7263; }
 </footer>
 <dialog id="plot" x-ref="dlg" @close="onClose()" @click.self="$refs.dlg.close()">
   <article class="card">
-    <form method="dialog"><button id="m-close" aria-label="Close">✕</button></form>
+    <form method="dialog"><button id="m-close" class="medallion" aria-label="Close">✕</button></form>
     <header>
       <h2 id="m-title" x-text="item.title"></h2>
-      <button type="button" id="m-id" class="idcopy" :class="{ ok: copiedId }" @click="copy(item.id, \'id\')" x-text="copiedId ? \'copied ✓\' : item.sid8" title="copy full session id"></button>
+      <button type="button" id="m-id" class="idcopy" :class="{ ok: copied.id }" @click="copy(item.id, \'id\')" x-text="copied.id ? \'copied ✓\' : item.sid8" title="copy full session id"></button>
     </header>
     <p class="meta" id="m-where" x-text="item.where"></p>
     <p class="meta" id="m-dates" x-text="item.dates"></p>
     <div id="m-body" x-ref="body"></div>
-    <button type="button" id="m-tpath" class="tpath" :class="{ ok: copiedPath }" @click="copy(item.tpath, \'path\')" x-text="copiedPath ? \'copied ✓\' : item.tpathShort" title="copy full transcript path"></button>
+    <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, \'path\')" x-text="copied.path ? \'copied ✓\' : item.tpathShort" title="copy full transcript path"></button>
+  </article>
+</dialog>
+<dialog id="plotmodal" x-ref="plotdlg" @close="onClose()" @click.self="$refs.plotdlg.close()">
+  <article class="card">
+    <form method="dialog"><button class="medallion" aria-label="Close">✕</button></form>
+    <header>
+      <h2 class="plot-name" x-text="plot.title"></h2>
+      <span class="plot-count" x-text="(plot.members ? plot.members.length : 0) + (plot.members && plot.members.length === 1 ? \' session\' : \' sessions\')"></span>
+    </header>
+    <p class="crypt-cap">🥀 family plot</p>
+    <ul class="member-list">
+      <template x-for="m in plot.members" :key="m.sid8">
+        <li><span class="member-id" x-text="m.sid8"></span><span class="member-title" x-text="m.title"></span></li>
+      </template>
+    </ul>
+    <p class="crypt-cap">↻ resurrect the whole plot</p>
+    <button type="button" class="cmd" :class="{ ok: copied.res }" @click="copy(plot.resurrect, \'res\')" x-text="copied.res ? \'copied ✓\' : plot.resurrect" title="copy resurrect command"></button>
   </article>
 </dialog>
 <div class="fog" aria-hidden="true"></div>
@@ -1683,8 +1716,8 @@ document.addEventListener("alpine:init", function () {
 	Alpine.data("graveyard", function () {
 		return {
 			item: {},
-			copiedId: false,
-			copiedPath: false,
+			plot: {},
+			copied: {},
 			search: "",
 			matchText: function (text) {
 				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
@@ -1712,12 +1745,22 @@ document.addEventListener("alpine:init", function () {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort
 				};
-				this.copiedId = false;
-				this.copiedPath = false;
+				this.copied = {};
 				this.$refs.dlg.showModal();
 				this.exhume(d.id);
 			},
-			onClose: function () { this.copiedId = false; this.copiedPath = false; },
+			showPlot: function (el) {
+				var stones = [].slice.call(el.querySelectorAll(".stone"));
+				this.plot = {
+					title: el.dataset.title,
+					gid8: el.dataset.gid8,
+					resurrect: "graveyard resurrect --workspace " + el.dataset.gid8,
+					members: stones.map(function (s) { return { sid8: s.dataset.sid8, title: s.dataset.title }; })
+				};
+				this.copied = {};
+				this.$refs.plotdlg.showModal();
+			},
+			onClose: function () { this.copied = {}; },
 			exhume: function (id) {
 				var body = this.$refs.body;
 				body.innerHTML = \'<p class="none">⛏ exhuming…</p>\';
@@ -1739,12 +1782,12 @@ document.addEventListener("alpine:init", function () {
 				s.onerror = function () { body.innerHTML = \'<p class="none">(no transcript archived)</p>\'; };
 				document.head.appendChild(s);
 			},
-			copy: function (text, which) {
+			copy: function (text, key) {
 				if (!text) { return; }
 				var self = this;
 				var flash = function () {
-					if (which === "id") { self.copiedId = true; setTimeout(function () { self.copiedId = false; }, 900); }
-					else { self.copiedPath = true; setTimeout(function () { self.copiedPath = false; }, 900); }
+					self.copied[key] = true;
+					setTimeout(function () { self.copied[key] = false; }, 900);
 				};
 				if (navigator.clipboard && navigator.clipboard.writeText) {
 					navigator.clipboard.writeText(text).then(flash, function () { self.legacyCopy(text); flash(); });
