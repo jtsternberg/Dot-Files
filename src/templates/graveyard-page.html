@@ -134,16 +134,16 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 .card {
 	background: linear-gradient(180deg, #21261f, var(--stone) 32%);
 	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
-	border-radius: 22px 22px 16px 16px;
-	corner-shape: round round bevel bevel; /* stone-slab base */
+	border-radius: 16px 16px 0 0; /* small corners; square base — tombstone, buried */
+	corner-shape: round round square square; /* top shape overridden per-grave inline (item.crownShape) */
 	padding: 1.35rem 1.6rem 1.15rem;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 30px -18px rgba(0,0,0,.85);
 }
 /* Headstone crown silhouettes — top varies per grave (seeded by session id),
-   bottom always square (buried in the ground). Shared by the field's stones AND
-   the tombstone modal card (:class="item.crown"), so an opened grave matches the
-   headstone you clicked. Placed after .card so it wins the border-radius tie.
-   corner-shape degrades to the border-radius where unsupported. */
+   bottom always square (buried in the ground). The opened tombstone modal
+   reuses the clicked stone's TOP corner-shape (via item.crownShape) but at the
+   card's own small radius, so it's a corner accent — not a full arch that would
+   clip the title. corner-shape degrades to border-radius where unsupported. */
 .crown-0 { border-radius: 46% 46% 0 0 / 34px 34px 0 0; corner-shape: round round square square; }               /* rounded arch */
 .crown-1 { border-radius: 60% 60% 0 0 / 60px 60px 0 0; corner-shape: superellipse(0.5) superellipse(0.5) square square; } /* gothic peak */
 .crown-2 { border-radius: 34px 34px 0 0; corner-shape: squircle squircle square square; }                        /* soft squircle shoulders */
@@ -290,7 +290,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
   <p class="epitaph">❦</p>
 </footer>
 <dialog id="plot" x-ref="dlg" @close="onClose()" @click.self="$refs.dlg.close()">
-  <article class="card" :class="item.crown">
+  <article class="card" :style="item.crownShape ? ('corner-shape:' + item.crownShape) : ''">
     <form method="dialog"><button id="m-close" class="medallion" aria-label="Close">✕</button></form>
     <header>
       <h2 id="m-title" x-text="item.title"></h2>
@@ -507,7 +507,13 @@ document.addEventListener("alpine:init", function () {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort,
 					plotTitle: plotEl ? plotEl.dataset.title : "",
-					crown: (el.className.match(/crown-\d/) || [""])[0]
+					crownShape: (function () {
+						// Reuse the clicked headstone's top corner-shape on the modal, but at
+						// the card's own small radius — so it's a corner accent, not a full arch.
+						var cs = getComputedStyle(el).getPropertyValue("corner-shape").trim();
+						var top = cs ? (cs.split(" ")[0] || "round") : "round";
+						return top + " " + top + " square square";
+					})()
 				};
 				this.renameName = d.title;
 				this.confirmStone = false;
@@ -561,6 +567,7 @@ document.addEventListener("alpine:init", function () {
 					body.appendChild(cap);
 					var pre = document.createElement("pre");
 					pre.textContent = text;
+					pre.contentEditable = true;
 					body.appendChild(pre);
 					pre.scrollTop = pre.scrollHeight;
 				};
