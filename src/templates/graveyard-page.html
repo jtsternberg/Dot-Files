@@ -169,9 +169,10 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
    "family plot" record at a glance. */
 dialog#plotmodal .card {
 	background: linear-gradient(180deg, #262b21, #1d2218 60%);
-	border: 1px solid hsl(var(--pm-hue, 95) 30% 40% / .55);
-	border-left: 3px solid hsl(var(--pm-hue, 95) 42% 60% / .8);
-	border-radius: 6px 6px 6px 14px;
+	/* A chunky dashed "fence" — the fieldset.plot fence, zoomed in. */
+	border: 3px dashed hsl(var(--pm-hue, 95) 36% 58% / .7);
+	border-radius: 12px;
+	box-shadow: inset 0 0 0 1px hsl(var(--pm-hue, 95) 30% 45% / .15), 0 18px 30px -18px rgba(0,0,0,.85);
 }
 dialog#plotmodal .card header { border-bottom-color: hsl(var(--pm-hue, 95) 30% 50% / .25); }
 .plot-name { font: 600 1.12rem/1.35 var(--serif); color: hsl(var(--pm-hue, 95) 40% 80%); }

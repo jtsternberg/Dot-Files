@@ -224,7 +224,8 @@ final class GraveyardPageTest extends TestCase
 		$t['group_id'] = 'pmgid-uuid'; $t['group_title'] = 'P'; $t['group_pos'] = 0;
 		$html = $this->gy->pageHtml([$t], '2026-07-17');
 		$this->assertStringContainsString('dialog#plotmodal .card {', $html); // distinct styling
-		$this->assertStringContainsString('--pm-hue', $html);                 // hue-tinted spine
+		$this->assertStringContainsString('--pm-hue', $html);                 // hue-tinted
+		$this->assertMatchesRegularExpression('/dialog#plotmodal \.card \{[^}]*dashed/s', $html); // chunky fence
 		$this->assertStringContainsString('@click="openMember(', $html);      // member → tombstone modal
 		$this->assertStringContainsString('openMember: function', $html);
 	}
