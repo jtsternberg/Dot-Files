@@ -100,15 +100,6 @@ main#yard {
 	animation-delay: calc(var(--i, 0) * 30ms);
 }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
-/* Headstone crown silhouettes — top varies per grave (seeded by session id),
-   bottom always square (buried in the ground). corner-shape degrades to the
-   border-radius where unsupported. */
-.crown-0 { border-radius: 46% 46% 0 0 / 34px 34px 0 0; corner-shape: round round square square; }               /* rounded arch */
-.crown-1 { border-radius: 60% 60% 0 0 / 60px 60px 0 0; corner-shape: superellipse(0.5) superellipse(0.5) square square; }                /* gothic peak */
-.crown-2 { border-radius: 34px 34px 0 0; corner-shape: squircle squircle square square; }                        /* soft squircle shoulders */
-.crown-3 { border-radius: 26px 26px 0 0; corner-shape: scoop scoop square square; }                              /* scooped shoulders */
-.crown-4 { border-radius: 46% 46% 0 0 / 46px 46px 0 0; corner-shape: superellipse(0.75) superellipse(0.75) square square; } /* pointier arch */
-.crown-5 { border-radius: 16px 16px 0 0; corner-shape: notch notch square square; }                              /* stepped shoulders */
 .stone:hover, .stone:focus-visible {
 	transform: translateY(-3px); border-color: rgba(168,193,150,.6); outline: none;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 26px -16px rgba(0,0,0,.9), 0 0 0 1px rgba(168,193,150,.25);
@@ -148,6 +139,17 @@ dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh
 	padding: 1.35rem 1.6rem 1.15rem;
 	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 30px -18px rgba(0,0,0,.85);
 }
+/* Headstone crown silhouettes — top varies per grave (seeded by session id),
+   bottom always square (buried in the ground). Shared by the field's stones AND
+   the tombstone modal card (:class="item.crown"), so an opened grave matches the
+   headstone you clicked. Placed after .card so it wins the border-radius tie.
+   corner-shape degrades to the border-radius where unsupported. */
+.crown-0 { border-radius: 46% 46% 0 0 / 34px 34px 0 0; corner-shape: round round square square; }               /* rounded arch */
+.crown-1 { border-radius: 60% 60% 0 0 / 60px 60px 0 0; corner-shape: superellipse(0.5) superellipse(0.5) square square; } /* gothic peak */
+.crown-2 { border-radius: 34px 34px 0 0; corner-shape: squircle squircle square square; }                        /* soft squircle shoulders */
+.crown-3 { border-radius: 26px 26px 0 0; corner-shape: scoop scoop square square; }                              /* scooped shoulders */
+.crown-4 { border-radius: 46% 46% 0 0 / 46px 46px 0 0; corner-shape: superellipse(0.75) superellipse(0.75) square square; } /* pointier arch */
+.crown-5 { border-radius: 16px 16px 0 0; corner-shape: notch notch square square; }                              /* stepped shoulders */
 .card header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0 1.8rem .6rem 0; margin-bottom: .55rem; border-bottom: 1px solid rgba(233,228,214,.09); }
 .card h2 { margin: 0; font-size: 1.12rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .idcopy {
@@ -288,7 +290,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
   <p class="epitaph">❦</p>
 </footer>
 <dialog id="plot" x-ref="dlg" @close="onClose()" @click.self="$refs.dlg.close()">
-  <article class="card">
+  <article class="card" :class="item.crown">
     <form method="dialog"><button id="m-close" class="medallion" aria-label="Close">✕</button></form>
     <header>
       <h2 id="m-title" x-text="item.title"></h2>
@@ -504,7 +506,8 @@ document.addEventListener("alpine:init", function () {
 				this.item = {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort,
-					plotTitle: plotEl ? plotEl.dataset.title : ""
+					plotTitle: plotEl ? plotEl.dataset.title : "",
+					crown: (el.className.match(/crown-\d/) || [""])[0]
 				};
 				this.renameName = d.title;
 				this.confirmStone = false;
