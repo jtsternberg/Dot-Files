@@ -100,6 +100,23 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('@click="show(', $html);           // declarative stone open
 	}
 
+	public function testPageHasSearchFilter(): void
+	{
+		// A search box live-filters stones AND plots by their presented title.
+		// Loose stones toggle on their own title; a plot shows if its title OR
+		// any member matches; members inside a title-matched plot all stay.
+		$t1 = $this->tomb('srch0001-full', 'alpha bug');
+		$g  = $this->tomb('srch0003-full', 'gamma member', '2026-07-13T10:00:00Z');
+		$g['group_id'] = 'gg'; $g['group_title'] = 'Gamma Plot'; $g['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t1, $g], '2026-07-17');
+
+		$this->assertStringContainsString('x-model="search"', $html);           // the search box
+		$this->assertStringContainsString('type="search"', $html);
+		$this->assertStringContainsString('x-show="stoneVisible($el)"', $html); // stones filter
+		$this->assertStringContainsString('x-show="plotVisible($el)"', $html);  // plots filter
+		$this->assertStringContainsString('data-title="Gamma Plot"', $html);    // plot title for matching
+	}
+
 	public function testPageHtmlEmptyGraveyard(): void
 	{
 		$html = $this->gy->pageHtml([], '2026-07-17T20:00:00Z');

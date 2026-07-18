@@ -1417,6 +1417,7 @@ class Graveyard {
 
 		return '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
 			. ' @click="show($el)"'
+			. ' x-show="stoneVisible($el)"'
 			. ' data-id="' . $e($sid) . '"'
 			. ' data-sid8="' . $e($sid8) . '"'
 			. ' data-title="' . $e($title) . '"'
@@ -1473,7 +1474,7 @@ class Graveyard {
 			foreach ($u['members'] as $t) { $stones[] = $this->stoneHtml($t, $i++, $home); }
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
-			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '"><legend>' . $e($u['title']) . '</legend>'
+			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '" data-title="' . $e($u['title']) . '" x-show="plotVisible($el)"><legend>' . $e($u['title']) . '</legend>'
 				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
 		}
 
@@ -1503,6 +1504,7 @@ class Graveyard {
 	--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
+[x-cloak] { display: none !important; }
 body {
 	margin: 0; padding: 1.75rem 0 4rem;
 	background:
@@ -1520,6 +1522,17 @@ header.top .meta { margin: 0; }
 .divider { display: flex; align-items: center; gap: 1rem; margin: 1.15rem 0 0; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(154,162,148,.4), transparent); }
 .divider span { font-size: .95rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
+.toolbar { display: flex; justify-content: center; margin: 1.1rem 0 0; }
+.search {
+	width: min(30rem, 82vw); appearance: none; -webkit-appearance: none;
+	background: rgba(233,228,214,.03); color: var(--inscription);
+	border: 1px solid var(--stone-edge); border-radius: 999px;
+	padding: .5rem 1rem; font: .82rem var(--mono); letter-spacing: .04em;
+	transition: border-color .16s ease, box-shadow .16s ease;
+}
+.search::placeholder { color: #6b7263; }
+.search:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
+.search::-webkit-search-cancel-button { filter: grayscale(1) brightness(1.4); cursor: pointer; }
 .web { position: fixed; top: .3rem; z-index: 2; font-size: 1.55rem; opacity: .25; filter: grayscale(.6); pointer-events: none; }
 .web-l { left: .45rem; }
 .web-r { right: .45rem; transform: scaleX(-1); }
@@ -1638,9 +1651,13 @@ footer .epitaph { color: #6b7263; }
   <h1>The Claude Graveyard</h1>
   <p class="meta">' . $count . ' session' . ($count === 1 ? '' : 's') . ' lie' . ($count === 1 ? 's' : '') . ' here · generated ' . $e($generatedAt) . '</p>
   <div class="divider" aria-hidden="true"><span>💀</span></div>
+  <div class="toolbar">
+    <input type="search" class="search" x-model="search" placeholder="search the graveyard…" aria-label="Search buried sessions" spellcheck="false" autocomplete="off">
+  </div>
 </header>
 <main id="yard">
 ' . $listing . '
+  <p class="none empty" x-cloak x-show="search.trim() && !hasMatches()">🔍<br>Nothing here matches “<span x-text="search.trim()"></span>”.</p>
 </main>
 <footer class="meta">
   <div class="divider" aria-hidden="true"><span>⚰️</span></div>
@@ -1668,6 +1685,27 @@ document.addEventListener("alpine:init", function () {
 			item: {},
 			copiedId: false,
 			copiedPath: false,
+			search: "",
+			matchText: function (text) {
+				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
+			},
+			stoneVisible: function (el) {
+				var plot = el.closest("fieldset.plot");
+				if (plot && this.matchText(plot.dataset.title)) { return true; } // plot title matches: keep all members
+				return this.matchText(el.dataset.title);
+			},
+			plotVisible: function (el) {
+				if (this.matchText(el.dataset.title)) { return true; }
+				var stones = el.querySelectorAll(".stone");
+				for (var i = 0; i < stones.length; i++) { if (this.matchText(stones[i].dataset.title)) { return true; } }
+				return false;
+			},
+			hasMatches: function () {
+				var q = this.search; // touch search so this getter re-runs on input
+				var stones = document.querySelectorAll("#yard .stone");
+				for (var i = 0; i < stones.length; i++) { if (this.stoneVisible(stones[i])) { return true; } }
+				return false;
+			},
 			show: function (el) {
 				var d = el.dataset;
 				this.item = {
