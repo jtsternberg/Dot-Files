@@ -1594,6 +1594,7 @@ class Graveyard {
 		return '    <button type="button" class="stone" style="--i:' . min($i, 20) . '"'
 			. ' @click.stop="show($el)"'
 			. ' x-show="stoneVisible($el)"'
+			. ' data-cols="1"'
 			. ' data-id="' . $e($sid) . '"'
 			. ' data-sid8="' . $e($sid8) . '"'
 			. ' data-title="' . $e($title) . '"'
@@ -1625,6 +1626,22 @@ class Graveyard {
 	}
 
 	/**
+	 * I/O. The page's HTML shell template (src/templates/graveyard-page.html),
+	 * with %%SUMMARY%% / %%LISTING%% / %%ALPINE%% placeholders that pageHtml
+	 * interpolates. Kept in a real .html file so it isn't a giant PHP string.
+	 */
+	protected function pageTemplate(): string {
+		foreach ([
+			dirname(__DIR__) . '/src/templates/graveyard-page.html', // lib in bin/
+			__DIR__ . '/templates/graveyard-page.html',              // lib moved into src/
+			__DIR__ . '/../src/templates/graveyard-page.html',
+		] as $p) {
+			if (is_file($p)) { return (string) file_get_contents($p); }
+		}
+		return '';
+	}
+
+	/**
 	 * PURE. Self-contained HTML overview: a full-width FIELD of compact headstones
 	 * (auto-fill grid), with workspace groups fenced into "family plots" (a
 	 * <fieldset> per group, legend = group title, members in tab order). Clicking
@@ -1651,7 +1668,7 @@ class Graveyard {
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
 			$cols = $this->plotColumns((string) ($u['gid'] ?? ''), count($u['members']), $generatedAt);
-			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '; --cols:' . $cols . '" data-title="' . $e($u['title']) . '" data-gid="' . $e((string) ($u['gid'] ?? '')) . '" data-gid8="' . $e((string) ($u['gid8'] ?? '')) . '" x-show="plotVisible($el)" @click="showPlot($el)"><legend>' . $e($u['title']) . '</legend>'
+			$rows[] = '    <fieldset class="plot" style="--plot-hue:' . (int) $u['hue'] . '; --cols:' . $cols . '" data-cols="' . $cols . '" data-title="' . $e($u['title']) . '" data-gid="' . $e((string) ($u['gid'] ?? '')) . '" data-gid8="' . $e((string) ($u['gid8'] ?? '')) . '" x-show="plotVisible($el)" @click="showPlot($el)"><legend>' . $e($u['title']) . '</legend>'
 				. '<div class="plot-stones">' . "\n" . implode("\n", $stones) . "\n" . '    </div></fieldset>';
 		}
 
@@ -1660,388 +1677,14 @@ class Graveyard {
 			? implode("\n", $rows)
 			: '    <p class="none empty">🪦<br>The graveyard is empty — no sessions lie here yet.</p>';
 
-		return '<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude Graveyard</title>
-<style>
-:root {
-	color-scheme: dark;
-	--bg: #0b0d0b;
-	--mist: #12160f;
-	--stone: #1b1f1a;
-	--stone-edge: #2e342c;
-	--inscription: #e9e4d6;
-	--weathered: #9aa294;
-	--moss: #a8c196;
-	--crypt: #070907;
-	--serif: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-	--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-}
-* { box-sizing: border-box; }
-[x-cloak] { display: none !important; }
-body {
-	margin: 0; padding: 1.75rem 0 4rem;
-	background:
-		radial-gradient(ellipse 90% 45% at 50% -8%, rgba(168,193,150,.07), transparent 65%),
-		linear-gradient(var(--mist), var(--bg) 45%) fixed,
-		var(--bg);
-	color: var(--inscription);
-	font: 15px/1.6 var(--serif);
-}
-header.top { text-align: center; padding: 0 clamp(1rem, 3.5vw, 3rem); margin-bottom: 1.6rem; }
-.crest { font-size: 2.1rem; line-height: 1.25; filter: grayscale(.4) brightness(.9); text-shadow: 0 6px 16px rgba(0,0,0,.65); }
-h1 { margin: .3rem 0 .45rem; font: 500 clamp(1.05rem, 2.2vw, 1.5rem)/1.2 var(--serif); letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
-header.top .meta { margin: 0; }
-.meta { color: var(--weathered); font: .78rem var(--mono); letter-spacing: .04em; }
-.divider { display: flex; align-items: center; gap: 1rem; margin: 1.15rem 0 0; }
-.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(154,162,148,.4), transparent); }
-.divider span { font-size: .95rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
-.toolbar { display: flex; justify-content: center; margin: 1.1rem 0 0; }
-.search {
-	width: min(30rem, 82vw); appearance: none; -webkit-appearance: none;
-	background: rgba(233,228,214,.03); color: var(--inscription);
-	border: 1px solid var(--stone-edge); border-radius: 999px;
-	padding: .5rem 1rem; font: .82rem var(--mono); letter-spacing: .04em;
-	transition: border-color .16s ease, box-shadow .16s ease;
-}
-.search::placeholder { color: #6b7263; }
-.search:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
-.search::-webkit-search-cancel-button { filter: grayscale(1) brightness(1.4); cursor: pointer; }
-.web { position: fixed; top: .3rem; z-index: 2; font-size: 1.55rem; opacity: .25; filter: grayscale(.6); pointer-events: none; }
-.web-l { left: .45rem; }
-.web-r { right: .45rem; transform: scaleX(-1); }
-.fog {
-	position: fixed; left: 0; right: 0; bottom: 0; height: 32vh; z-index: 1; pointer-events: none;
-	background:
-		radial-gradient(ellipse 65% 100% at 18% 105%, rgba(154,162,148,.09), transparent 70%),
-		radial-gradient(ellipse 55% 90% at 78% 105%, rgba(154,162,148,.07), transparent 70%);
-	animation: drift 26s ease-in-out infinite alternate;
-}
-@keyframes drift { from { transform: translateX(-2.5%); } to { transform: translateX(2.5%); } }
-main#yard { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.1rem; padding: 0 clamp(1rem, 3.5vw, 3rem); }
-main#yard > .stone { flex: 1 1 172px; max-width: 230px; }
-.stone {
-	appearance: none; -webkit-appearance: none; font: inherit; text-align: left; cursor: pointer;
-	color: var(--inscription);
-	background: linear-gradient(180deg, #23291f, var(--stone) 45%);
-	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
-	border-radius: 46% 46% 6px 6px / 26px 26px 6px 6px;
-	padding: 1.4rem .95rem .8rem; min-height: 8.25rem;
-	display: flex; flex-direction: column; gap: .4rem;
-	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 14px 22px -16px rgba(0,0,0,.85);
-	transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
-	animation: rise .45s ease-out both;
-	animation-delay: calc(var(--i, 0) * 30ms);
-}
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
-.stone:hover, .stone:focus-visible {
-	transform: translateY(-3px); border-color: rgba(168,193,150,.6); outline: none;
-	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 26px -16px rgba(0,0,0,.9), 0 0 0 1px rgba(168,193,150,.25);
-}
-.stone-title { font: 600 .86rem/1.35 var(--serif); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.stone-meta { margin-top: auto; font: .66rem var(--mono); color: var(--weathered); letter-spacing: .05em; }
-.empty { flex: 1 1 100%; text-align: center; font-size: 1rem; line-height: 2.2; padding: 3rem 0; }
-.none { color: #6b7263; font-style: italic; font-size: .88rem; }
-fieldset.plot {
-	flex: 0 1 auto; max-width: 100%; min-width: 0; margin: 0; padding: 0 .9rem .95rem;
-	border: 1px dashed hsl(var(--plot-hue, 95) 34% 62% / .6); border-radius: 12px;
-	background: hsl(var(--plot-hue, 95) 30% 58% / .075);
-}
-fieldset.plot legend {
-	padding: 0 .55rem; font: .72rem var(--mono); letter-spacing: .18em;
-	text-transform: uppercase; color: hsl(var(--plot-hue, 95) 42% 72%);
-}
-fieldset.plot legend::before { content: "🥀 "; filter: grayscale(.45); }
-.plot-stones { display: grid; grid-template-columns: repeat(var(--cols, 1), 172px); gap: 1.1rem; padding-top: .35rem; }
-.plot-stones .stone { width: 172px; }
-body:has(dialog#plot[open]), body:has(dialog#plotmodal[open]) { overflow: hidden; }
-dialog#plot, dialog#plotmodal { margin: auto; padding: 0; border: none; background: transparent; width: min(760px, 92vw); }
-dialog#plot::backdrop, dialog#plotmodal::backdrop { background: rgba(4,6,4,.72); backdrop-filter: blur(2px); }
-dialog#plot .card, dialog#plotmodal .card { position: relative; max-height: 86vh; overflow: auto; overscroll-behavior: contain; }
-.card {
-	background: linear-gradient(180deg, #21261f, var(--stone) 32%);
-	border: 1px solid var(--stone-edge); border-bottom: 3px solid var(--stone-edge);
-	border-radius: 22px 22px 6px 6px;
-	padding: 1.35rem 1.6rem 1.15rem;
-	box-shadow: inset 0 1px 0 rgba(233,228,214,.05), 0 18px 30px -18px rgba(0,0,0,.85);
-}
-.card header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0 1.8rem .6rem 0; margin-bottom: .55rem; border-bottom: 1px solid rgba(233,228,214,.09); }
-.card h2 { margin: 0; font-size: 1.12rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
-.idcopy {
-	background: none; border: 1px solid transparent; border-radius: 6px; cursor: copy;
-	font: .78rem var(--mono); color: var(--weathered); letter-spacing: .08em;
-	padding: .12rem .45rem; white-space: nowrap; flex-shrink: 0;
-}
-.idcopy:hover, .idcopy:focus-visible { color: var(--inscription); border-color: var(--stone-edge); outline: none; }
-.idcopy.ok { color: var(--moss); }
-.card .meta { margin: .18rem 0; overflow-wrap: anywhere; }
-.crypt-cap { margin: .8rem 0 0; font: .68rem var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--moss); }
-#m-body pre {
-	max-height: 50vh; overflow: auto; overscroll-behavior: contain; margin: .4rem 0 0;
-	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
-	padding: .9rem 1rem; white-space: pre-wrap; overflow-wrap: anywhere;
-	font: .8rem/1.55 var(--mono); color: #b9c0ae;
-	animation: exhume .25s ease-out;
-}
-@keyframes exhume { from { opacity: 0; transform: translateY(-4px); } }
-.medallion {
-	position: absolute; top: .85rem; right: .95rem; width: 1.9rem; height: 1.9rem;
-	border-radius: 50%; background: rgba(233,228,214,.04);
-	border: 1px solid var(--stone-edge); color: var(--weathered);
-	font-size: .8rem; line-height: 1; display: grid; place-items: center;
-	cursor: pointer; padding: 0;
-	transition: color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-}
-.medallion:hover, .medallion:focus-visible {
-	color: var(--moss); border-color: rgba(168,193,150,.6); outline: none;
-	box-shadow: 0 0 0 1px rgba(168,193,150,.25), 0 0 12px rgba(168,193,150,.15);
-	transform: rotate(90deg);
-}
-.plot-name { font: 600 1.12rem/1.35 var(--serif); }
-.plot-count { font: .72rem var(--mono); color: var(--weathered); letter-spacing: .08em; white-space: nowrap; flex-shrink: 0; }
-.member-list { list-style: none; margin: .5rem 0 0; padding: 0; }
-.member-list li { display: flex; gap: .6rem; align-items: baseline; padding: .3rem 0; border-bottom: 1px solid rgba(233,228,214,.06); }
-.member-id { font: .68rem var(--mono); color: var(--moss); letter-spacing: .05em; flex-shrink: 0; }
-.member-title { font-size: .86rem; overflow-wrap: anywhere; }
-.cmd {
-	display: block; width: 100%; margin: .35rem 0 0; text-align: left; cursor: copy;
-	background: var(--crypt); border: 1px solid #20261f; border-radius: 8px;
-	padding: .6rem .8rem; font: .78rem var(--mono); color: #b9c0ae; letter-spacing: .03em; overflow-wrap: anywhere;
-	transition: border-color .16s ease, color .16s ease;
-}
-.cmd:hover, .cmd:focus-visible { border-color: rgba(168,193,150,.4); color: var(--inscription); outline: none; }
-.cmd.ok { color: var(--moss); border-color: rgba(168,193,150,.4); }
-.actions { margin-top: 1rem; padding-top: .85rem; border-top: 1px solid rgba(233,228,214,.09); }
-.actions .crypt-cap { margin: 0 0 .35rem; }
-.namefield {
-	width: 100%; appearance: none; -webkit-appearance: none;
-	background: rgba(233,228,214,.03); color: var(--inscription);
-	border: 1px solid var(--stone-edge); border-radius: 8px;
-	padding: .45rem .7rem; font: .85rem var(--serif);
-	transition: border-color .16s ease, box-shadow .16s ease;
-}
-.namefield:focus { outline: none; border-color: rgba(168,193,150,.55); box-shadow: 0 0 0 1px rgba(168,193,150,.2); }
-.actions .cmd { margin-top: .5rem; }
-.danger-btn {
-	appearance: none; -webkit-appearance: none; margin-top: .85rem; cursor: pointer;
-	background: none; border: 1px solid rgba(196,110,110,.35); border-radius: 8px;
-	color: #c46e6e; font: .74rem var(--mono); letter-spacing: .06em;
-	padding: .4rem .7rem; transition: border-color .16s ease, color .16s ease, background .16s ease;
-}
-.danger-btn:hover, .danger-btn:focus-visible { border-color: rgba(196,110,110,.7); background: rgba(196,110,110,.08); outline: none; }
-.warn { margin: .85rem 0 0; font: .72rem/1.5 var(--mono); color: #c98a8a; letter-spacing: .02em; }
-.cmd.danger-cmd { border-color: rgba(196,110,110,.35); }
-.cmd.danger-cmd:hover, .cmd.danger-cmd:focus-visible { border-color: rgba(196,110,110,.6); }
-.cmd.danger-cmd.ok { color: var(--moss); border-color: rgba(168,193,150,.4); }
-.tpath {
-	display: block; margin: .55rem 0 0; padding: 0; background: none; border: none;
-	font: .68rem var(--mono); color: var(--weathered); letter-spacing: .04em;
-	cursor: copy; text-align: left; overflow-wrap: anywhere;
-}
-.tpath:hover, .tpath:focus-visible { color: var(--inscription); outline: none; }
-.tpath.ok { color: var(--moss); }
-footer { padding: 0 clamp(1rem, 3.5vw, 3rem); margin-top: 3rem; text-align: center; }
-footer .divider { margin: 0 0 1.1rem; }
-footer p { margin: .3rem 0; }
-footer .epitaph { color: #6b7263; }
-@media (prefers-reduced-motion: reduce) {
-	.stone, #m-body pre, .fog { animation: none; }
-}
-@media (max-width: 560px) {
-	h1 { letter-spacing: .12em; }
-	header.top .meta { font-size: .68rem; }
-}
-</style>
-</head>
-<body x-data="graveyard()">
-<span class="web web-l" aria-hidden="true">🕸</span>
-<span class="web web-r" aria-hidden="true">🕸</span>
-<header class="top">
-  <div class="crest" aria-hidden="true">🪦</div>
-  <h1>The Claude Graveyard</h1>
-  <p class="meta">' . $count . ' session' . ($count === 1 ? '' : 's') . ' lie' . ($count === 1 ? 's' : '') . ' here · generated ' . $e($generatedAt) . '</p>
-  <div class="divider" aria-hidden="true"><span>💀</span></div>
-  <div class="toolbar">
-    <input type="search" class="search" x-model="search" placeholder="search the graveyard…" aria-label="Search buried sessions" spellcheck="false" autocomplete="off">
-  </div>
-</header>
-<main id="yard">
-' . $listing . '
-  <p class="none empty" x-cloak x-show="search.trim() && !hasMatches()">🔍<br>Nothing here matches “<span x-text="search.trim()"></span>”.</p>
-</main>
-<footer class="meta">
-  <div class="divider" aria-hidden="true"><span>⚰️</span></div>
-  <p>resurrect a session: graveyard resurrect &lt;id&gt;</p>
-  <p class="epitaph">❦</p>
-</footer>
-<dialog id="plot" x-ref="dlg" @close="onClose()" @click.self="$refs.dlg.close()">
-  <article class="card">
-    <form method="dialog"><button id="m-close" class="medallion" aria-label="Close">✕</button></form>
-    <header>
-      <h2 id="m-title" x-text="item.title"></h2>
-      <button type="button" id="m-id" class="idcopy" :class="{ ok: copied.id }" @click="copy(item.id, \'id\')" x-text="copied.id ? \'copied ✓\' : item.sid8" title="copy full session id"></button>
-    </header>
-    <p class="meta" id="m-where" x-text="item.where"></p>
-    <p class="meta" id="m-dates" x-text="item.dates"></p>
-    <div id="m-body" x-ref="body"></div>
-    <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, \'path\')" x-text="copied.path ? \'copied ✓\' : item.tpathShort" title="copy full transcript path"></button>
-    <div class="actions">
-      <p class="crypt-cap">✎ rename this session</p>
-      <input class="namefield" type="text" x-model="renameName" spellcheck="false" autocomplete="off" aria-label="Session name">
-      <button type="button" class="cmd" x-show="renameName.trim() && renameName.trim() !== (item.title || \'\').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), \'rn\')" x-text="copied.rn ? \'copied ✓\' : renameCmd()"></button>
-      <button type="button" class="danger-btn" x-show="!confirmStone" @click="confirmStone = true">☠ delete this session…</button>
-      <div x-show="confirmStone" x-cloak>
-        <p class="warn">Permanent — removes the tombstone and its transcript for good. Run:</p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="copy(deleteCmd(), \'del\')" x-text="copied.del ? \'copied ✓\' : deleteCmd()"></button>
-      </div>
-    </div>
-  </article>
-</dialog>
-<dialog id="plotmodal" x-ref="plotdlg" @close="onClose()" @click.self="$refs.plotdlg.close()">
-  <article class="card">
-    <form method="dialog"><button class="medallion" aria-label="Close">✕</button></form>
-    <header>
-      <h2 class="plot-name" x-text="plot.title"></h2>
-      <span class="plot-count" x-text="(plot.members ? plot.members.length : 0) + (plot.members && plot.members.length === 1 ? \' session\' : \' sessions\')"></span>
-    </header>
-    <p class="crypt-cap">🥀 family plot</p>
-    <ul class="member-list">
-      <template x-for="m in plot.members" :key="m.sid8">
-        <li><span class="member-id" x-text="m.sid8"></span><span class="member-title" x-text="m.title"></span></li>
-      </template>
-    </ul>
-    <p class="crypt-cap">↻ resurrect the whole plot</p>
-    <button type="button" class="cmd" :class="{ ok: copied.res }" @click="copy(plot.resurrect, \'res\')" x-text="copied.res ? \'copied ✓\' : plot.resurrect" title="copy resurrect command"></button>
-    <div class="actions">
-      <p class="crypt-cap">✎ rename this plot</p>
-      <input class="namefield" type="text" x-model="renamePlotName" spellcheck="false" autocomplete="off" aria-label="Plot name">
-      <button type="button" class="cmd" x-show="renamePlotName.trim() && renamePlotName.trim() !== (plot.title || \'\').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), \'rnp\')" x-text="copied.rnp ? \'copied ✓\' : renamePlotCmd()"></button>
-      <button type="button" class="danger-btn" x-show="!confirmPlot" @click="confirmPlot = true">☠ delete this whole plot…</button>
-      <div x-show="confirmPlot" x-cloak>
-        <p class="warn">Permanent — removes every session in this plot and its manifest. Run:</p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="copy(deletePlotCmd(), \'delp\')" x-text="copied.delp ? \'copied ✓\' : deletePlotCmd()"></button>
-      </div>
-    </div>
-  </article>
-</dialog>
-<div class="fog" aria-hidden="true"></div>
-<script>
-document.addEventListener("alpine:init", function () {
-	Alpine.data("graveyard", function () {
-		return {
-			item: {},
-			plot: {},
-			copied: {},
-			search: "",
-			renameName: "",
-			renamePlotName: "",
-			confirmStone: false,
-			confirmPlot: false,
-			shq: function (s) { return JSON.stringify((s || "").trim()); }, // double-quoted, JSON-escaped
-			renameCmd: function () { return "graveyard rename " + (this.item.sid8 || "") + " " + this.shq(this.renameName); },
-			renamePlotCmd: function () { return "graveyard rename --workspace " + (this.plot.gid8 || "") + " " + this.shq(this.renamePlotName); },
-			deleteCmd: function () { return "graveyard delete " + (this.item.sid8 || ""); },
-			deletePlotCmd: function () { return "graveyard delete --workspace " + (this.plot.gid8 || ""); },
-			matchText: function (text) {
-				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
-			},
-			stoneVisible: function (el) {
-				var plot = el.closest("fieldset.plot");
-				if (plot && this.matchText(plot.dataset.title)) { return true; } // plot title matches: keep all members
-				return this.matchText(el.dataset.title);
-			},
-			plotVisible: function (el) {
-				if (this.matchText(el.dataset.title)) { return true; }
-				var stones = el.querySelectorAll(".stone");
-				for (var i = 0; i < stones.length; i++) { if (this.matchText(stones[i].dataset.title)) { return true; } }
-				return false;
-			},
-			hasMatches: function () {
-				var q = this.search; // touch search so this getter re-runs on input
-				var stones = document.querySelectorAll("#yard .stone");
-				for (var i = 0; i < stones.length; i++) { if (this.stoneVisible(stones[i])) { return true; } }
-				return false;
-			},
-			show: function (el) {
-				var d = el.dataset;
-				this.item = {
-					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
-					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort
-				};
-				this.renameName = d.title;
-				this.confirmStone = false;
-				this.copied = {};
-				this.$refs.dlg.showModal();
-				this.exhume(d.id);
-			},
-			showPlot: function (el) {
-				var stones = [].slice.call(el.querySelectorAll(".stone"));
-				this.plot = {
-					title: el.dataset.title,
-					gid8: el.dataset.gid8,
-					resurrect: "graveyard resurrect --workspace " + el.dataset.gid8,
-					members: stones.map(function (s) { return { sid8: s.dataset.sid8, title: s.dataset.title }; })
-				};
-				this.renamePlotName = el.dataset.title;
-				this.confirmPlot = false;
-				this.copied = {};
-				this.$refs.plotdlg.showModal();
-			},
-			onClose: function () { this.copied = {}; this.confirmStone = false; this.confirmPlot = false; },
-			exhume: function (id) {
-				var body = this.$refs.body;
-				body.innerHTML = \'<p class="none">⛏ exhuming…</p>\';
-				var render = function (text) {
-					body.innerHTML = "";
-					var cap = document.createElement("div");
-					cap.className = "crypt-cap";
-					cap.textContent = "⚰ exhumed transcript";
-					body.appendChild(cap);
-					var pre = document.createElement("pre");
-					pre.textContent = text;
-					body.appendChild(pre);
-					pre.scrollTop = pre.scrollHeight;
-				};
-				if (window.GYT && Object.prototype.hasOwnProperty.call(window.GYT, id)) { render(window.GYT[id]); return; }
-				var s = document.createElement("script");
-				s.src = "page-data/" + encodeURIComponent(id) + ".js";
-				s.onload = function () { render(window.GYT[id]); };
-				s.onerror = function () { body.innerHTML = \'<p class="none">(no transcript archived)</p>\'; };
-				document.head.appendChild(s);
-			},
-			copy: function (text, key) {
-				if (!text) { return; }
-				var self = this;
-				var flash = function () {
-					self.copied[key] = true;
-					setTimeout(function () { self.copied[key] = false; }, 900);
-				};
-				if (navigator.clipboard && navigator.clipboard.writeText) {
-					navigator.clipboard.writeText(text).then(flash, function () { self.legacyCopy(text); flash(); });
-				} else { this.legacyCopy(text); flash(); }
-			},
-			legacyCopy: function (text) {
-				var ta = document.createElement("textarea");
-				ta.value = text;
-				ta.setAttribute("readonly", "");
-				ta.style.position = "fixed";
-				ta.style.opacity = "0";
-				document.body.appendChild(ta);
-				ta.select();
-				try { document.execCommand("copy"); } catch (err) {}
-				document.body.removeChild(ta);
-			}
-		};
-	});
-});
-</script>
-<script>' . $this->alpineJs() . '</script>
-</body>
-</html>
-';
+		$summary = $count . ' session' . ($count === 1 ? '' : 's')
+			. ' lie' . ($count === 1 ? 's' : '') . ' here · generated ' . $e($generatedAt);
+
+		return strtr($this->pageTemplate(), [
+			'%%SUMMARY%%' => $summary,
+			'%%LISTING%%' => $listing,
+			'%%ALPINE%%'  => $this->alpineJs(),
+		]);
 	}
 
 	public function resurrect(string $prefix, bool $fromTranscript = false): void {

@@ -54,10 +54,10 @@ final class GraveyardPageTest extends TestCase
 		], '2026-07-17');
 
 		$this->assertSame(2, substr_count($html, 'class="stone"'));
-		$this->assertStringContainsString('id="yard"', $html);       // the field
-		$this->assertStringContainsString('flex-wrap: wrap', $html); // masonry-style packing
-		// nothing spans the full row — plots hug their stones, no dead space
-		$this->assertStringNotContainsString('grid-column: 1 / -1', $html);
+		$this->assertStringContainsString('id="yard"', $html);            // the field
+		$this->assertStringContainsString('grid-auto-flow: row dense', $html); // masonry packing
+		$this->assertStringContainsString('data-cols="1"', $html);        // width hint for the masonry
+		$this->assertStringContainsString('relayout', $html);             // the masonry pass
 		$this->assertStringContainsString('fix the bug', $html);
 		$this->assertStringContainsString('abc12345', $html);        // short id on the stone
 		$this->assertStringContainsString('2026-07-15', $html);      // buried date on the stone
@@ -193,6 +193,41 @@ final class GraveyardPageTest extends TestCase
 		$t2['group_id'] = 'cols-gid'; $t2['group_title'] = 'C'; $t2['group_pos'] = 1;
 		$html = $this->gy->pageHtml([$t1, $t2], '2026-07-17');
 		$this->assertStringContainsString('--cols:', $html);
+	}
+
+	public function testPageStylesCodeAndTemplateExtracted(): void
+	{
+		// <code> is styled, and the page is assembled from the template file
+		// (footer resurrect hint is wrapped in <code>).
+		$html = $this->gy->pageHtml([$this->tomb('code0001-full', 'x')], '2026-07-17');
+		$this->assertStringContainsString('code {', $html);                 // <code> styling
+		$this->assertStringContainsString('<code>graveyard resurrect', $html); // used in the footer
+	}
+
+	public function testPlotModalIsVisuallyDistinct(): void
+	{
+		// #plotmodal has its own card treatment (hue-tinted spine) separate from
+		// the tombstone modal, and members are clickable to jump to the stone.
+		$t = $this->tomb('pm000001-full', 'm', '2026-07-10T00:00:00Z');
+		$t['group_id'] = 'pmgid-uuid'; $t['group_title'] = 'P'; $t['group_pos'] = 0;
+		$html = $this->gy->pageHtml([$t], '2026-07-17');
+		$this->assertStringContainsString('dialog#plotmodal .card {', $html); // distinct styling
+		$this->assertStringContainsString('--pm-hue', $html);                 // hue-tinted spine
+		$this->assertStringContainsString('@click="openMember(', $html);      // member → tombstone modal
+		$this->assertStringContainsString('openMember: function', $html);
+	}
+
+	public function testMasonryHooksPresent(): void
+	{
+		$t1 = $this->tomb('mas00001-full', 'a', '2026-07-10T00:00:00Z');
+		$t1['group_id'] = 'masg-uuid'; $t1['group_title'] = 'M'; $t1['group_pos'] = 0;
+		$t2 = $this->tomb('mas00002-full', 'b', '2026-07-10T00:00:00Z');
+		$t2['group_id'] = 'masg-uuid'; $t2['group_title'] = 'M'; $t2['group_pos'] = 1;
+		$html = $this->gy->pageHtml([$t1, $t2], '2026-07-17');
+		$this->assertStringContainsString('grid-auto-flow: row dense', $html); // dense packing fills holes
+		$this->assertStringContainsString('relayout: function', $html);        // the JS masonry pass
+		$this->assertStringContainsString('--yard-cols', $html);
+		$this->assertMatchesRegularExpression('/<fieldset class="plot"[^>]*data-cols="2"/', $html); // plot width hint
 	}
 
 	public function testPageHtmlEmptyGraveyard(): void
