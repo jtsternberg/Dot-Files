@@ -1586,6 +1586,19 @@ class Graveyard {
 		return max(1, min($pick, $memberCount));
 	}
 
+	/** Number of headstone "crown" shapes (top silhouettes) defined in the page CSS. */
+	public const STONE_CROWNS = 6;
+
+	/**
+	 * PURE. Which crown shape a headstone wears — its top silhouette (rounded
+	 * arch, gothic bevel, squircle, scoop, …). Derived from the session id so a
+	 * grave keeps the same headstone across regenerations. Bottom stays square
+	 * (the stone is buried). Returns 0..STONE_CROWNS-1 → CSS class crown-N.
+	 */
+	public function stoneCrown(string $sessionId): int {
+		return crc32($sessionId) % self::STONE_CROWNS;
+	}
+
 	/**
 	 * PURE. Order tombstones into render units for the page: loose stones and
 	 * "family plots" (workspace groups), newest-first. A plot's sort key is its
@@ -1705,6 +1718,7 @@ class Graveyard {
 
 		return $this->renderPartial('stone', [
 			'I'           => (string) min($i, 20),
+			'CROWN'       => 'crown-' . $this->stoneCrown($sid),
 			'SID'         => $e($sid),
 			'SID8'        => $e($sid8),
 			'TITLE'       => $e($title),

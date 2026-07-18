@@ -53,7 +53,7 @@ final class GraveyardPageTest extends TestCase
 			$this->tomb('def67890-full', 'write the docs', '2026-07-14T10:00:00Z'),
 		], '2026-07-17');
 
-		$this->assertSame(2, substr_count($html, 'class="stone"'));
+		$this->assertSame(2, substr_count($html, 'class="stone crown-'));
 		$this->assertStringContainsString('id="yard"', $html);            // the field
 		$this->assertStringContainsString('grid-auto-flow: row dense', $html); // masonry packing
 		$this->assertStringContainsString('data-cols="1"', $html);        // width hint for the masonry
@@ -258,6 +258,22 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('relayout: function', $html);        // the JS masonry pass
 		$this->assertStringContainsString('--yard-cols', $html);
 		$this->assertMatchesRegularExpression('/<fieldset class="plot"[^>]*data-cols="2"/', $html); // plot width hint
+	}
+
+	public function testHeadstonesGetVariedCrownShapes(): void
+	{
+		// Each headstone's top silhouette (crown) is seeded by session id —
+		// deterministic (a grave keeps its shape), in range, and varied across graves.
+		$c = $this->gy->stoneCrown('abc12345-full');
+		$this->assertSame($c, $this->gy->stoneCrown('abc12345-full'));       // deterministic
+		$this->assertGreaterThanOrEqual(0, $c);
+		$this->assertLessThan(6, $c);
+		$vals = array_map(fn($s) => $this->gy->stoneCrown($s), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+		$this->assertGreaterThan(1, count(array_unique($vals)));              // graves differ
+
+		$html = $this->gy->pageHtml([$this->tomb('crwn0001-full', 'x')], '2026-07-17');
+		$this->assertMatchesRegularExpression('/class="stone crown-[0-5]"/', $html); // crown class on the stone
+		$this->assertStringContainsString('corner-shape: round round square square', $html); // buried base
 	}
 
 	public function testPageHtmlEmptyGraveyard(): void
