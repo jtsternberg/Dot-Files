@@ -24,27 +24,28 @@
 	cmd = ksdiff --merge --output \"$MERGED\" --base \"$BASE\" -- \"$LOCAL\" --snapshot \"$REMOTE\" --snapshot
 	trustExitCode = true
 
-; SSH commit signing via 1Password (macOS-only: op-ssh-sign path).
-; Linux needs its own signer config in .gitconfig-linux.
+; SSH commit signing via a dedicated passphraseless on-disk key (headless-safe).
+; 1Password remains the *auth* key (git push over SSH); signing was moved off
+; 1P because op-ssh-sign requires the 1P app unlocked (biometric), which blocks
+; all commits during remote/headless sessions.
 ;
-; New-machine setup (one GUI step; everything else is in this repo):
-;   1. 1Password app -> Settings -> Developer -> "Use the SSH agent" (toggle on).
-;      op-ssh-sign needs the agent running to reach the key.
-;   2. (per GitHub account, already done for jtsternberg) Add the public key at
-;      https://github.com/settings/ssh/new with Key type = "Signing Key".
-;      The committer email must be a *verified* email on that account for the
-;      "Verified" badge. Key lives in 1Password ("Github SSH Key").
-; The signing key + allowed-signers list are tracked in the repo, so no other
-; manual steps: signingkey below, and git-allowed-signers (allowedSignersFile).
+; New-machine setup:
+;   1. ssh-keygen -t ed25519 -f ~/.ssh/git_signing -C "git signing (headless)" -N ""
+;   2. Add ~/.ssh/git_signing.pub at https://github.com/settings/ssh/new with
+;      Key type = "Signing Key". The committer email must be a *verified* email
+;      on that account for the "Verified" badge.
+;      Or: gh api user/ssh_signing_keys -f title="..." -f key="$(cat ~/.ssh/git_signing.pub)"
+;   3. Append the new pubkey to ~/.dotfiles/git-allowed-signers.
+; Trade-off: key is unencrypted on disk (FileVault covers at-rest); it can only
+; sign, never authenticate — no repo/server access if lifted.
 [gpg]
 	format = ssh
 
 [gpg "ssh"]
-	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
 	allowedSignersFile = ~/.dotfiles/git-allowed-signers
 
 [user]
-	signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJswq85xKah+wqtOahkzEWDtMTOSj4hqMhmS751hiUJu
+	signingkey = ~/.ssh/git_signing
 
 [commit]
 	gpgsign = true
