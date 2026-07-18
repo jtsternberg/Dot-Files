@@ -98,4 +98,59 @@ final class GraveyardRenameDeleteTest extends TestCase
 		$m = json_decode((string) file_get_contents($root . '/workspaces/' . $gid . '/manifest.json'), true);
 		$this->assertSame('Fresh Name', $m['group_title']);
 	}
+
+	public function testPurgeSessionRemovesIndexAndArtifacts(): void
+	{
+		$root = $this->makeRoot([
+			$this->tomb('doomed11-full', 'delete me'),
+			$this->tomb('keeper22-full', 'keep me'),
+		]);
+		@mkdir($root . '/sessions/doomed11-full', 0755, true);
+		file_put_contents($root . '/sessions/doomed11-full/transcript.txt', 'body');
+		@mkdir($root . '/page-data', 0755, true);
+		file_put_contents($root . '/page-data/doomed11-full.js', 'window.GYT={};');
+
+		$gy = new Graveyard($this->cli, $this->cmux);
+		$res = $gy->purgeSession('doomed11-full');
+
+		$this->assertTrue($res['index']);
+		$this->assertTrue($res['dir']);
+		$this->assertTrue($res['js']);
+		$this->assertDirectoryDoesNotExist($root . '/sessions/doomed11-full');
+		$this->assertFileDoesNotExist($root . '/page-data/doomed11-full.js');
+
+		$sids = array_column($gy->readIndex()['tombstones'], 'session_id');
+		$this->assertSame(['keeper22-full'], $sids); // only the keeper remains
+
+		// purging an unknown id is a harmless no-op
+		$none = $gy->purgeSession('ghost000-full');
+		$this->assertFalse($none['index']);
+	}
+
+	public function testPurgeGroupRemovesAllMembersAndManifest(): void
+	{
+		$gid = 'doomedgrp-uuid';
+		$root = $this->makeRoot([
+			$this->tomb('gm111111-full', 'member one', $gid, 'Doomed', 0),
+			$this->tomb('gm222222-full', 'member two', $gid, 'Doomed', 1),
+			$this->tomb('safe0000-full', 'unrelated'),
+		]);
+		foreach (['gm111111-full', 'gm222222-full'] as $sid) {
+			@mkdir($root . '/sessions/' . $sid, 0755, true);
+			file_put_contents($root . '/sessions/' . $sid . '/transcript.txt', 'x');
+		}
+		@mkdir($root . '/workspaces/' . $gid, 0755, true);
+		file_put_contents($root . '/workspaces/' . $gid . '/manifest.json', '{}');
+
+		$gy = new Graveyard($this->cli, $this->cmux);
+		$res = $gy->purgeGroup($gid);
+
+		$this->assertSame(2, $res['removed']);
+		$this->assertDirectoryDoesNotExist($root . '/sessions/gm111111-full');
+		$this->assertDirectoryDoesNotExist($root . '/sessions/gm222222-full');
+		$this->assertDirectoryDoesNotExist($root . '/workspaces/' . $gid);
+
+		$sids = array_column($gy->readIndex()['tombstones'], 'session_id');
+		$this->assertSame(['safe0000-full'], $sids); // the unrelated session survives
+	}
 }

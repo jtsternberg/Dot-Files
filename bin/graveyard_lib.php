@@ -135,6 +135,93 @@ class Graveyard {
 			. " ({$n} session" . ($n === 1 ? '' : 's') . ") → \"{$name}\".");
 	}
 
+	/** I/O. Recursively remove a directory (or a file). No-op if absent. */
+	protected function rmrf(string $path): void {
+		if (is_file($path) || is_link($path)) { @unlink($path); return; }
+		if (!is_dir($path)) { return; }
+		$it = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::CHILD_FIRST
+		);
+		foreach ($it as $f) { $f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getPathname()); }
+		@rmdir($path);
+	}
+
+	/**
+	 * I/O. PERMANENTLY remove one buried session: its index entry, its export
+	 * dir (sessions/<id>/), and its page-data transcript (page-data/<id>.js).
+	 * Returns which pieces were actually removed. Unknown id → harmless no-op.
+	 */
+	public function purgeSession(string $sessionId): array {
+		$removed = ['session_id' => $sessionId, 'index' => false, 'dir' => false, 'js' => false];
+		$idx    = $this->readIndex();
+		$before = count($idx['tombstones'] ?? []);
+		$idx['tombstones'] = array_values(array_filter(
+			$idx['tombstones'] ?? [],
+			fn($t) => ($t['session_id'] ?? null) !== $sessionId
+		));
+		if (count($idx['tombstones']) !== $before) { $this->writeIndex($idx); $removed['index'] = true; }
+
+		$dir = $this->sessionDir($sessionId);
+		if (is_dir($dir)) { $this->rmrf($dir); $removed['dir'] = true; }
+		$js = $this->transcriptJsPath($sessionId);
+		if (is_file($js)) { @unlink($js); $removed['js'] = true; }
+		return $removed;
+	}
+
+	/**
+	 * I/O. PERMANENTLY remove a whole workspace group: every member session
+	 * (index + artifacts) and the group dir (workspaces/<gid>/, incl. manifest).
+	 * Returns the count + session ids removed.
+	 */
+	public function purgeGroup(string $groupId): array {
+		$members = array_values(array_filter(
+			$this->readIndex()['tombstones'] ?? [],
+			fn($t) => ($t['group_id'] ?? null) === $groupId
+		));
+		$sids = array_map(fn($t) => (string) $t['session_id'], $members);
+		foreach ($sids as $sid) { $this->purgeSession($sid); }
+		$wd = $this->workspaceGroupDir($groupId);
+		if (is_dir($wd)) { $this->rmrf($wd); }
+		return ['group_id' => $groupId, 'removed' => count($sids), 'sessions' => $sids];
+	}
+
+	/** Verb. Resolve a session (fuzzy), confirm unless -y, then permanently purge it. */
+	public function deleteSession(string $ref, bool $autoconfirm = false): void {
+		$res = $this->resolveTombstoneFuzzy($ref);
+		$t   = $res['match'];
+		if (!$t) {
+			if ($res['ambiguous']) { $this->cli->exitErr("'{$ref}' is ambiguous — narrow it or pass a full session-id."); }
+			$this->cli->exitErr("No buried session matches '{$ref}'.");
+		}
+		$sid   = (string) $t['session_id'];
+		$title = $this->titleizeSummary($t);
+		if (!$autoconfirm && !$this->cli->confirm("Permanently delete " . substr($sid, 0, 8) . " \"{$title}\"? This cannot be undone.")) {
+			$this->cli->msg('Left undisturbed.', 'yellow');
+			return;
+		}
+		$this->purgeSession($sid);
+		$this->cli->successMsg('Deleted ' . substr($sid, 0, 8) . " \"{$title}\".");
+	}
+
+	/** Verb. Resolve a workspace group (by id prefix), confirm unless -y, then purge the whole plot. */
+	public function deleteGroup(string $prefix, bool $autoconfirm = false): void {
+		$m = $this->resolveGroup($prefix);
+		if (!$m) { $this->cli->exitErr("No single workspace group matches '{$prefix}'."); return; }
+		$gid   = (string) $m['group_id'];
+		$title = trim((string) ($m['group_title'] ?? '')) ?: substr($gid, 0, 8);
+		$count = 0;
+		foreach ($this->readIndex()['tombstones'] ?? [] as $t) {
+			if (($t['group_id'] ?? null) === $gid) { $count++; }
+		}
+		if (!$autoconfirm && !$this->cli->confirm("Permanently delete the whole \"{$title}\" plot ({$count} session" . ($count === 1 ? '' : 's') . ")? This cannot be undone.")) {
+			$this->cli->msg('Left undisturbed.', 'yellow');
+			return;
+		}
+		$res = $this->purgeGroup($gid);
+		$this->cli->successMsg("Deleted the \"{$title}\" plot ({$res['removed']} session" . ($res['removed'] === 1 ? '' : 's') . ").");
+	}
+
 	public function buildTombstone(array $session, array $surface, string $summary, string $buriedAt, ?array $group = null): array {
 		$sessionId = $session['session_id'];
 		$cwd       = $session['cwd'] ?? '';
