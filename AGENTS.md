@@ -6,6 +6,8 @@ This file provides guidance to LLM Agents like Claude Code (claude.ai/code) and 
 
 This is a personal dotfiles repository that provides shell configuration, CLI utilities, and development tools. Files are symlinked to `$HOME` using `symdotfiles`.
 
+**⚠️ This repo is PUBLIC on GitHub.** Everything committed here is world-readable. Never commit secrets, tokens, API keys, private keys, internal hostnames/URLs, or anything sensitive — that material belongs in `private/` (not synced) or outside the repo entirely. Also think twice before committing detailed security-posture notes (threat-model reasoning, key locations, auth workarounds): even without secrets, they can be useful to someone casing the owner. When in doubt, put it in `private/` and reference it from the public file.
+
 **This repo is used on both macOS and Linux/Ubuntu.** Any change to shared config files (`.zshrc`, `.gitconfig`, paths, aliases, etc.) must work on both platforms — or be gated behind a platform check. Never hardcode macOS-only paths (e.g. `/Users/JT/`, `/opt/homebrew/`) or Linux-only paths in shared files.
 
 ## Key Directories
