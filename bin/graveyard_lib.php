@@ -1440,7 +1440,6 @@ class Graveyard {
 				if (!$m) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'group not found']]; }
 				$this->setGroupName((string) $m['group_id'], $name);
 			}
-			$this->regeneratePageSilently();
 			return ['status' => 200, 'body' => ['ok' => true, 'name' => $name]];
 		}
 
@@ -1454,7 +1453,6 @@ class Graveyard {
 				if (!$m) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'group not found']]; }
 				$this->purgeGroup((string) $m['group_id']);
 			}
-			$this->regeneratePageSilently();
 			return ['status' => 200, 'body' => ['ok' => true]];
 		}
 
@@ -1544,6 +1542,32 @@ class Graveyard {
 			}
 		}
 		return $path;
+	}
+
+	/**
+	 * I/O (read-only). Render the whole overview page fresh from the CURRENT
+	 * store — read the index, sort newest-first, stamp plot positions, and hand
+	 * off to pageHtml(). This is the single render path the loopback server
+	 * calls per request, so a session buried a moment ago shows up on the next
+	 * refresh (no stale index.html snapshot). Never writes anything.
+	 */
+	public function renderStorePageHtml(): string {
+		$tombs = $this->readIndex()['tombstones'] ?? [];
+		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
+		$tombs = $this->stampPlotPositions($tombs);
+		return $this->pageHtml($tombs, gmdate('Y-m-d\TH:i:s\Z'), getenv('HOME') ?: '');
+	}
+
+	/**
+	 * I/O (read-only). Render one session's transcript as its page-data JS
+	 * (window.GYT[id] = "…"), read fresh from the archived transcript on disk.
+	 * Returns null when no transcript is archived for the id, so the router can
+	 * answer 404 and the modal shows "(no transcript lies here)". Never writes.
+	 */
+	public function renderTranscriptJs(string $id): ?string {
+		$tp = $this->transcriptPath($id);
+		if ($id === '' || !is_file($tp)) { return null; }
+		return $this->pageTranscriptJs($id, (string) file_get_contents($tp));
 	}
 
 	/**
