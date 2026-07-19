@@ -120,6 +120,7 @@ main#yard {
 	position: relative;
 }
 .stone {
+	--hover-rotate: -1.3deg;
 	appearance: none; -webkit-appearance: none; font: inherit; text-align: left; cursor: pointer;
 	color: var(--inscription);
 	background: linear-gradient(180deg, #23291f, var(--stone) 45%);
@@ -135,9 +136,9 @@ main#yard {
 }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 .stone:hover, .stone:focus-visible {
-	transform: translateY(-6px) rotate(-1.3deg); border-color: rgba(168,193,150,.6); outline: none;
+	transform: translateY(-6px) rotate(var(--hover-rotate)); border-color: rgba(168,193,150,.6); outline: none;
 	filter: brightness(1.09);
-	box-shadow: inset 0 1px 0 rgba(233,228,214,.07), 0 22px 34px -16px rgba(0,0,0,.92), 0 0 0 1px rgba(168,193,150,.28);
+	box-shadow: inset 0 1px 20px rgba(233,228,214,.07), 10px 24px 24px -16px rgba(0,0,0,.92), 0 0 0 1px rgba(168,193,150,.28);
 }
 .stone-title { font: 600 .86rem/1.35 var(--serif); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .stone-meta { margin-top: auto; font: .66rem var(--mono); color: var(--weathered); letter-spacing: .05em; }
@@ -606,9 +607,28 @@ document.addEventListener("alpine:init", function () {
 			// widths come from data-cols (loose=1, plot=--cols); heights are
 			// measured and converted to grid-row spans. JSON order isn't sacred —
 			// grid-auto-flow:dense visually reorders to fill gaps.
+			hash32: function (text) {
+				var h = 2166136261;
+				for (var i = 0; i < text.length; i++) {
+					h ^= text.charCodeAt(i);
+					h = Math.imul(h, 16777619);
+				}
+				return h >>> 0;
+			},
+			seededHoverRotate: function (el) {
+				var key = (el.dataset.id || el.dataset.sid8 || el.dataset.title || "") + "|hover-tilt";
+				var h = this.hash32(key);
+				var sign = (h & 1) ? 1 : -1;
+				var magnitude = 0.95 + ((h >>> 1) % 66) / 100;
+				return (sign * magnitude).toFixed(2) + "deg";
+			},
 			relayout: function () {
 				var yard = document.getElementById("yard");
 				if (!yard) { return; }
+				var stones = yard.querySelectorAll(".stone");
+				for (var s = 0; s < stones.length; s++) {
+					stones[s].style.setProperty("--hover-rotate", this.seededHoverRotate(stones[s]));
+				}
 				var cs = getComputedStyle(yard);
 				var track = parseFloat(cs.getPropertyValue("--track")) || 172;
 				var gap = parseFloat(cs.fontSize) * 1.1; // 1.1rem gutter
