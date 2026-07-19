@@ -6,12 +6,40 @@
 
 ## Goal
 
-Polish the `graveyard page` HTML overview (`bin/graveyard page` → writes
-`~/.claude-graveyard/index.html`) into a rich, graveyard-themed, interactive
-page — JT keeps requesting visual/UX "flourishes." Also shipped `graveyard
-serve` (progressive-enhancement live server). All page markup/CSS/JS lives in
+Polish the `graveyard page` graveyard-themed interactive overview — JT keeps
+requesting visual/UX "flourishes." All page markup/CSS/JS lives in
 `src/templates/graveyard-page.html` (+ partials `src/templates/partials/{stone,plot}.html`),
 interpolated by `Graveyard::pageHtml()` in `bin/graveyard_lib.php`.
+
+## ✅ ARCHITECTURE — serve-only (epic `dotfiles-06t`, shipped)
+
+The page is **serve-only**: there is no `file://` mode, no static `index.html`
+snapshot, no dual-mode feature detection. A localhost-only `php -S` server
+renders the page FRESH from the store on every request.
+
+- **Verb model:** `graveyard page` ensures the loopback server is up (spawns it
+  detached, or reuses the one already listening on the persisted port) and opens
+  the URL. `graveyard page --no-open` ensures the server and just prints the URL.
+  `graveyard serve` is a quiet alias for `page --no-open`. The server runs in the
+  background and is reused across invocations; the chosen port/pid persist in
+  `~/.claude-graveyard/.serve.json` so bookmarks survive re-runs.
+- **Router** (`bin/graveyard_router.php`): `GET /` and `/index.html` →
+  `Graveyard::renderStorePageHtml()`; `GET /page-data/<id>.js` →
+  `Graveyard::renderTranscriptJs()` (read fresh from the archived transcript);
+  `POST /api/*` → `Graveyard::handleApi()` (same rename/delete/purge core as the
+  CLI verbs). Nothing is written to the store to render — `page()` no longer
+  writes `index.html`/`page-data/*.js`, and `ensureServer()` deletes those stale
+  artifacts on spawn.
+- **Rationale / the bug this fixed:** the old router fell through to `php -S`
+  serving a last-written static `index.html`, so a workspace buried after that
+  write never appeared on refresh. Fresh-per-request rendering fixes it (see
+  `GraveyardRouterTest::testFreshRenderShowsSessionsBuriedAfterFirstRender`).
+- **Template:** the `live` feature-detection and all static-mode branches
+  (copy-command boxes, confirm-reveal step) are gone. Rename auto-saves via the
+  API; delete is one-tap → API + sink animation. The resurrection ritual modal
+  stays (resurrection is inherently a CLI act).
+- Shipped commits: `3d918ed` (fresh-render router + helpers), `e31034a` (merged
+  serve-only `page` verb), `26fba19` (template de-branding), plus docs.
 
 ## ✅ DONE — double scrollbar fix (shipped `d791b53`)
 
@@ -88,12 +116,15 @@ under epics `dotfiles-55n`, `dotfiles-bgs`, `dotfiles-vn5`.
 ## Files (this whole effort)
 
 - `bin/graveyard` — verb dispatch (bury/ls/search/show/rename/delete/resurrect/page/serve).
-- `bin/graveyard_lib.php` — class `JT\Graveyard`. Key: `pageHtml`/`page`,
-  `pageTemplate`/`renderPartial`, `stoneHtml`, `stoneCrown`, `plotHue`,
-  `plotColumns`, `pageUnits`, rename/delete core (`setSessionName`/`setGroupName`/
-  `purgeSession`/`purgeGroup`) + verb wrappers + `handleApi` (CLI and REST share
-  the SAME core — no drift), `serve`.
-- `bin/graveyard_router.php` — `php -S` router for `serve`.
+- `bin/graveyard_lib.php` — class `JT\Graveyard`. Key: `pageHtml` (pure render),
+  `renderStorePageHtml`/`renderTranscriptJs` (fresh per-request render the router
+  calls), `page`/`serve`/`ensureServer` (serve-only verb: spawn-or-reuse the
+  loopback server, persisted in `.serve.json`), `pageTemplate`/`renderPartial`,
+  `stoneHtml`, `stoneCrown`, `stoneCracked`, `plotHue`, `plotColumns`, `pageUnits`,
+  rename/delete core (`setSessionName`/`setGroupName`/`purgeSession`/`purgeGroup`)
+  + verb wrappers + `handleApi` (CLI and REST share the SAME core — no drift).
+- `bin/graveyard_router.php` — `php -S` router; renders `/`, `/index.html`, and
+  `/page-data/<id>.js` fresh from the store per request, plus `POST /api/*`.
 - `src/templates/graveyard-page.html` — the page shell (CSS + Alpine component + markup).
 - `src/templates/partials/{stone,plot}.html` — per-item markup (`%%KEY%%` placeholders).
 - `src/assets/alpine.min.js` — vendored Alpine v3.14.9 (inlined).
@@ -128,10 +159,13 @@ under epics `dotfiles-55n`, `dotfiles-bgs`, `dotfiles-vn5`.
 - `.git/index.lock` "another git process" errors recur (a background read-only
   `git log` viewer). If `pgrep -fl 'git '` shows only `git log`, `rm -f
   .git/index.lock` and retry the commit.
-- `graveyard page` gates on `cmux ping` for live verbs but `page`/`serve` are
-  store-only (exempt). Regenerate with `php bin/graveyard page --no-open`.
-- NEVER run destructive `graveyard delete` / the delete API against the real
-  `~/.claude-graveyard`; use a `GRAVEYARD_ROOT` fixture or a `cp -R` copy.
+- `page`/`serve` are store-only (exempt from the `cmux ping` gate). To view the
+  page: `php bin/graveyard page --no-open` (ensures the server, prints the URL);
+  it renders fresh, so no "regenerate" step exists anymore.
+- To verify serve-only behavior WITHOUT touching the real store, serve a `cp -R`
+  fixture: `GRAVEYARD_ROOT=<fixture> php -S 127.0.0.1:<port> -t <fixture> bin/graveyard_router.php`,
+  then bury into the fixture and refresh. NEVER run destructive `graveyard delete`
+  / the delete API against the real `~/.claude-graveyard`.
 - The template uses TABS for CSS/JS indentation and SPACES for HTML — match
   exactly or Edit won't find the string (verify with `sed -n l`).
 - Every commit: end body with the `Co-Authored-By: Claude Opus 4.8` +

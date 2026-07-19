@@ -5,9 +5,12 @@ use JT\Tests\TestCase;
 use JT\Graveyard;
 
 /**
- * dotfiles-vn5.1 — `graveyard serve`'s JSON API (POST /api/rename, /api/delete),
- * exercised via Graveyard::handleApi() directly (no socket, no `php -S`).
- * Reuses the same rename/delete/purge core as the CLI verbs.
+ * dotfiles-vn5.1 / dotfiles-06t — the loopback server's JSON API
+ * (POST /api/rename, /api/delete), exercised via Graveyard::handleApi()
+ * directly (no socket, no `php -S`). Reuses the same rename/delete/purge core
+ * as the CLI verbs. Serve-only: the page is re-rendered fresh per request by
+ * the router, so handleApi() just mutates the store and returns JSON — it no
+ * longer regenerates any file.
  */
 final class GraveyardServeApiTest extends TestCase
 {
@@ -160,10 +163,9 @@ final class GraveyardServeApiTest extends TestCase
 	}
 
 	/**
-	 * Regression: handleApi() regenerates the page after a mutation, but that
-	 * regeneration must never print to stdout — under `php -S` this is a live
-	 * HTTP request, and any leaked text lands ahead of the JSON body the
-	 * client's response.json() parses, silently breaking the live UI.
+	 * Regression: handleApi() must never print to stdout — under `php -S` this
+	 * is a live HTTP request, and any leaked text lands ahead of the JSON body
+	 * the client's response.json() parses, silently breaking the live UI.
 	 */
 	public function testMutationsDoNotLeakOutputIntoTheResponse(): void
 	{
