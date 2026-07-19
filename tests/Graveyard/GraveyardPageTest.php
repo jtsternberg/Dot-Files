@@ -11,13 +11,15 @@ use JT\Graveyard;
  *  - the page is a full-viewport FIELD of compact headstones (auto-fill grid),
  *    one per tombstone: title, buried date, short id
  *  - clicking a stone opens a <dialog> modal with the full card
- *  - transcripts are NOT embedded in index.html — the modal injects
- *    page-data/<id>.js (written at generation time; JSONP-style, because
- *    fetch() is CORS-blocked on file://) on first open, caches it, and
- *    scrolls the transcript to the latest end
+ *  - transcripts are NOT embedded in the HTML — the modal injects
+ *    page-data/<id>.js on first open (served fresh by the router via
+ *    renderTranscriptJs()), caches it, and scrolls to the latest end
  *  - stone display strings ride in escaped data-* attributes; the modal fills
  *    via textContent (no HTML injection from titles/cwds/transcripts)
- *  - page() prunes page-data/*.js files for ids no longer in the store
+ *
+ * Serve-only (dotfiles-06t): the page is rendered fresh per request, never
+ * written to disk, so these tests drive pageHtml()/renderStorePageHtml()
+ * directly rather than a written index.html.
  */
 final class GraveyardPageTest extends TestCase
 {
@@ -328,7 +330,7 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('\n', $js); // newline JSON-encoded, not literal
 	}
 
-	public function testPageWritesPageDataFilesAndKeepsHtmlLean(): void
+	public function testRenderKeepsHtmlLeanAndTranscriptsSeparate(): void
 	{
 		$root = $this->makeRoot([
 			$this->tomb('old11111-aaaa', 'older session', '2026-07-01T00:00:00Z'),
@@ -336,23 +338,18 @@ final class GraveyardPageTest extends TestCase
 		]);
 		@mkdir($root . '/sessions/old11111-aaaa', 0755, true);
 		file_put_contents($root . '/sessions/old11111-aaaa/transcript.txt', 'old transcript body');
-		// Stale page-data file from some previous generation — should be pruned.
-		@mkdir($root . '/page-data', 0755, true);
-		file_put_contents($root . '/page-data/stale999.js', 'window.GYT={};');
 
 		$gy = new Graveyard($this->cli, $this->cmux);
-		$path = $gy->page(false); // false: do not open a browser
-		$this->assertSame($root . '/index.html', $path);
+		$html = $gy->renderStorePageHtml();
 
-		$html = (string) file_get_contents($path);
 		$this->assertStringNotContainsString('old transcript body', $html); // JIT, not embedded
-		$this->assertStringContainsString('page-data/', $html);
+		$this->assertStringContainsString('page-data/', $html);             // modal loads transcripts here
 
-		$jsFile = $root . '/page-data/old11111-aaaa.js';
-		$this->assertFileExists($jsFile);
-		$this->assertStringContainsString('old transcript body', (string) file_get_contents($jsFile));
-		$this->assertFileDoesNotExist($root . '/page-data/new22222-bbbb.js'); // no transcript archived
-		$this->assertFileDoesNotExist($root . '/page-data/stale999.js');      // pruned
+		// Transcripts come from renderTranscriptJs() per request, not from disk snapshots.
+		$js = $gy->renderTranscriptJs('old11111-aaaa');
+		$this->assertNotNull($js);
+		$this->assertStringContainsString('old transcript body', $js);
+		$this->assertNull($gy->renderTranscriptJs('new22222-bbbb')); // no transcript archived
 
 		$this->assertLessThan(
 			strpos($html, 'older session'),
@@ -522,7 +519,7 @@ final class GraveyardPageTest extends TestCase
 		]));
 
 		$gy = new Graveyard($this->cli, $this->cmux);
-		$html = (string) file_get_contents($gy->page(false));
+		$html = $gy->renderStorePageHtml();
 
 		$this->assertStringContainsString('class="plot"', $html);
 		$this->assertStringContainsString('Fam', $html);

@@ -1400,18 +1400,6 @@ class Graveyard {
 	 * ids are resolved fuzzily against the current store, same as the CLI
 	 * verbs, before any mutation touches disk. Returns ['status'=>int,'body'=>array].
 	 */
-	/**
-	 * I/O. Regenerate the page without leaking $cli's success message into
-	 * stdout — the API path runs under `php -S`, so anything printed here
-	 * would land ahead of handleApi()'s JSON in the HTTP response body and
-	 * break the client's response.json() parse.
-	 */
-	protected function regeneratePageSilently(): void {
-		ob_start();
-		$this->page(false);
-		ob_end_clean();
-	}
-
 	public function handleApi(string $method, string $path, array $body): array {
 		if ($method !== 'POST') {
 			return ['status' => 405, 'body' => ['ok' => false, 'error' => 'method not allowed']];
@@ -1473,75 +1461,124 @@ class Graveyard {
 	 * server exits (Ctrl+C).
 	 */
 	public function serve(int $port = 8787, string $host = 'graveyard.localhost'): string {
-		$this->page(false);
-		$root    = $this->storeRoot();
-		$router  = __DIR__ . '/graveyard_router.php';
-		$url     = "http://{$host}:{$port}/";
-		$ipUrl   = "http://127.0.0.1:{$port}/";
-		$this->cli->successMsg("Serving the graveyard at {$url} (Ctrl+C to stop)");
-		if ($url !== $ipUrl) {
-			$this->cli->msg("  (if that doesn't resolve, try {$ipUrl})", 'yellow');
-		}
-
-		$opener = PHP_OS_FAMILY === 'Darwin' ? 'open' : 'xdg-open';
-		if (trim((string) shell_exec('command -v ' . $opener . ' 2>/dev/null')) !== '') {
-			shell_exec($opener . ' ' . escapeshellarg($url) . ' >/dev/null 2>&1 &');
-		}
-
-		$cmd = sprintf(
-			'php -S 127.0.0.1:%d -t %s %s',
-			$port,
-			escapeshellarg($root),
-			escapeshellarg($router)
-		);
-		passthru($cmd);
-		return $url;
+		return $this->page(false, $port, $host);
 	}
 
 	# =========================================================================
-	# graveyard page (dotfiles-pnl): self-contained HTML overview of the store.
+	# graveyard page (dotfiles-06t): serve-only. `page` ensures the loopback
+	# server is up (spawn detached / reuse via a persisted port) and opens the
+	# URL; `page --no-open` prints it; `serve` is a quiet alias. The page is
+	# rendered FRESH per request by bin/graveyard_router.php — nothing is
+	# written to the store, so a just-buried session shows up on refresh.
 	# =========================================================================
 
+	/** Where the running-server state (port/pid/url) is persisted. */
+	public function serveStatePath(): string { return $this->storeRoot() . '/.serve.json'; }
+
+	/** TRUE if something is accepting TCP connections on 127.0.0.1:$port. */
+	protected function serverListening(int $port): bool {
+		$fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.3);
+		if ($fp) { fclose($fp); return true; }
+		return false;
+	}
+
 	/**
-	 * Regenerate the HTML overview of every tombstone (newest-first), write it to
-	 * pageFilePath(), and open it in the browser unless $openInBrowser is false or
-	 * no platform opener exists. Transcripts ship as per-session page-data/<id>.js
-	 * files (JSONP-style — fetch() is CORS-blocked on file://) so index.html stays
-	 * lean and the modal loads them JIT. Stale page-data files are pruned.
-	 * Returns the written path.
+	 * I/O. One-time cleanup of the pre-serve-only artifacts: the static
+	 * index.html snapshot (the stale-page bug) and the page-data/*.js dir (the
+	 * router renders transcripts on demand now). Safe to call repeatedly.
 	 */
-	public function page(bool $openInBrowser = true): string {
-		$tombs = $this->readIndex()['tombstones'] ?? [];
-		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
-		$tombs = $this->stampPlotPositions($tombs);
-
+	protected function cleanStaticArtifacts(): void {
+		@unlink($this->pageFilePath());
 		$dir = $this->pageDataDir();
-		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
-		$keep = [];
-		foreach ($tombs as $t) {
-			$sid = (string) $t['session_id'];
-			$tp  = $this->transcriptPath($sid);
-			if (!is_file($tp)) { continue; }
-			file_put_contents($this->transcriptJsPath($sid), $this->pageTranscriptJs($sid, (string) file_get_contents($tp)));
-			$keep[$sid . '.js'] = true;
+		if (is_dir($dir)) {
+			foreach (glob($dir . '/*.js') ?: [] as $f) { @unlink($f); }
+			@rmdir($dir);
 		}
-		foreach (glob($dir . '/*.js') ?: [] as $f) {
-			if (!isset($keep[basename($f)])) { @unlink($f); }
+	}
+
+	/**
+	 * I/O. Ensure a loopback server is running and return its pretty URL. Reuses
+	 * a healthy one recorded in serveStatePath() (so bookmarks survive re-runs on
+	 * the same port); otherwise spawns `php -S` detached (nohup, survives this
+	 * CLI exiting), waits until it accepts connections, and persists its port/pid.
+	 * BIND is always 127.0.0.1; the *.localhost host is only for a pretty,
+	 * zero-config URL (RFC 6761 reserves it for loopback). $portExplicit means the
+	 * caller passed --port, so honor it over any persisted port.
+	 */
+	public function ensureServer(int $port, string $host, bool $portExplicit = false): array {
+		$state = [];
+		if (is_file($this->serveStatePath())) {
+			$decoded = json_decode((string) @file_get_contents($this->serveStatePath()), true);
+			if (is_array($decoded)) { $state = $decoded; }
+		}
+		$statePort = (int) ($state['port'] ?? 0);
+
+		// Reuse a healthy server on the persisted port (unless --port overrides it).
+		if (!$portExplicit && $statePort > 0 && $this->serverListening($statePort)) {
+			$stateHost = (string) ($state['host'] ?? $host);
+			return ['url' => "http://{$stateHost}:{$statePort}/", 'port' => $statePort, 'reused' => true];
 		}
 
-		$path = $this->pageFilePath();
-		file_put_contents($path, $this->pageHtml($tombs, gmdate('Y-m-d\TH:i:s\Z'), getenv('HOME') ?: ''));
-		$this->cli->successMsg('Wrote ' . $path . ' (' . count($tombs) . ' session(s)).');
+		$spawnPort = (!$portExplicit && $statePort > 0) ? $statePort : $port;
+		if ($this->serverListening($spawnPort)) {
+			// Already up (e.g. persisted pid died but the listener lives) — reuse it.
+			$this->writeServeState($spawnPort, $host, 0);
+			return ['url' => "http://{$host}:{$spawnPort}/", 'port' => $spawnPort, 'reused' => true];
+		}
+
+		$this->cleanStaticArtifacts();
+		$root   = $this->storeRoot();
+		$router = __DIR__ . '/graveyard_router.php';
+		$log    = $root . '/.serve.log';
+		$serve  = sprintf('php -S 127.0.0.1:%d -t %s %s', $spawnPort, escapeshellarg($root), escapeshellarg($router));
+		$spawn  = sprintf('nohup %s > %s 2>&1 & echo $!', $serve, escapeshellarg($log));
+		$pid    = (int) trim((string) shell_exec('sh -c ' . escapeshellarg($spawn)));
+
+		for ($i = 0; $i < 30; $i++) {
+			if ($this->serverListening($spawnPort)) { break; }
+			usleep(100000); // 100ms, up to ~3s
+		}
+		if (!$this->serverListening($spawnPort)) {
+			$this->cli->exitErr("Could not start the graveyard server on port {$spawnPort} (see {$log}).");
+		}
+		$this->writeServeState($spawnPort, $host, $pid);
+		return ['url' => "http://{$host}:{$spawnPort}/", 'port' => $spawnPort, 'reused' => false, 'pid' => $pid];
+	}
+
+	/** I/O. Persist the running-server descriptor for reuse across re-runs. */
+	protected function writeServeState(int $port, string $host, int $pid): void {
+		@file_put_contents($this->serveStatePath(), json_encode([
+			'port' => $port, 'host' => $host, 'pid' => $pid,
+			'url' => "http://{$host}:{$port}/", 'started_at' => gmdate('Y-m-d\TH:i:s\Z'),
+		], JSON_PRETTY_PRINT));
+	}
+
+	/**
+	 * Verb. `graveyard page`: ensure the loopback server is up (spawn/reuse) and
+	 * open the fresh page in the browser. `--no-open` (and the `serve` alias) skip
+	 * opening and just print the URL. Returns the URL. Does NOT block — the server
+	 * runs detached in the background and is reused by later invocations.
+	 */
+	public function page(bool $openInBrowser = true, int $port = 8787, string $host = 'graveyard.localhost', bool $portExplicit = false): string {
+		$info = $this->ensureServer($port, $host, $portExplicit);
+		$url  = (string) $info['url'];
+		$ip   = "http://127.0.0.1:{$info['port']}/";
+
+		$verb = $info['reused'] ? 'Reusing the graveyard server' : 'Serving the graveyard';
+		$this->cli->successMsg("{$verb} at {$url}");
+		if ($url !== $ip) {
+			$this->cli->msg("  (if that host doesn't resolve, use {$ip})", 'yellow');
+		}
 
 		if ($openInBrowser) {
 			$opener = PHP_OS_FAMILY === 'Darwin' ? 'open' : 'xdg-open';
 			if (trim((string) shell_exec('command -v ' . $opener . ' 2>/dev/null')) !== '') {
-				shell_exec($opener . ' ' . escapeshellarg($path) . ' >/dev/null 2>&1 &');
+				shell_exec($opener . ' ' . escapeshellarg($url) . ' >/dev/null 2>&1 &');
 			} else {
-				$this->cli->msg("No '{$opener}' on PATH — open the file manually.", 'yellow');
+				$this->cli->msg("No '{$opener}' on PATH — open {$url} manually.", 'yellow');
 			}
 		}
-		return $path;
+		return $url;
 	}
 
 	/**
