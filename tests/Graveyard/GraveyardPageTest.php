@@ -87,6 +87,27 @@ final class GraveyardPageTest extends TestCase
 		$this->assertSame(2, substr_count($html, 'class="stone crown-')); // both still carry a crown class
 	}
 
+	public function testFenceShiftIsDeterministicAndInRange(): void
+	{
+		$a = $this->gy->fenceShift('7');
+		$this->assertSame($a, $this->gy->fenceShift('7')); // stable for a given seed
+		$this->assertGreaterThanOrEqual(0, $a);
+		$this->assertLessThan(140, $a);                    // within one 140px tile
+	}
+
+	public function testPageHtmlRendersThePerimeterFence(): void
+	{
+		$html = $this->gy->pageHtml([$this->tomb('fence001-full', 'x')], '2026-07-17');
+
+		$this->assertStringContainsString('fence-top', $html);
+		$this->assertStringContainsString('fence-bottom', $html);
+		$this->assertStringContainsString('fence-left', $html);
+		$this->assertStringContainsString('fence-right', $html);
+		$this->assertStringContainsString('--fence-h:', $html);            // masked iron tile
+		$this->assertStringContainsString('--fence-shift: -', $html);      // page-level seed applied
+		$this->assertStringNotContainsString('%%FENCE_SHIFT%%', $html);    // placeholder resolved
+	}
+
 	public function testPageHtmlEscapesStoneContentAndAttributes(): void
 	{
 		// Note: summaries get tag-stripped at titleize time, so the title payload is

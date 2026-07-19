@@ -1671,6 +1671,16 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Horizontal offset (px, 0..139) for the perimeter fence's repeating
+	 * mask, seeded from a page-level string so the aged pickets (bent/broken,
+	 * baked into the 140px tile) land at a stable-but-varied spot per store —
+	 * same crc32 philosophy as stoneCrown/plotHue, page-level seed.
+	 */
+	public function fenceShift(string $seed): int {
+		return crc32($seed) % 140;
+	}
+
+	/**
 	 * PURE. Order tombstones into render units for the page: loose stones and
 	 * "family plots" (workspace groups), newest-first. A plot's sort key is its
 	 * newest member's buried_at; its members keep their original tab order
@@ -1908,9 +1918,10 @@ class Graveyard {
 			. ' lie' . ($count === 1 ? 's' : '') . ' here · generated ' . $e($generatedAt);
 
 		return strtr($this->pageTemplate(), [
-			'%%SUMMARY%%' => $summary,
-			'%%LISTING%%' => $listing,
-			'%%ALPINE%%'  => $this->alpineJs(),
+			'%%SUMMARY%%'     => $summary,
+			'%%LISTING%%'     => $listing,
+			'%%FENCE_SHIFT%%' => (string) $this->fenceShift((string) $count),
+			'%%ALPINE%%'      => $this->alpineJs(),
 		]);
 	}
 
