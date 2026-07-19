@@ -85,6 +85,32 @@ verified against a `cp -R` fixture served via `GRAVEYARD_ROOT=<fixture> php -S
 Clipboard is blocked in headless agent-browser, so the ritual's fallback message is
 what shows there (the success path needs a focused real browser).
 
+Later touch: the moon was made vibrant (`1cd5d3f`) and the cobwebs moved to the
+bottom corners (`2c0d25b`).
+
+## ✅ DONE — wrought-iron fence (epic `dotfiles-skm`, shipped, 136 tests)
+
+- `8ea2a34` **perimeter fence** — hand-drawn SVG picket tile (spear finials, two
+  rails, one bent + one broken picket for aging) used as a CSS `mask` on four
+  fixed viewport-edge strips, so a moss→rust gradient shows through (rustier at
+  the ground). `--fence-h`/`--fence-v` vars hold the tiles; `Graveyard::fenceShift`
+  (crc32 of the tomb count, page-level seed) sets `--fence-shift` on `<body>` so
+  the damaged pickets land stably-but-varied per store. Top = hanging spikes
+  (`scaleY(-1)`), sides = vertical rails (`.fence-v`, dropped ≤560px), bottom =
+  `z-index:4` (ABOVE the fog=1, BELOW dialogs/toast=300). Cobwebs bumped to
+  `z-index:5` (draped on the posts); `footer` set `position:relative;z-index:5`
+  so the coffin/ghost easter egg stays unobstructed. Body `padding-top` bumped to
+  3.25rem so the top spikes clear the header. Static — reduced-motion unaffected.
+- `e2bcb08` **gate arch** (independently vetoable) — inline SVG pointed-gothic
+  gate (`stroke=currentColor`, same ironwork language) behind the header title
+  (`.gate`, z-index 0, pointer-events none, opacity .58); title/summary/search
+  stay above and legible. Scales with viewport, dims on mobile. Revert = drop the
+  one `.gate` wrapper + its scoped CSS. No JS.
+
+Deviation: per-segment random sag was NOT implemented — the aging is baked into
+the repeating tile (bent/broken pickets) + the page-level `fenceShift` offset
+instead of per-segment DOM, which is cheaper, width-robust, and reads cleanly.
+
 ## Current progress (all shipped, pushed to master, 128 tests green)
 
 Recent commits (newest first):
