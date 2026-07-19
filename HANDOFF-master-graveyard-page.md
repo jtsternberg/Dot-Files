@@ -111,6 +111,11 @@ Deviation: per-segment random sag was NOT implemented — the aging is baked int
 the repeating tile (bent/broken pickets) + the page-level `fenceShift` offset
 instead of per-segment DOM, which is cheaper, width-robust, and reads cleanly.
 
+JT feedback (post-live): gate arch VETOED — reverted (`3ae10ae`). Fence scaled
+back (`edc15cc`): NO fixed perimeter/side rails/top spikes — just two in-flow
+`.fence-rail` picket rails (one under the search, one above the footer) that
+scroll with the content, keeping the tile art + aging + `fenceShift` + moss→rust.
+
 ## Current progress (all shipped, pushed to master, 128 tests green)
 
 Recent commits (newest first):
