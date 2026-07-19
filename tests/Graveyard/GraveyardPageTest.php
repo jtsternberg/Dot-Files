@@ -95,17 +95,16 @@ final class GraveyardPageTest extends TestCase
 		$this->assertLessThan(140, $a);                    // within one 140px tile
 	}
 
-	public function testPageHtmlRendersThePerimeterFence(): void
+	public function testPageHtmlRendersTwoFenceRails(): void
 	{
 		$html = $this->gy->pageHtml([$this->tomb('fence001-full', 'x')], '2026-07-17');
 
-		$this->assertStringContainsString('fence-top', $html);
-		$this->assertStringContainsString('fence-bottom', $html);
-		$this->assertStringContainsString('fence-left', $html);
-		$this->assertStringContainsString('fence-right', $html);
+		$this->assertSame(2, substr_count($html, 'class="fence-rail"')); // one under search, one above footer
 		$this->assertStringContainsString('--fence-h:', $html);            // masked iron tile
 		$this->assertStringContainsString('--fence-shift: -', $html);      // page-level seed applied
 		$this->assertStringNotContainsString('%%FENCE_SHIFT%%', $html);    // placeholder resolved
+		$this->assertStringNotContainsString('fence-top', $html);          // no fixed perimeter anymore
+		$this->assertStringNotContainsString('--fence-v', $html);          // no side rails
 	}
 
 	public function testPageHtmlEscapesStoneContentAndAttributes(): void
