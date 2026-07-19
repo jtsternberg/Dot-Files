@@ -55,7 +55,13 @@ code {
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(154,162,148,.4), transparent); }
 .divider { gap: 1.25rem; }
 .divider span { font-size: 5.9rem; line-height: 1; filter: grayscale(.35) brightness(.95); }
-.toolbar { display: flex; justify-content: center; margin: 1.1rem 0 0; }
+.toolbar {
+	display: flex;
+	justify-content: center;
+	margin: 1.1rem 0 0;
+	z-index: 1;
+	position: relative;
+}
 .search {
 	width: min(30rem, 82vw); appearance: none; -webkit-appearance: none;
 	background: rgba(233,228,214,.08); color: var(--inscription);
@@ -409,15 +415,10 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
     <div class="actions">
       <button type="button" class="action resurrect-btn" @click="openRitual('graveyard resurrect ' + (item.sid8 || ''))"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
-      <p class="crypt-cap">✎ rename this session<span class="save-hint" x-cloak x-show="live && saved.rn"> — saved ✓</span></p>
-      <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="live && apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
-      <p class="save-note" x-cloak x-show="live">changes save automatically</p>
-      <button type="button" class="cmd" x-cloak x-show="!live && renameName.trim() && renameName.trim() !== (item.title || '').trim()" :class="{ ok: copied.rn }" @click="copy(renameCmd(), 'rn')" x-text="copied.rn ? 'copied ✓' : renameCmd()"></button>
-      <button type="button" class="danger-btn" x-show="live || !confirmStone" @click="live ? apiDeleteStone() : (confirmStone = true)"><span class="dgr-glyph">☠</span> delete this session…</button>
-      <div x-show="!live && confirmStone" x-cloak>
-        <p class="warn">Permanent — removes the tombstone and its transcript for good. Run:</p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.del }" @click="copy(deleteCmd(), 'del')" x-text="copied.del ? 'copied ✓' : deleteCmd()"></button>
-      </div>
+      <p class="crypt-cap">✎ rename this session<span class="save-hint" x-cloak x-show="saved.rn"> — saved ✓</span></p>
+      <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
+      <p class="save-note">changes save automatically</p>
+      <button type="button" class="danger-btn" @click="apiDeleteStone()"><span class="dgr-glyph">☠</span> delete this session…</button>
     </div>
   </article>
 </dialog>
@@ -437,15 +438,10 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
     <p class="crypt-cap">↻ resurrect the whole plot</p>
     <button type="button" class="action resurrect-btn" @click="openRitual(plot.resurrect)"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
     <div class="actions">
-      <p class="crypt-cap">✎ rename this plot<span class="save-hint" x-cloak x-show="live && saved.rnp"> — saved ✓</span></p>
-      <input class="namefield" type="text" x-model="renamePlotName" @input.debounce.600ms="live && apiRenamePlot()" spellcheck="false" autocomplete="off" aria-label="Plot name">
-      <p class="save-note" x-cloak x-show="live">changes save automatically</p>
-      <button type="button" class="cmd" x-cloak x-show="!live && renamePlotName.trim() && renamePlotName.trim() !== (plot.title || '').trim()" :class="{ ok: copied.rnp }" @click="copy(renamePlotCmd(), 'rnp')" x-text="copied.rnp ? 'copied ✓' : renamePlotCmd()"></button>
-      <button type="button" class="danger-btn" x-show="live || !confirmPlot" @click="live ? apiDeletePlot() : (confirmPlot = true)"><span class="dgr-glyph">☠</span> delete this whole plot…</button>
-      <div x-show="!live && confirmPlot" x-cloak>
-        <p class="warn">Permanent — removes every session in this plot and its manifest. Run:</p>
-        <button type="button" class="cmd danger-cmd" :class="{ ok: copied.delp }" @click="copy(deletePlotCmd(), 'delp')" x-text="copied.delp ? 'copied ✓' : deletePlotCmd()"></button>
-      </div>
+      <p class="crypt-cap">✎ rename this plot<span class="save-hint" x-cloak x-show="saved.rnp"> — saved ✓</span></p>
+      <input class="namefield" type="text" x-model="renamePlotName" @input.debounce.600ms="apiRenamePlot()" spellcheck="false" autocomplete="off" aria-label="Plot name">
+      <p class="save-note">changes save automatically</p>
+      <button type="button" class="danger-btn" @click="apiDeletePlot()"><span class="dgr-glyph">☠</span> delete this whole plot…</button>
     </div>
   </article>
 </dialog>
@@ -474,29 +470,17 @@ document.addEventListener("alpine:init", function () {
 			ritual: { command: "", confirm: "" },
 			copied: {},
 			search: "",
-			// Progressive enhancement (dotfiles-vn5.2): over http://localhost the
-			// page was served by `graveyard serve` and its JSON API is reachable;
-			// over file:// there's no server, so the copy-command UI stays as-is.
-			live: (typeof location !== "undefined" && location.protocol.indexOf("http") === 0),
 			renameName: "",
 			renamePlotName: "",
-			confirmStone: false,
-			confirmPlot: false,
-			saved: {}, // live-mode "saved ✓" flash flags, keyed rn/rnp
+			saved: {}, // "saved ✓" flash flags, keyed rn/rnp
 			flashSaved: function (key) {
 				this.saved[key] = true;
 				var self = this;
 				setTimeout(function () { self.saved[key] = false; }, 1400);
 			},
-			shq: function (s) { return JSON.stringify((s || "").trim()); }, // double-quoted, JSON-escaped
-			renameCmd: function () { return "graveyard rename " + (this.item.sid8 || "") + " " + this.shq(this.renameName); },
-			renamePlotCmd: function () { return "graveyard rename --workspace " + (this.plot.gid8 || "") + " " + this.shq(this.renamePlotName); },
-			deleteCmd: function () { return "graveyard delete " + (this.item.sid8 || ""); },
-			deletePlotCmd: function () { return "graveyard delete --workspace " + (this.plot.gid8 || ""); },
-			// dotfiles-vn5.3 -- live mutation via the JSON API `graveyard serve` exposes.
-			// Rename needs no confirm(); delete (session or plot) is native-confirm()-gated
-			// BEFORE the fetch -- this confirm() requirement is serve-only, never added to
-			// the file:// copy-command path.
+			// Live mutation via the JSON API the loopback server exposes. Rename needs
+			// no confirm(); delete (session or plot) is native-confirm()-gated before the
+			// fetch. The page is serve-only, so these are the only mutation paths.
 			apiCall: function (path, payload) {
 				return fetch(path, {
 					method: "POST",
@@ -661,7 +645,6 @@ document.addEventListener("alpine:init", function () {
 					})()
 				};
 				this.renameName = d.title;
-				this.confirmStone = false;
 				this.copied = {};
 				this.$refs.dlg.showModal();
 				this.exhume(d.id);
@@ -678,7 +661,6 @@ document.addEventListener("alpine:init", function () {
 				};
 				this._plotEl = el;
 				this.renamePlotName = el.dataset.title;
-				this.confirmPlot = false;
 				this.copied = {};
 				this.$refs.plotdlg.showModal();
 			},
@@ -700,7 +682,7 @@ document.addEventListener("alpine:init", function () {
 			backToPlot: function () {
 				if (this._itemPlotEl) { this.$refs.dlg.close(); this.showPlot(this._itemPlotEl); }
 			},
-			onClose: function () { this.copied = {}; this.confirmStone = false; this.confirmPlot = false; },
+			onClose: function () { this.copied = {}; },
 			exhume: function (id) {
 				var body = this.$refs.body;
 				body.innerHTML = '<p class="none">⛏ exhuming…</p>';
@@ -733,10 +715,10 @@ document.addEventListener("alpine:init", function () {
 				void el.offsetWidth;
 				el.classList.add("digging");
 			},
-			// Resurrection ritual: resurrection is always a CLI act, so both static
-			// and live modes route the "prepare resurrection" buttons here. Close any
-			// open modal, show the ritual card, and auto-copy the command with a
-			// confirmation (or a fallback message if the clipboard is blocked).
+			// Resurrection ritual: resurrection is always a CLI act (the page can't
+			// resurrect for you), so the "prepare resurrection" buttons route here.
+			// Close any open modal, show the ritual card, and auto-copy the command
+			// with a confirmation (or a fallback message if the clipboard is blocked).
 			openRitual: function (command) {
 				if (this.$refs.dlg && this.$refs.dlg.open) { this.$refs.dlg.close(); }
 				if (this.$refs.plotdlg && this.$refs.plotdlg.open) { this.$refs.plotdlg.close(); }

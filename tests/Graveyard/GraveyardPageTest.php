@@ -162,37 +162,36 @@ final class GraveyardPageTest extends TestCase
 
 	public function testPageHtmlRenameAffordance(): void
 	{
-		// Both the stone modal and the plot modal expose an editable name that
-		// produces a copyable `graveyard rename …` command (session by id, group
-		// by --workspace). The verb is built later; the UI just emits the command.
+		// Serve-only: both modals expose an editable name that auto-saves via the
+		// live JSON API (no copy-command button). The stone renames a session, the
+		// plot renames the workspace group.
 		$t = $this->tomb('rn000001-full', 'old name');
 		$t['group_id'] = 'ggg11111-x'; $t['group_title'] = 'Old Plot'; $t['group_pos'] = 0;
 		$html = $this->gy->pageHtml([$t], '2026-07-17');
 
-		$this->assertStringContainsString('x-model="renameName"', $html);          // stone rename input
-		$this->assertStringContainsString('x-model="renamePlotName"', $html);      // plot rename input
-		$this->assertStringContainsString('renameCmd()', $html);
-		$this->assertStringContainsString('renamePlotCmd()', $html);
-		$this->assertStringContainsString('graveyard rename ', $html);             // session command prefix
-		$this->assertStringContainsString('graveyard rename --workspace ', $html); // group command prefix
+		$this->assertStringContainsString('x-model="renameName"', $html);      // stone rename input
+		$this->assertStringContainsString('x-model="renamePlotName"', $html);  // plot rename input
+		$this->assertStringContainsString('apiRenameStone()', $html);          // session auto-save
+		$this->assertStringContainsString('apiRenamePlot()', $html);           // group auto-save
+		$this->assertStringContainsString('changes save automatically', $html);
+		$this->assertStringNotContainsString('renameCmd()', $html);            // no static copy-command path
 	}
 
 	public function testPageHtmlDeleteAffordance(): void
 	{
-		// Both modals expose a permanent-delete affordance gated behind an
-		// explicit confirm (confirmStone/confirmPlot); only then is the copyable
-		// `graveyard delete …` command revealed (session by id, group by
-		// --workspace). Verb built later.
+		// Serve-only: both modals expose a one-tap permanent-delete that calls the
+		// live API (native confirm() gates it client-side, inside apiDelete*). No
+		// static confirm-reveal step, no copy-command box.
 		$t = $this->tomb('del00001-full', 'doomed');
 		$t['group_id'] = 'ddd11111-x'; $t['group_title'] = 'Doomed Plot'; $t['group_pos'] = 0;
 		$html = $this->gy->pageHtml([$t], '2026-07-17');
 
-		$this->assertStringContainsString('confirmStone', $html);              // stone confirm gate
-		$this->assertStringContainsString('confirmPlot', $html);               // plot confirm gate
-		$this->assertStringContainsString('deleteCmd()', $html);
-		$this->assertStringContainsString('deletePlotCmd()', $html);
-		$this->assertStringContainsString('graveyard delete ', $html);             // session command
-		$this->assertStringContainsString('graveyard delete --workspace ', $html); // group command
+		$this->assertStringContainsString('@click="apiDeleteStone()"', $html); // one-tap session delete
+		$this->assertStringContainsString('@click="apiDeletePlot()"', $html);  // one-tap group delete
+		$this->assertStringContainsString('delete this session…', $html);
+		$this->assertStringContainsString('delete this whole plot…', $html);
+		$this->assertStringNotContainsString('confirmStone', $html);           // no static confirm gate
+		$this->assertStringNotContainsString('deleteCmd()', $html);            // no static copy-command path
 	}
 
 	public function testPlotColumnsVaryDeterministically(): void
@@ -219,21 +218,21 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('--cols:', $html);
 	}
 
-	public function testLiveModeAutoSaveAndOneTapDelete(): void
+	public function testServeOnlyMutationPathsAreTheOnlyOnes(): void
 	{
-		// In serve/live mode: rename auto-saves debounced (no button); delete is a
-		// single button → confirm()+API. The .cmd copy-command boxes are static-only
-		// (gated !live) — they're the CLI-command UI, wrong for progressive enhancement.
+		// Serve-only: rename auto-saves debounced; delete is a single button → the
+		// live API. There is no `live` feature-detection and no file:// copy-command
+		// fallback anywhere in the page anymore.
 		$t = $this->tomb('lv000001-full', 'x');
 		$t['group_id'] = 'lvgid-uuid'; $t['group_title'] = 'LV'; $t['group_pos'] = 0;
 		$html = $this->gy->pageHtml([$t], '2026-07-17');
 
-		$this->assertStringContainsString('@input.debounce.600ms="live && apiRenameStone()"', $html); // stone auto-save
-		$this->assertStringContainsString('@input.debounce.600ms="live && apiRenamePlot()"', $html);  // plot auto-save
-		$this->assertStringContainsString('@click="live ? apiDeleteStone() : (confirmStone = true)"', $html); // one-tap delete
-		$this->assertStringContainsString('@click="live ? apiDeletePlot() : (confirmPlot = true)"', $html);
-		$this->assertStringContainsString('x-show="!live && renameName.trim()', $html); // copy-cmd button is static-only
-		$this->assertStringContainsString('x-show="!live && confirmStone"', $html);      // reveal step is static-only
+		$this->assertStringContainsString('@input.debounce.600ms="apiRenameStone()"', $html); // stone auto-save
+		$this->assertStringContainsString('@input.debounce.600ms="apiRenamePlot()"', $html);  // plot auto-save
+		$this->assertStringContainsString('@click="apiDeleteStone()"', $html);                // one-tap delete
+		$this->assertStringContainsString('@click="apiDeletePlot()"', $html);
+		$this->assertStringNotContainsString('!live', $html);        // no static-mode branches
+		$this->assertStringNotContainsString('this.live', $html);    // no live feature-detection
 	}
 
 	public function testTombstoneModalHasPlotBacklink(): void
