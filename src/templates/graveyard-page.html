@@ -31,14 +31,7 @@ body {
 	color: var(--inscription);
 	font: 15px/1.6 var(--serif);
 }
-header.top { position: relative; text-align: center; padding: 0 clamp(1rem, 3.5vw, 3rem); margin-bottom: 1.6rem; }
-.gate {
-	position: absolute; left: 50%; top: -1.1rem; transform: translateX(-50%);
-	width: min(600px, 94vw); z-index: 0; pointer-events: none;
-	color: #737e69; opacity: .58; filter: drop-shadow(0 2px 6px rgba(0,0,0,.5));
-}
-.gate-svg { width: 100%; height: auto; display: block; }
-header.top > *:not(.gate) { position: relative; z-index: 1; } /* title/summary/search sit above the arch */
+header.top { text-align: center; padding: 0 clamp(1rem, 3.5vw, 3rem); margin-bottom: 1.6rem; }
 .crest { font-size: 3rem; line-height: 1.25; filter: grayscale(.4) brightness(.9); text-shadow: 0 6px 16px rgba(0,0,0,.65); }
 h1 { margin: .3rem 0 .45rem; font: 500 clamp(1.05rem, 2.2vw, 1.5rem)/1.2 var(--serif); letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
 header.top .meta { margin: 0; }
@@ -399,7 +392,6 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 }
 @media (max-width: 560px) {
 	.fence-v { display: none; }
-	.gate { opacity: .42; top: -.5rem; }
 	h1 { letter-spacing: .12em; }
 	header.top .meta { font-size: .68rem; }
 }
@@ -416,7 +408,6 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 <span class="web web-l" aria-hidden="true">🕸</span>
 <span class="web web-r" aria-hidden="true">🕸</span>
 <header class="top">
-	<div class="gate" aria-hidden="true"><svg class="gate-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 -16 560 178" preserveAspectRatio="xMidYMax meet"><path d="M44 74 C44 30 168 14 280 14 C392 14 516 30 516 74" stroke="currentColor" fill="none" stroke-width="3" stroke-linecap="round"/><path d="M44 74 C44 40 172 26 280 26 C388 26 516 40 516 74" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round"/><path d="M44 74 L44 158" stroke="currentColor" fill="none" stroke-width="3" stroke-linecap="round"/><path d="M516 74 L516 158" stroke="currentColor" fill="none" stroke-width="3" stroke-linecap="round"/><path d="M38 74 L44 60 L50 74 Z" fill="currentColor" stroke="none"/><path d="M510 74 L516 60 L522 74 Z" fill="currentColor" stroke="none"/><path d="M280 26 L280 -2" stroke="currentColor" fill="none" stroke-width="3" stroke-linecap="round"/><path d="M274 0 L280 -14 L286 0 Z" fill="currentColor" stroke="none"/><path d="M270 8 L290 8" stroke="currentColor" stroke-width="2"/><path d="M120 30 L120 46" stroke="currentColor" stroke-width="2"/><path d="M117 46 L120 52 L123 46 Z" fill="currentColor" stroke="none"/><path d="M200 22 L200 38" stroke="currentColor" stroke-width="2"/><path d="M197 38 L200 44 L203 38 Z" fill="currentColor" stroke="none"/><path d="M360 22 L360 38" stroke="currentColor" stroke-width="2"/><path d="M357 38 L360 44 L363 38 Z" fill="currentColor" stroke="none"/><path d="M440 30 L440 46" stroke="currentColor" stroke-width="2"/><path d="M437 46 L440 52 L443 46 Z" fill="currentColor" stroke="none"/><path d="M250 40 c-14 0 -18 16 -4 18 c10 1 10 -12 0 -12" stroke="currentColor" fill="none" stroke-width="2"/><path d="M310 40 c14 0 18 16 4 18 c-10 1 -10 -12 0 -12" stroke="currentColor" fill="none" stroke-width="2"/></svg></div>
 	<div style="display: flex;justify-content: center;gap: 15px;">
 		<div class="crest" aria-hidden="true">🪦</div>
 		<div>
