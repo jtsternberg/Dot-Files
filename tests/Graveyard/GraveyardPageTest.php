@@ -108,6 +108,14 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringNotContainsString('%%FENCE_SHIFT%%', $html);    // placeholder resolved
 	}
 
+	public function testPageHtmlRendersTheGateArch(): void
+	{
+		$html = $this->gy->pageHtml([$this->tomb('gate0001-full', 'x')], '2026-07-17');
+		$this->assertStringContainsString('class="gate"', $html);       // the arch wrapper
+		$this->assertStringContainsString('class="gate-svg"', $html);   // inline SVG
+		$this->assertStringContainsString('stroke="currentColor"', $html); // palette-driven ironwork
+	}
+
 	public function testPageHtmlEscapesStoneContentAndAttributes(): void
 	{
 		// Note: summaries get tag-stripped at titleize time, so the title payload is
