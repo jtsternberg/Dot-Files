@@ -613,8 +613,41 @@ class Cmux {
 	}
 
 	/**
+	 * Invoke $fn($line) on each line of $path from LAST to FIRST, reading fixed
+	 * chunks backward from EOF so the whole file is never held in memory. A line
+	 * straddling a chunk boundary is carried into the next (earlier) chunk before
+	 * it's emitted. $fn returning false stops the scan early. Blank lines are
+	 * skipped. Lets tail-only scans avoid touching the head of a large transcript.
+	 */
+	public function eachLineReverse(string $path, callable $fn): void {
+		$h = @fopen($path, 'rb');
+		if (!$h) { return; }
+		$chunkSize = 65536;
+		$stat = fstat($h);
+		$pos  = $stat ? (int) $stat['size'] : 0;
+		$carry = ''; // fragment that belongs AFTER the current chunk (start of a later line)
+		while ($pos > 0) {
+			$read = (int) min($chunkSize, $pos);
+			$pos -= $read;
+			fseek($h, $pos);
+			$buf   = (string) fread($h, $read) . $carry;
+			$lines = explode("\n", $buf);
+			// Unless we've reached the file start, the first fragment continues into
+			// the earlier chunk — hold it back rather than emit a partial line.
+			$carry = $pos > 0 ? array_shift($lines) : '';
+			for ($i = count($lines) - 1; $i >= 0; $i--) {
+				if ($lines[$i] === '') { continue; }
+				if ($fn($lines[$i]) === false) { fclose($h); return; }
+			}
+		}
+		fclose($h);
+	}
+
+	/**
 	 * Read the last permission-mode and model from a session's JSONL transcript.
-	 * These reflect the state at the end of the conversation, not just launch flags.
+	 * These reflect the state at the END of the conversation (either can change
+	 * mid-run), so we scan backward and take the first of each we encounter,
+	 * stopping as soon as both are known instead of decoding the whole file.
 	 */
 	public function readSessionJsonl(?string $sessionId, ?string $cwd): array {
 		$result = ['permission_mode' => null, 'model' => null];
@@ -629,23 +662,26 @@ class Cmux {
 			return $result;
 		}
 
-		$handle = fopen($jsonlPath, 'r');
-		while (($line = fgets($handle)) !== false) {
+		$this->eachLineReverse($jsonlPath, function (string $line) use (&$result) {
 			$entry = json_decode($line, true);
 			if (!$entry || !isset($entry['type'])) {
-				continue;
+				return true;
 			}
-			if ($entry['type'] === 'permission-mode' && isset($entry['permissionMode'])) {
+			if ($result['permission_mode'] === null
+				&& $entry['type'] === 'permission-mode' && isset($entry['permissionMode'])
+			) {
 				$result['permission_mode'] = $entry['permissionMode'];
 			}
-			if ($entry['type'] === 'assistant'
+			if ($result['model'] === null
+				&& $entry['type'] === 'assistant'
 				&& isset($entry['message']['model'])
 				&& $entry['message']['model'] !== '<synthetic>'
 			) {
 				$result['model'] = $entry['message']['model'];
 			}
-		}
-		fclose($handle);
+			// Keep scanning backward until BOTH are known.
+			return $result['permission_mode'] === null || $result['model'] === null;
+		});
 
 		return $result;
 	}
@@ -725,22 +761,22 @@ class Cmux {
 			return null;
 		}
 
+		// The latest genuine turn is the last real user/assistant entry — scan backward
+		// and take the first parseable one, stopping there instead of reading the head.
 		$lastTs = null;
-		$handle = fopen($jsonlPath, 'r');
-		while (($line = fgets($handle)) !== false) {
+		$this->eachLineReverse($jsonlPath, function (string $line) use (&$lastTs) {
 			$entry = json_decode($line, true);
 			if (!$entry || !isset($entry['type'], $entry['timestamp'])) {
-				continue;
+				return true;
 			}
-			if ($entry['type'] === 'user' || $entry['type'] === 'assistant') {
-				if ($this->isSyntheticEntry($entry)) {
-					continue;
-				}
+			if (($entry['type'] === 'user' || $entry['type'] === 'assistant')
+				&& !$this->isSyntheticEntry($entry)
+			) {
 				$parsed = strtotime($entry['timestamp']);
-				if ($parsed !== false) { $lastTs = $parsed; }
+				if ($parsed !== false) { $lastTs = $parsed; return false; }
 			}
-		}
-		fclose($handle);
+			return true;
+		});
 
 		return $lastTs;
 	}

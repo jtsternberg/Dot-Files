@@ -78,6 +78,77 @@ final class CmuxTest extends TestCase
 		$this->assertTrue(method_exists($this->cmux, 'newWorkspace'));
 	}
 
+	/** Collect all lines via eachLineReverse for a given content string. */
+	private function reverseLines(string $content): array
+	{
+		$path = sys_get_temp_dir() . '/gy-rev-' . getmypid() . '-' . uniqid();
+		file_put_contents($path, $content);
+		$this->tmpPaths[] = $path;
+		$seen = [];
+		$this->cmux->eachLineReverse($path, function (string $l) use (&$seen) { $seen[] = $l; return true; });
+		return $seen;
+	}
+
+	public function testEachLineReverseOrderingAndBoundaries(): void
+	{
+		// Basic reverse order, no trailing newline.
+		$this->assertSame(['C', 'B', 'A'], $this->reverseLines("A\nB\nC"));
+		// Trailing newline: blank final line skipped, order preserved.
+		$this->assertSame(['C', 'B', 'A'], $this->reverseLines("A\nB\nC\n"));
+		// Blank interior lines are skipped.
+		$this->assertSame(['C', 'A'], $this->reverseLines("A\n\nC\n"));
+		// Empty file yields nothing.
+		$this->assertSame([], $this->reverseLines(''));
+	}
+
+	public function testEachLineReverseAcrossChunkBoundaries(): void
+	{
+		// Lines far larger than the 64KB chunk must still reassemble correctly.
+		$big = str_repeat('x', 200000);
+		$lines = $this->reverseLines("first\n{$big}\nlast");
+		$this->assertSame(['last', $big, 'first'], $lines);
+	}
+
+	public function testEachLineReverseStopsEarly(): void
+	{
+		$path = sys_get_temp_dir() . '/gy-rev-stop-' . getmypid() . '-' . uniqid();
+		file_put_contents($path, "A\nB\nC\nD\n");
+		$this->tmpPaths[] = $path;
+		$seen = [];
+		$this->cmux->eachLineReverse($path, function (string $l) use (&$seen) {
+			$seen[] = $l;
+			return $l !== 'C'; // stop once we hit C
+		});
+		$this->assertSame(['D', 'C'], $seen);
+	}
+
+	public function testReadSessionJsonlTakesLastModelAndPermissionMode(): void
+	{
+		$tmpCwd = sys_get_temp_dir() . '/gy-test-cwd-' . getmypid();
+		$tmpSid = 'test-sess-rsj-' . getmypid() . '-' . uniqid();
+		$path = $this->cmux->jsonlPathFor($tmpSid, $tmpCwd);
+		@mkdir(dirname($path), 0755, true);
+		$this->tmpPaths[] = $path;
+
+		// Model and permission mode both change over the conversation; the LAST wins.
+		file_put_contents($path, implode("\n", [
+			json_encode(['type' => 'permission-mode', 'permissionMode' => 'default']),
+			json_encode(['type' => 'assistant', 'message' => ['model' => 'claude-opus-4-8']]),
+			json_encode(['type' => 'assistant', 'message' => ['model' => '<synthetic>']]),
+			json_encode(['type' => 'permission-mode', 'permissionMode' => 'bypassPermissions']),
+			json_encode(['type' => 'assistant', 'message' => ['model' => 'claude-fable-5']]),
+		]) . "\n");
+
+		$meta = $this->cmux->readSessionJsonl($tmpSid, $tmpCwd);
+		$this->assertSame('bypassPermissions', $meta['permission_mode']);
+		$this->assertSame('claude-fable-5', $meta['model']); // synthetic ignored, last real wins
+	}
+
+	public function testReadSessionJsonlMissingFile(): void
+	{
+		$this->assertSame(['permission_mode' => null, 'model' => null], $this->cmux->readSessionJsonl('nope', '/no/such'));
+	}
+
 	public function testLastRealActivityReturnsLastUserOrAssistantTimestamp(): void
 	{
 		$tmpCwd = sys_get_temp_dir() . '/gy-test-cwd-' . getmypid();
