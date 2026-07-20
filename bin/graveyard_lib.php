@@ -852,7 +852,7 @@ class Graveyard {
 			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
 		}
 
-		if ($this->transcriptUpToDate($id, (string) ($sess['cwd'] ?? ''))) {
+		if ($this->transcriptUpToDate((string) $sess['session_id'], (string) ($sess['cwd'] ?? ''))) {
 			$this->cli->msg("  Transcript already current for {$id} — skipping export.", 'cyan');
 		} else {
 			$this->cli->msg("  Exporting transcript for {$id}…", 'cyan');
