@@ -986,6 +986,42 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Turn a stored workspace layout (flat, ordered surface entries, each
+	 * tagged with pane_index) into ordered restore steps that rebuild the pane
+	 * splits and per-pane tab stacks — instead of dumping every surface into one
+	 * pane. Each step:
+	 *   op 'first' — the very first entry: reuse the new workspace's initial surface.
+	 *   op 'split' — the first entry of every SUBSEQUENT pane: open a new split/pane.
+	 *   op 'tab'   — any later entry within a pane: a new tab inside that pane.
+	 * cmux tree exposes no split direction/geometry (verified: neither the workspace
+	 * nor pane node carries it), so splits default to 'right' — side-by-side columns,
+	 * the common multi-pane shape. Grouping is by first-seen pane_index, so it is
+	 * robust even if entries for a pane are not perfectly contiguous.
+	 */
+	public function planLayoutRestore(array $layout): array {
+		$steps = [];
+		$seenPanes = [];
+		foreach ($layout as $e) {
+			$pane = $e['pane_index'] ?? 0;
+			$firstInPane = !in_array($pane, $seenPanes, true);
+			if ($firstInPane) { $seenPanes[] = $pane; }
+
+			if ($firstInPane && count($seenPanes) === 1) {
+				$op = 'first';
+			} elseif ($firstInPane) {
+				$op = 'split';
+			} else {
+				$op = 'tab';
+			}
+
+			$step = ['op' => $op, 'pane_index' => $pane, 'entry' => $e];
+			if ($op === 'split') { $step['dir'] = 'right'; }
+			$steps[] = $step;
+		}
+		return $steps;
+	}
+
+	/**
 	 * PURE. Human reason WHY a detected Claude surface is untargetable, from injectable
 	 * facts, so the abort report tells JT whether to fix, wait, or --force:
 	 *   type              cmux surface type
@@ -2308,24 +2344,53 @@ class Graveyard {
 		$ws = $this->cmux->newWorkspace($m['group_title'] ?: 'resurrected', $firstCwd);
 		$wsRef = $ws['ref'];
 
-		$restored = 0;
-		foreach ($layout as $i => $e) {
-			// First layout slot reuses the workspace's initial surface; the rest are new tabs.
-			if ($i === 0) {
+		// Rebuild the pane splits + per-pane tab stacks rather than flattening every
+		// surface into the first pane (the collapse bug). planLayoutRestore() maps the
+		// flat layout to first/split/tab steps; we track each pane's live ref so tabs
+		// land in the right pane and later splits anchor off the first pane's surface.
+		$steps         = $this->planLayoutRestore($layout);
+		$anchorSurf    = $ws['firstSurfRef'];   // surface in the first pane; splits fork from it
+		$paneRefByIdx  = [];                     // pane_index => live cmux pane ref
+		$restored      = 0;
+
+		foreach ($steps as $step) {
+			$e    = $step['entry'];
+			$pIdx = $step['pane_index'];
+
+			if ($step['op'] === 'first') {
 				$surfRef = $ws['firstSurfRef'];
-			} else {
-				$surfRef = $this->cmux->createSurface($wsRef, null, $e['type'] === 'browser' ? 'browser' : 'terminal', $e['url'] ?? null);
-				if (!$surfRef) { $this->cli->msg("  Could not create surface for slot {$i} — skipping.", 'yellow'); continue; }
+				$paneRefByIdx[$pIdx] = $ws['firstPaneRef'] ?? $this->cmux->paneRefForSurface($wsRef, (string) $surfRef);
+			} elseif ($step['op'] === 'split') {
+				$surfRef = $this->cmux->newSplit($wsRef, (string) $anchorSurf, $step['dir']);
+				if (!$surfRef) { $this->cli->msg("  Could not split for pane {$pIdx} — placing as a tab instead.", 'yellow'); }
+				if (!$surfRef) {
+					$surfRef = $this->cmux->createSurface($wsRef, $paneRefByIdx[array_key_first($paneRefByIdx)] ?? null, 'terminal', null);
+				}
+				if (!$surfRef) { $this->cli->msg("  Could not create surface for pane {$pIdx} — skipping.", 'yellow'); continue; }
+				$paneRefByIdx[$pIdx] = $this->cmux->paneRefForSurface($wsRef, (string) $surfRef);
+			} else { // 'tab'
+				$paneRef = $paneRefByIdx[$pIdx] ?? null;
+				$surfRef = $this->cmux->createSurface($wsRef, $paneRef, $e['type'] === 'browser' ? 'browser' : 'terminal', $e['url'] ?? null);
+				if (!$surfRef) { $this->cli->msg("  Could not create tab in pane {$pIdx} — skipping.", 'yellow'); continue; }
+			}
+
+			// A browser landing on a first/split slot got a terminal surface (new-split
+			// and the workspace's initial surface are terminal-only). Give it a real
+			// browser surface in this pane so its URL is preserved; the starter terminal
+			// stays as an extra tab.
+			if ($e['kind'] === 'browser' && $step['op'] !== 'tab' && !empty($e['url'])) {
+				$b = $this->cmux->createSurface($wsRef, $paneRefByIdx[$pIdx] ?? null, 'browser', $e['url']);
+				if ($b) { $surfRef = $b; }
 			}
 
 			if ($e['kind'] === 'claude' && !empty($e['claude_session_id']) && isset($tombBySid[$e['claude_session_id']])) {
-				$mode = $this->launchSessionIntoSurface($tombBySid[$e['claude_session_id']], $surfRef, $wsRef, $fromTranscript);
+				$mode = $this->launchSessionIntoSurface($tombBySid[$e['claude_session_id']], (string) $surfRef, $wsRef, $fromTranscript);
 				$this->cli->msg('  ↺ ' . substr($e['claude_session_id'], 0, 8) . " ({$mode})", 'green');
 				$restored++;
 			} elseif ($e['kind'] === 'browser') {
 				// url already applied at surface creation
 			} elseif (!empty($e['cwd'])) {
-				$this->cmux->sendToSurface($surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
+				$this->cmux->sendToSurface((string) $surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
 			}
 		}
 

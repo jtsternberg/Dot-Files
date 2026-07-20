@@ -423,6 +423,39 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('claude-untargetable', $ca['layout'][0]['kind']);
 	}
 
+	public function testPlanLayoutRestore(): void
+	{
+		// Two panes, two tabs each (the collapse-bug repro shape).
+		$layout = [
+			['pane_index' => 0, 'kind' => 'claude', 'claude_session_id' => 'a'],
+			['pane_index' => 0, 'kind' => 'claude', 'claude_session_id' => 'b'],
+			['pane_index' => 1, 'kind' => 'claude', 'claude_session_id' => 'c'],
+			['pane_index' => 1, 'kind' => 'shell'],
+		];
+		$steps = $this->gy->planLayoutRestore($layout);
+
+		$this->assertSame(['first', 'tab', 'split', 'tab'], array_column($steps, 'op'));
+		$this->assertSame([0, 0, 1, 1], array_column($steps, 'pane_index'));
+		// Only the split step carries a direction; it defaults to a side-by-side column.
+		$this->assertSame('right', $steps[2]['dir']);
+		$this->assertArrayNotHasKey('dir', $steps[0]);
+		// Entries are threaded through untouched.
+		$this->assertSame('a', $steps[0]['entry']['claude_session_id']);
+		$this->assertSame('c', $steps[2]['entry']['claude_session_id']);
+
+		// Single pane, three tabs → one 'first' then plain tabs, no splits.
+		$single = $this->gy->planLayoutRestore([
+			['pane_index' => 0], ['pane_index' => 0], ['pane_index' => 0],
+		]);
+		$this->assertSame(['first', 'tab', 'tab'], array_column($single, 'op'));
+
+		// Missing pane_index defaults to pane 0.
+		$bare = $this->gy->planLayoutRestore([['kind' => 'claude'], ['kind' => 'shell']]);
+		$this->assertSame(['first', 'tab'], array_column($bare, 'op'));
+
+		$this->assertSame([], $this->gy->planLayoutRestore([]));
+	}
+
 	public function testUntargetableReasonFor(): void
 	{
 		$this->assertStringContainsString('cmux-native agent session', $this->gy->untargetableReasonFor(['type' => 'agentSession']));
