@@ -608,6 +608,52 @@ class Cmux {
 		];
 	}
 
+	/**
+	 * Capture a live workspace's full split geometry (orientation, divider ratio,
+	 * nesting, per-pane tab order) via cmux's own layout store. cmux's `system.tree`
+	 * flattens all of this away, but `layout get` returns the recursive definition —
+	 * the only faithful source. Round-trips through a throwaway named layout (save →
+	 * get → delete) so no cruft is left behind. Returns the `workspace.layout` subtree
+	 * (`{direction,split,children}` or a bare `{pane:{surfaces}}`), or null if cmux has
+	 * no layout API / the capture fails (caller falls back to a manual rebuild).
+	 */
+	public function captureLayoutTree(string $wsRef): ?array {
+		if ($this->dryRun) { return null; }
+
+		$name = 'graveyard-capture-' . bin2hex(random_bytes(4));
+		$save = $this->cli->getCommandOutputAndExitCode(
+			'cmux layout save ' . escapeshellarg($name) . ' --workspace ' . escapeshellarg($wsRef) . ' --overwrite'
+		);
+		if (($save['exitCode'] ?? 1) !== 0) { return null; }
+
+		$get = $this->cli->getCommandOutputAndExitCode('cmux layout get ' . escapeshellarg($name));
+		$this->cli->getCommandOutputAndExitCode('cmux layout delete ' . escapeshellarg($name));
+		if (($get['exitCode'] ?? 1) !== 0) { return null; }
+
+		$data = json_decode((string) ($get['output'] ?? ''), true);
+		$tree = $data['workspace']['layout'] ?? null;
+		return is_array($tree) ? $tree : null;
+	}
+
+	/**
+	 * Create a workspace from a cmux layout definition (inline JSON), rebuilding the
+	 * exact splits/tabs. Returns the new workspace's full tree node (panes[].surfaces[])
+	 * so the caller can join surfaces to sessions positionally, or null on failure.
+	 */
+	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree): ?array {
+		if ($this->dryRun) { return null; }
+
+		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title)
+			. ' --layout ' . escapeshellarg((string) json_encode($layoutTree));
+		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
+
+		$res = $this->cli->getCommandOutputAndExitCode($cmd);
+		if (($res['exitCode'] ?? 1) !== 0) { return null; }
+		usleep(600000);
+
+		return $this->findWorkspaceByTitle($this->tree(), $title);
+	}
+
 	public function findWorkspaceByTitle(array $tree, string $title): ?array {
 		foreach ($tree['windows'] ?? [] as $window) {
 			foreach ($window['workspaces'] ?? [] as $ws) {
