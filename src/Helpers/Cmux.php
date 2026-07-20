@@ -525,34 +525,72 @@ class Cmux {
 		}
 	}
 
+	/** [surface_ref => pane_ref] for every surface in a workspace (current tree). */
+	private function surfacePaneMap(string $wsRef): array {
+		$ws = $this->findWorkspaceByRef($this->tree(), $wsRef);
+		$map = [];
+		foreach ($ws['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $s) {
+				if (isset($s['ref'])) { $map[$s['ref']] = $pane['ref'] ?? ''; }
+			}
+		}
+		return $map;
+	}
+
+	/** The one surface ref present now but absent in $before (the just-created one). */
+	private function firstNewSurface(string $wsRef, array $before): ?string {
+		foreach (array_keys($this->surfacePaneMap($wsRef)) as $ref) {
+			if (!isset($before[$ref])) { return $ref; }
+		}
+		return null;
+	}
+
+	/** The cmux pane ref that currently owns $surfRef, or null. */
+	public function paneRefForSurface(string $wsRef, string $surfRef): ?string {
+		return $this->surfacePaneMap($wsRef)[$surfRef] ?? null;
+	}
+
 	public function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url): ?string {
+		if ($this->dryRun) { return null; }
+
+		$before = $this->surfacePaneMap($wsRef);
+
 		$cmd = 'cmux new-surface --type ' . escapeshellarg($type)
 			. ' --workspace ' . escapeshellarg($wsRef);
 
 		if ($type === 'browser' && $url) {
 			$cmd .= ' --url ' . escapeshellarg($url);
-		} elseif ($paneRef) {
+		}
+		// A tab lives inside a pane; without --pane cmux drops it into the focused
+		// pane, collapsing a restored multi-pane layout into one pane.
+		if ($paneRef) {
 			$cmd .= ' --pane ' . escapeshellarg($paneRef);
 		}
 
 		shell_exec($cmd . ' 2>/dev/null');
 		usleep(400000);
 
-		// Find the last surface in the workspace (the one we just created)
-		$newTree = $this->tree();
-		$newWs   = $this->findWorkspaceByRef($newTree, $wsRef);
-		if (!$newWs) {
-			return null;
-		}
+		// Identify the new surface by diffing the tree — end()-of-list is unreliable
+		// once multiple panes exist (surface order is not creation order).
+		return $this->firstNewSurface($wsRef, $before);
+	}
 
-		$allSurfs = [];
-		foreach ($newWs['panes'] ?? [] as $pane) {
-			foreach ($pane['surfaces'] ?? [] as $s) {
-				$allSurfs[] = $s['ref'];
-			}
-		}
+	/**
+	 * Split $fromSurfRef's pane in $direction, creating a NEW pane with a fresh
+	 * terminal surface. Returns that new surface's ref (or null). cmux exposes no
+	 * stored split geometry, so callers pick the direction.
+	 */
+	public function newSplit(string $wsRef, string $fromSurfRef, string $direction): ?string {
+		if ($this->dryRun) { return null; }
 
-		return $allSurfs ? end($allSurfs) : null;
+		$before = $this->surfacePaneMap($wsRef);
+		$cmd = 'cmux new-split ' . escapeshellarg($direction)
+			. ' --surface ' . escapeshellarg($fromSurfRef)
+			. ' --workspace ' . escapeshellarg($wsRef);
+		shell_exec($cmd . ' 2>/dev/null');
+		usleep(400000);
+
+		return $this->firstNewSurface($wsRef, $before);
 	}
 
 	public function newWorkspace(string $title, ?string $cwd): array {
