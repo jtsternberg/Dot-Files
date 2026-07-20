@@ -456,6 +456,47 @@ final class GraveyardTest extends TestCase
 		$this->assertSame([], $this->gy->planLayoutRestore([]));
 	}
 
+	public function testLayoutTreeSurfaceCount(): void
+	{
+		// Bare pane (single-pane workspace).
+		$this->assertSame(2, $this->gy->layoutTreeSurfaceCount(
+			['pane' => ['surfaces' => [['type' => 'terminal'], ['type' => 'terminal']]]]
+		));
+
+		// Nested split: left pane (2 tabs) + right column split into two panes (1 + 3).
+		$tree = ['direction' => 'horizontal', 'split' => 0.5, 'children' => [
+			['pane' => ['surfaces' => [['type' => 'terminal'], ['type' => 'terminal']]]],
+			['direction' => 'vertical', 'split' => 0.3, 'children' => [
+				['pane' => ['surfaces' => [['type' => 'terminal']]]],
+				['pane' => ['surfaces' => [['type' => 'terminal'], ['type' => 'terminal'], ['type' => 'terminal']]]],
+			]],
+		]];
+		$this->assertSame(6, $this->gy->layoutTreeSurfaceCount($tree));
+		$this->assertSame(0, $this->gy->layoutTreeSurfaceCount([]));
+	}
+
+	public function testSanitizeLayoutTree(): void
+	{
+		$tree = ['direction' => 'horizontal', 'split' => 0.5, 'children' => [
+			['pane' => ['surfaces' => [
+				['type' => 'terminal', 'cwd' => '/a', 'command' => 'claude --resume x', 'focus' => true],
+			]]],
+			['pane' => ['surfaces' => [['type' => 'terminal', 'command' => 'vim']]]],
+		]];
+		$clean = $this->gy->sanitizeLayoutTree($tree);
+
+		// Commands stripped everywhere (would otherwise double-launch on replay)…
+		$this->assertArrayNotHasKey('command', $clean['children'][0]['pane']['surfaces'][0]);
+		$this->assertArrayNotHasKey('command', $clean['children'][1]['pane']['surfaces'][0]);
+		// …but geometry, type, cwd, and focus survive.
+		$this->assertSame('horizontal', $clean['direction']);
+		$this->assertSame(0.5, $clean['split']);
+		$this->assertSame('/a', $clean['children'][0]['pane']['surfaces'][0]['cwd']);
+		$this->assertTrue($clean['children'][0]['pane']['surfaces'][0]['focus']);
+		// Surface count is preserved (stays aligned with the manifest's layout[]).
+		$this->assertSame(2, $this->gy->layoutTreeSurfaceCount($clean));
+	}
+
 	public function testUntargetableReasonFor(): void
 	{
 		$this->assertStringContainsString('cmux-native agent session', $this->gy->untargetableReasonFor(['type' => 'agentSession']));

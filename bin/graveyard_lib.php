@@ -1022,6 +1022,56 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Count leaf surfaces in a cmux layout tree (recursive split node or a bare
+	 * pane). Used to gate the geometry-restore path: cmux drops unsupported surface
+	 * types (agent-session, markdown, …) when capturing a layout, so a captured tree
+	 * can hold fewer surfaces than the manifest's flat layout[]. When the counts
+	 * disagree the positional surface↔session join is untrustworthy, so resurrect
+	 * falls back to the manual pane rebuild.
+	 */
+	public function layoutTreeSurfaceCount(array $node): int {
+		if (isset($node['pane'])) { return count($node['pane']['surfaces'] ?? []); }
+		$n = 0;
+		foreach ($node['children'] ?? [] as $c) { $n += $this->layoutTreeSurfaceCount($c); }
+		return $n;
+	}
+
+	/**
+	 * PURE. Strip per-surface `command` from a captured layout tree. cmux may record
+	 * the command a surface was launched with; replaying it via `new-workspace
+	 * --layout` would re-run it (double-launching Claude) — graveyard drives every
+	 * launch itself afterward. Geometry, type, and cwd are preserved.
+	 */
+	public function sanitizeLayoutTree(array $node): array {
+		if (isset($node['pane'])) {
+			$surfs = [];
+			foreach ($node['pane']['surfaces'] ?? [] as $s) {
+				unset($s['command']);
+				$surfs[] = $s;
+			}
+			$node['pane']['surfaces'] = $surfs;
+			return $node;
+		}
+		if (isset($node['children'])) {
+			$node['children'] = array_map(fn($c) => $this->sanitizeLayoutTree($c), $node['children']);
+		}
+		return $node;
+	}
+
+	/** Launch one restored surface: resume Claude, open browser, or cd a shell. */
+	private function launchLayoutEntry(array $e, string $surfRef, string $wsRef, array $tombBySid, bool $fromTranscript, int &$restored): void {
+		if ($e['kind'] === 'claude' && !empty($e['claude_session_id']) && isset($tombBySid[$e['claude_session_id']])) {
+			$mode = $this->launchSessionIntoSurface($tombBySid[$e['claude_session_id']], $surfRef, $wsRef, $fromTranscript);
+			$this->cli->msg('  ↺ ' . substr($e['claude_session_id'], 0, 8) . " ({$mode})", 'green');
+			$restored++;
+		} elseif ($e['kind'] === 'browser') {
+			// url already applied at surface creation
+		} elseif (!empty($e['cwd'])) {
+			$this->cmux->sendToSurface($surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
+		}
+	}
+
+	/**
 	 * PURE. Human reason WHY a detected Claude surface is untargetable, from injectable
 	 * facts, so the abort report tells JT whether to fix, wait, or --force:
 	 *   type              cmux surface type
@@ -1169,13 +1219,21 @@ class Graveyard {
 		$buriedAt = gmdate('Y-m-d\TH:i:s\Z');
 		$dir = $this->workspaceGroupDir($group);
 		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
-		file_put_contents($this->manifestPath($group), json_encode([
+
+		// Capture cmux's true split geometry (orientation, divider, nesting) while the
+		// workspace is still alive — resurrect replays it exactly. Null when cmux has no
+		// layout API; resurrect then rebuilds panes manually.
+		$layoutTree = $this->cmux->captureLayoutTree($wsRef);
+
+		$manifest = [
 			'group_id'    => $group,
 			'group_title' => $wsTitle,
 			'window_ref'  => $wsInfo['window_ref'],
 			'buried_at'   => $buriedAt,
 			'layout'      => $cls['layout'],
-		], JSON_PRETTY_PRINT));
+		];
+		if ($layoutTree !== null) { $manifest['layout_tree'] = $this->sanitizeLayoutTree($layoutTree); }
+		file_put_contents($this->manifestPath($group), json_encode($manifest, JSON_PRETTY_PRINT));
 
 		// Bury each member (per-member gates), deferring the tab close.
 		$buried = 0; $failed = 0;
@@ -2340,14 +2398,55 @@ class Graveyard {
 			if (!empty($t['group_id']) && $t['group_id'] === $m['group_id']) { $tombBySid[$t['session_id']] = $t; }
 		}
 
+		$title    = $m['group_title'] ?: 'resurrected';
+		$firstCwd = $layout[0]['cwd'] ?? null;
+
+		// Preferred path: replay cmux's own captured geometry (exact orientation,
+		// divider ratios, nesting, tab order). Gated on a surface-count match — cmux
+		// drops unsupported surface types when capturing, so a shorter tree would
+		// misalign the positional surface↔session join. On any miss, fall back to the
+		// manual pane rebuild (correct panes/tabs, approximated split direction).
+		$tree = $m['layout_tree'] ?? null;
+		if (is_array($tree) && $this->layoutTreeSurfaceCount($tree) === count($layout)) {
+			$node = $this->cmux->newWorkspaceWithLayout($title, $firstCwd, $tree);
+			if ($node) {
+				$refs = [];
+				foreach ($node['panes'] ?? [] as $p) {
+					foreach ($p['surfaces'] ?? [] as $s) { $refs[] = (string) ($s['ref'] ?? ''); }
+				}
+				if (count($refs) === count($layout)) {
+					$wsRef = (string) ($node['ref'] ?? '');
+					$restored = 0;
+					// cmux serializes panes/surfaces in the same order layout[] was walked
+					// at bury (verified: tree pane order == layout DFS-leaf order), so a
+					// positional zip binds each restored surface to its session.
+					foreach ($layout as $k => $e) {
+						$this->launchLayoutEntry($e, $refs[$k], $wsRef, $tombBySid, $fromTranscript, $restored);
+					}
+					$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s (layout restored) — %d Claude session(s) restored.', $title, $wsRef, $restored));
+					return;
+				}
+				$this->cli->msg('  Restored surface count did not match the manifest — falling back to manual rebuild.', 'yellow');
+			} else {
+				$this->cli->msg('  cmux layout replay failed — falling back to manual rebuild.', 'yellow');
+			}
+		}
+
+		$this->resurrectWorkspaceManual($m, $layout, $tombBySid, $fromTranscript);
+	}
+
+	/**
+	 * Fallback restore when no cmux geometry is stored (pre-layout_tree manifests) or
+	 * the layout replay could not be trusted. Rebuilds the pane splits + per-pane tab
+	 * stacks from the flat layout[] via planLayoutRestore() rather than flattening every
+	 * surface into one pane. cmux exposes no split direction here, so splits default to
+	 * side-by-side columns.
+	 */
+	private function resurrectWorkspaceManual(array $m, array $layout, array $tombBySid, bool $fromTranscript): void {
 		$firstCwd = $layout[0]['cwd'] ?? null;
 		$ws = $this->cmux->newWorkspace($m['group_title'] ?: 'resurrected', $firstCwd);
 		$wsRef = $ws['ref'];
 
-		// Rebuild the pane splits + per-pane tab stacks rather than flattening every
-		// surface into the first pane (the collapse bug). planLayoutRestore() maps the
-		// flat layout to first/split/tab steps; we track each pane's live ref so tabs
-		// land in the right pane and later splits anchor off the first pane's surface.
 		$steps         = $this->planLayoutRestore($layout);
 		$anchorSurf    = $ws['firstSurfRef'];   // surface in the first pane; splits fork from it
 		$paneRefByIdx  = [];                     // pane_index => live cmux pane ref
@@ -2383,15 +2482,7 @@ class Graveyard {
 				if ($b) { $surfRef = $b; }
 			}
 
-			if ($e['kind'] === 'claude' && !empty($e['claude_session_id']) && isset($tombBySid[$e['claude_session_id']])) {
-				$mode = $this->launchSessionIntoSurface($tombBySid[$e['claude_session_id']], (string) $surfRef, $wsRef, $fromTranscript);
-				$this->cli->msg('  ↺ ' . substr($e['claude_session_id'], 0, 8) . " ({$mode})", 'green');
-				$restored++;
-			} elseif ($e['kind'] === 'browser') {
-				// url already applied at surface creation
-			} elseif (!empty($e['cwd'])) {
-				$this->cmux->sendToSurface((string) $surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
-			}
+			$this->launchLayoutEntry($e, (string) $surfRef, $wsRef, $tombBySid, $fromTranscript, $restored);
 		}
 
 		$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s — %d Claude session(s) restored.', $m['group_title'], $wsRef, $restored));
