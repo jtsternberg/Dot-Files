@@ -107,6 +107,29 @@ final class GraveyardTest extends TestCase
 		putenv('GRAVEYARD_ROOT');
 	}
 
+	public function testOrphanedManifestGroupsAndPrune(): void
+	{
+		$root = sys_get_temp_dir() . '/gy-orph-' . getmypid() . '-' . uniqid();
+		putenv('GRAVEYARD_ROOT=' . $root);
+		$gy = new Graveyard($this->cli, $this->cmux);
+
+		// Two group manifests; only "live" is referenced by a tombstone.
+		foreach (['live', 'orphan'] as $gid) {
+			@mkdir("$root/workspaces/$gid", 0755, true);
+			file_put_contents("$root/workspaces/$gid/manifest.json", json_encode(['group_id' => $gid, 'layout' => []]));
+		}
+		$gy->upsertIndex(['session_id' => 's1', 'group_id' => 'live']);
+
+		$this->assertSame(['orphan'], $gy->orphanedManifestGroups());
+		$this->assertSame(['orphan'], $gy->pruneOrphanedManifests());
+		// Live manifest survives; orphan is gone; prune is idempotent.
+		$this->assertFileExists("$root/workspaces/live/manifest.json");
+		$this->assertFileDoesNotExist("$root/workspaces/orphan/manifest.json");
+		$this->assertSame([], $gy->orphanedManifestGroups());
+
+		putenv('GRAVEYARD_ROOT');
+	}
+
 	public function testIsBusy(): void
 	{
 		$this->assertTrue($this->gy->isBusy(5, 15, ''));

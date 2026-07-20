@@ -340,7 +340,14 @@ class Graveyard {
 		if ($noJsonl) {
 			$this->cli->msg(count($noJsonl) . ' session(s) skipped (no surviving JSONL — cannot re-derive).', 'yellow');
 		}
-		if (!$apply && $changed) {
+		$orphans = $this->orphanedManifestGroups();
+		if ($orphans) {
+			$this->cli->msg(($apply ? 'Pruned ' : 'Would prune ') . count($orphans) . ' orphaned workspace manifest(s) (no tombstone references them):', 'yellow');
+			foreach ($orphans as $gid) { $this->cli->msg('  ' . substr($gid, 0, 8), 'cyan'); }
+			if ($apply) { $this->pruneOrphanedManifests(); }
+		}
+
+		if (!$apply && ($changed || $orphans)) {
 			$this->cli->msg('Dry run — re-run with --apply to write these corrections.', 'blue');
 		}
 	}
@@ -1168,7 +1175,52 @@ class Graveyard {
 			$this->cli->msg('  Workspace left open (some surfaces preserved).', 'yellow');
 		}
 
+		$pruned = $this->pruneOrphanedManifests();
+		if ($pruned) {
+			$this->cli->msg('  Pruned ' . count($pruned) . ' stale workspace manifest(s) from earlier buries.', 'cyan');
+		}
+
 		$this->cli->successMsg("Buried workspace \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
+	}
+
+	/**
+	 * Remove workspace group manifests that no tombstone points to any more, returning
+	 * the removed group ids. Re-burying a workspace mints a fresh group + manifest and
+	 * re-points the members' tombstones (deduped by session_id) to it, orphaning the
+	 * prior group's manifest — which then lingers in ls/page and resurrects to
+	 * "0 Claude session(s) restored". Run after a bury (once tombstones are upserted, so
+	 * the just-created group is never mistaken for an orphan) to keep exactly the live
+	 * groups on disk.
+	 */
+	public function pruneOrphanedManifests(): array {
+		$removed = [];
+		foreach ($this->orphanedManifestGroups() as $gid) {
+			$this->removeGroupArtifact($gid);
+			$removed[] = $gid;
+		}
+		return $removed;
+	}
+
+	/**
+	 * PURE-ish. The group-dir ids whose manifest no live tombstone references (see
+	 * pruneOrphanedManifests). Detection only — no deletion — so callers can report a
+	 * dry run before pruning.
+	 */
+	public function orphanedManifestGroups(): array {
+		$root = $this->storeRoot() . '/workspaces';
+		if (!is_dir($root)) { return []; }
+		$live = [];
+		foreach ($this->readIndex()['tombstones'] ?? [] as $t) {
+			if (!empty($t['group_id'])) { $live[$t['group_id']] = true; }
+		}
+		$orphans = [];
+		foreach (glob($root . '/*/manifest.json') ?: [] as $mf) {
+			$gid  = basename(dirname($mf));
+			$m    = json_decode((string) @file_get_contents($mf), true);
+			$mgid = $m['group_id'] ?? $gid;
+			if (!isset($live[$mgid])) { $orphans[] = $gid; }
+		}
+		return $orphans;
 	}
 
 	/** Remove a workspace group directory + manifest (used to clean up a failed bury). */
