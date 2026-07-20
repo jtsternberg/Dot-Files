@@ -486,6 +486,23 @@ document.addEventListener("alpine:init", function () {
 			ritual: { command: "", confirm: "" },
 			copied: {},
 			search: "",
+			// Persist the active search in the URL (?q=…) so a filtered view is
+			// bookmarkable/shareable and survives the page auto-regenerating on
+			// each `graveyard page`. Seed from the query arg on load, then mirror
+			// every change back into the URL (replaceState — no history spam).
+			init: function () {
+				var q = new URLSearchParams(window.location.search).get("q");
+				if (q) { this.search = q; }
+				var self = this;
+				this.$watch("search", function (val) { self.syncSearchToUrl(val); });
+			},
+			syncSearchToUrl: function (val) {
+				var params = new URLSearchParams(window.location.search);
+				if (val && val.trim()) { params.set("q", val); } else { params.delete("q"); }
+				var qs = params.toString();
+				var url = window.location.pathname + (qs ? "?" + qs : "") + window.location.hash;
+				window.history.replaceState(null, "", url);
+			},
 			renameName: "",
 			renamePlotName: "",
 			saved: {}, // "saved ✓" flash flags, keyed rn/rnp
