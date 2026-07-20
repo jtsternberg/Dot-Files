@@ -43,6 +43,35 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('second', $xs[0]['summary']);
 	}
 
+	public function testReconcileTombstoneConfig(): void
+	{
+		// jsonl says yolo + a model; stored had the burial defaults → both corrected.
+		[$t, $ch] = $this->gy->reconcileTombstoneConfig(
+			['skip_perms' => false, 'model' => null],
+			['permission_mode' => 'bypassPermissions', 'model' => 'claude-fable-5']
+		);
+		$this->assertTrue($t['skip_perms']);
+		$this->assertSame('claude-fable-5', $t['model']);
+		$this->assertSame([false, true], $ch['skip_perms']);
+		$this->assertSame([null, 'claude-fable-5'], $ch['model']);
+
+		// Null jsonl values must NOT downgrade good stored data.
+		[$t2, $ch2] = $this->gy->reconcileTombstoneConfig(
+			['skip_perms' => true, 'model' => 'opus'],
+			['permission_mode' => null, 'model' => null]
+		);
+		$this->assertSame([], $ch2);
+		$this->assertTrue($t2['skip_perms']);
+		$this->assertSame('opus', $t2['model']);
+
+		// No drift → no changes.
+		[, $ch3] = $this->gy->reconcileTombstoneConfig(
+			['skip_perms' => true, 'model' => 'opus'],
+			['permission_mode' => 'bypassPermissions', 'model' => 'opus']
+		);
+		$this->assertSame([], $ch3);
+	}
+
 	public function testIsBusy(): void
 	{
 		$this->assertTrue($this->gy->isBusy(5, 15, ''));

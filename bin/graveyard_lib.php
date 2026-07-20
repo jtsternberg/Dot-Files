@@ -252,6 +252,99 @@ class Graveyard {
 		return $tomb;
 	}
 
+	/**
+	 * PURE. Re-derive a tombstone's config (skip_perms, model) from a freshly-read
+	 * JSONL meta (permission_mode + model). Returns [updatedTomb, changes] where
+	 * changes maps field => [old, new]. Only NON-NULL jsonl values overwrite, so a
+	 * jsonl that lacks a permission-mode/model entry never downgrades stored data —
+	 * we correct false-negatives (skip_perms recorded false / model null because the
+	 * jsonl was missing at burial), never clobber good values with defaults.
+	 */
+	public function reconcileTombstoneConfig(array $tomb, array $jsonlMeta): array {
+		$changes = [];
+		if (($jsonlMeta['permission_mode'] ?? null) !== null) {
+			$new = $jsonlMeta['permission_mode'] === 'bypassPermissions';
+			if ($new !== (bool) ($tomb['skip_perms'] ?? false)) {
+				$changes['skip_perms'] = [(bool) ($tomb['skip_perms'] ?? false), $new];
+				$tomb['skip_perms'] = $new;
+			}
+		}
+		if (($jsonlMeta['model'] ?? null) !== null && $jsonlMeta['model'] !== ($tomb['model'] ?? null)) {
+			$changes['model'] = [$tomb['model'] ?? null, $jsonlMeta['model']];
+			$tomb['model'] = $jsonlMeta['model'];
+		}
+		return [$tomb, $changes];
+	}
+
+	/**
+	 * Backfill stored config for already-buried sessions from their live JSONL, when
+	 * it still exists. Sessions buried while the jsonl was missing/unreadable recorded
+	 * defaults (skip_perms=false, model=null); this re-derives the truth wherever the
+	 * jsonl survived. Syncs BOTH the index and the per-session meta.json. With
+	 * $apply=false it only reports. Returns per-session rows:
+	 * [ session_id, status(changed|ok|no-jsonl), changes ].
+	 */
+	public function repairBuriedConfigs(bool $apply): array {
+		$idx    = $this->readIndex();
+		$rows   = $idx['tombstones'] ?? [];
+		$report = [];
+		foreach ($rows as $i => $t) {
+			$sid = $t['session_id'] ?? null;
+			if (!$sid) { continue; }
+			$jsonl = $this->cmux->jsonlPathFor($sid, $t['cwd'] ?? '');
+			if (!is_file($jsonl)) {
+				$report[] = ['session_id' => $sid, 'status' => 'no-jsonl', 'changes' => []];
+				continue;
+			}
+			$meta = $this->cmux->readSessionJsonl($sid, $t['cwd'] ?? '');
+			[$updated, $changes] = $this->reconcileTombstoneConfig($t, $meta);
+			if ($changes) {
+				$rows[$i] = $updated;
+				if ($apply) {
+					$mp = $this->metaPath($sid);
+					if (is_file($mp)) {
+						$m = json_decode((string) file_get_contents($mp), true) ?: [];
+						foreach ($changes as $k => $pair) { $m[$k] = $pair[1]; }
+						file_put_contents($mp, json_encode($m, JSON_PRETTY_PRINT));
+					}
+				}
+			}
+			$report[] = ['session_id' => $sid, 'status' => $changes ? 'changed' : 'ok', 'changes' => $changes];
+		}
+		if ($apply) {
+			$idx['tombstones'] = $rows;
+			$this->writeIndex($idx);
+		}
+		return $report;
+	}
+
+	/** I/O + output. Drive repairBuriedConfigs and print a human summary. */
+	public function printRepair(bool $apply): void {
+		$report  = $this->repairBuriedConfigs($apply);
+		$changed = array_values(array_filter($report, fn($r) => $r['status'] === 'changed'));
+		$noJsonl = array_values(array_filter($report, fn($r) => $r['status'] === 'no-jsonl'));
+
+		if (!$changed) {
+			$this->cli->msg('No config drift found in ' . count($report) . ' buried session(s).', 'green');
+		} else {
+			$this->cli->msg(($apply ? 'Corrected ' : 'Would correct ') . count($changed) . ' session(s):', 'yellow');
+			foreach ($changed as $r) {
+				$parts = [];
+				foreach ($r['changes'] as $field => $pair) {
+					$fmt = fn($v) => is_bool($v) ? ($v ? 'true' : 'false') : ($v === null ? 'null' : (string) $v);
+					$parts[] = sprintf('%s %s→%s', $field, $fmt($pair[0]), $fmt($pair[1]));
+				}
+				$this->cli->msg('  ' . substr($r['session_id'], 0, 8) . '  ' . implode(', ', $parts), 'cyan');
+			}
+		}
+		if ($noJsonl) {
+			$this->cli->msg(count($noJsonl) . ' session(s) skipped (no surviving JSONL — cannot re-derive).', 'yellow');
+		}
+		if (!$apply && $changed) {
+			$this->cli->msg('Dry run — re-run with --apply to write these corrections.', 'blue');
+		}
+	}
+
 	public function selfSurfaceId(): ?string {
 		return getenv('CMUX_SURFACE_ID') ?: null;
 	}
@@ -2078,6 +2171,15 @@ class Graveyard {
 		$transcript = $this->transcriptPath($t['session_id']);
 		$useResume  = !$fromTranscript && is_file($jsonl);
 
+		// A workspace is restored under one cwd (its first member's), but members can
+		// each have their own. `claude --resume <id>` resolves the session against the
+		// CURRENT dir's project key, so a member whose cwd differs from the workspace
+		// cwd must cd into its own dir first — otherwise resume fails with
+		// "No conversation found" (graveyard dotfiles-cwd). Harmless no-op for the
+		// single-member resurrect, where the workspace is already created at $t['cwd'].
+		$cwd    = (string) ($t['cwd'] ?? '');
+		$prefix = $cwd !== '' ? 'cd ' . escapeshellarg($cwd) . ' && ' : '';
+
 		if ($useResume) {
 			$launch = $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
 			$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
@@ -2171,15 +2273,6 @@ class Graveyard {
 	 * so the caller's own workspace gets titled with the literal command line and matches
 	 * the query as a substring. An exact normalized-title match wins before we fall back to
 	 * substring matching, mirroring Cmux::resolveWorkspaceNode.
-		// A workspace is restored under one cwd (its first member's), but members can
-		// each have their own. `claude --resume <id>` resolves the session against the
-		// CURRENT dir's project key, so a member whose cwd differs from the workspace
-		// cwd must cd into its own dir first — otherwise resume fails with
-		// "No conversation found" (graveyard dotfiles-cwd). Harmless no-op for the
-		// single-member resurrect, where the workspace is already created at $t['cwd'].
-		$cwd    = (string) ($t['cwd'] ?? '');
-		$prefix = $cwd !== '' ? 'cd ' . escapeshellarg($cwd) . ' && ' : '';
-
 	 */
 	public function matchIdentifier(array $rows, string $id): array {
 		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));

@@ -59,6 +59,7 @@ $helpyHelperton
 		'delete --workspace <group>' => 'PERMANENTLY delete a whole workspace group — every member session plus the manifest. Confirms unless -y.',
 		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
+		'repair [--apply]' => 'Backfill stored config (skip_perms/model) for already-buried sessions from their surviving JSONL — fixes false-negatives recorded when the JSONL was missing at burial. Dry-run by default; --apply writes the corrections to both the index and per-session meta.json.',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -167,6 +168,9 @@ switch ($sub) {
 		} else {
 			$gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript'));
 		}
+		break;
+	case 'repair':
+		$gy->printRepair($cli->hasFlag('apply'));
 		break;
 	default:
 		$cli->msg($helpyHelperton->getHelp());
