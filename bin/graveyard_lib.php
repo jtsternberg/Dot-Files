@@ -1581,6 +1581,120 @@ class Graveyard {
 		return $url;
 	}
 
+	# =========================================================================
+	# graveyard serve --stop (dotfiles-xr9): shut down the detached loopback
+	# server. Reads the persisted descriptor, verifies the recorded pid really
+	# is our `php -S` before signalling it (recycled PIDs are never blindly
+	# killed), SIGTERMs it, waits for the port to go quiet, and clears state.
+	# =========================================================================
+
+	/** I/O (read-only). Parse the persisted server descriptor, or null when missing/unparsable. */
+	public function readServeState(): ?array {
+		$path = $this->serveStatePath();
+		if (!is_file($path)) { return null; }
+		$decoded = json_decode((string) @file_get_contents($path), true);
+		return is_array($decoded) ? $decoded : null;
+	}
+
+	/** TRUE if a process with this pid currently exists (signal-0 probe). */
+	protected function pidRunning(int $pid): bool {
+		if ($pid <= 0) { return false; }
+		if (function_exists('posix_kill')) { return @posix_kill($pid, 0); }
+		return trim((string) shell_exec('ps -p ' . (int) $pid . ' -o pid= 2>/dev/null')) !== '';
+	}
+
+	/**
+	 * TRUE if pid's command line looks like our loopback server on $port. Guards
+	 * against killing a recycled PID: a live pid whose command isn't our
+	 * `php -S 127.0.0.1:<port>` is treated as "not ours".
+	 */
+	protected function pidIsOurServer(int $pid, int $port): bool {
+		if ($pid <= 0 || !$this->pidRunning($pid)) { return false; }
+		$out = (string) shell_exec('ps -p ' . (int) $pid . ' -o command= 2>/dev/null');
+		return strpos($out, "php -S 127.0.0.1:{$port}") !== false;
+	}
+
+	/** I/O. Find the pid of our loopback server bound to $port, or null. Guards blind kills. */
+	protected function findServerPid(int $port): ?int {
+		$needle = "php -S 127.0.0.1:{$port}";
+		$out    = (string) shell_exec('pgrep -f ' . escapeshellarg($needle) . ' 2>/dev/null');
+		foreach (preg_split('/\s+/', trim($out)) ?: [] as $cand) {
+			$p = (int) $cand;
+			if ($p > 0 && $this->pidIsOurServer($p, $port)) { return $p; }
+		}
+		return null;
+	}
+
+	/** I/O. Send a signal to a pid. Wrapped for test seams. */
+	protected function signalPid(int $pid, int $signal): void {
+		if (function_exists('posix_kill')) { @posix_kill($pid, $signal); return; }
+		shell_exec('kill -' . (int) $signal . ' ' . (int) $pid . ' 2>/dev/null');
+	}
+
+	/**
+	 * Verb. `graveyard serve --stop` (and `page --stop`): shut down the detached
+	 * loopback server. With no recorded server it's a no-op success — unless a
+	 * stray listener holds the port, which is reported and left alone. A recorded
+	 * pid is verified to actually be our `php -S <port>` before any signal, so a
+	 * recycled PID or a different listener is reported, never killed. SIGTERMs,
+	 * waits up to ~2s for the port to go quiet, and clears state on success.
+	 * Returns an exit code: 0 on success/no-op, 1 only on genuine failure.
+	 */
+	public function stopServer(int $port = 8787, bool $portExplicit = false): int {
+		$state     = $this->readServeState();
+		$statePort = (int) ($state['port'] ?? 0);
+		$target    = $portExplicit ? $port : ($statePort > 0 ? $statePort : $port);
+
+		if ($state === null) {
+			$this->cli->msg('No graveyard server recorded.', 'yellow');
+			if (!$this->serverListening($target)) { return 0; }
+			$this->cli->msg("  (something is listening on port {$target}, but graveyard didn't start it — leaving it alone)", 'yellow');
+			return 0;
+		}
+
+		$pid = (int) ($state['pid'] ?? 0);
+
+		// A recorded pid that is NOT our server → never kill it (recycled PID / other listener).
+		if ($pid > 0 && !$this->pidIsOurServer($pid, $target)) {
+			if ($this->serverListening($target)) {
+				$this->cli->msg("Recorded pid {$pid} is no longer the graveyard server; something else holds port {$target} — leaving it alone.", 'yellow');
+			} else {
+				@unlink($this->serveStatePath());
+				$this->cli->successMsg("No graveyard server running (cleared stale state for port {$target}).");
+			}
+			return 0;
+		}
+
+		// pid==0 (we reused a listener we didn't spawn): only stop it if we can identify it as ours.
+		if ($pid <= 0) {
+			if (!$this->serverListening($target)) {
+				@unlink($this->serveStatePath());
+				$this->cli->successMsg("No graveyard server running (cleared stale state for port {$target}).");
+				return 0;
+			}
+			$found = $this->findServerPid($target);
+			if ($found === null) {
+				$this->cli->msg("A server holds port {$target} but graveyard can't confirm it started it — leaving it alone.", 'yellow');
+				return 0;
+			}
+			$pid = $found;
+		}
+
+		$sig = defined('SIGTERM') ? SIGTERM : 15;
+		$this->signalPid($pid, $sig);
+		for ($i = 0; $i < 20; $i++) {
+			if (!$this->serverListening($target)) { break; }
+			usleep(100000); // 100ms, up to ~2s
+		}
+		if ($this->serverListening($target)) {
+			$this->cli->err("Sent SIGTERM to pid {$pid} but port {$target} is still listening.");
+			return 1;
+		}
+		@unlink($this->serveStatePath());
+		$this->cli->successMsg("Stopped the graveyard server on port {$target}.");
+		return 0;
+	}
+
 	/**
 	 * I/O (read-only). Render the whole overview page fresh from the CURRENT
 	 * store — read the index, sort newest-first, stamp plot positions, and hand

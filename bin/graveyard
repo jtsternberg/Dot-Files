@@ -22,8 +22,8 @@ namespace JT;
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
 # graveyard search <term> [--full-text] [--json]  (search buried sessions)
-# graveyard page [--no-open] [--port=8787]   (ensure the loopback server, open the live overview; --no-open just prints the URL)
-# graveyard serve [--port=8787]   (quiet alias for `page --no-open`)
+# graveyard page [--no-open] [--port=8787] [--stop]   (ensure the loopback server, open the live overview; --no-open just prints the URL; --stop shuts it down)
+# graveyard serve [--port=8787] [--stop]   (quiet alias for `page --no-open`; --stop shuts the server down)
 # graveyard show <id>
 # graveyard resurrect <id|name> [--from-transcript]   (name = workspace/tab title substring; unique match required)
 # =============================================================================
@@ -49,8 +49,8 @@ $helpyHelperton
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions (--json: structured {workspaces,sessions})',
 		'search <term>'   => 'Search buried sessions on workspace/tab/cwd/summary (case-insensitive, newest-first). --full-text also greps rendered transcripts; --json emits structured rows',
-		'page [--no-open] [--port=8787] [--host=graveyard.localhost]' => 'Ensure the localhost-only graveyard server is running (spawns it in the background, or reuses the one already up on the same port) and open the overview in your browser. The page is rendered fresh from the store on every request — a full-width field of headstones with live rename/delete — so a just-buried session shows up on refresh. --no-open: just ensure the server and print the URL. The server binds 127.0.0.1; http://<host>:<port>/ uses the *.localhost loopback TLD (zero-config in any modern browser; --host overrides it).',
-		'serve [--port=8787] [--host=graveyard.localhost]' => 'Quiet alias for `page --no-open` (kept for muscle memory): ensure the server and print the URL without opening a browser.',
+		'page [--no-open] [--port=8787] [--host=graveyard.localhost] [--stop]' => 'Ensure the localhost-only graveyard server is running (spawns it in the background, or reuses the one already up on the same port) and open the overview in your browser. The page is rendered fresh from the store on every request — a full-width field of headstones with live rename/delete — so a just-buried session shows up on refresh. --no-open: just ensure the server and print the URL. --stop: shut the running server down (verifies the recorded pid is actually the graveyard server before signalling it; a no-op when nothing is running). The server binds 127.0.0.1; http://<host>:<port>/ uses the *.localhost loopback TLD (zero-config in any modern browser; --host overrides it).',
+		'serve [--port=8787] [--host=graveyard.localhost] [--stop]' => 'Quiet alias for `page --no-open` (kept for muscle memory): ensure the server and print the URL without opening a browser. --stop shuts the running server down.',
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
 		'rename <id> "<name>"' => 'Give a buried session a custom display name (used as its title on the page and matchable by `resurrect <name>`). <id> resolved fuzzily (session-id exact/prefix or title substring).',
@@ -123,6 +123,10 @@ switch ($sub) {
 		if ($port <= 0) { $port = 8787; }
 		$host = $cli->hasFlag('host') ? (string) $cli->getFlag('host') : 'graveyard.localhost';
 		if ($host === '') { $host = 'graveyard.localhost'; }
+		// `--stop` shuts the detached server down (works on both `serve` and `page`).
+		if ($cli->hasFlag('stop')) {
+			exit($gy->stopServer($port, $cli->hasFlag('port')));
+		}
 		// `serve` is a quiet alias for `page --no-open` (kept for muscle memory).
 		$open = ($sub === 'page') && !$cli->hasFlag('no-open');
 		$gy->page($open, $port, $host, $cli->hasFlag('port'));
