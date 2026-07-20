@@ -252,4 +252,62 @@ final class CmuxTest extends TestCase
 		$this->expectException(\RuntimeException::class);
 		$this->cmux->resolveWorkspaceNode($wtree, 'boss');
 	}
+
+	/**
+	 * Reported bug: cmux auto-titles the workspace a bury command runs in after the
+	 * literal command line, so the query becomes a substring of that title and the
+	 * command makes itself ambiguous. An exact normalized-title match must win.
+	 */
+	public function testResolveWorkspaceNodeExactBeatsSubstring(): void
+	{
+		$query = 'wpforms migration script issues';
+		$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:10', 'title' => $query, 'panes' => []],
+			['ref' => 'workspace:12', 'title' => "graveyard bury --workspace '{$query}' -y", 'panes' => []],
+		]]]];
+		// Exact match wins outright despite the substring hit on workspace:12.
+		$this->assertSame('workspace:10', $this->cmux->resolveWorkspaceNode($wtree, $query)['ref']);
+	}
+
+	/** Exact match still wins when the real title carries a leading cmux status glyph. */
+	public function testResolveWorkspaceNodeExactWithGlyphPrefix(): void
+	{
+		$query = 'wpforms migration script issues';
+		$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:10', 'title' => "⠂ {$query}", 'panes' => []],
+			['ref' => 'workspace:12', 'title' => "✳ graveyard bury --workspace '{$query}' -y", 'panes' => []],
+		]]]];
+		$this->assertSame('workspace:10', $this->cmux->resolveWorkspaceNode($wtree, $query)['ref']);
+	}
+
+	/** Case-insensitive exact match. */
+	public function testResolveWorkspaceNodeExactIsCaseInsensitive(): void
+	{
+		$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:10', 'title' => 'WPForms Migration', 'panes' => []],
+			['ref' => 'workspace:12', 'title' => 'other running WPForms Migration job', 'panes' => []],
+		]]]];
+		$this->assertSame('workspace:10', $this->cmux->resolveWorkspaceNode($wtree, 'wpforms migration')['ref']);
+	}
+
+	/** No exact match: still falls back to substring resolution. */
+	public function testResolveWorkspaceNodeFallsBackToSubstring(): void
+	{
+		$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:9', 'title' => 'asana-skill update', 'panes' => []],
+			['ref' => 'workspace:12', 'title' => 'boss backend', 'panes' => []],
+		]]]];
+		$this->assertSame('workspace:12', $this->cmux->resolveWorkspaceNode($wtree, 'backend')['ref']);
+	}
+
+	/** Genuine ambiguity: two exact normalized-title matches still throw. */
+	public function testResolveWorkspaceNodeTwoExactStillAmbiguous(): void
+	{
+		$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:10', 'title' => 'deploy', 'panes' => []],
+			['ref' => 'workspace:11', 'title' => '⠂ deploy', 'panes' => []],
+		]]]];
+		$this->expectException(\RuntimeException::class);
+		$this->cmux->resolveWorkspaceNode($wtree, 'deploy');
+	}
 }

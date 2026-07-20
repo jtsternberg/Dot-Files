@@ -2162,8 +2162,15 @@ class Graveyard {
 	 *   1. exact surface_ref
 	 *   2. exact surface_id (UUID)
 	 *   3. session_id exact (if any) else session_id prefix matches
-	 *   4. workspace_title/tab_title substring (case-insensitive)
+	 *   4a. workspace_title/tab_title/name EXACT (normalized, case-insensitive)
+	 *   4b. workspace_title/tab_title/name substring (case-insensitive)
 	 * Returns [] if nothing matches in any tier.
+	 *
+	 * # graveyard title-resolver exact-match tiebreak (dotfiles-w7k): same flaw as
+	 * resolveWorkspaceNode — cmux auto-titles a workspace/tab after its running command,
+	 * so the caller's own workspace gets titled with the literal command line and matches
+	 * the query as a substring. An exact normalized-title match wins before we fall back to
+	 * substring matching, mirroring Cmux::resolveWorkspaceNode.
 	 */
 	public function matchIdentifier(array $rows, string $id): array {
 		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));
@@ -2176,6 +2183,16 @@ class Graveyard {
 		if ($sessionExact) { return $sessionExact; }
 		$prefix = array_values(array_filter($rows, fn($r) => str_starts_with((string) ($r['session_id'] ?? ''), $id)));
 		if ($prefix) { return $prefix; }
+
+		$normNeedle = $this->cmux->normalizeTitle($id);
+		$titleExact = array_values(array_filter($rows, function ($r) use ($normNeedle) {
+			if ($normNeedle === '') { return false; }
+			foreach (['workspace_title', 'tab_title', 'name'] as $k) {
+				if ($this->cmux->normalizeTitle((string) ($r[$k] ?? '')) === $normNeedle) { return true; }
+			}
+			return false;
+		}));
+		if ($titleExact) { return $titleExact; }
 
 		$needle = mb_strtolower($id);
 		$nameMatches = array_values(array_filter($rows, function ($r) use ($needle) {

@@ -264,12 +264,34 @@ class Cmux {
 	}
 
 	/**
-	 * PURE. Resolve a workspace node from a cmux tree by exact ref (workspace:N) or
-	 * case-insensitive title substring. Returns ['ref','title','node','window_ref'] or
-	 * null (none) / throws \RuntimeException on ambiguous title match.
+	 * PURE. Normalize a workspace/tab title for equality comparison: strip the leading
+	 * status-glyph / punctuation junk cmux tab titles carry (e.g. "⠂ ", "✳ ", quotes),
+	 * collapse whitespace, and lowercase. Used so an exact title match can beat mere
+	 * substring matches.
+	 */
+	public function normalizeTitle(string $title): string {
+		$s = preg_replace('/^[^\p{L}\p{N}]+/u', '', $title); // leading glyphs / punctuation
+		$s = preg_replace('/\s+/u', ' ', (string) $s);       // collapse internal whitespace
+		return mb_strtolower(trim((string) $s));
+	}
+
+	/**
+	 * PURE. Resolve a workspace node from a cmux tree by exact ref (workspace:N), an
+	 * exact (normalized, case-insensitive) title match, or a case-insensitive title
+	 * substring. Returns ['ref','title','node','window_ref'] or null (none) / throws
+	 * \RuntimeException on ambiguous match.
+	 *
+	 * # graveyard workspace-resolver exact-match tiebreak (dotfiles-w7k): cmux auto-titles
+	 * a workspace after its running command, so the workspace the bury command is typed in
+	 * gets titled with the literal command line — which CONTAINS the query as a substring
+	 * and makes the command ambiguous against itself. An exact normalized-title match wins
+	 * outright (no ambiguity check), and only when there's no exact match do we fall back to
+	 * substring matching (still rejecting genuine ambiguity).
 	 */
 	public function resolveWorkspaceNode(array $tree, string $nameOrRef): ?array {
-		$matches = [];
+		$matches = [];       // substring matches
+		$exact   = [];       // normalized-title exact matches
+		$needle  = $this->normalizeTitle($nameOrRef);
 		foreach ($tree['windows'] ?? [] as $window) {
 			foreach ($window['workspaces'] ?? [] as $ws) {
 				$ref   = $ws['ref'] ?? '';
@@ -277,10 +299,20 @@ class Cmux {
 				if ($ref === $nameOrRef) {
 					return ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
 				}
-				if ($nameOrRef !== '' && stripos($title, $nameOrRef) !== false) {
-					$matches[] = ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
+				$hit = ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
+				if ($needle !== '' && $this->normalizeTitle((string) $title) === $needle) {
+					$exact[] = $hit;
+				}
+				if ($nameOrRef !== '' && stripos((string) $title, $nameOrRef) !== false) {
+					$matches[] = $hit;
 				}
 			}
+		}
+		// Exact normalized-title match wins over substring noise.
+		if (count($exact) === 1) { return $exact[0]; }
+		if (count($exact) > 1) {
+			$titles = implode(', ', array_map(fn($m) => "{$m['ref']} \"{$m['title']}\"", $exact));
+			throw new \RuntimeException("Ambiguous workspace '{$nameOrRef}' — matches: {$titles}");
 		}
 		if (count($matches) === 1) { return $matches[0]; }
 		if (count($matches) > 1) {

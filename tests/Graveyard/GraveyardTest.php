@@ -126,6 +126,46 @@ final class GraveyardTest extends TestCase
 		$this->assertSame([], $this->gy->matchIdentifier($mrows, 'nope'));
 	}
 
+	/**
+	 * Same auto-title flaw as resolveWorkspaceNode: an exact normalized title/tab match
+	 * must win over rows where the query is only a substring (e.g. the caller's own
+	 * workspace auto-titled after the running command).
+	 */
+	public function testMatchIdentifierExactTitleBeatsSubstring(): void
+	{
+		$query = 'wpforms migration script issues';
+		$mrows = [
+			['surface_ref' => 'surface:5', 'session_id' => 'aaa111', 'workspace_title' => $query, 'tab_title' => 'x'],
+			['surface_ref' => 'surface:6', 'session_id' => 'aaa222', 'workspace_title' => "graveyard bury --workspace '{$query}' -y", 'tab_title' => 'y'],
+		];
+		$m = $this->gy->matchIdentifier($mrows, $query);
+		$this->assertCount(1, $m);
+		$this->assertSame('aaa111', $m[0]['session_id']);
+
+		// Glyph-prefixed exact title still wins, case-insensitively.
+		$glyph = [
+			['surface_ref' => 'surface:5', 'session_id' => 'aaa111', 'workspace_title' => "⠂ WPForms Migration", 'tab_title' => 'x'],
+			['surface_ref' => 'surface:6', 'session_id' => 'aaa222', 'workspace_title' => 'other wpforms migration job', 'tab_title' => 'y'],
+		];
+		$mg = $this->gy->matchIdentifier($glyph, 'wpforms migration');
+		$this->assertCount(1, $mg);
+		$this->assertSame('aaa111', $mg[0]['session_id']);
+
+		// No exact match: still falls back to substring (both rows match "backend").
+		$sub = [
+			['surface_ref' => 'surface:5', 'session_id' => 'aaa111', 'workspace_title' => 'backend api', 'tab_title' => 'x'],
+			['surface_ref' => 'surface:6', 'session_id' => 'aaa222', 'workspace_title' => 'frontend', 'tab_title' => 'backend notes'],
+		];
+		$this->assertCount(2, $this->gy->matchIdentifier($sub, 'backend'));
+
+		// Two exact matches remain genuinely ambiguous (both returned, caller rejects).
+		$two = [
+			['surface_ref' => 'surface:5', 'session_id' => 'aaa111', 'workspace_title' => 'deploy', 'tab_title' => 'x'],
+			['surface_ref' => 'surface:6', 'session_id' => 'aaa222', 'workspace_title' => '⠂ deploy', 'tab_title' => 'y'],
+		];
+		$this->assertCount(2, $this->gy->matchIdentifier($two, 'deploy'));
+	}
+
 	public function testParseReplSelection(): void
 	{
 		$this->assertSame([0, 2, 4], $this->gy->parseReplSelection('1 3 5', 5));
