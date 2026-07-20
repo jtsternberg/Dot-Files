@@ -109,6 +109,7 @@ code {
 	font-size: 3.4rem; opacity: .95; pointer-events: none;
 	filter: drop-shadow(0 0 8px #9fb88f);
 	animation: moonpulse 2s ease-in-out infinite;
+	z-index: 2;
 }
 @keyframes moonpulse {
 	50% { filter: drop-shadow(0 0 18px #9fb88f); transform: scale(1.06); }
@@ -125,6 +126,27 @@ code {
 	94% { transform: translate(46vw, -3vh) scaleX(1); }
 	97% { opacity: .32; }
 	100% { opacity: 0; transform: translate(104vw, 2vh) scaleX(1); }
+}
+/* Easter egg (companion to the coffin's ghost): click the moon and a startled
+   swarm of bats bursts out and scatters across the sky. JS spawns .swarm-bat
+   nodes at the moon's position, each with randomized --dx/--dy/--rot/--dur;
+   they self-remove on animationend. */
+.moon { pointer-events: auto; cursor: pointer; }
+.moon.startled { animation: moon-startle .5s ease-out; }
+@keyframes moon-startle {
+	0%, 100% { transform: scale(1); }
+	30% { transform: scale(1.16); filter: drop-shadow(0 0 22px #9fb88f); }
+}
+.swarm-bat {
+	position: fixed; z-index: 0; font-size: 3.3rem; pointer-events: none;
+	filter: grayscale(.5); will-change: transform, opacity;
+	animation: bat-swarm var(--dur, 1.8s) ease-out forwards;
+}
+@keyframes bat-swarm {
+	0% { opacity: 0; transform: translate(0, 0) rotate(0) scale(.5); }
+	12% { opacity: .6; }
+	80% { opacity: .5; }
+	100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(1); }
 }
 main#yard {
 	display: grid;
@@ -381,6 +403,8 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 	.burying { animation: none; }
 	.moon, .bat { animation: none; }
 	.bat { display: none; }
+	.moon.startled { animation: none; }
+	.swarm-bat { display: none; }
 	.coffin:hover, .coffin:hover::after { animation: none; }
 	.coffin::after { display: none; }
 	.shovel.digging { animation: none; }
@@ -393,7 +417,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 </head>
 <body x-data="graveyard()" style="--fence-shift: -%%FENCE_SHIFT%%px">
 <div class="grain" aria-hidden="true"></div>
-<span class="moon" aria-hidden="true">🌕</span>
+<span class="moon" aria-hidden="true" @click="startleMoon($event)" title="who goes there?">🌕</span>
 <span class="bat" aria-hidden="true">🦇</span>
 <span class="web web-l" aria-hidden="true">🕸</span>
 <span class="web web-r" aria-hidden="true">🕸</span>
@@ -621,6 +645,42 @@ document.addEventListener("alpine:init", function () {
 				if (!el || this.reduceMotion()) { done(); return; }
 				el.classList.add("burying");
 				setTimeout(done, 780);
+			},
+			// Moon easter egg: startle the moon and burst a swarm of bats out of it,
+			// scattering down-and-across the sky. Skipped under reduced-motion.
+			startleMoon: function (e) {
+				if (this.reduceMotion()) { return; }
+				var moon = (e && e.currentTarget) || document.querySelector('.moon');
+				if (!moon) { return; }
+				moon.classList.remove('startled');
+				void moon.offsetWidth; // reflow so the animation restarts on rapid clicks
+				moon.classList.add('startled');
+				var r = moon.getBoundingClientRect();
+				var ox = r.left + r.width / 2, oy = r.top + r.height / 2;
+				var n = 6 + Math.floor(Math.random() * 4); // 6–9 bats
+				for (var i = 0; i < n; i++) { this.spawnBat(ox, oy); }
+			},
+			spawnBat: function (ox, oy) {
+				var bat = document.createElement('span');
+				bat.className = 'swarm-bat';
+				bat.setAttribute('aria-hidden', 'true');
+				bat.textContent = '\uD83E\uDD87'; // 🦇
+				bat.style.left = ox + 'px';
+				bat.style.top = oy + 'px';
+				// Moon sits top-right, so fan out mostly leftward and downward into the scene.
+				var dx = (Math.random() * 2 - 1) * (120 + Math.random() * 180) - 60;
+				var dy = 60 + Math.random() * 260;
+				var dur = 1.4 + Math.random() * 1.1;
+				bat.style.setProperty('--dx', dx.toFixed(0) + 'px');
+				bat.style.setProperty('--dy', dy.toFixed(0) + 'px');
+				bat.style.setProperty('--rot', ((Math.random() - 0.5) * 40).toFixed(0) + 'deg');
+				bat.style.setProperty('--dur', dur.toFixed(2) + 's');
+				var remove = function () { bat.remove(); };
+				// animationend is the natural cue, but it can't be relied on everywhere,
+				// so a duration-based timeout guarantees cleanup (no accumulating nodes).
+				bat.addEventListener('animationend', remove);
+				setTimeout(remove, dur * 1000 + 250);
+				document.body.appendChild(bat);
 			},
 			toast: function (message) {
 				var t = document.getElementById("gy-toast");
