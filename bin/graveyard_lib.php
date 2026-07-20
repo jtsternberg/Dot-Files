@@ -2080,7 +2080,7 @@ class Graveyard {
 
 		if ($useResume) {
 			$launch = $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
-			$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
+			$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
 			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
 			return 'resume';
 		}
@@ -2088,7 +2088,7 @@ class Graveyard {
 		$launch = 'claude';
 		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
 		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
-		$this->cmux->sendToSurface($surfRef, $wsRef, $launch . "\n");
+		$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
 		sleep(3); // let the REPL come up
 		$this->cmux->sendToSurface($surfRef, $wsRef,
 			'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.');
@@ -2171,6 +2171,15 @@ class Graveyard {
 	 * so the caller's own workspace gets titled with the literal command line and matches
 	 * the query as a substring. An exact normalized-title match wins before we fall back to
 	 * substring matching, mirroring Cmux::resolveWorkspaceNode.
+		// A workspace is restored under one cwd (its first member's), but members can
+		// each have their own. `claude --resume <id>` resolves the session against the
+		// CURRENT dir's project key, so a member whose cwd differs from the workspace
+		// cwd must cd into its own dir first — otherwise resume fails with
+		// "No conversation found" (graveyard dotfiles-cwd). Harmless no-op for the
+		// single-member resurrect, where the workspace is already created at $t['cwd'].
+		$cwd    = (string) ($t['cwd'] ?? '');
+		$prefix = $cwd !== '' ? 'cd ' . escapeshellarg($cwd) . ' && ' : '';
+
 	 */
 	public function matchIdentifier(array $rows, string $id): array {
 		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));
