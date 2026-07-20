@@ -72,6 +72,41 @@ final class GraveyardTest extends TestCase
 		$this->assertSame([], $ch3);
 	}
 
+	public function testTranscriptUpToDate(): void
+	{
+		$root = sys_get_temp_dir() . '/gy-tud-' . getmypid() . '-' . uniqid();
+		putenv('GRAVEYARD_ROOT=' . $root);
+		$gy  = new Graveyard($this->cli, $this->cmux);
+		$cwd = sys_get_temp_dir() . '/gy-tud-cwd-' . getmypid();
+		$sid = 'sess-tud-' . getmypid() . '-' . uniqid();
+
+		$jsonl = $this->cmux->jsonlPathFor($sid, $cwd);
+		@mkdir(dirname($jsonl), 0755, true);
+		$turn = strtotime('2026-07-01T10:00:00Z');
+		$writeTurn = fn(int $ts) => file_put_contents($jsonl, json_encode([
+			'type' => 'user', 'timestamp' => gmdate('Y-m-d\TH:i:s\Z', $ts),
+		]) . "\n");
+		$writeTurn($turn);
+
+		// No transcript on disk yet → must export.
+		$this->assertFalse($gy->transcriptUpToDate($sid, $cwd));
+
+		// Transcript written after the last genuine turn → already current, skip.
+		$tp = $gy->transcriptPath($sid);
+		@mkdir(dirname($tp), 0755, true);
+		file_put_contents($tp, 'rendered');
+		touch($tp, $turn + 100);
+		$this->assertTrue($gy->transcriptUpToDate($sid, $cwd));
+
+		// A newer genuine turn lands → stale, must re-export.
+		$writeTurn($turn + 500);
+		$this->assertFalse($gy->transcriptUpToDate($sid, $cwd));
+
+		@unlink($jsonl);
+		@unlink($tp);
+		putenv('GRAVEYARD_ROOT');
+	}
+
 	public function testIsBusy(): void
 	{
 		$this->assertTrue($this->gy->isBusy(5, 15, ''));

@@ -525,6 +525,24 @@ class Graveyard {
 		return $out;
 	}
 
+	/**
+	 * Whether the archived transcript already reflects all genuine activity, so
+	 * bury can skip re-exporting. True iff a transcript exists on disk AND no real
+	 * (non-synthetic) turn has landed since it was written — i.e. the newest genuine
+	 * turn is older than the transcript's mtime. /export appends only synthetic
+	 * command turns (ignored by lastRealActivity), so a repeat bury, or a bury right
+	 * after a manual /export, costs no export round-trip. A stale skip is still
+	 * backstopped by GATE 2, which re-checks recent turns against the kept transcript.
+	 */
+	public function transcriptUpToDate(string $sessionId, string $cwd): bool {
+		$tp = $this->transcriptPath($sessionId);
+		if (!is_file($tp)) { return false; }
+		$lastReal = $this->cmux->lastRealActivity($sessionId, $cwd);
+		if ($lastReal === null) { return true; } // transcript exists, nothing genuine to capture
+		clearstatcache(true, $tp);
+		return $lastReal < filemtime($tp);
+	}
+
 	public function exportTranscript(array $sess, int $timeoutSecs = 30): bool {
 		$id  = $sess['session_id'];
 		$dir = $this->sessionDir($id);
@@ -827,10 +845,14 @@ class Graveyard {
 			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
 		}
 
-		$this->cli->msg("  Exporting transcript for {$id}…", 'cyan');
-		if (!$this->exportTranscript($sess)) {
-			$this->cli->err("  Export failed (no transcript written) — leaving session ALIVE.");
-			return false;
+		if ($this->transcriptUpToDate($id, (string) ($sess['cwd'] ?? ''))) {
+			$this->cli->msg("  Transcript already current for {$id} — skipping export.", 'cyan');
+		} else {
+			$this->cli->msg("  Exporting transcript for {$id}…", 'cyan');
+			if (!$this->exportTranscript($sess)) {
+				$this->cli->err("  Export failed (no transcript written) — leaving session ALIVE.");
+				return false;
+			}
 		}
 
 		// GATE 2 (post-export, pre-teardown): confirm the exported transcript actually
