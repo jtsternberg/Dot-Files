@@ -86,8 +86,8 @@ class Cmux {
 					'cwd'          => $cwd,
 					'status'       => $data['status'] ?? null,
 					'pid'          => (int) $pid,
-					'skip_perms'   => $jsonl['permission_mode'] === 'bypassPermissions',
-					'model'        => $jsonl['model'],
+					'skip_perms'   => $this->resolveSkipPerms($jsonl['permission_mode'], (int) $pid),
+					'model'        => $this->resolveModel($jsonl['model'], (int) $pid),
 				];
 			}
 		}
@@ -229,6 +229,53 @@ class Cmux {
 	}
 
 	/**
+	 * PURE. Does a command line carry the --dangerously-skip-permissions flag?
+	 * Catches the yolo/yr/yc aliases too: zsh expands them to the literal flag
+	 * before exec, so it's the flag (never the alias name) that lands in argv.
+	 */
+	public function cmdHasSkipPerms(string $cmd): bool {
+		return (bool) preg_match('/(?:^|\s)--dangerously-skip-permissions(?![\w-])/', $cmd);
+	}
+
+	/** The live process argv for a pid (empty string if the pid is gone). */
+	public function pidCommand(int $pid): string {
+		return trim((string) shell_exec('ps -p ' . $pid . ' -o command= 2>/dev/null'));
+	}
+
+	/**
+	 * Resolve a session's skip_perms (yolo mode). The jsonl permission-mode is the
+	 * source of truth — it reflects the mode at the END of the conversation, so it
+	 * captures mid-session shift+tab toggles that a launch flag never would. Only
+	 * when the jsonl can't be read (null: missing/unflushed transcript) do we fall
+	 * back to the live process argv's launch flag, so a session buried without a
+	 * readable jsonl no longer false-negatives to "not yolo" (graveyard dotfiles-yolo).
+	 */
+	public function resolveSkipPerms(?string $permissionMode, ?int $pid): bool {
+		if ($permissionMode !== null) {
+			return $permissionMode === 'bypassPermissions';
+		}
+		return $pid !== null ? $this->cmdHasSkipPerms($this->pidCommand($pid)) : false;
+	}
+
+	/** PURE. The value of a --model flag in a command line (--model=X or --model X), or null. */
+	public function cmdModelArg(string $cmd): ?string {
+		return preg_match('/--model(?:=|\s+)(\S+)/', $cmd, $m) ? $m[1] : null;
+	}
+
+	/**
+	 * Resolve a session's model. As with skip_perms, the jsonl is the source of
+	 * truth (the resolved model recorded on assistant turns); only when it's null
+	 * (unreadable jsonl) do we fall back to the live process argv's --model launch
+	 * flag. Null from both means no override was in play (default model).
+	 */
+	public function resolveModel(?string $jsonlModel, ?int $pid): ?string {
+		if ($jsonlModel !== null) {
+			return $jsonlModel;
+		}
+		return $pid !== null ? $this->cmdModelArg($this->pidCommand($pid)) : null;
+	}
+
+	/**
 	 * Load active Claude sessions keyed by pid (companion to loadClaudeSessions,
 	 * which keys by tty). [ pid => [session_id, cwd, skip_perms, model, status] ].
 	 */
@@ -248,8 +295,8 @@ class Cmux {
 				'session_id' => $sid,
 				'cwd'        => $cwd,
 				'status'     => $data['status'] ?? null,
-				'skip_perms' => ($meta['permission_mode'] ?? null) === 'bypassPermissions',
-				'model'      => $meta['model'] ?? null,
+				'skip_perms' => $this->resolveSkipPerms($meta['permission_mode'] ?? null, (int) $pid),
+				'model'      => $this->resolveModel($meta['model'] ?? null, (int) $pid),
 			];
 		}
 		return $out;

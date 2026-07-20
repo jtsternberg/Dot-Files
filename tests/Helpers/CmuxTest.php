@@ -37,6 +37,42 @@ final class CmuxTest extends TestCase
 		$this->assertSame('claude --dangerously-skip-permissions --resume abc --model=opus', $this->cmux->buildResumeCommand('abc', true, 'opus'));
 	}
 
+	public function testCmdHasSkipPerms(): void
+	{
+		// Bare flag and the yolo/yr/yc aliases all expand to the literal flag in argv.
+		$this->assertTrue($this->cmux->cmdHasSkipPerms('claude --dangerously-skip-permissions'));
+		$this->assertTrue($this->cmux->cmdHasSkipPerms('/opt/homebrew/bin/claude --resume abc --dangerously-skip-permissions'));
+		$this->assertTrue($this->cmux->cmdHasSkipPerms('claude --dangerously-skip-permissions --model fable'));
+		// Absent, and a lookalike prefix must not match.
+		$this->assertFalse($this->cmux->cmdHasSkipPerms('/opt/homebrew/bin/claude --resume abc'));
+		$this->assertFalse($this->cmux->cmdHasSkipPerms('claude --dangerously-skip-permissions-not-really'));
+	}
+
+	public function testResolveSkipPerms(): void
+	{
+		// jsonl permission-mode is authoritative when present (pid ignored).
+		$this->assertTrue($this->cmux->resolveSkipPerms('bypassPermissions', null));
+		$this->assertFalse($this->cmux->resolveSkipPerms('default', null));
+		$this->assertFalse($this->cmux->resolveSkipPerms('acceptEdits', 999999));
+		// Null mode (unreadable jsonl) with no pid falls back to a safe false.
+		$this->assertFalse($this->cmux->resolveSkipPerms(null, null));
+	}
+
+	public function testCmdModelArg(): void
+	{
+		$this->assertSame('claude-fable-5', $this->cmux->cmdModelArg('claude --resume abc --model=claude-fable-5'));
+		$this->assertSame('fable', $this->cmux->cmdModelArg('claude --dangerously-skip-permissions --model fable'));
+		$this->assertNull($this->cmux->cmdModelArg('claude --resume abc'));
+	}
+
+	public function testResolveModel(): void
+	{
+		// jsonl model wins when present (pid ignored).
+		$this->assertSame('claude-opus-4-8', $this->cmux->resolveModel('claude-opus-4-8', null));
+		// Null jsonl model with no pid means no override (default model).
+		$this->assertNull($this->cmux->resolveModel(null, null));
+	}
+
 	public function testNewWorkspaceExists(): void
 	{
 		$this->assertTrue(method_exists($this->cmux, 'newWorkspace'));
