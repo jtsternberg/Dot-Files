@@ -94,11 +94,30 @@ $repos = $catchup->repos();
 if ( ! empty( $repos ) ) {
 	$section( sprintf( 'repos (%d)', count( $repos ) ) );
 	$godoBin = JT_DOTFILES_DIR . '/bin/godo';
+	$godo    = new Godo( $cli );
 	foreach ( $repos as $key ) {
 		$cli->msg( sprintf( "\n%s• %s%s", $green, $key, $reset ) );
-		// Explicit fallback: repos with no stored godo commands default to
-		// `git prb` here (bare `godo <key>` errors on empty — by design).
-		$run( escapeshellarg( $godoBin ) . ' ' . escapeshellarg( $key ) . ' --default=' . escapeshellarg( LinuxCatchup::DEFAULT_REPO_COMMAND ) );
+
+		if ( '' === $godo->resolvePath( $key ) ) {
+			$cli->err( sprintf( "  No dirmap entry for '%s' — add it: dirmap add %s <path>", $key, $key ) );
+			continue;
+		}
+
+		// No silent default: a repo with no godo commands is an error, and we
+		// offer to fix it by writing `git prb` into the map (persisted), not
+		// by overriding at runtime.
+		if ( empty( $godo->getStoredCommands( $key ) ) ) {
+			$cli->err( sprintf( "  No godo commands set for '%s'.", $key ) );
+			if ( $cli->confirm( sprintf( "  Add '%s' to the map for '%s'?", LinuxCatchup::DEFAULT_REPO_COMMAND, $key ) ) ) {
+				$godo->appendCommand( $key, LinuxCatchup::DEFAULT_REPO_COMMAND );
+				$cli->msg( sprintf( "  Added to map: %s => %s", $key, LinuxCatchup::DEFAULT_REPO_COMMAND ), 'green' );
+			} else {
+				$cli->msg( sprintf( "  Skipped %s — set commands with: godo addcmd %s '<command>'", $key, $key ), 'yellow' );
+				continue;
+			}
+		}
+
+		$run( escapeshellarg( $godoBin ) . ' ' . escapeshellarg( $key ) );
 	}
 }
 

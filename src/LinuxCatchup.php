@@ -30,7 +30,7 @@ class LinuxCatchup {
 
 	protected array $config = [];
 
-	/** Fallback command for a configured repo with no stored godo commands. */
+	/** Command offered (to write into the map) when a repo has no godo commands. */
 	const DEFAULT_REPO_COMMAND = Godo::DEFAULT_COMMAND;
 
 	const DEFAULT_CONFIG = [
