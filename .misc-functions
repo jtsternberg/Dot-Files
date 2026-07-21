@@ -119,6 +119,13 @@ wptests() {
 	fi
 }
 
+# Summarize a file's contents via agy (Google's Antigravity CLI), non-interactive print mode
+agy-summarize-file() {
+	agy --print "Can you summarize in a few sentences the contents of this file: $1" \
+		--print-timeout 15m0s \
+		--dangerously-skip-permissions
+}
+
 # Open in MacDown
 macdown() { open -a MacDown $1 }
 
