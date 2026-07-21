@@ -138,9 +138,11 @@ Legacy note: a few older libs still live in `bin/` with lowercase/snake
 filenames (`graveyard_lib.php`, `cmux-bak_lib.php`). Those can't be
 PSR-4-autoloaded (PSR-4 wants `Graveyard.php`), so `tests/bootstrap.php`
 `require`s them explicitly and their bin entries do too. They're a migration
-backlog (tracked by `dotfiles-206`, "task 4" of
-`docs/superpowers/plans/2026-07-17-src-psr4-migration.md`), not a template —
-don't add new libs to `bin/`; put them in `src/`.
+backlog, not a template — don't add new libs to `bin/`; put them in `src/`.
+
+> **Beads: `dotfiles-206`** (in_progress) — "Execute src/ PSR-4 migration
+> plan", Task 4. Plan: `docs/superpowers/plans/2026-07-17-src-psr4-migration.md`.
+> This is the task these leftover `bin/*_lib.php` files belong to.
 
 **You have standing permission to migrate one of these while you're already
 working in it** — it's just waiting to be moved. Rename to
