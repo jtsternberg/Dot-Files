@@ -166,7 +166,7 @@ function requireKey( $cli, string $key ): string {
 function requireDirmapKey( $cli, Godo $godo, string $key ): string {
 	$dir = $godo->resolvePath( $key );
 	if ( '' === $dir ) {
-		$cli->err( sprintf( "\nNo dirmap entry for key: '%s'", $key ), false );
+		$cli->err( sprintf( "\nNo dirmap entry for key: '%s'", $key ) );
 		$cli->msg( "godo keys must map to a dirmap directory. If this isn't a typo, add it first:" );
 		$cli->msg( sprintf( "  %sdirmap add %s <path>%s   (or: cd <path> && dirmap add %s)", $cli->color( 'cyan' ), $key, $cli->color( 'none' ), $key ) );
 		$cli->msg( "Then `dirmap list` to confirm, or `godo list` to review godo keys.\n" );
@@ -190,7 +190,7 @@ function runKey( $cli, Godo $godo, string $key ): void {
 
 	$dir = $godo->resolvePath( $key );
 	if ( '' === $dir || ! is_dir( $dir ) ) {
-		$cli->err( sprintf( "\nNo dirmap directory found for key: '%s'", $key ), false );
+		$cli->err( sprintf( "\nNo dirmap directory found for key: '%s'", $key ) );
 		$cli->msg( "Try `dirmap list` to see available keys.\n" );
 		exit( 1 );
 	}
