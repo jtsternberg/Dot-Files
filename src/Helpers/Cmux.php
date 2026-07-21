@@ -550,6 +550,31 @@ class Cmux {
 		return $this->surfacePaneMap($wsRef)[$surfRef] ?? null;
 	}
 
+	/**
+	 * Bring $surfRef to the front of its pane (make it the visible tab) without moving
+	 * it. cmux has no dedicated select-surface verb, but a `move-surface` to the
+	 * surface's OWN pane + current index selects it as a side effect and preserves tab
+	 * order (verified). No-op if the surface can't be located. Returns success.
+	 */
+	public function selectSurface(string $wsRef, string $surfRef): bool {
+		if ($this->dryRun) { return false; }
+
+		$ws = $this->findWorkspaceByRef($this->tree(), $wsRef);
+		foreach ($ws['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $s) {
+				if (($s['ref'] ?? '') !== $surfRef) { continue; }
+				$res = $this->cli->getCommandOutputAndExitCode(
+					'cmux move-surface --surface ' . escapeshellarg($surfRef)
+					. ' --pane ' . escapeshellarg((string) ($pane['ref'] ?? ''))
+					. ' --index ' . (int) ($s['index_in_pane'] ?? 0)
+					. ' --workspace ' . escapeshellarg($wsRef)
+				);
+				return ($res['exitCode'] ?? 1) === 0;
+			}
+		}
+		return false;
+	}
+
 	public function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url): ?string {
 		if ($this->dryRun) { return null; }
 

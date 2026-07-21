@@ -432,12 +432,32 @@ final class GraveyardTest extends TestCase
 		$this->assertSame(['claude', 'claude-untargetable', 'shell', 'browser'], array_column($c['layout'], 'kind'));
 		$this->assertSame('https://x', $c['layout'][3]['url']);
 
+		// Each entry records whether it was the tab showing in its pane, so resurrect
+		// can re-select it. surface:2 was the visible tab in pane 0; nothing else.
+		$wsNode['panes'][0]['surfaces'][1]['selected_in_pane'] = true;
+		$c2 = $this->gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef);
+		$this->assertSame([false, true, false, false], array_column($c2['layout'], 'selected_in_pane'));
+
 		$wsAgent = ['panes' => [['index' => 0, 'surfaces' => [
 			['ref' => 'surface:9', 'type' => 'agentSession', 'title' => 'Claude Code · React', 'index_in_pane' => 0],
 		]]]];
 		$ca = $this->gy->classifyWorkspaceLayout($wsAgent, [], []);
 		$this->assertCount(1, $ca['untargetable']);
 		$this->assertSame('claude-untargetable', $ca['layout'][0]['kind']);
+	}
+
+	public function testPaneSelectionsPicksVisibleTabPerPane(): void
+	{
+		$layout = [
+			['group_pos' => 0, 'pane_index' => 0, 'selected_in_pane' => false],
+			['group_pos' => 1, 'pane_index' => 0, 'selected_in_pane' => true],  // showing in pane 0
+			['group_pos' => 2, 'pane_index' => 1, 'selected_in_pane' => true],  // showing in pane 1
+			['group_pos' => 3, 'pane_index' => 1, 'selected_in_pane' => false],
+			['group_pos' => 4, 'pane_index' => 2, 'selected_in_pane' => false], // none showing -> omitted
+		];
+		// [pane_index => group_pos of the tab to re-select]; panes with no flagged tab omitted.
+		$this->assertSame([0 => 1, 1 => 2], $this->gy->paneSelections($layout));
+		$this->assertSame([], $this->gy->paneSelections([]));
 	}
 
 	public function testPlanLayoutRestore(): void

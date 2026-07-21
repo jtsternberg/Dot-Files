@@ -980,6 +980,9 @@ class Graveyard {
 					'cwd'          => $row['cwd'] ?? null,
 					'kind'         => 'shell',
 					'claude_session_id' => null,
+					// Whether this was the tab showing in its pane, so resurrect can bring
+					// the same one back to the front instead of whichever it created last.
+					'selected_in_pane' => (bool) ($surf['selected_in_pane'] ?? false),
 				];
 
 				// A non-terminal, non-browser surface is a cmux-native agent session
@@ -1010,6 +1013,32 @@ class Graveyard {
 		}
 
 		return ['layout' => $layout, 'members' => $members, 'untargetable' => $untargetable];
+	}
+
+	/**
+	 * PURE. Which surface to bring to the front in each pane on resurrect: the entry
+	 * that was `selected_in_pane` at bury. Returns [pane_index => group_pos]; panes with
+	 * no flagged tab are omitted (leave cmux's default selection). Last flagged entry per
+	 * pane wins, though cmux only ever marks one.
+	 */
+	public function paneSelections(array $layout): array {
+		$sel = [];
+		foreach ($layout as $e) {
+			if (!empty($e['selected_in_pane'])) { $sel[$e['pane_index']] = $e['group_pos']; }
+		}
+		return $sel;
+	}
+
+	/**
+	 * I/O glue: re-select the tab that was showing in each pane at bury. Maps the pure
+	 * paneSelections() result (pane => group_pos) onto the restored surface refs and asks
+	 * cmux to bring each to the front. $refByPos: [group_pos => restored surface ref].
+	 */
+	private function applyPaneSelections(array $layout, array $refByPos, string $wsRef): void {
+		foreach ($this->paneSelections($layout) as $pos) {
+			$ref = $refByPos[$pos] ?? null;
+			if ($ref) { $this->cmux->selectSurface($wsRef, (string) $ref); }
+		}
 	}
 
 	/**
@@ -2455,12 +2484,15 @@ class Graveyard {
 				if (count($refs) === count($layout)) {
 					$wsRef = (string) ($node['ref'] ?? '');
 					$restored = 0;
+					$refByPos = [];
 					// cmux serializes panes/surfaces in the same order layout[] was walked
 					// at bury (verified: tree pane order == layout DFS-leaf order), so a
 					// positional zip binds each restored surface to its session.
 					foreach ($layout as $k => $e) {
 						$this->launchLayoutEntry($e, $refs[$k], $wsRef, $tombBySid, $fromTranscript, $restored);
+						$refByPos[$e['group_pos']] = (string) $refs[$k];
 					}
+					$this->applyPaneSelections($layout, $refByPos, $wsRef);
 					$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s (layout restored) — %d Claude session(s) restored.', $title, $wsRef, $restored));
 					return;
 				}
@@ -2488,6 +2520,7 @@ class Graveyard {
 		$steps         = $this->planLayoutRestore($layout);
 		$anchorSurf    = $ws['firstSurfRef'];   // surface in the first pane; splits fork from it
 		$paneRefByIdx  = [];                     // pane_index => live cmux pane ref
+		$refByPos      = [];                     // layout group_pos => restored surface ref
 		$restored      = 0;
 
 		foreach ($steps as $step) {
@@ -2521,7 +2554,9 @@ class Graveyard {
 			}
 
 			$this->launchLayoutEntry($e, (string) $surfRef, $wsRef, $tombBySid, $fromTranscript, $restored);
+			$refByPos[$e['group_pos']] = (string) $surfRef;
 		}
+		$this->applyPaneSelections($layout, $refByPos, $wsRef);
 
 		$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s — %d Claude session(s) restored.', $m['group_title'], $wsRef, $restored));
 	}
