@@ -577,6 +577,14 @@ document.addEventListener("alpine:init", function () {
 				if (q) { this.search = q; }
 				var self = this;
 				this.$watch("search", function (val) { self.syncSearchToUrl(val); });
+				// Cmd/Ctrl+F focuses the graveyard search instead of the browser's
+				// native find bar (which can't see the client-filtered stones anyway).
+				window.addEventListener("keydown", function (e) {
+					if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "f" || e.key === "F")) {
+						var box = document.querySelector("input.search");
+						if (box) { e.preventDefault(); box.focus(); box.select(); }
+					}
+				});
 				// Once the DOM is live: reopen a deep-linked modal (?stone= / ?plot=)
 				// and start mirroring modal open/close into the URL.
 				this.$nextTick(function () { self.openFromUrl(); self.watchModals(); });
