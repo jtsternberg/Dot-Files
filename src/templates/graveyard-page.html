@@ -181,8 +181,49 @@ main#yard {
 }
 .stone-title { font: 600 .86rem/1.35 var(--serif); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .stone-meta { margin-top: auto; font: .66rem var(--mono); color: var(--weathered); letter-spacing: .05em; }
+/* Empty/404 state: switch the yard out of masonry into a centered column so the
+   message sits BETWEEN the two fence rails (not overflowing past the bottom one). */
+main#yard.is-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 42vh; grid-auto-rows: initial; }
 .empty { grid-column: 1 / -1; text-align: center; font-size: 1rem; line-height: 2.2; padding: 3rem 0; }
-.none { color: #6b7263; font-style: italic; font-size: .88rem; }
+.none { color: #6b7263; font-style: italic; font-size: 1.2rem; }
+.exit-link {
+	display: block; width: fit-content; margin: 1.4rem auto 0; font-style: normal;
+	font: .8rem var(--mono); letter-spacing: .06em; color: var(--weathered);
+	text-decoration: none; border-bottom: 1px dashed rgba(168,193,150,.35);
+	padding-bottom: 1px; transition: color .16s ease, border-color .16s ease;
+}
+.exit-link:hover, .exit-link:focus-visible { color: var(--moss); border-color: rgba(168,193,150,.7); outline: none; }
+.ahh {
+	display: block;
+	font: 400 4rem/1 Impact, "Haettenschweiler", "Franklin Gothic Bold", "Arial Narrow Bold", sans-serif;
+	letter-spacing: .06em;
+	background: linear-gradient(180deg, #c2ccd8 0%, #5c6a80 44%, #232935 100%);
+	-webkit-background-clip: text; background-clip: text;
+	-webkit-text-fill-color: transparent; color: transparent;
+	-webkit-text-stroke: 3px #17190f; text-stroke: 3px #17190f;
+	filter: drop-shadow(4px 5px 0 rgba(0,0,0,.5));
+	transform: rotate(-6deg) skewX(-4deg);
+	margin: 0 0 .2rem;
+}
+.scream {
+	display: block;
+	font-style: normal;
+	font-size: 6.5rem;
+	line-height: 1;
+	margin: 0 auto .6rem;
+	filter: drop-shadow(0 0 22px rgba(120,140,110,.28));
+	transform-origin: 50% 60%;
+	animation: scream-shake 1.4s ease-in-out infinite;
+}
+@keyframes scream-shake {
+	0%, 100% { transform: translate(0,0) rotate(0deg) scale(1); }
+	8%   { transform: translate(-3px,1px) rotate(-4deg) scale(1.06); }
+	16%  { transform: translate(3px,-1px) rotate(4deg)  scale(1.06); }
+	24%  { transform: translate(-3px,1px) rotate(-3deg) scale(1.04); }
+	32%  { transform: translate(3px,0)   rotate(3deg)   scale(1.04); }
+	40%  { transform: translate(-2px,0)  rotate(-2deg)  scale(1.02); }
+	48%  { transform: translate(0,0)     rotate(0deg)   scale(1); }
+}
 fieldset.plot {
 	min-width: 0; margin: 0; padding: 0 .9rem .95rem;
 	border: 1px dashed hsl(var(--plot-hue, 95) 34% 62% / .6); border-radius: 14px;
@@ -397,6 +438,16 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 	55% { opacity: .55; transform: translate(calc(-50% - 12px), -70px) scale(1); }
 	100% { opacity: 0; transform: translate(calc(-50% + 16px), -140px) scale(1.05); }
 }
+/* On the empty/404 view the coffin haunts itself: a ghost rises 1s after the
+   state appears, then again on a ~3.5s loop (no hover needed). */
+.coffin.haunting::after { animation: ghost-haunt 3.5s ease-out 1s infinite; }
+@keyframes ghost-haunt {
+	0%   { opacity: 0; transform: translate(-50%, 0) scale(.8); }
+	11%  { opacity: .7; }
+	41%  { opacity: .55; transform: translate(calc(-50% - 12px), -70px) scale(1); }
+	74%  { opacity: 0; transform: translate(calc(-50% + 16px), -140px) scale(1.05); }
+	100% { opacity: 0; transform: translate(-50%, 0) scale(.8); }
+}
 @media (prefers-reduced-motion: reduce) {
 	.stone, #m-body pre, .fog { animation: none; }
 	.stone:hover, .stone:focus-visible { transform: none; }
@@ -406,7 +457,9 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 	.moon.startled { animation: none; }
 	.swarm-bat { display: none; }
 	.coffin:hover, .coffin:hover::after { animation: none; }
+	.coffin.haunting::after { animation: none; }
 	.coffin::after { display: none; }
+	.scream { animation: none; }
 	.shovel.digging { animation: none; }
 }
 @media (max-width: 560px) {
@@ -435,13 +488,13 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
 	</div>
 </header>
 <div class="fence-rail" aria-hidden="true"></div>
-<main id="yard" x-init="$nextTick(() => relayout())">
+<main id="yard" x-init="$nextTick(() => relayout())" :class="{ 'is-empty': search.trim() && !hasMatches() }">
 %%LISTING%%
-  <p class="none empty" x-cloak x-show="search.trim() && !hasMatches()">🔍<br>Nothing here matches “<span x-text="search.trim()"></span>”.</p>
+  <p class="none empty" x-cloak x-show="search.trim() && !hasMatches()"><span class="ahh" aria-hidden="true">AHHHH!</span><span class="scream" aria-hidden="true">😱</span>Nothing here matches “<span x-text="search.trim()"></span>”.<a class="exit-link" href="/" @click.prevent="search = ''; $nextTick(() => relayout())">⟵ exit to the graveyard</a></p>
 </main>
 <div class="fence-rail" aria-hidden="true"></div>
 <footer class="meta">
-  <div class="divider" aria-hidden="true"><span class="coffin">⚰️</span></div>
+  <div class="divider" aria-hidden="true"><span class="coffin" :class="{ haunting: search.trim() && !hasMatches() }">⚰️</span></div>
   <p>resurrect a session: <code>graveyard resurrect &lt;id&gt;</code></p>
   <p class="epitaph">❦</p>
 </footer>
