@@ -73,6 +73,54 @@ final class LinuxCatchupTest extends TestCase
 		$this->assertSame([], $lc->repos());
 	}
 
+	public function testParseOnlyNormalizesAndAliases(): void
+	{
+		[$known, $unknown] = $this->make()->parseOnly('system-update, repos');
+
+		$this->assertSame(['system', 'repos'], $known);
+		$this->assertSame([], $unknown);
+	}
+
+	public function testParseOnlyReportsUnknownSteps(): void
+	{
+		[$known, $unknown] = $this->make()->parseOnly('system,bogus');
+
+		$this->assertSame(['system'], $known);
+		$this->assertSame(['bogus'], $unknown);
+	}
+
+	public function testShouldRunWithoutOnlyFollowsConfig(): void
+	{
+		file_put_contents($this->config, json_encode(['codex' => false, 'system' => true, 'repos' => ['x']]));
+		$lc = $this->make();
+
+		$this->assertFalse($lc->shouldRun('codex', null));
+		$this->assertTrue($lc->shouldRun('system', null));
+		$this->assertTrue($lc->shouldRun('repos', null));
+	}
+
+	public function testOnlyRestrictsToNamedSteps(): void
+	{
+		$lc = $this->make();  // all steps enabled by default
+
+		$this->assertTrue($lc->shouldRun('system', 'system'));
+		$this->assertFalse($lc->shouldRun('codex', 'system'));
+		$this->assertFalse($lc->shouldRun('repos', 'system'));
+	}
+
+	public function testOnlyOverridesConfigToggle(): void
+	{
+		// codex disabled in config, but explicitly requested via --only.
+		file_put_contents($this->config, json_encode(['codex' => false]));
+		$this->assertTrue($this->make()->shouldRun('codex', 'codex'));
+	}
+
+	public function testOnlyReposStillNeedsNonEmptyList(): void
+	{
+		file_put_contents($this->config, json_encode(['repos' => []]));
+		$this->assertFalse($this->make()->shouldRun('repos', 'repos'));
+	}
+
 	public function testParseUpgradableCountsAndFlagsSecurity(): void
 	{
 		$raw = <<<TXT

@@ -84,6 +84,53 @@ class LinuxCatchup {
 		return ! empty( $this->config[ $step ] );
 	}
 
+	/** The steps linux-catchup can run, in run order. */
+	const STEPS = [ 'codex', 'claude', 'repos', 'system' ];
+
+	/**
+	 * Normalize a --only value (comma-separated step names) to a list of
+	 * canonical step names. Accepts the `system-update` alias for `system`.
+	 * Returns [known, unknown] so the caller can report typos.
+	 *
+	 * @return array{0:string[], 1:string[]}
+	 */
+	public function parseOnly( string $only ): array {
+		$known   = [];
+		$unknown = [];
+
+		foreach ( array_filter( array_map( 'trim', explode( ',', $only ) ) ) as $step ) {
+			$step = 'system-update' === $step ? 'system' : $step;
+			if ( in_array( $step, self::STEPS, true ) ) {
+				$known[] = $step;
+			} else {
+				$unknown[] = $step;
+			}
+		}
+
+		return [ array_values( array_unique( $known ) ), $unknown ];
+	}
+
+	/**
+	 * Whether a step should run this invocation.
+	 *
+	 * With no --only, a step runs when it's enabled in config (repos: when the
+	 * list is non-empty). With --only, the named steps run and everything else
+	 * is skipped — an explicit --only overrides the config toggles, since the
+	 * user is asking for exactly those steps.
+	 */
+	public function shouldRun( string $step, ?string $only = null ): bool {
+		if ( null !== $only ) {
+			[ $requested ] = $this->parseOnly( $only );
+			if ( ! in_array( $step, $requested, true ) ) {
+				return false;
+			}
+
+			return 'repos' === $step ? ! empty( $this->repos() ) : true;
+		}
+
+		return 'repos' === $step ? ! empty( $this->repos() ) : $this->wants( $step );
+	}
+
 	public function isLinux(): bool {
 		return 'Linux' === PHP_OS_FAMILY;
 	}

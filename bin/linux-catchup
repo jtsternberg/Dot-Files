@@ -19,8 +19,12 @@ namespace JT;
 # tool/repo steps still work for development on macOS.
 #
 # Usage:
-# linux-catchup [--apply] [--yes|-y]
+# linux-catchup [--apply] [--yes|-y] [--only=<steps>]
+# linux-catchup --only=system --apply   Only apply system updates
 # linux-catchup config          Print the resolved config + its path
+#
+# Steps: codex, claude, repos, system (alias: system-update). --only runs just
+# the named step(s), comma-separated, overriding the config toggles.
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/src/bootstrap.php'; // autoloads JT\LinuxCatchup from src/
@@ -30,11 +34,12 @@ $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName( 'linux-catchup' )
 	->setDescription( 'Catch this Linux box up: update codex + claude, pull configured repos (via godo), and report/apply system (apt) updates.' )
-	->setSampleUsage( '[--apply] [--yes|-y]' )
+	->setSampleUsage( '[--apply] [--yes|-y] [--only=<steps>]' )
 	->buildDocs( [
-		'--apply'    => 'Apply system (apt) updates, not just report them.',
-		'-y, --yes'  => 'Assume yes for apt prompts (passes -y to apt-get).',
-		'config'     => 'Print the resolved config and where it lives, then exit.',
+		'--apply'        => 'Apply system (apt) updates, not just report them.',
+		'-y, --yes'      => 'Assume yes for prompts (map-seed offers, apt -y).',
+		'--only=<steps>' => 'Run only these steps (comma-separated): codex, claude, repos, system (alias system-update). Overrides config toggles.',
+		'config'         => 'Print the resolved config and where it lives, then exit.',
 	] );
 
 if ( $helpyHelperton->batSignal ) {
@@ -53,6 +58,19 @@ if ( 'config' === $command ) {
 
 $apply = $cli->hasFlag( 'apply' );
 $yes   = $cli->isAutoconfirm();
+$only  = $cli->hasFlag( 'only' ) ? (string) $cli->getFlag( 'only' ) : null;
+
+if ( null !== $only ) {
+	[ $known, $unknown ] = $catchup->parseOnly( $only );
+	if ( ! empty( $unknown ) ) {
+		$cli->err( sprintf( "\nUnknown --only step(s): %s", implode( ', ', $unknown ) ) );
+		$cli->msg( sprintf( "Valid steps: %s (alias: system-update).\n", implode( ', ', LinuxCatchup::STEPS ) ) );
+		exit( 1 );
+	}
+	if ( empty( $known ) ) {
+		$cli->exitErr( "\n--only needs at least one step, e.g. --only=system\n" );
+	}
+}
 
 $cyan  = $cli->color( 'cyan' );
 $green = $cli->color( 'green' );
@@ -70,7 +88,7 @@ $run = static function ( $cmd ) use ( $cli ) {
 };
 
 # ── 1. codex ────────────────────────────────────────────────────────────────
-if ( $catchup->wants( 'codex' ) ) {
+if ( $catchup->shouldRun( 'codex', $only ) ) {
 	$section( 'codex update' );
 	if ( commandExists( 'codex' ) ) {
 		$run( 'codex update' );
@@ -80,7 +98,7 @@ if ( $catchup->wants( 'codex' ) ) {
 }
 
 # ── 2. claude ─────────────────────────────────────────────────────────────────
-if ( $catchup->wants( 'claude' ) ) {
+if ( $catchup->shouldRun( 'claude', $only ) ) {
 	$section( 'claude update' );
 	if ( commandExists( 'claude' ) ) {
 		$run( 'claude update' );
@@ -91,7 +109,7 @@ if ( $catchup->wants( 'claude' ) ) {
 
 # ── 3. repos (via godo) ───────────────────────────────────────────────────────
 $repos = $catchup->repos();
-if ( ! empty( $repos ) ) {
+if ( $catchup->shouldRun( 'repos', $only ) ) {
 	$section( sprintf( 'repos (%d)', count( $repos ) ) );
 	$godoBin = JT_DOTFILES_DIR . '/bin/godo';
 	$godo    = new Godo( $cli );
@@ -122,7 +140,7 @@ if ( ! empty( $repos ) ) {
 }
 
 # ── 4. system (apt) ───────────────────────────────────────────────────────────
-if ( $catchup->wants( 'system' ) ) {
+if ( $catchup->shouldRun( 'system', $only ) ) {
 	$section( 'system updates' );
 
 	if ( ! $catchup->isLinux() ) {
