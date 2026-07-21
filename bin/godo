@@ -1,0 +1,208 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# godo — "go and do". Run stored commands inside a dirmap-mapped directory.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/godo
+#
+# Version 0.1.0
+#
+# The command-running layer on top of dirmap/goto. `goto <key>` cd's your shell
+# to a mapped directory; `godo <key>` cd's there in a subshell and runs the
+# commands stored for that key (in ~/.cmdmap.json), then returns you where you
+# were. Keys are shared with dirmap/goto, so any `goto` key works here.
+#
+# With no stored commands for a key, godo defaults to `git prb` (pull --rebase).
+#
+# Usage:
+# godo help
+# godo <key>                     Run the key's commands in its dirmap directory
+# godo get <key>                 Print the commands that would run for a key
+# godo addcmd <key> <command>    Append a command to a key's array
+# godo setcmd <key> <command>    Replace a key's commands with a single command
+# godo rmcmd <key> [<command>]   Remove one command (or all) from a key
+# godo remove <key>              Remove a key entirely
+# godo list [--keys|-k] [--json|-j]
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
+require_once __DIR__ . '/godo_lib.php';
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'godo' )
+	->setDescription( 'Run stored commands inside a dirmap-mapped directory ("go and do"). Keys are shared with dirmap/goto.' )
+	->setupDefaultCommand( [
+		'<key>' => 'The dirmap key whose commands to run (in its mapped directory).',
+	] )
+	->setup( 'godo', [
+		'get' => [
+			'<key>',
+			'Print the commands that would run for a key (one per line).',
+			'<key>   The dirmap key to inspect',
+		],
+		'addcmd' => [
+			'<key> <command>',
+			'Append a command to a key\'s command array (created if missing). Idempotent — duplicates are skipped.',
+			'<key>       The dirmap key',
+			'<command>   The command to append (quote it, e.g. \'git prb\')',
+		],
+		'setcmd' => [
+			'<key> <command>',
+			'Replace a key\'s entire command array with a single command.',
+			'<key>       The dirmap key',
+			'<command>   The command to set',
+		],
+		'rmcmd' => [
+			'<key> [<command>]',
+			'Remove a single command from a key (exact match), or all commands when omitted.',
+			'<key>       The dirmap key',
+			'<command>   The command to remove (omit to clear the key)',
+		],
+		'remove' => [
+			'<key>',
+			'Remove a key entirely from the command map.',
+			'<key>   The dirmap key to remove',
+		],
+		'list' => [
+			'[--keys|-k] [--json|-j]',
+			'Output the stored command map.',
+			'-k, --keys   Output only the keys',
+			'-j, --json   Output raw JSON (pipe-friendly, no colors)',
+		],
+	] );
+
+$godo    = new Godo( $cli );
+$command = $cli->getArg( 1, '' );
+
+if ( $helpyHelperton->batSignal || 'help' === $command ) {
+	$sub = 'help' === $command ? $cli->getArg( 2, '' ) : $command;
+	$cli->msg( $helpyHelperton->getHelp( $sub ) );
+	exit( 0 );
+}
+
+# Hidden helper used by the zsh completion to distinguish subcommands from keys.
+if ( 'commands' === $command ) {
+	exit( implode( "\n", [ 'get', 'addcmd', 'setcmd', 'rmcmd', 'remove', 'list' ] ) );
+}
+
+switch ( $command ) {
+
+	case 'list':
+		if ( $cli->hasFlags( [ 'json' ], [ 'j' ] ) ) {
+			exit( json_encode( $godo->all(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+		}
+		if ( $cli->hasFlags( [ 'keys' ], [ 'k' ] ) ) {
+			exit( implode( "\n", $godo->keys() ) );
+		}
+		outputMap( $cli, $godo );
+		exit( 0 );
+
+	case 'get':
+		$key = $cli->getArg( 2, '' );
+		requireKey( $cli, $key );
+		exit( implode( "\n", $godo->getCommandsToRun( $key ) ) );
+
+	case 'addcmd':
+		$key = requireKey( $cli, $cli->getArg( 2, '' ) );
+		$cmd = requireCommand( $cli, $cli->getArg( 3, '' ) );
+		$godo->appendCommand( $key, $cmd );
+		$cli->msg( sprintf( "\nAdded to %s: %s\n", $key, $cmd ), 'green' );
+		exit( 0 );
+
+	case 'setcmd':
+		$key = requireKey( $cli, $cli->getArg( 2, '' ) );
+		$cmd = requireCommand( $cli, $cli->getArg( 3, '' ) );
+		$godo->setCommand( $key, $cmd );
+		$cli->msg( sprintf( "\nSet %s: %s\n", $key, $cmd ), 'green' );
+		exit( 0 );
+
+	case 'rmcmd':
+		$key = requireKey( $cli, $cli->getArg( 2, '' ) );
+		$cmd = $cli->getArg( 3, '' );
+		$godo->removeCommand( $key, '' === $cmd ? null : $cmd );
+		$cli->msg( sprintf( "\nRemoved from %s: %s\n", $key, '' === $cmd ? '(all)' : $cmd ), 'green' );
+		exit( 0 );
+
+	case 'remove':
+		$key = requireKey( $cli, $cli->getArg( 2, '' ) );
+		$godo->remove( $key );
+		$cli->msg( sprintf( "\nRemoved: %s\n", $key ), 'green' );
+		exit( 0 );
+
+	default:
+		# Default command: `godo <key>` — run the key's commands in its dir.
+		runKey( $cli, $godo, $command );
+}
+
+function requireKey( $cli, string $key ): string {
+	if ( '' === $key ) {
+		$cli->err( "\nA dirmap key is required." );
+		exit( 1 );
+	}
+
+	return $key;
+}
+
+function requireCommand( $cli, string $cmd ): string {
+	if ( '' === trim( $cmd ) ) {
+		$cli->err( "\nA command is required (quote it, e.g. 'git prb')." );
+		exit( 1 );
+	}
+
+	return $cmd;
+}
+
+function runKey( $cli, Godo $godo, string $key ): void {
+	requireKey( $cli, $key );
+
+	$dir = $godo->resolvePath( $key );
+	if ( '' === $dir || ! is_dir( $dir ) ) {
+		$cli->err( sprintf( "\nNo dirmap directory found for key: '%s'", $key ), false );
+		$cli->msg( "Try `dirmap list` to see available keys.\n" );
+		exit( 1 );
+	}
+
+	$commands = $godo->getCommandsToRun( $key );
+
+	$cyan  = $cli->color( 'cyan' );
+	$reset = $cli->color( 'none' );
+
+	foreach ( $commands as $cmd ) {
+		$cli->msg( sprintf( "\n%s➜ %s%s  %s(in %s)%s", $cyan, $cmd, $reset, $cli->color( 'dark_gray' ), $dir, $reset ) );
+		$full = 'cd ' . escapeshellarg( $dir ) . ' && ' . $cmd;
+		passthru( $full, $code );
+		if ( 0 !== $code ) {
+			$cli->err( sprintf( "\nCommand failed (exit %d) for '%s': %s\n", $code, $key, $cmd ), false );
+			exit( $code );
+		}
+	}
+}
+
+function outputMap( $cli, Godo $godo ): void {
+	$map = $godo->all();
+
+	if ( empty( $map ) ) {
+		$cli->msg( "\nNo commands stored yet. Add some with `godo addcmd <key> '<command>'`.\n", 'yellow' );
+
+		return;
+	}
+
+	ksort( $map );
+	$maxKey = max( array_map( 'strlen', array_keys( $map ) ) );
+
+	$cli->msg( sprintf( "\nCommand map (%d):\n", count( $map ) ), 'green' );
+
+	$cyan  = $cli->color( 'cyan' );
+	$gray  = $cli->color( 'dark_gray' );
+	$reset = $cli->color( 'none' );
+
+	foreach ( $map as $key => $commands ) {
+		$padding = str_repeat( ' ', $maxKey - strlen( $key ) );
+		echo sprintf( "  %s%s%s%s  =>  %s%s%s\n", $cyan, $key, $reset, $padding, $gray, implode( ' && ', (array) $commands ), $reset );
+	}
+
+	$cli->msg( '' );
+}
