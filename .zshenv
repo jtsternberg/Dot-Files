@@ -59,3 +59,4 @@ export NVM_DIR="$HOME/.nvm"
 # Run this command to configure your shell:
 # eval $(docker-machine env)
 export PATH="$HOME/.docker/bin:$PATH"
+export PATH="$HOME/go/bin:$PATH"
