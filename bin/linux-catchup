@@ -96,7 +96,9 @@ if ( ! empty( $repos ) ) {
 	$godoBin = JT_DOTFILES_DIR . '/bin/godo';
 	foreach ( $repos as $key ) {
 		$cli->msg( sprintf( "\n%s• %s%s", $green, $key, $reset ) );
-		$run( escapeshellarg( $godoBin ) . ' ' . escapeshellarg( $key ) );
+		// Explicit fallback: repos with no stored godo commands default to
+		// `git prb` here (bare `godo <key>` errors on empty — by design).
+		$run( escapeshellarg( $godoBin ) . ' ' . escapeshellarg( $key ) . ' --default=' . escapeshellarg( LinuxCatchup::DEFAULT_REPO_COMMAND ) );
 	}
 }
 

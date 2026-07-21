@@ -20,11 +20,14 @@ use JT\CLI\Helpers;
  * Store shape (~/.godo-cmdmap.json):
  *   { "dotfiles": ["git prb"], "wpe": ["git prb", "composer install"] }
  *
- * When a key has no stored commands, godo defaults to `git prb`
- * (git pull --rebase) — the overwhelmingly common "do" for a repo.
+ * Running a key with no stored commands is an error — godo never silently
+ * runs a default. Callers that want a fallback pass one explicitly
+ * (resolveCommands()'s $default; `godo <key> --default=<cmd>` at the CLI),
+ * which is how linux-catchup applies its conventional `git prb`.
  */
 class Godo {
 
+	/** Conventional fallback command callers may opt into (see resolveCommands). */
 	const DEFAULT_COMMAND = 'git prb';
 
 	protected Helpers $helpers;
@@ -65,15 +68,20 @@ class Godo {
 	}
 
 	/**
-	 * Commands to actually run for a key: stored commands, or the default
-	 * (git prb) when nothing is stored.
+	 * Commands to run for a key: the stored commands, or the given fallback
+	 * (as a single command) when none are stored. Returns [] when nothing is
+	 * stored and no fallback was supplied — callers treat empty as an error
+	 * (godo never silently runs a default).
 	 *
 	 * @return string[]
 	 */
-	public function getCommandsToRun( string $key ): array {
+	public function resolveCommands( string $key, ?string $default = null ): array {
 		$stored = $this->getStoredCommands( $key );
+		if ( ! empty( $stored ) ) {
+			return $stored;
+		}
 
-		return ! empty( $stored ) ? $stored : [ self::DEFAULT_COMMAND ];
+		return ( null !== $default && '' !== trim( $default ) ) ? [ trim( $default ) ] : [];
 	}
 
 	/** All keys with stored command arrays. */

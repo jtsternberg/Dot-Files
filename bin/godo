@@ -13,12 +13,13 @@ namespace JT;
 # commands stored for that key (in ~/.godo-cmdmap.json), then returns you where you
 # were. Keys are shared with dirmap/goto, so any `goto` key works here.
 #
-# With no stored commands for a key, godo defaults to `git prb` (pull --rebase).
+# Running a key with no stored commands is an error — godo never silently runs
+# a default. Pass --default=<cmd> for a one-off fallback.
 #
 # Usage:
 # godo help
-# godo <key>                     Run the key's commands in its dirmap directory
-# godo get <key>                 Print the commands that would run for a key
+# godo <key> [--default=<cmd>]   Run the key's commands (error if none set)
+# godo get <key>                 Print the stored commands for a key
 # godo addcmd <key> <command>    Append a command to a key's array
 # godo setcmd <key> <command>    Replace a key's commands with a single command
 # godo rmcmd <key> [<command>]   Remove one command (or all) from a key
@@ -35,12 +36,13 @@ $helpyHelperton
 	->setScriptName( 'godo' )
 	->setDescription( 'Run stored commands inside a dirmap-mapped directory ("go and do"). Keys are shared with dirmap/goto.' )
 	->setupDefaultCommand( [
-		'<key>' => 'The dirmap key whose commands to run (in its mapped directory).',
+		'<key>'       => 'The dirmap key whose commands to run (in its mapped directory). Errors if no commands are set.',
+		'--default=<cmd>' => 'Command to run when the key has no stored commands (one-off fallback).',
 	] )
 	->setup( 'godo', [
 		'get' => [
 			'<key>',
-			'Print the commands that would run for a key (one per line).',
+			'Print the stored commands for a key (one per line).',
 			'<key>   The dirmap key to inspect',
 		],
 		'addcmd' => [
@@ -120,7 +122,7 @@ switch ( $command ) {
 	case 'get':
 		$key = $cli->getArg( 2, '' );
 		requireKey( $cli, $key );
-		exit( implode( "\n", $godo->getCommandsToRun( $key ) ) );
+		exit( implode( "\n", $godo->getStoredCommands( $key ) ) );
 
 	case 'addcmd':
 		$key = requireDirmapKey( $cli, $godo, requireKey( $cli, $cli->getArg( 2, '' ) ) );
@@ -195,7 +197,15 @@ function runKey( $cli, Godo $godo, string $key ): void {
 		exit( 1 );
 	}
 
-	$commands = $godo->getCommandsToRun( $key );
+	$default  = $cli->hasFlag( 'default' ) ? (string) $cli->getFlag( 'default' ) : null;
+	$commands = $godo->resolveCommands( $key, $default );
+
+	if ( empty( $commands ) ) {
+		$cli->err( sprintf( "\nNo commands set for key: '%s'", $key ) );
+		$cli->msg( sprintf( "Add one with:  %sgodo addcmd %s '<command>'%s", $cli->color( 'cyan' ), $key, $cli->color( 'none' ) ) );
+		$cli->msg( sprintf( "Or run once with a fallback:  godo %s --default='git prb'\n", $key ) );
+		exit( 1 );
+	}
 
 	$cyan  = $cli->color( 'cyan' );
 	$reset = $cli->color( 'none' );
@@ -222,6 +232,9 @@ function outputMap( $cli, Godo $godo ): void {
 
 	ksort( $map );
 	$maxKey = max( array_map( 'strlen', array_keys( $map ) ) );
+	$home   = getenv( 'HOME' ) ?: '';
+	$arrow  = '  =>  ';
+	$indent = str_repeat( ' ', 2 + $maxKey + strlen( $arrow ) );
 
 	$cli->msg( sprintf( "\nCommand map (%d):\n", count( $map ) ), 'green' );
 
@@ -231,7 +244,17 @@ function outputMap( $cli, Godo $godo ): void {
 
 	foreach ( $map as $key => $commands ) {
 		$padding = str_repeat( ' ', $maxKey - strlen( $key ) );
-		echo sprintf( "  %s%s%s%s  =>  %s%s%s\n", $cyan, $key, $reset, $padding, $gray, implode( ' && ', (array) $commands ), $reset );
+
+		$dir = $godo->resolvePath( $key );
+		if ( '' === $dir ) {
+			$shortDir = '(no dirmap entry)';
+		} else {
+			$shortDir = ( $home && 0 === strpos( $dir, $home ) ) ? '~' . substr( $dir, strlen( $home ) ) : $dir;
+		}
+
+		// Key => path, then the commands indented beneath the path.
+		echo sprintf( "  %s%s%s%s%s%s%s\n", $cyan, $key, $reset, $padding, $arrow, $gray, $shortDir . $reset );
+		echo sprintf( "%s%s%s%s\n", $indent, $gray, implode( ' && ', (array) $commands ), $reset );
 	}
 
 	$cli->msg( '' );

@@ -79,20 +79,29 @@ final class GodoTest extends TestCase
 		$this->assertSame(['git prb'], $godo->getStoredCommands('k'));
 	}
 
-	public function testGetCommandsToRunFallsBackToDefault(): void
-	{
-		$godo = $this->makeGodo();
-
-		$this->assertSame([Godo::DEFAULT_COMMAND], $godo->getCommandsToRun('never-seen'));
-		$this->assertSame(['git prb'], $godo->getCommandsToRun('never-seen'));
-	}
-
-	public function testGetCommandsToRunUsesStoredWhenPresent(): void
+	public function testResolveCommandsUsesStoredWhenPresent(): void
 	{
 		$godo = $this->makeGodo();
 		$godo->appendCommand('k', 'make build');
 
-		$this->assertSame(['make build'], $godo->getCommandsToRun('k'));
+		// Stored commands win even when a default is offered.
+		$this->assertSame(['make build'], $godo->resolveCommands('k', 'git prb'));
+	}
+
+	public function testResolveCommandsEmptyWhenNoStoredAndNoDefault(): void
+	{
+		// This is the condition bare `godo <key>` treats as an error.
+		$this->assertSame([], $this->makeGodo()->resolveCommands('never-seen'));
+	}
+
+	public function testResolveCommandsUsesDefaultWhenEmpty(): void
+	{
+		$this->assertSame(['git prb'], $this->makeGodo()->resolveCommands('never-seen', 'git prb'));
+	}
+
+	public function testResolveCommandsIgnoresBlankDefault(): void
+	{
+		$this->assertSame([], $this->makeGodo()->resolveCommands('never-seen', '   '));
 	}
 
 	public function testGetStoredCommandsEmptyForUnknownKey(): void

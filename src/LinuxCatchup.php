@@ -30,6 +30,9 @@ class LinuxCatchup {
 
 	protected array $config = [];
 
+	/** Fallback command for a configured repo with no stored godo commands. */
+	const DEFAULT_REPO_COMMAND = Godo::DEFAULT_COMMAND;
+
 	const DEFAULT_CONFIG = [
 		'repos'  => [ 'claude-plugins', 'notes', 'dotfiles', 'wpengine-jtsternberg' ],
 		'codex'  => true,
