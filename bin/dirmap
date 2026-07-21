@@ -39,7 +39,7 @@ class DirMap {
 		$this->hd = dirname( dirname( __DIR__ ) );
 		$this->source = $this->hd . '/.dirmap.json';
 		if ( ! file_exists( $this->source ) ) {
-			shell_exec( "echo '[]' >> {$this->hd}/.dirmap.json" );
+			file_put_contents( $this->hd . '/.dirmap.json', "{}\n" );
 		}
 
 		$this->dirs = json_decode( file_get_contents( $this->hd . '/.dirmap.json' ), true );
@@ -250,8 +250,12 @@ class DirMap {
 	}
 
 	protected function updateFile( $dirs ) {
-		$json = json_encode( $dirs );
-		shell_exec( "echo '$json' > {$this->hd}/.dirmap.json" );
+		// Pretty-printed + unescaped slashes so the file is hand-editable
+		// (see `dirmap edit`) and matches godo's ~/.godo-cmdmap.json format.
+		// file_put_contents (not `echo '$json' >`) so paths containing a
+		// single quote don't corrupt the write.
+		$json = json_encode( $dirs, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		file_put_contents( $this->hd . '/.dirmap.json', $json . "\n" );
 
 		return $this;
 	}
