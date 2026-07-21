@@ -34,7 +34,7 @@ class LinuxCatchup {
 	const DEFAULT_REPO_COMMAND = Godo::DEFAULT_COMMAND;
 
 	const DEFAULT_CONFIG = [
-		'repos'  => [ 'claude-plugins', 'notes', 'dotfiles', 'wpengine-jtsternberg' ],
+		'repos'  => [ 'claudeplugins', 'notes', 'dotfiles', 'wpengine-jtsternberg' ],
 		'codex'  => true,
 		'claude' => true,
 		'system' => true,

@@ -38,7 +38,7 @@ final class LinuxCatchupTest extends TestCase
 		$lc = $this->make();
 		$this->assertFileExists($this->config);
 		$this->assertSame(
-			['claude-plugins', 'notes', 'dotfiles', 'wpengine-jtsternberg'],
+			['claudeplugins', 'notes', 'dotfiles', 'wpengine-jtsternberg'],
 			$lc->repos()
 		);
 		$this->assertTrue($lc->wants('codex'));
