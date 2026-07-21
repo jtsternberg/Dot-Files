@@ -26,8 +26,7 @@ namespace JT;
 # godo list [--keys|-k] [--json|-j]
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
-require_once __DIR__ . '/godo_lib.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php'; // autoloads JT\Godo from src/
 
 $helpyHelperton = $cli->getHelp();
 

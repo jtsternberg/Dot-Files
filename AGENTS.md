@@ -121,17 +121,24 @@ namespace (`tests/Graveyard/` for `JT\Tests\Graveyard`) — this matters on Linu
 
 **Write CLI scripts to be testable.** PHPUnit tests classes and methods, not
 procedural entry scripts. So keep a `bin/<tool>` entry script thin and put its
-real logic in a companion class it `require`s — either a `bin/<tool>_lib.php`
-class (namespace `JT`) or a helper under `misc/` (namespace `JT\CLI` /
-`JT\Helpers`). Tests then target the class directly. `bin/graveyard` +
-`bin/graveyard_lib.php` (class `JT\Graveyard`) and `misc/helpers/cmux.php`
-(class `JT\Helpers\Cmux`), covered by `tests/Graveyard/` and `tests/Helpers/`,
-are the reference pattern. New scripts should follow it so they are born
-testable rather than needing later extraction.
+real logic in a companion class **under `src/`**, PSR-4-autoloaded via the
+`JT\` → `src/` map in `composer.json`. Name the file to match the class so
+PSR-4 resolves it: `JT\Godo` → `src/Godo.php`, `JT\Helpers\Cmux` →
+`src/Helpers/Cmux.php`. The bin entry then needs nothing but
+`require_once '.../src/bootstrap.php'` (which registers the autoloader) — no
+per-file `require` — and tests target the class directly with zero setup.
+`bin/godo` + `src/Godo.php`, `bin/linux-catchup` + `src/LinuxCatchup.php`, and
+`src/Helpers/Cmux.php` (covered by `tests/Godo/`, `tests/LinuxCatchup/`,
+`tests/Helpers/`) are the reference pattern. New scripts are born this way.
 
-Note: lib files with lowercase/snake filenames (`cmux.php`, `graveyard_lib.php`)
-can't be PSR-4-autoloaded (PSR-4 wants `Cmux.php`), so `tests/bootstrap.php`
-`require`s them explicitly — the same way their entry scripts do at runtime.
+Directory/file case must match the namespace (`tests/Graveyard/` for
+`JT\Tests\Graveyard`; `src/Godo.php` for `JT\Godo`) — this matters on Linux.
+
+Legacy note: a few older libs still live in `bin/` with lowercase/snake
+filenames (`graveyard_lib.php`, `cmux-bak_lib.php`). Those can't be
+PSR-4-autoloaded (PSR-4 wants `Graveyard.php`), so `tests/bootstrap.php`
+`require`s them explicitly and their bin entries do too. They're a migration
+backlog, not a template — don't add new libs to `bin/`; put them in `src/`.
 
 ## Content Conversion Tools
 

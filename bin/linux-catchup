@@ -23,8 +23,7 @@ namespace JT;
 # linux-catchup config          Print the resolved config + its path
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
-require_once __DIR__ . '/linux-catchup_lib.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php'; // autoloads JT\LinuxCatchup from src/
 
 $helpyHelperton = $cli->getHelp();
 
