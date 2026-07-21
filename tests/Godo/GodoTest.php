@@ -166,6 +166,50 @@ final class GodoTest extends TestCase
 		$this->assertSame(['git prb'], $reloaded->getStoredCommands('k'));
 	}
 
+	/**
+	 * Write a stub `dirmap` bin that resolves only the given keys, so
+	 * resolvePath() can be tested without the real dirmap/~.dirmap.json.
+	 * The stub mimics `dirmap get <key>`: echo a path + exit 0 for a known
+	 * key, exit 1 otherwise.
+	 *
+	 * @param array<string,string> $map key => path it should resolve to
+	 */
+	private function stubDirmap(array $map): string
+	{
+		$bin = sys_get_temp_dir() . '/dirmap-stub-' . getmypid() . '-' . uniqid();
+		$cases = '';
+		foreach ($map as $key => $path) {
+			$cases .= sprintf("    %s) echo %s; exit 0;;\n", escapeshellarg($key), escapeshellarg($path));
+		}
+		$script = "#!/bin/sh\n# \$1=get \$2=key\ncase \"\$2\" in\n{$cases}  *) exit 1;;\nesac\n";
+		file_put_contents($bin, $script);
+		chmod($bin, 0755);
+		putenv('GODO_DIRMAP_BIN=' . $bin);
+
+		return $bin;
+	}
+
+	public function testResolvePathReturnsDirForKnownKey(): void
+	{
+		$bin = $this->stubDirmap(['dotfiles' => '/Users/JT/.dotfiles']);
+
+		$this->assertSame('/Users/JT/.dotfiles', $this->makeGodo()->resolvePath('dotfiles'));
+
+		putenv('GODO_DIRMAP_BIN');
+		@unlink($bin);
+	}
+
+	public function testResolvePathReturnsEmptyForUnknownKey(): void
+	{
+		$bin = $this->stubDirmap(['dotfiles' => '/Users/JT/.dotfiles']);
+
+		// This is the exact condition `godo addcmd` uses to reject a bad key.
+		$this->assertSame('', $this->makeGodo()->resolvePath('wpegg'));
+
+		putenv('GODO_DIRMAP_BIN');
+		@unlink($bin);
+	}
+
 	public function testStoreLandsAtCmdmapInHomeWithoutOverride(): void
 	{
 		$home    = sys_get_temp_dir() . '/godo-home-' . getmypid() . '-' . uniqid();

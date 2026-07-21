@@ -106,6 +106,20 @@ $helpyHelperton
 
 ### Testing
 
+**Follow TDD.** For any behavior change to a class under `src/` — new method,
+bugfix, changed contract — write the failing test first, watch it fail, then
+make it pass. Every logic change lands with the test that pins it in the same
+commit; a `fix(...)`/`feat(...)` commit that touches logic with no test change
+is a red flag, not a shortcut. The one carve-out is the thin `bin/<tool>` entry
+seam — `passthru`, editor launches, `exit()`/prompt plumbing — which isn't
+unit-testable. That carve-out is *exactly why* real logic belongs in the `src/`
+class (see below), where it can be driven by tests: if you catch yourself
+wanting to skip a test because "it's in the bin script", the logic is in the
+wrong place — move it to the class and test it there. Shelling seams (e.g. a
+class method that calls out to another bin) are testable via an injected stub
+binary — see `Godo::resolvePath` and its `GODO_DIRMAP_BIN` hook in
+`tests/Godo/GodoTest.php`.
+
 Tests use PHPUnit (`composer require --dev phpunit/phpunit`). Run the suite with:
 
 ```bash
