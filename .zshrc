@@ -208,6 +208,7 @@ plugins=(
 	dirmap-completions
 	pester
 	goto-dirmap # https://github.com/jtsternberg/Dot-Files/blob/master/zsh-custom/plugins/goto-dirmap/goto-dirmap.plugin.zsh
+	godo-completions # https://github.com/jtsternberg/Dot-Files/blob/master/zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh
 	git # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/git
 	git-extras # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/git-extras
 	gitfast # https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/gitfast
