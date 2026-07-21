@@ -10,7 +10,7 @@ namespace JT;
 #
 # The command-running layer on top of dirmap/goto. `goto <key>` cd's your shell
 # to a mapped directory; `godo <key>` cd's there in a subshell and runs the
-# commands stored for that key (in ~/.cmdmap.json), then returns you where you
+# commands stored for that key (in ~/.godo-cmdmap.json), then returns you where you
 # were. Keys are shared with dirmap/goto, so any `goto` key works here.
 #
 # With no stored commands for a key, godo defaults to `git prb` (pull --rebase).

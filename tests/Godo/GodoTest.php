@@ -7,12 +7,12 @@ use JT\Godo;
 /**
  * godo — the command-map layer on top of dirmap.
  *
- * These cover the store logic (CRUD on ~/.cmdmap.json) and command
+ * These cover the store logic (CRUD on ~/.godo-cmdmap.json) and command
  * resolution, which is where the behavior lives. Path resolution (shelling to
  * dirmap) and command execution (passthru) are thin integration seams left to
  * the live-verify pass, not unit-tested here.
  *
- * Each test points GODO_CMDMAP at a throwaway file so the real ~/.cmdmap.json
+ * Each test points GODO_CMDMAP at a throwaway file so the real ~/.godo-cmdmap.json
  * is never touched.
  */
 final class GodoTest extends TestCase
@@ -175,10 +175,10 @@ final class GodoTest extends TestCase
 		putenv('HOME=' . $home);
 
 		$godo = $this->makeGodo();
-		$this->assertSame($home . '/.cmdmap.json', $godo->source);
+		$this->assertSame($home . '/.godo-cmdmap.json', $godo->source);
 
 		putenv('HOME=' . $oldHome);
-		@unlink($home . '/.cmdmap.json');
+		@unlink($home . '/.godo-cmdmap.json');
 		@rmdir($home);
 	}
 }

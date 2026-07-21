@@ -8,7 +8,7 @@ use JT\CLI\Helpers;
  *
  * dirmap maps a key => a directory. `goto <key>` cd's your interactive shell
  * there. godo goes one step further: for a key it stores an array of commands
- * (in ~/.cmdmap.json, mirroring dirmap's ~/.dirmap.json), cd's into the key's
+ * (in ~/.godo-cmdmap.json, mirroring dirmap's ~/.dirmap.json), cd's into the key's
  * dirmap directory in a subshell, and runs those commands in order — then
  * returns you where you were. No interactive-shell cd to persist, so this is a
  * plain bin, not a zsh function (unlike goto). Autocomplete is added the same
@@ -17,7 +17,7 @@ use JT\CLI\Helpers;
  * Path resolution reuses dirmap as the single source of truth, so any key that
  * works with `goto` works with `godo`.
  *
- * Store shape (~/.cmdmap.json):
+ * Store shape (~/.godo-cmdmap.json):
  *   { "dotfiles": ["git prb"], "wpe": ["git prb", "composer install"] }
  *
  * When a key has no stored commands, godo defaults to `git prb`
@@ -40,11 +40,11 @@ class Godo {
 	public function __construct( Helpers $helpers ) {
 		$this->helpers = $helpers;
 
-		// Test/override hook, then default to ~/.cmdmap.json — mirrors how
+		// Test/override hook, then default to ~/.godo-cmdmap.json — mirrors how
 		// dirmap keeps ~/.dirmap.json in $HOME (untracked, per-machine).
 		$override = getenv( 'GODO_CMDMAP' );
 		$home     = $override ? dirname( $override ) : ( getenv( 'HOME' ) ?: dirname( JT_DOTFILES_DIR ) );
-		$this->source = $override ?: $home . '/.cmdmap.json';
+		$this->source = $override ?: $home . '/.godo-cmdmap.json';
 
 		if ( ! file_exists( $this->source ) ) {
 			file_put_contents( $this->source, "{}\n" );
