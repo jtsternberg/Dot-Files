@@ -2467,6 +2467,7 @@ class Graveyard {
 
 		$title    = $m['group_title'] ?: 'resurrected';
 		$firstCwd = $layout[0]['cwd'] ?? null;
+		$targetWin = $this->resolveTargetWindow($m['window_ref'] ?? null);
 
 		// Preferred path: replay cmux's own captured geometry (exact orientation,
 		// divider ratios, nesting, tab order). Gated on a surface-count match — cmux
@@ -2475,7 +2476,7 @@ class Graveyard {
 		// manual pane rebuild (correct panes/tabs, approximated split direction).
 		$tree = $m['layout_tree'] ?? null;
 		if (is_array($tree) && $this->layoutTreeSurfaceCount($tree) === count($layout)) {
-			$node = $this->cmux->newWorkspaceWithLayout($title, $firstCwd, $tree);
+			$node = $this->cmux->newWorkspaceWithLayout($title, $firstCwd, $tree, $targetWin);
 			if ($node) {
 				$refs = [];
 				foreach ($node['panes'] ?? [] as $p) {
@@ -2502,7 +2503,21 @@ class Graveyard {
 			}
 		}
 
-		$this->resurrectWorkspaceManual($m, $layout, $tombBySid, $fromTranscript);
+		$this->resurrectWorkspaceManual($m, $layout, $tombBySid, $fromTranscript, $targetWin);
+	}
+
+	/**
+	 * Resolve which window to resurrect a workspace into: the one it was buried from,
+	 * if that window still exists. cmux window refs (like surface/tty refs) are only
+	 * stable within a running cmux session, so after a restart the stored ref is gone —
+	 * we then fall back to the current window (announced). Returns a window ref or null
+	 * (null = let cmux use the current window).
+	 */
+	private function resolveTargetWindow(?string $stored): ?string {
+		if (empty($stored)) { return null; }
+		if ($this->cmux->windowRefExists($this->cmux->tree(), $stored)) { return $stored; }
+		$this->cli->msg("  Original window ({$stored}) is gone — restoring into the current window.", 'yellow');
+		return null;
 	}
 
 	/**
@@ -2512,9 +2527,9 @@ class Graveyard {
 	 * surface into one pane. cmux exposes no split direction here, so splits default to
 	 * side-by-side columns.
 	 */
-	private function resurrectWorkspaceManual(array $m, array $layout, array $tombBySid, bool $fromTranscript): void {
+	private function resurrectWorkspaceManual(array $m, array $layout, array $tombBySid, bool $fromTranscript, ?string $targetWin = null): void {
 		$firstCwd = $layout[0]['cwd'] ?? null;
-		$ws = $this->cmux->newWorkspace($m['group_title'] ?: 'resurrected', $firstCwd);
+		$ws = $this->cmux->newWorkspace($m['group_title'] ?: 'resurrected', $firstCwd, $targetWin);
 		$wsRef = $ws['ref'];
 
 		$steps         = $this->planLayoutRestore($layout);

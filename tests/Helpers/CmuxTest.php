@@ -78,6 +78,15 @@ final class CmuxTest extends TestCase
 		$this->assertTrue(method_exists($this->cmux, 'newWorkspace'));
 	}
 
+	public function testWindowRefExists(): void
+	{
+		$tree = ['windows' => [['ref' => 'window:1'], ['ref' => 'window:2']]];
+		$this->assertTrue($this->cmux->windowRefExists($tree, 'window:2'));
+		$this->assertFalse($this->cmux->windowRefExists($tree, 'window:9'));
+		$this->assertFalse($this->cmux->windowRefExists($tree, ''));
+		$this->assertFalse($this->cmux->windowRefExists([], 'window:1'));
+	}
+
 	/** Collect all lines via eachLineReverse for a given content string. */
 	private function reverseLines(string $content): array
 	{

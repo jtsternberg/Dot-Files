@@ -618,9 +618,19 @@ class Cmux {
 		return $this->firstNewSurface($wsRef, $before);
 	}
 
-	public function newWorkspace(string $title, ?string $cwd): array {
+	/** PURE. Whether a window with this ref is present in the given tree. */
+	public function windowRefExists(array $tree, string $ref): bool {
+		if ($ref === '') { return false; }
+		foreach ($tree['windows'] ?? [] as $w) {
+			if (($w['ref'] ?? '') === $ref) { return true; }
+		}
+		return false;
+	}
+
+	public function newWorkspace(string $title, ?string $cwd, ?string $windowRef = null): array {
 		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title);
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
+		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
 		if ($res['exitCode'] !== 0) { $this->cli->exitErr('new-workspace failed: ' . $res['error']); }
 		usleep(500000);
@@ -665,12 +675,13 @@ class Cmux {
 	 * exact splits/tabs. Returns the new workspace's full tree node (panes[].surfaces[])
 	 * so the caller can join surfaces to sessions positionally, or null on failure.
 	 */
-	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree): ?array {
+	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree, ?string $windowRef = null): ?array {
 		if ($this->dryRun) { return null; }
 
 		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title)
 			. ' --layout ' . escapeshellarg((string) json_encode($layoutTree));
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
+		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
 
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
 		if (($res['exitCode'] ?? 1) !== 0) { return null; }
