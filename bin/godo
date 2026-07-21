@@ -252,9 +252,11 @@ function outputMap( $cli, Godo $godo ): void {
 			$shortDir = ( $home && 0 === strpos( $dir, $home ) ) ? '~' . substr( $dir, strlen( $home ) ) : $dir;
 		}
 
-		// Key => path, then the commands indented beneath the path.
+		// Key => path, then each command on its own line beneath the path.
 		echo sprintf( "  %s%s%s%s%s%s%s\n", $cyan, $key, $reset, $padding, $arrow, $gray, $shortDir . $reset );
-		echo sprintf( "%s%s%s%s\n", $indent, $gray, implode( ' && ', (array) $commands ), $reset );
+		foreach ( (array) $commands as $cmd ) {
+			echo sprintf( "%s%s- %s%s\n", $indent, $gray, $cmd, $reset );
+		}
 	}
 
 	$cli->msg( '' );
