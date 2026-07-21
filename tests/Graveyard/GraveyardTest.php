@@ -43,6 +43,23 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('second', $xs[0]['summary']);
 	}
 
+	public function testStableGroupIdReusesPriorGroupElseMintsFresh(): void
+	{
+		$mint = fn() => 'FRESH';
+
+		// Brand-new workspace: no member has a prior tombstone → mint fresh.
+		$this->assertSame('FRESH', $this->gy->stableGroupId(['a', 'b'], [], $mint));
+
+		// Common re-bury: all mapped members share one prior group → reuse it (stable).
+		$this->assertSame('g1', $this->gy->stableGroupId(['a', 'b'], ['a' => 'g1', 'b' => 'g1'], $mint));
+
+		// A new member joins a resurrected group: surviving members still resolve to g1.
+		$this->assertSame('g1', $this->gy->stableGroupId(['a', 'b', 'c'], ['a' => 'g1', 'b' => 'g1'], $mint));
+
+		// Merged from two prior plots → ambiguous → mint fresh.
+		$this->assertSame('FRESH', $this->gy->stableGroupId(['a', 'b'], ['a' => 'g1', 'b' => 'g2'], $mint));
+	}
+
 	public function testReconcileTombstoneConfig(): void
 	{
 		// jsonl says yolo + a model; stored had the burial defaults → both corrected.

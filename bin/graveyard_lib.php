@@ -533,6 +533,33 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Pick a STABLE workspace group id so re-burying the same workspace keeps
+	 * the same resurrect id (and overwrites its manifest in place instead of minting
+	 * a fresh one + orphaning the old). Resurrect leaves tombstones in place and
+	 * `claude --resume` keeps each session's id, so a resurrected member still carries
+	 * its original group_id in its tombstone — we read it back rather than re-minting.
+	 *
+	 *   $memberSids   the classified members' session ids (this bury).
+	 *   $sidToGroup   [session_id => group_id] from surviving tombstones.
+	 *   $mintFresh    callable(): string — a new random id (uuidv4), used only when
+	 *                 the members map to no single prior group.
+	 *
+	 * Distinct prior group_ids among the members decide it:
+	 *   0 groups → brand-new workspace           → mint fresh.
+	 *   1 group  → the common re-bury case        → reuse it (stable id).
+	 *   >1 group → sessions from different plots merged into one workspace → treat as a
+	 *              genuinely new workspace → mint fresh.
+	 */
+	public function stableGroupId(array $memberSids, array $sidToGroup, callable $mintFresh): string {
+		$priorGroups = [];
+		foreach ($memberSids as $sid) {
+			$g = $sidToGroup[(string) $sid] ?? null;
+			if ($g !== null && $g !== '') { $priorGroups[$g] = true; }
+		}
+		return count($priorGroups) === 1 ? (string) array_key_first($priorGroups) : $mintFresh();
+	}
+
+	/**
 	 * Whether the archived transcript already reflects all genuine activity, so
 	 * bury can skip re-exporting. True iff a transcript exists on disk AND no real
 	 * (non-synthetic) turn has landed since it was written — i.e. the newest genuine
@@ -1215,7 +1242,18 @@ class Graveyard {
 		}
 
 		// Stamp a shared group + write the layout manifest BEFORE any destruction.
-		$group = $this->cmux->uuidv4();
+		// Reuse the group id these members were last buried under (resurrect keeps
+		// tombstones + session ids), so the resurrect id stays stable across re-buries;
+		// mint fresh only for a brand-new or merged-from-multiple-plots workspace.
+		$sidToGroup = [];
+		foreach ($this->readIndex()['tombstones'] ?? [] as $t) {
+			if (!empty($t['group_id'])) { $sidToGroup[(string) $t['session_id']] = (string) $t['group_id']; }
+		}
+		$group = $this->stableGroupId(
+			array_map(fn($m) => (string) $m['session_id'], $cls['members']),
+			$sidToGroup,
+			fn() => $this->cmux->uuidv4()
+		);
 		$buriedAt = gmdate('Y-m-d\TH:i:s\Z');
 		$dir = $this->workspaceGroupDir($group);
 		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
