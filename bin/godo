@@ -24,6 +24,7 @@ namespace JT;
 # godo rmcmd <key> [<command>]   Remove one command (or all) from a key
 # godo remove <key>              Remove a key entirely
 # godo list [--keys|-k] [--json|-j]
+# godo edit                      Open the command-map file in your editor
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/src/bootstrap.php'; // autoloads JT\Godo from src/
@@ -71,6 +72,10 @@ $helpyHelperton
 			'-k, --keys   Output only the keys',
 			'-j, --json   Output raw JSON (pipe-friendly, no colors)',
 		],
+		'edit' => [
+			'',
+			'Open the command-map file (~/.godo-cmdmap.json) in your editor.',
+		],
 	] );
 
 $godo    = new Godo( $cli );
@@ -84,7 +89,7 @@ if ( $helpyHelperton->batSignal || 'help' === $command ) {
 
 # Hidden helper used by the zsh completion to distinguish subcommands from keys.
 if ( 'commands' === $command ) {
-	exit( implode( "\n", [ 'get', 'addcmd', 'setcmd', 'rmcmd', 'remove', 'list' ] ) );
+	exit( implode( "\n", [ 'get', 'addcmd', 'setcmd', 'rmcmd', 'remove', 'list', 'edit' ] ) );
 }
 
 switch ( $command ) {
@@ -97,6 +102,19 @@ switch ( $command ) {
 			exit( implode( "\n", $godo->keys() ) );
 		}
 		outputMap( $cli, $godo );
+		exit( 0 );
+
+	case 'edit':
+		$file   = $godo->source;
+		$hasVsc = '' !== trim( (string) shell_exec( 'command -v code 2>/dev/null' ) );
+		if ( $hasVsc ) {
+			// code -r: reuse the current window, return immediately (no hang).
+			passthru( 'code -r ' . escapeshellarg( $file ) );
+		} else {
+			$editor = getenv( 'EDITOR' ) ?: 'vi';
+			passthru( $editor . ' ' . escapeshellarg( $file ) );
+		}
+		$cli->msg( sprintf( "\nOpened %s\n", $file ), 'green' );
 		exit( 0 );
 
 	case 'get':
