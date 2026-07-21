@@ -20,6 +20,7 @@ namespace JT;
 # dirmap get <key>
 # dirmap identify [<path>]
 # dirmap list [--json|-j]
+# dirmap edit
 # =============================================================================
 
 class DirMap {
@@ -223,6 +224,19 @@ class DirMap {
 		return $best;
 	}
 
+	public function edit() {
+		$file   = $this->source;
+		$hasVsc = '' !== trim( (string) shell_exec( 'command -v code 2>/dev/null' ) );
+		if ( $hasVsc ) {
+			// code -r: reuse the current window, return immediately (no hang).
+			passthru( 'code -r ' . escapeshellarg( $file ) );
+		} else {
+			$editor = getenv( 'EDITOR' ) ?: 'vi';
+			passthru( $editor . ' ' . escapeshellarg( $file ) );
+		}
+		$this->helpers->msg( sprintf( "\nOpened %s\n", $file ), 'green' );
+	}
+
 	public function list() {
 		if ( $this->helpers->hasFlags( [ 'json' ], [ 'j' ] ) ) {
 			exit( file_get_contents( $this->source ) );
@@ -328,6 +342,10 @@ $helpyHelperton
 			'Output the stored directory map.',
 			'-k, --keys   Output only the map keys',
 			'-j, --json   Output raw JSON (pipe-friendly, no colors)',
+		],
+		'edit' => [
+			'',
+			'Open the directory-map file (~/.dirmap.json) in your editor.',
 		],
 	] );
 
