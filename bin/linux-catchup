@@ -178,7 +178,7 @@ if ( $catchup->shouldRun( 'system', $only ) ) {
 				exit( $code );
 			}
 		} elseif ( $report['count'] > 0 ) {
-			$cli->msg( "\n  (report-only — re-run with --apply to install)", 'yellow' );
+			$cli->msg( "\n  (report-only — re-run with --apply to install: `linux-catchup --only=system --apply`)", 'yellow' );
 		}
 	}
 }
