@@ -18,6 +18,7 @@ namespace JT;
 #   rejected (no auto-pick) — narrow it or pass a full session-id.
 # graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
+# graveyard bury --workspace|-ws <name|ref> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace)
 # graveyard candidates [--porcelain]
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
@@ -42,7 +43,7 @@ $helpyHelperton
 		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
-		'bury --workspace <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force.',
+		'bury --workspace|-ws <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force. (-ws is a short alias for --workspace.)',
 		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
 		'-y'              => 'Skip confirmations',
 		'candidates [--porcelain] [--json]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated; --json: structured rows — both agent-readable)',
@@ -54,10 +55,10 @@ $helpyHelperton
 		'show <id>'       => 'Open a buried transcript in your editor',
 		'resurrect <id|name>' => 'Recreate the workspace and resume the live session via --resume if its JSONL still exists, else restart Claude on the exported transcript. <name> may be a workspace/tab title substring — a unique match is required (ambiguous matches are listed, not auto-picked)',
 		'rename <id> "<name>"' => 'Give a buried session a custom display name (used as its title on the page and matchable by `resurrect <name>`). <id> resolved fuzzily (session-id exact/prefix or title substring).',
-		'rename --workspace <group> "<name>"' => 'Retitle a whole workspace group (every member + the manifest), so ls/page/resurrect all show the new plot name.',
+		'rename --workspace|-ws <group> "<name>"' => 'Retitle a whole workspace group (every member + the manifest), so ls/page/resurrect all show the new plot name.',
 		'delete <id>' => 'PERMANENTLY delete a buried session — its index entry, export dir, and archived transcript. Confirms unless -y. <id> resolved fuzzily.',
-		'delete --workspace <group>' => 'PERMANENTLY delete a whole workspace group — every member session plus the manifest. Confirms unless -y.',
-		'resurrect --workspace <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
+		'delete --workspace|-ws <group>' => 'PERMANENTLY delete a whole workspace group — every member session plus the manifest. Confirms unless -y.',
+		'resurrect --workspace|-ws <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 		'repair [--apply]' => 'Backfill stored config (skip_perms/model) for already-buried sessions from their surviving JSONL — fixes false-negatives recorded when the JSONL was missing at burial. Dry-run by default; --apply writes the corrections to both the index and per-session meta.json.',
 	]);
@@ -81,10 +82,10 @@ $gy  = new Graveyard($cli, $cmux);
 
 switch ($sub) {
 	case 'bury':
-		if ($cli->hasFlag('workspace')) {
+		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {
 			$ws = (string) $cli->getFlag('workspace');
-			if ($ws === '') { $ws = (string) $cli->getArg(2); } // supports "--workspace <name>" (space form)
-			if ($ws === '') { $cli->exitErr('Usage: graveyard bury --workspace <name|ref>'); }
+			if ($ws === '') { $ws = (string) $cli->getArg(2); } // supports "--workspace <name>" and "-ws <name>" (space form)
+			if ($ws === '') { $cli->exitErr('Usage: graveyard bury --workspace|-ws <name|ref>'); }
 			$gy->buryWorkspace($ws, $cli->hasFlag('force'), $cli->isAutoconfirm());
 		} elseif ($cli->hasFlag('idle')) {
 			$dur = (string) $cli->getFlag('idle');
@@ -134,11 +135,11 @@ switch ($sub) {
 		break;
 	case 'show':      $gy->showTombstone((string) $cli->getArg(2)); break;
 	case 'rename':
-		if ($cli->hasFlag('workspace')) {
+		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {
 			$g = (string) $cli->getFlag('workspace');
 			$name = ($g === '') ? (string) $cli->getArg(3) : (string) $cli->getArg(2); // space vs =value form
 			if ($g === '') { $g = (string) $cli->getArg(2); }
-			if ($g === '' || $name === '') { $cli->exitErr('Usage: graveyard rename --workspace <group> "<name>"'); }
+			if ($g === '' || $name === '') { $cli->exitErr('Usage: graveyard rename --workspace|-ws <group> "<name>"'); }
 			$gy->renameGroup($g, $name);
 		} else {
 			$ref  = (string) $cli->getArg(2);
@@ -148,10 +149,10 @@ switch ($sub) {
 		}
 		break;
 	case 'delete':
-		if ($cli->hasFlag('workspace')) {
+		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {
 			$g = (string) $cli->getFlag('workspace');
 			if ($g === '') { $g = (string) $cli->getArg(2); }
-			if ($g === '') { $cli->exitErr('Usage: graveyard delete --workspace <group>'); }
+			if ($g === '') { $cli->exitErr('Usage: graveyard delete --workspace|-ws <group>'); }
 			$gy->deleteGroup($g, $cli->isAutoconfirm());
 		} else {
 			$ref = (string) $cli->getArg(2);
@@ -160,10 +161,10 @@ switch ($sub) {
 		}
 		break;
 	case 'resurrect':
-		if ($cli->hasFlag('workspace')) {
+		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {
 			$g = (string) $cli->getFlag('workspace');
 			if ($g === '') { $g = (string) $cli->getArg(2); }
-			if ($g === '') { $cli->exitErr('Usage: graveyard resurrect --workspace <group>'); }
+			if ($g === '') { $cli->exitErr('Usage: graveyard resurrect --workspace|-ws <group>'); }
 			$gy->resurrectWorkspace($g, $cli->hasFlag('from-transcript'));
 		} else {
 			$gy->resurrect((string) $cli->getArg(2), $cli->hasFlag('from-transcript'));
