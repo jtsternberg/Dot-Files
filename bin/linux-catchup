@@ -137,6 +137,9 @@ if ( $catchup->shouldRun( 'repos', $only ) ) {
 
 		$run( escapeshellarg( $godoBin ) . ' ' . escapeshellarg( $key ) );
 	}
+} elseif ( null !== ( $reposHint = $catchup->reposEmptyHint( $only ) ) ) {
+	$section( 'repos (0)' );
+	$cli->msg( '  ' . $reposHint, 'yellow' );
 }
 
 # ── 4. system (apt) ───────────────────────────────────────────────────────────

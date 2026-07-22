@@ -37,13 +37,39 @@ final class LinuxCatchupTest extends TestCase
 	{
 		$lc = $this->make();
 		$this->assertFileExists($this->config);
-		$this->assertSame(
-			['claudeplugins', 'notes', 'dotfiles', 'practiceplayer', 'wpengine-jtsternberg'],
-			$lc->repos()
-		);
+		// Repos default to empty: they're machine-specific and the config file is
+		// the single source of truth (a curated default would only ever seed the
+		// first run and never reach an existing install).
+		$this->assertSame([], $lc->repos());
+		$this->assertStringContainsString('"repos": []', file_get_contents($this->config));
 		$this->assertTrue($lc->wants('codex'));
 		$this->assertTrue($lc->wants('claude'));
 		$this->assertTrue($lc->wants('system'));
+	}
+
+	public function testReposEmptyHintWhenNoReposConfigured(): void
+	{
+		$lc = $this->make();  // first run seeds empty repos
+		$hint = $lc->reposEmptyHint(null);
+		$this->assertIsString($hint);
+		$this->assertStringContainsString($this->config, $hint);
+	}
+
+	public function testReposEmptyHintNullWhenReposConfigured(): void
+	{
+		file_put_contents($this->config, json_encode(['repos' => ['dotfiles']]));
+		$this->assertNull($this->make()->reposEmptyHint(null));
+	}
+
+	public function testReposEmptyHintNullWhenReposOutOfScope(): void
+	{
+		// --only=system: repos isn't in scope, so no nag even though it's empty.
+		$this->assertNull($this->make()->reposEmptyHint('system'));
+	}
+
+	public function testReposEmptyHintShownWhenOnlyReposButEmpty(): void
+	{
+		$this->assertIsString($this->make()->reposEmptyHint('repos'));
 	}
 
 	public function testPartialConfigMergesOverDefaults(): void

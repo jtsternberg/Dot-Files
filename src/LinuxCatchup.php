@@ -33,8 +33,14 @@ class LinuxCatchup {
 	/** Command offered (to write into the map) when a repo has no godo commands. */
 	const DEFAULT_REPO_COMMAND = Godo::DEFAULT_COMMAND;
 
+	// Repos are intentionally empty by default: they're machine-specific godo
+	// keys, and a curated list here would only ever seed the file on first run —
+	// editing it later never reaches an existing install (loadConfig merges the
+	// user's file over these defaults, and a string key like `repos` is replaced
+	// wholesale). So the config file is the single source of truth for repos;
+	// see reposEmptyHint() for the nudge shown when it's empty.
 	const DEFAULT_CONFIG = [
-		'repos'  => [ 'claudeplugins', 'notes', 'dotfiles', 'practiceplayer', 'wpengine-jtsternberg' ],
+		'repos'  => [],
 		'codex'  => true,
 		'claude' => true,
 		'system' => true,
@@ -78,6 +84,31 @@ class LinuxCatchup {
 
 	public function repos(): array {
 		return array_values( (array) ( $this->config['repos'] ?? [] ) );
+	}
+
+	/**
+	 * Nudge for when the repos step is in scope but no repos are configured.
+	 *
+	 * Returns a one-line hint pointing at the config file, or null when repos
+	 * aren't empty or the step isn't in scope this run (e.g. --only=system).
+	 * Non-destructive by design: we inform, we don't auto-write the list.
+	 */
+	public function reposEmptyHint( ?string $only = null ): ?string {
+		if ( null !== $only ) {
+			[ $requested ] = $this->parseOnly( $only );
+			if ( ! in_array( 'repos', $requested, true ) ) {
+				return null;
+			}
+		}
+
+		if ( ! empty( $this->repos() ) ) {
+			return null;
+		}
+
+		return sprintf(
+			'no repos configured — add godo keys to the "repos" array in %s',
+			$this->configPath
+		);
 	}
 
 	public function wants( string $step ): bool {
