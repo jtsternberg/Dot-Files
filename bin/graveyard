@@ -18,7 +18,7 @@ namespace JT;
 #   rejected (no auto-pick) — narrow it or pass a full session-id.
 # graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
-# graveyard bury --workspace|-ws <name|ref> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace)
+# graveyard bury --workspace|-ws <name|ref|group-id> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace. A buried group-id re-buries the workspace it was resurrected into — symmetric with resurrect.)
 # graveyard bury <session-id> --group <group-id> [--force] [-y]  (finish a half-bury: rejoin one live session to an existing group at its reserved slot)
 # graveyard candidates [--porcelain]
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
@@ -44,7 +44,7 @@ $helpyHelperton
 		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
-		'bury --workspace|-ws <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force. (-ws is a short alias for --workspace.)',
+		'bury --workspace|-ws <name|ref|group-id>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force. Accepts a cmux workspace ref, a title substring, OR a buried group-id prefix — a group-id re-buries the workspace that group was resurrected into (symmetric with `resurrect`), matching live members by session id and falling back to the group title. (-ws is a short alias for --workspace.)',
 		'bury <session-id> --group <group-id>' => 'Finish a half-buried workspace: bury ONE still-alive session into an EXISTING group at the slot its layout manifest already reserves (keeps pane position; no fresh group). Printed automatically by a --workspace bury that leaves a member alive. Ids resolve by prefix; refuses if the session is not a member of that group.',
 		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
 		'-y'              => 'Skip confirmations',

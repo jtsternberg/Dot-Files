@@ -1260,7 +1260,75 @@ class Graveyard {
 		]);
 	}
 
+	/**
+	 * PURE. Given a resolved workspace-group manifest and the current live-session
+	 * rows (liveSessions() shape), return the cmux workspace_ref that hosts the
+	 * group's members, or null if none of them are live. Members are matched by
+	 * claude_session_id — resurrect preserves session ids, so a resurrected group's
+	 * live sessions still carry the ids the manifest recorded at bury. All members
+	 * normally share one workspace; if a stray duplicate view splits them, the
+	 * workspace hosting the MOST members wins, ties broken by lowest ref string, so
+	 * the target stays deterministic instead of depending on iteration order.
+	 */
+	public function liveWorkspaceForGroup(array $manifest, array $liveSessions): ?string {
+		$memberSids = [];
+		foreach ($manifest['layout'] ?? [] as $e) {
+			$sid = $e['claude_session_id'] ?? null;
+			if ($sid) { $memberSids[$sid] = true; }
+		}
+		if (!$memberSids) { return null; }
+
+		$countByRef = [];
+		foreach ($liveSessions as $r) {
+			$sid = $r['session_id'] ?? null;
+			$ref = (string) ($r['workspace_ref'] ?? '');
+			if ($sid !== null && $ref !== '' && isset($memberSids[$sid])) {
+				$countByRef[$ref] = ($countByRef[$ref] ?? 0) + 1;
+			}
+		}
+		if (!$countByRef) { return null; }
+
+		$refs = array_keys($countByRef);
+		usort($refs, fn($a, $b) => [$countByRef[$b], $a] <=> [$countByRef[$a], $b]);
+		return $refs[0];
+	}
+
+	/**
+	 * Resolve a buried group manifest to the cmux target that bury --workspace should
+	 * act on. Precise first: the live workspace whose sessions match the group's
+	 * recorded session ids (holds under --resume, and even if the workspace was
+	 * renamed after resurrect). Fallback: the group_title, which resurrect stamps as
+	 * the new workspace's title — this is what survives a transcript-mode resurrect,
+	 * where Claude is relaunched on the exported transcript and mints a NEW session id
+	 * so the id match can't hit. Returns a workspace ref, a title string (both accepted
+	 * by resolveWorkspaceNode), or null when neither is available.
+	 */
+	public function groupBuryTarget(array $manifest, array $liveSessions): ?string {
+		$ref = $this->liveWorkspaceForGroup($manifest, $liveSessions);
+		if ($ref !== null) { return $ref; }
+		$title = trim((string) ($manifest['group_title'] ?? ''));
+		return $title !== '' ? $title : null;
+	}
+
 	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): void {
+		// Group-id symmetry with resurrect (dotfiles-bury-group-target): resurrect
+		// accepts a buried group-id prefix, so bury --workspace does too. If the arg
+		// resolves to a buried group, retarget to the LIVE cmux workspace that group was
+		// resurrected into — rather than letting the group id fall through to a
+		// title-substring guess. resolveGroup returns null for any non-group arg (refs,
+		// titles), so normal resolution below is unchanged.
+		if ($grp = $this->resolveGroup($nameOrRef)) {
+			$target = $this->groupBuryTarget($grp, $this->liveSessions());
+			if ($target === null) {
+				$this->cli->exitErr(sprintf(
+					'Group %s ("%s") has no live sessions or title to target — resurrect it first, or it may already be buried.',
+					substr((string) ($grp['group_id'] ?? $nameOrRef), 0, 8), (string) ($grp['group_title'] ?? '')
+				));
+				return;
+			}
+			$nameOrRef = $target;
+		}
+
 		try {
 			$wsInfo = $this->cmux->resolveWorkspaceNode($this->cmux->tree(), $nameOrRef);
 		} catch (\RuntimeException $e) {
