@@ -566,6 +566,42 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. The group_pos a group manifest already reserves for $sessionId, or null
+	 * if that session is not one of the manifest's members. The layout slot (position,
+	 * pane, geometry) is stamped for EVERY member at the workspace bury — including one
+	 * whose own bury later failed — so finishing a half-bury just reuses this pos.
+	 */
+	public function reservedGroupPos(array $manifest, string $sessionId): ?int {
+		foreach ($manifest['layout'] ?? [] as $e) {
+			if (($e['claude_session_id'] ?? '') === $sessionId) {
+				return isset($e['group_pos']) ? (int) $e['group_pos'] : null;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * PURE. The copy-paste command that finishes burying one still-alive session into
+	 * its group after a partial workspace bury. Uses 8-char id prefixes (both resolve
+	 * by prefix) so the printed line stays short and readable.
+	 */
+	public function finishBuryCommand(string $sessionId, string $groupId): string {
+		return 'graveyard bury ' . substr($sessionId, 0, 8) . ' --group ' . substr($groupId, 0, 8);
+	}
+
+	/** Full group ids whose dir-name prefix-matches $ref and carry a manifest (exact match wins alone). */
+	public function matchGroupIds(string $ref): array {
+		$root = $this->storeRoot() . '/workspaces';
+		if ($ref !== '' && is_file($root . '/' . $ref . '/manifest.json')) { return [$ref]; }
+		$out = [];
+		foreach (glob($root . '/*/manifest.json') ?: [] as $mf) {
+			$gid = basename(dirname($mf));
+			if ($ref !== '' && strpos($gid, $ref) === 0) { $out[] = $gid; }
+		}
+		return $out;
+	}
+
+	/**
 	 * Whether the archived transcript already reflects all genuine activity, so
 	 * bury can skip re-exporting. True iff a transcript exists on disk AND no real
 	 * (non-synthetic) turn has landed since it was written — i.e. the newest genuine
@@ -1325,8 +1361,10 @@ class Graveyard {
 		if ($layoutTree !== null) { $manifest['layout_tree'] = $this->sanitizeLayoutTree($layoutTree); }
 		file_put_contents($this->manifestPath($group), json_encode($manifest, JSON_PRETTY_PRINT));
 
-		// Bury each member (per-member gates), deferring the tab close.
-		$buried = 0; $failed = 0;
+		// Bury each member (per-member gates), deferring the tab close. Track members
+		// left ALIVE by a failed gate (buryOne false) — distinct from ones already gone
+		// — so we can print an exact "finish it" command for each once the group exists.
+		$buried = 0; $failed = 0; $stillAlive = [];
 		foreach ($cls['members'] as $m) {
 			$sid = $m['session_id'];
 			$fresh = $this->resolveLiveBySessionId($sid);
@@ -1334,16 +1372,19 @@ class Graveyard {
 			$fresh['group_pos'] = $m['group_pos'];
 			$grp = ['group_id' => $group, 'group_title' => $wsTitle, 'group_pos' => $m['group_pos']];
 			if ($this->buryOne($fresh, $force, true, $grp, true)) { $buried++; }
-			else { $failed++; }
+			else { $failed++; $stillAlive[] = $sid; }
 		}
 
 		// Nothing actually buried (every member failed a gate): this is a FAILURE, not a
 		// bury. Do not claim success, do not leave a group/manifest artifact behind, do
 		// not close anything. Remove the pre-written (now-empty) group dir and exit non-zero.
+		// No group survives, so point back at re-running the whole-workspace bury.
 		if ($buried === 0) {
 			$this->removeGroupArtifact($group);
-			$this->cli->exitErr("Buried 0 of " . count($cls['members']) . " session(s) in \"{$wsTitle}\" — every member was refused by a gate; workspace left intact. No group created.");
-			return;
+			$this->cli->err("Buried 0 of " . count($cls['members']) . " session(s) in \"{$wsTitle}\" — every member was refused by a gate; workspace left intact. No group created.");
+			$this->cli->msg('  Resolve the cause, then re-run:', 'yellow');
+			$this->cli->msg('      graveyard bury -ws ' . escapeshellarg($wsTitle), 'cyan');
+			exit(1);
 		}
 
 		// Close the workspace only if everything was clean; otherwise close just the
@@ -1359,12 +1400,79 @@ class Graveyard {
 			$this->cli->msg('  Workspace left open (some surfaces preserved).', 'yellow');
 		}
 
+		// The group + layout manifest persist (buried > 0), with a slot still reserved for
+		// each member a gate left alive. Print the exact command to finish burying each into
+		// that reserved slot once the cause is resolved — no fresh group, pane position kept.
+		if ($stillAlive) {
+			$this->cli->msg('  ' . count($stillAlive) . ' session(s) left ALIVE. Resolve the cause, then finish each into its group slot:', 'yellow');
+			foreach ($stillAlive as $sid) {
+				$this->cli->msg('      ' . $this->finishBuryCommand($sid, $group), 'cyan');
+			}
+		}
+
 		$pruned = $this->pruneOrphanedManifests();
 		if ($pruned) {
 			$this->cli->msg('  Pruned ' . count($pruned) . ' stale workspace manifest(s) from earlier buries.', 'cyan');
 		}
 
 		$this->cli->successMsg("Buried workspace \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
+	}
+
+	/**
+	 * Bury ONE still-alive session into an EXISTING group, at the slot that group's
+	 * layout manifest already reserves for it. This is the recovery path when a
+	 * `bury -ws` left a member alive (a per-member gate failed): re-running `bury -ws`
+	 * would mint a fresh singleton group and split the survivor off, losing its pane
+	 * position. Reusing the reserved group_pos keeps the plot whole — resurrect replays
+	 * the original layout with this session back in place.
+	 *
+	 * Refuses if the session is not a member of that group's manifest (out of scope to
+	 * graft a brand-new session into an existing plot; use `bury <id>` or `bury -ws`).
+	 */
+	public function buryIntoGroup(string $sessionRef, string $groupRef, bool $force, bool $autoConfirm): void {
+		$gids = $this->matchGroupIds($groupRef);
+		if (!$gids) { $this->cli->exitErr("No buried group matches '{$groupRef}'."); return; }
+		if (count($gids) > 1) {
+			$this->cli->msg("'{$groupRef}' is ambiguous — matches " . count($gids) . ' group(s):', 'yellow');
+			foreach ($gids as $g) { $this->cli->msg('  ' . $g); }
+			$this->cli->exitErr("'{$groupRef}' is ambiguous — pass a longer prefix.");
+			return;
+		}
+		$gid = $gids[0];
+		$manifest = json_decode((string) @file_get_contents($this->manifestPath($gid)), true);
+		if (!is_array($manifest)) { $this->cli->exitErr("Group {$gid} has no readable manifest."); return; }
+
+		$matches = $this->resolveLiveByIdentifier($sessionRef);
+		if (!$matches) { $this->cli->exitErr("No live session matches '{$sessionRef}'."); return; }
+		if (count($matches) > 1) {
+			$this->cli->msg("'{$sessionRef}' is ambiguous — matches " . count($matches) . ' live session(s):', 'yellow');
+			foreach ($matches as $m) {
+				$this->cli->msg(sprintf('  %s  %-20.20s  %.40s', substr($m['session_id'], 0, 8), $m['workspace_title'] ?? '', $m['tab_title'] ?? ''));
+			}
+			$this->cli->exitErr("'{$sessionRef}' is ambiguous — narrow it or pass a full session-id.");
+			return;
+		}
+		$fresh = $matches[0];
+		$sid   = (string) $fresh['session_id'];
+		$id    = substr($sid, 0, 8);
+
+		if ($this->selfSessionId() && $sid === $this->selfSessionId()) {
+			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+			return;
+		}
+
+		$pos = $this->reservedGroupPos($manifest, $sid);
+		if ($pos === null) {
+			$this->cli->exitErr("Session {$id} is not a member of group " . substr($gid, 0, 8)
+				. "'s layout — refusing. Use `graveyard bury {$id}` to bury it standalone, or `graveyard bury -ws` for its workspace.");
+			return;
+		}
+
+		$grp = ['group_id' => $gid, 'group_title' => $manifest['group_title'] ?? '', 'group_pos' => $pos];
+		$this->cli->msg("Burying {$id} into group " . substr($gid, 0, 8) . " at reserved pos {$pos}…", 'cyan');
+		if ($this->buryOne($fresh, $force, $autoConfirm, $grp, false)) {
+			$this->cli->successMsg("  Finished — {$id} rejoined group " . substr($gid, 0, 8) . " (pos {$pos}).");
+		}
 	}
 
 	/**

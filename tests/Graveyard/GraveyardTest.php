@@ -712,4 +712,83 @@ final class GraveyardTest extends TestCase
 		$exportIdx = array_search(['send', '/export /tmp/foo.tmp'], $recorder->calls, true);
 		$this->assertLessThan($exportIdx, $clearIdx);
 	}
+
+	public function testReservedGroupPosFindsSlotBySessionIdElseNull(): void
+	{
+		$manifest = ['layout' => [
+			['group_pos' => 0, 'claude_session_id' => 'aaaa1111-0000'],
+			['group_pos' => 1, 'claude_session_id' => 'bbbb2222-0000'],
+			['group_pos' => 2, 'claude_session_id' => 'cccc3333-0000'],
+			['group_pos' => 3, 'kind' => 'terminal'], // non-claude surface, no session id
+		]];
+
+		$this->assertSame(2, $this->gy->reservedGroupPos($manifest, 'cccc3333-0000'));
+		$this->assertSame(0, $this->gy->reservedGroupPos($manifest, 'aaaa1111-0000'));
+		$this->assertNull($this->gy->reservedGroupPos($manifest, 'zzzz9999-0000'));
+		$this->assertNull($this->gy->reservedGroupPos(['layout' => []], 'aaaa1111-0000'));
+		$this->assertNull($this->gy->reservedGroupPos([], 'aaaa1111-0000'));
+	}
+
+	public function testFinishBuryCommandUsesEightCharPrefixes(): void
+	{
+		$sid = '96796864-fa54-4f22-855e-43dbcf37e71c';
+		$gid = '8034842f-19af-4daf-a59b-3d2218bd54a1';
+		$this->assertSame(
+			'graveyard bury 96796864 --group 8034842f',
+			$this->gy->finishBuryCommand($sid, $gid)
+		);
+	}
+
+	/**
+	 * buryIntoGroup resolves the group by prefix, reads its manifest, finds the live
+	 * session's reserved slot, and calls buryOne() with that exact group_id + group_pos
+	 * (full teardown). This is the recovery path that keeps a half-buried plot whole.
+	 */
+	public function testBuryIntoGroupBuriesReservedSessionAtItsSlot(): void
+	{
+		$root = sys_get_temp_dir() . '/gy-into-' . getmypid() . '-' . uniqid();
+		putenv('GRAVEYARD_ROOT=' . $root);
+		$gid  = 'abcd1234-0000-0000-0000-000000000000';
+		$sid  = 'cccc3333-0000-0000-0000-000000000000';
+		@mkdir("{$root}/workspaces/{$gid}", 0755, true);
+		file_put_contents("{$root}/workspaces/{$gid}/manifest.json", json_encode([
+			'group_id'    => $gid,
+			'group_title' => 'demo plot',
+			'layout'      => [
+				['group_pos' => 0, 'claude_session_id' => 'aaaa1111-0000-0000-0000-000000000000'],
+				['group_pos' => 1, 'claude_session_id' => 'bbbb2222-0000-0000-0000-000000000000'],
+				['group_pos' => 2, 'claude_session_id' => $sid],
+			],
+		]));
+
+		$gy = new class($this->cli, $this->cmux) extends Graveyard {
+			public array $buriedWith = [];
+			public function resolveLiveByIdentifier(string $ref): array
+			{
+				return [['session_id' => 'cccc3333-0000-0000-0000-000000000000', 'workspace_title' => 'w', 'tab_title' => 't']];
+			}
+			public function selfSessionId(): ?string { return null; }
+			public function buryOne(array $sess, bool $force, bool $autoConfirm, ?array $group = null, bool $deferClose = false): bool
+			{
+				$this->buriedWith[] = ['sid' => $sess['session_id'], 'group' => $group, 'deferClose' => $deferClose];
+				return true;
+			}
+		};
+
+		$gy->buryIntoGroup('cccc3333', 'abcd1234', false, true);
+
+		$this->assertCount(1, $gy->buriedWith);
+		$this->assertSame($sid, $gy->buriedWith[0]['sid']);
+		$this->assertSame($gid, $gy->buriedWith[0]['group']['group_id']);
+		$this->assertSame(2, $gy->buriedWith[0]['group']['group_pos']);
+		$this->assertSame('demo plot', $gy->buriedWith[0]['group']['group_title']);
+		$this->assertFalse($gy->buriedWith[0]['deferClose']); // full teardown, not deferred
+
+		// Wipe temp store.
+		array_map('unlink', glob("{$root}/workspaces/{$gid}/*") ?: []);
+		@rmdir("{$root}/workspaces/{$gid}");
+		@rmdir("{$root}/workspaces");
+		@rmdir($root);
+		putenv('GRAVEYARD_ROOT');
+	}
 }

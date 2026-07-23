@@ -19,6 +19,7 @@ namespace JT;
 # graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard bury --workspace|-ws <name|ref> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace)
+# graveyard bury <session-id> --group <group-id> [--force] [-y]  (finish a half-bury: rejoin one live session to an existing group at its reserved slot)
 # graveyard candidates [--porcelain]
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
@@ -44,6 +45,7 @@ $helpyHelperton
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'bury --workspace|-ws <name|ref>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force. (-ws is a short alias for --workspace.)',
+		'bury <session-id> --group <group-id>' => 'Finish a half-buried workspace: bury ONE still-alive session into an EXISTING group at the slot its layout manifest already reserves (keeps pane position; no fresh group). Printed automatically by a --workspace bury that leaves a member alive. Ids resolve by prefix; refuses if the session is not a member of that group.',
 		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
 		'-y'              => 'Skip confirmations',
 		'candidates [--porcelain] [--json]' => 'List live buryable sessions sorted by idle time (--porcelain: tab-separated; --json: structured rows — both agent-readable)',
@@ -97,6 +99,17 @@ switch ($sub) {
 				$cli->exitErr("Invalid --idle duration: '{$dur}' (use e.g. 2d, 48h, 90m, 30s).");
 			}
 			$gy->buryIdle($secs, $cli->isAutoconfirm());
+		} elseif ($cli->hasFlag('group')) {
+			// Finish a half-buried workspace: bury one live session INTO an existing group
+			// at its manifest-reserved slot (see Graveyard::buryIntoGroup).
+			$gid  = (string) $cli->getFlag('group');   // --group=<gid>
+			$rest = [];
+			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
+			// Space form `--group <gid>` isn't captured as a flag value; it lands as a
+			// trailing positional. Canonical order is `bury <sid> --group <gid>` → [sid, gid].
+			if ($gid === '' && count($rest) === 2) { $gid = array_pop($rest); }
+			if ($gid === '' || count($rest) !== 1) { $cli->exitErr('Usage: graveyard bury <session-id> --group <group-id>'); }
+			$gy->buryIntoGroup($rest[0], $gid, $cli->hasFlag('force'), $cli->isAutoconfirm());
 		} else {
 			$rest = [];
 			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
