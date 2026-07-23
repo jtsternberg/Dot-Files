@@ -9,6 +9,12 @@ class Graveyard {
 
 	const IDLE_FLOOR_DEFAULT = 15; // seconds; JSONL must be quiet at least this long
 
+	// Raw Ctrl-C byte. Clears whatever is half-typed in Claude Code's prompt box
+	// before we issue /export. `cmux send-key ctrl+c` does NOT reach the REPL as a
+	// working interrupt (verified against Claude Code v2.1.216); sending this raw
+	// byte through the text `send` path does, and clears the input reliably.
+	const CLEAR_PROMPT = "\x03";
+
 	protected $cli;
 	protected $cmux;
 
@@ -585,11 +591,7 @@ class Graveyard {
 		$tmp = $dir . '/.transcript.' . ($sess['pid'] ?? getmypid()) . '.tmp';
 		if (file_exists($tmp)) { @unlink($tmp); }
 
-		// /export <path> writes rendered text straight to the file (no dialog when path is writable).
-		// Inside a running Claude Code TUI a sent "\n" only inserts a newline in the prompt — it does
-		// not submit. Send the command text, then press Return as a real key event to submit it.
-		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp);
-		$this->cmux->sendKeyToSurface($sess['surface_ref'], $sess['workspace_ref'], 'Return');
+		$this->sendExportCommand($sess, $tmp);
 
 		$deadline = time() + $timeoutSecs;
 		$lastSize = -1;
@@ -606,6 +608,27 @@ class Graveyard {
 		}
 		@unlink($tmp);
 		return false;
+	}
+
+	/**
+	 * Type "/export <tmp>" into the target REPL's prompt and submit it.
+	 *
+	 * Clears any half-typed text already in the prompt box FIRST. Without this a
+	 * leftover fragment gets prepended — a stray "for t" turns "/export …" into
+	 * "for t/export …", which Claude Code cannot parse, so the export silently
+	 * never runs. The session is gate-1 + busy-checked idle before we reach here,
+	 * so the clearing Ctrl-C only nukes the input buffer (it never interrupts a
+	 * live turn). The clear rides the text `send` path, not send-key: `cmux
+	 * send-key ctrl+c` does not reach Claude Code's REPL as a working interrupt.
+	 *
+	 * Inside a running Claude Code TUI a sent "\n" only inserts a newline in the
+	 * prompt — it does not submit. So send the command text, then press Return as
+	 * a real key event to submit it.
+	 */
+	public function sendExportCommand(array $sess, string $tmp): void {
+		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], self::CLEAR_PROMPT);
+		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp);
+		$this->cmux->sendKeyToSurface($sess['surface_ref'], $sess['workspace_ref'], 'Return');
 	}
 
 	/**

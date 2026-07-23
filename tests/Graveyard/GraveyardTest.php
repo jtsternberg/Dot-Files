@@ -3,6 +3,7 @@ namespace JT\Tests\Graveyard;
 
 use JT\Tests\TestCase;
 use JT\Graveyard;
+use JT\Helpers\Cmux;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -671,5 +672,44 @@ final class GraveyardTest extends TestCase
 			'workspace_title' => 'Hankinsville ADU feasibility', 'cwd' => '/Users/JT/Documents/Southport UDO'];
 		$this->assertNotNull($this->gy->lsEntryLines($tomb, 60, $home, 0)['secondary']);
 		$this->assertNull($this->gy->lsEntryLines($tomb, 120, $home, 0)['secondary']);
+	}
+
+	/**
+	 * Regression: exportTranscript typed "/export <path>" into the REPL without
+	 * clearing whatever the user had already half-typed in the prompt box, so a
+	 * leftover fragment got prepended ("for t" + "/export …" = "for t/export …")
+	 * and the command never ran. sendExportCommand must clear the prompt FIRST.
+	 */
+	public function testSendExportCommandClearsPromptBeforeTypingExport(): void
+	{
+		$recorder = new class($this->cli) extends Cmux {
+			public array $calls = [];
+			public function sendToSurface(string $surfRef, string $wsRef, string $text): void
+			{
+				$this->calls[] = ['send', $text];
+			}
+			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void
+			{
+				$this->calls[] = ['key', $key];
+			}
+		};
+
+		$gy = new Graveyard($this->cli, $recorder);
+		$sess = ['surface_ref' => 'surface:1', 'workspace_ref' => 'workspace:2'];
+		$gy->sendExportCommand($sess, '/tmp/foo.tmp');
+
+		// First action must be the prompt-clear (raw Ctrl-C byte), issued via the
+		// text `send` path — send-key ctrl+c does not reach Claude Code's REPL.
+		$this->assertSame(['send', Graveyard::CLEAR_PROMPT], $recorder->calls[0]);
+		$this->assertSame("\x03", Graveyard::CLEAR_PROMPT);
+
+		// Then the command text, then a real Return keypress to submit it.
+		$this->assertSame(['send', '/export /tmp/foo.tmp'], $recorder->calls[1]);
+		$this->assertSame(['key', 'Return'], $recorder->calls[2]);
+
+		// The clear must precede the /export text (the whole point of the fix).
+		$clearIdx  = array_search(['send', Graveyard::CLEAR_PROMPT], $recorder->calls, true);
+		$exportIdx = array_search(['send', '/export /tmp/foo.tmp'], $recorder->calls, true);
+		$this->assertLessThan($exportIdx, $clearIdx);
 	}
 }
