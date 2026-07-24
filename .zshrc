@@ -71,18 +71,6 @@ alias ghv="gh repo view --web"
 alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'
 alias vinedaily="cd ~/Code/vine-daily-log && npm run daily && say 'vine daily opened'"
 
-# Claude Code session management
-alias ccsessions='node ~/.claude/hooks/list-sessions.js'
-alias ccls='node ~/.claude/hooks/list-sessions.js -l'
-alias cctail='node ~/.claude/hooks/tail-session.js'
-
-# Usage examples after adding aliases:
-# ccsessions              # List all sessions
-# ccls                    # List with last activity
-# cctail 1                # Tail session #1
-# cctail 1 -c             # Tail current subagent
-# cctail 1 -s 2           # Tail subagent #2
-
 # Claude Code...
 alias ch='claude --chrome'
 alias yolo='claude --dangerously-skip-permissions'
@@ -332,8 +320,6 @@ export PATH="/Users/JT/.antigravity/antigravity/bin:$PATH"
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
-
-alias claude-mem='bun "/Users/JT/.claude/plugins/cache/thedotmack/claude-mem/10.5.2/scripts/worker-service.cjs"'
 
 # Claude Code Upgrade: LSP
 # https://karanbansal.in/blog/claude-code-lsp/
