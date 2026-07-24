@@ -218,7 +218,12 @@ class Helpers {
 	 * @param array  $argv CLI args
 	 */
 	public function setArgs( $argv ) {
-		$this->args = $argv;
+		// "Set" the args, not "append": start from a clean slate so parsed
+		// flags never leak across invocations (e.g. the reused singleton in
+		// tests, or any process that calls setArgs more than once).
+		$this->args       = $argv;
+		$this->flags      = [];
+		$this->shortFlags = [];
 		foreach ( $this->args as $key => $flag ) {
 
 			if ( 0 === strpos( $flag, '-' ) ) {
