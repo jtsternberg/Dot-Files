@@ -42,90 +42,39 @@ class CmuxBak {
 		$this->cli->msg('Scanning cmux state...', 'yellow');
 
 		$tree = $this->cmux->tree();
-		$claudeSessions = $this->cmux->loadClaudeSessions();
 
-		if ($this->verbose) {
-			$this->cli->msg('  Found ' . count($claudeSessions) . ' active Claude sessions', 'cyan');
-		}
+		// Bind each live Claude to its surface via the deterministic, tty-free join
+		// (process ancestry → resume script → surface_ref). Keying by tty instead —
+		// as this used to — mis-pairs sessions, because cmux recycles tty numbers
+		// across surfaces, so one session id gets stamped onto every surface sharing
+		// that tty. See dotfiles-e5g and Cmux::joinSessionsToSurfaces().
+		$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+		$rows  = $this->cmux->joinSessionsToSurfaces(
+			$this->cmux->loadClaudeSessionsByPid(),
+			$this->cmux->parseProcTable($this->cmux->psProcTable()),
+			$debug
+		);
 
-		$workspacesData = [];
-
-		foreach ($tree['windows'] ?? [] as $window) {
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				$wsData = [
-					'title'       => $ws['title'] ?? '',
-					'ref'         => $ws['ref'] ?? '',
-					'description' => $ws['description'] ?? null,
-					'panes'       => [],
-				];
-
-				foreach ($ws['panes'] ?? [] as $pane) {
-					$paneData = [
-						'ref'      => $pane['ref'] ?? '',
-						'index'    => $pane['index'] ?? 0,
-						'surfaces' => [],
-					];
-
-					foreach ($pane['surfaces'] ?? [] as $surf) {
-						$surfRef  = $surf['ref'] ?? '';
-						$title    = $surf['title'] ?? '';
-						$type     = $surf['type'] ?? 'terminal';
-						$tty      = $surf['tty'] ?? '';
-						$url      = $surf['url'] ?? null;
-						$cwd      = null;
-						$sessionId = null;
-
-						if ($this->verbose) {
-							$this->cli->msg(
-								"  {$surfRef} [{$wsData['title']}] " . substr($title, 0, 40),
-								'cyan'
-							);
-						}
-
-						$skipPerms = false;
-						$model     = null;
-
-						if ($type === 'terminal' && $tty) {
-							$session = $claudeSessions[$tty] ?? null;
-							if ($session) {
-								$sessionId = $session['session_id'];
-								$cwd       = $session['cwd'];
-								$skipPerms = $session['skip_perms'] ?? false;
-								$model     = $session['model'] ?? null;
-								if ($this->verbose) {
-									$short = substr($sessionId, 0, 8);
-									$flags = $skipPerms ? ' --dangerously-skip-permissions' : '';
-									$flags .= $model ? " --model={$model}" : '';
-									$this->cli->msg("    → Claude session {$short}… cwd={$cwd}{$flags}", 'green');
-								}
-							} else {
-								$cwd = $this->cmux->getCwdForTty($tty);
-								if ($this->verbose && $cwd) {
-									$this->cli->msg("    → cwd={$cwd}");
-								}
-							}
-						}
-
-						$paneData['surfaces'][] = [
-							'ref'                        => $surfRef,
-							'title'                      => $title,
-							'type'                       => $type,
-							'tty'                        => $tty,
-							'url'                        => $url,
-							'cwd'                        => $cwd,
-							'claude_session_id'          => $sessionId,
-							'claude_skip_permissions'    => $skipPerms,
-							'claude_model'               => $model,
-							'index_in_pane'              => $surf['index_in_pane'] ?? 0,
-						];
-					}
-
-					$wsData['panes'][] = $paneData;
-				}
-
-				$workspacesData[] = $wsData;
+		// cwd for plain terminals (no live Claude), keyed by surface_ref.
+		$cwdBySurf = [];
+		foreach ($debug as $ref => $d) {
+			if (!empty($d['cwd'])) {
+				$cwdBySurf[$ref] = $d['cwd'];
 			}
 		}
+
+		if ($this->verbose) {
+			$bound = array_filter($rows, fn($r) => $r['surface_ref'] !== '' && !empty($r['session_id']));
+			$this->cli->msg('  Found ' . count($bound) . ' active Claude sessions', 'cyan');
+			foreach ($bound as $r) {
+				$short  = substr((string) $r['session_id'], 0, 8);
+				$flags  = !empty($r['skip_perms']) ? ' --dangerously-skip-permissions' : '';
+				$flags .= !empty($r['model']) ? " --model={$r['model']}" : '';
+				$this->cli->msg("    → {$r['surface_ref']} {$short}… cwd={$r['cwd']}{$flags}", 'green');
+			}
+		}
+
+		$workspacesData = $this->buildWorkspacesData($tree['windows'] ?? [], $rows, $cwdBySurf);
 
 		$backup = [
 			'version'    => 1,
@@ -169,9 +118,8 @@ class CmuxBak {
 		}
 		$this->cli->lineBreak();
 
-		$tree           = $this->cmux->tree();
-		$aliveSessions  = $this->cmux->loadClaudeSessions();
-		$aliveTtys      = array_keys($aliveSessions);
+		$tree      = $this->cmux->tree();
+		$liveBySurf = $this->liveSessionsBySurfaceRef();
 
 		// Map workspace title → workspace data (current)
 		$currentWsByTitle = [];
@@ -254,16 +202,13 @@ class CmuxBak {
 						}
 
 						$surfRef = $currentSurf['ref'];
-						$tty     = $currentSurf['tty'] ?? '';
 
-						if (in_array($tty, $aliveTtys, true)) {
-							$existing = $aliveSessions[$tty];
-							if ($existing['session_id'] === $sessionId) {
-								$this->cli->msg('    ✓ Same Claude session already running', 'green');
-							} else {
-								$short = substr($existing['session_id'], 0, 8);
-								$this->cli->msg("    ✓ Different Claude session running ({$short}…), leaving it", 'cyan');
-							}
+						$status = $this->surfaceClaudeStatus($liveBySurf, $surfRef, $sessionId);
+						if ($status === 'same') {
+							$this->cli->msg('    ✓ Same Claude session already running', 'green');
+						} elseif ($status === 'other') {
+							$short = substr($liveBySurf[$surfRef]['session_id'], 0, 8);
+							$this->cli->msg("    ✓ Different Claude session running ({$short}…), leaving it", 'cyan');
 						} else {
 							$short = substr($sessionId, 0, 8);
 							$this->cli->msg("    ✗ Claude not running — resuming {$short}…", 'yellow');
@@ -545,6 +490,127 @@ class CmuxBak {
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
+
+	/**
+	 * Live Claude sessions indexed by the surface they currently occupy:
+	 * [ surface_ref => join row ]. Built from the deterministic, tty-free join so
+	 * a surface's liveness is judged by the surface it launched — not by a tty it
+	 * happens to share with another surface (dotfiles-e5g).
+	 */
+	protected function liveSessionsBySurfaceRef(): array {
+		$rows = $this->cmux->joinSessionsToSurfaces(
+			$this->cmux->loadClaudeSessionsByPid(),
+			$this->cmux->parseProcTable($this->cmux->psProcTable()),
+			$this->cmux->parseDebugTerminals($this->cmux->debugTerminals())
+		);
+		$bySurf = [];
+		foreach ($rows as $r) {
+			$ref = $r['surface_ref'] ?? '';
+			if ($ref !== '') {
+				$bySurf[$ref] = $r;
+			}
+		}
+		return $bySurf;
+	}
+
+	/**
+	 * PURE. Decide what to do with a surface we want to resume $wantSid into,
+	 * given the live-by-surface_ref map:
+	 *   'same'   — our session is already live on this surface (nothing to do)
+	 *   'other'  — a different Claude is live here (leave it alone)
+	 *   'resume' — no live Claude on this surface (safe to resume)
+	 */
+	protected function surfaceClaudeStatus(array $liveBySurf, string $surfRef, ?string $wantSid): string {
+		$live = $liveBySurf[$surfRef] ?? null;
+		if (!$live) {
+			return 'resume';
+		}
+		return ($live['session_id'] ?? null) === $wantSid ? 'same' : 'other';
+	}
+
+	/**
+	 * PURE. Build the backup `workspaces` structure from a cmux tree and the
+	 * deterministic session↔surface join. Sessions bind to surfaces by
+	 * surface_ref, never by tty: cmux recycles tty numbers across surfaces, so a
+	 * tty key stamps one session id onto every surface sharing that tty (the
+	 * duplicate-session-id bug, dotfiles-e5g). surface_ref pairs each session with
+	 * exactly the surface it launched. A terminal with no join row (a plain shell,
+	 * no live Claude) falls back to the debug-terminals cwd map, also by ref.
+	 *
+	 * @param array $windows    tree['windows']
+	 * @param array $joinRows   Cmux::joinSessionsToSurfaces() output
+	 * @param array $cwdBySurf  surface_ref => cwd, for terminals with no live Claude
+	 * @return array workspaces[]
+	 */
+	protected function buildWorkspacesData(array $windows, array $joinRows, array $cwdBySurf): array {
+		$bySurf = [];
+		foreach ($joinRows as $r) {
+			$ref = $r['surface_ref'] ?? '';
+			if ($ref !== '') {
+				$bySurf[$ref] = $r;
+			}
+		}
+
+		$workspacesData = [];
+		foreach ($windows as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$wsData = [
+					'title'       => $ws['title'] ?? '',
+					'ref'         => $ws['ref'] ?? '',
+					'description' => $ws['description'] ?? null,
+					'panes'       => [],
+				];
+
+				foreach ($ws['panes'] ?? [] as $pane) {
+					$paneData = [
+						'ref'      => $pane['ref'] ?? '',
+						'index'    => $pane['index'] ?? 0,
+						'surfaces' => [],
+					];
+
+					foreach ($pane['surfaces'] ?? [] as $surf) {
+						$surfRef   = $surf['ref'] ?? '';
+						$type      = $surf['type'] ?? 'terminal';
+						$sessionId = null;
+						$cwd       = null;
+						$skipPerms = false;
+						$model     = null;
+
+						if ($type === 'terminal') {
+							$row = $bySurf[$surfRef] ?? null;
+							if ($row) {
+								$sessionId = $row['session_id'];
+								$cwd       = $row['cwd'];
+								$skipPerms = (bool) ($row['skip_perms'] ?? false);
+								$model     = $row['model'] ?? null;
+							} else {
+								$cwd = $cwdBySurf[$surfRef] ?? null;
+							}
+						}
+
+						$paneData['surfaces'][] = [
+							'ref'                        => $surfRef,
+							'title'                      => $surf['title'] ?? '',
+							'type'                       => $type,
+							'tty'                        => $surf['tty'] ?? '',
+							'url'                        => $surf['url'] ?? null,
+							'cwd'                        => $cwd,
+							'claude_session_id'          => $sessionId,
+							'claude_skip_permissions'    => $skipPerms,
+							'claude_model'               => $model,
+							'index_in_pane'              => $surf['index_in_pane'] ?? 0,
+						];
+					}
+
+					$wsData['panes'][] = $paneData;
+				}
+
+				$workspacesData[] = $wsData;
+			}
+		}
+
+		return $workspacesData;
+	}
 
 	/**
 	 * Strip the leading status indicator that Claude Code prepends to terminal titles.
