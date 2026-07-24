@@ -126,7 +126,7 @@ wptests() {
 #   llmsummarize <file>        # auto-route by size
 #   llmsummarize ollama|haiku|agy <file> [model]
 agy-summarize-file()    { llmsummarize agy "$@" }
-haiku-summarize-file()  { llmsummarize haiku "$@" }
+claude-summarize-file() { llmsummarize claude "$@" }
 ollama-summarize-file() { llmsummarize ollama "$@" }
 
 # Open in MacDown

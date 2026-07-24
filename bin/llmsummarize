@@ -8,18 +8,18 @@
 #
 # Forks:
 #   ollama  — fully local, zero API cost (default model chosen by size)
-#   haiku   — cloud: Claude Code headless on the haiku model (lean --safe-mode)
+#   claude  — cloud: Claude Code headless (default model haiku, overrideable; lean --safe-mode)
 #   agy     — cloud: agy (Antigravity) on gemini-3.6-flash-low
 #
 # Auto routing (no fork given) is size-based, per benchmarks on this machine:
 #   local cold summarization is ~O(input) — a ~35K-token file is ~2 min on any
 #   local model — so tiny files go to a lean local model, normal/large files to
 #   the best local prefill+context model, and huge files fall back to the cloud
-#   haiku fork (local's ~2-min floor defeats the point of "fast").
+#   claude fork (default haiku) — local's ~2-min floor defeats the point of "fast".
 #
 #   tiny   (< ~8K tokens)  -> ollama gemma4:e4b        (lean, quick to load)
 #   normal (< ~50K tokens) -> ollama gemma4:26b-nvfp4  (fastest measured prefill, 262K ctx)
-#   huge   (>= ~50K tokens)-> haiku (cloud)            (warns; --local to force local)
+#   huge   (>= ~50K tokens)-> claude (cloud, haiku)    (warns; --local to force local)
 #
 # The ollama fork uses the /api/generate endpoint (NOT `ollama run`) so it can
 # set a system role, temperature 0, num_predict, num_ctx, and think:false — none
@@ -31,7 +31,7 @@
 #   llmsummarize <file>                 # auto: pick fork by size
 #   llmsummarize auto <file>            # same, explicit
 #   llmsummarize ollama <file> [model]  # force local; optional model override
-#   llmsummarize haiku <file>           # force cloud Claude haiku
+#   llmsummarize claude <file> [model]  # force cloud Claude; optional model (default: haiku)
 #   llmsummarize agy <file>             # force cloud agy/gemini
 #   llmsummarize -h | --help
 #
@@ -98,12 +98,13 @@ summarize_ollama() { # $1=file  $2=model(optional)
 	printf '\nTook %ds\n' $((SECONDS - start))
 }
 
-summarize_haiku() { # $1=file
+summarize_claude() { # $1=file  $2=model(optional, default haiku)
 	need_file "${1:-}"
+	local model="${2:-haiku}"
 	local start=$SECONDS
-	echo "→ haiku (cloud)" >&2
+	echo "→ claude (cloud, model=$model)" >&2
 	claude --print "${CLOUD_PROMPT_PREFIX}${1}${CLOUD_PROMPT_SUFFIX}" \
-		--model haiku --safe-mode --tools Read --dangerously-skip-permissions
+		--model "$model" --safe-mode --tools Read --dangerously-skip-permissions
 	printf '\nTook %ds\n' $((SECONDS - start))
 }
 
@@ -125,8 +126,8 @@ route_auto() { # $1=file  ($2 present => --local)
 	elif [ "$bytes" -lt "$HUGE_MIN" ] || [ -n "$local_only" ]; then
 		summarize_ollama "$file" "$BIG_MODEL"
 	else
-		echo "→ file is ~$((bytes/1024))KB; local would take minutes — using cloud haiku (--local to override)." >&2
-		summarize_haiku "$file"
+		echo "→ file is ~$((bytes/1024))KB; local would take minutes — using cloud claude/haiku (--local to override)." >&2
+		summarize_claude "$file"
 	fi
 }
 
@@ -134,7 +135,7 @@ cmd="${1:-}"
 case "$cmd" in
 	-h|--help|"") usage; exit 0 ;;
 	ollama)  shift; summarize_ollama "${1:-}" "${2:-}" ;;
-	haiku)   shift; summarize_haiku "${1:-}" ;;
+	claude)  shift; summarize_claude "${1:-}" "${2:-}" ;;
 	agy)     shift; summarize_agy "${1:-}" ;;
 	auto)    shift
 		if [ "${1:-}" = "--local" ]; then shift; route_auto "${1:-}" local
