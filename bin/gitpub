@@ -1,0 +1,46 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# gitpub — publish the current repo to a bare git remote on one of your own
+# tailnet hosts (self-hosted git over SSH), instead of a third-party like GitHub.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/gitpub
+#
+# Version 0.1.0
+#
+# Creates git-remotes/<name>.git on the configured host, wires up `origin`, and
+# pushes all branches + tags — one command, run from inside a repo. The target
+# host comes from `--host` or `git config gitpub.host`; the repo name defaults
+# to the kebab-cased repo directory name (override with a positional arg).
+#
+# Usage:
+# gitpub                       Publish current repo (name derived, host from config)
+# gitpub my-name               Publish under an explicit remote name (used as-is)
+# gitpub --host=jt-host -y     Override host, skip confirmation prompts
+# =============================================================================
+
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php'; // autoloads JT\GitPub from src/
+
+$helpyHelperton = $cli->getHelp();
+
+$helpyHelperton
+	->setScriptName( 'gitpub' )
+	->setDescription( 'Publish the current repo to a bare git remote on one of your own hosts (self-hosted git over SSH), then wire up origin and push all branches + tags.' )
+	->setSampleUsage( '[<name>] [--host=<host>] [--user=<user>] [--yes|-y] [--silent|--porcelain|-shh]' )
+	->buildDocs( [
+		'<name>'          => 'Remote repo name (used as-is). Defaults to the kebab-cased repo directory name.',
+		'--host=<host>'   => 'Target host (SSH alias, hostname, or user@host). Overrides `git config gitpub.host`.',
+		'--user=<user>'   => 'Remote user. Overrides the user@ in --host, then `git config gitpub.user`, then $USER.',
+		'--yes, -y'       => 'Autoconfirm — skip the confirmation prompts (create + reuse).',
+		'--silent, -shh'  => 'Suppress non-error output.',
+	] );
+
+if ( $helpyHelperton->batSignal ) {
+	$cli->msg( $helpyHelperton->getHelp() );
+	exit( 0 );
+}
+
+$gitpub = new GitPub( $cli );
+
+exit( $gitpub->run() );
