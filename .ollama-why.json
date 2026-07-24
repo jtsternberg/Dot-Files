@@ -2,34 +2,38 @@
     "models": {
         "gemma4:26b-nvfp4": {
             "when": "Fast-context chat model (MLX works for gemma). Use when you want to paste big text and get quick answers. NOT a coding-agent replacement.",
-            "speed": "558 tok/s prompt eval (5x GGUF), 41 tok/s decode",
+            "speed": "~314 tok/s prompt-eval, ~27 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx",
             "tags": [
                 "chat",
                 "mlx",
                 "fast-prompt",
                 "gemma"
             ],
-            "location": "sd"
+            "location": "sd",
+            "tested": "2026-07-24: best local big-file summarizer \u2014 fastest prefill of installed models + 262K ctx. ~2min cold for 35K tokens. Tight, accurate."
         },
         "gemma4:e4b": {
-            "when": "Edge 4B gemma variant \u2014 untested for role. Multimodal capable (text+image).",
+            "when": "Lean local summarizer for small files (llmsummarize auto routes <~8K tokens here). NOTE: default runtime ctx self-caps at 16384 \u2014 raise num_ctx or it silently truncates big files.",
             "tags": [
                 "gemma",
                 "edge",
                 "untested"
             ],
-            "location": "sd"
+            "location": "sd",
+            "speed": "~269 tok/s prompt-eval, ~33 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx",
+            "tested": "2026-07-24: good plain-prose summaries, fastest decode of the 4 general models. Silently truncated 34K-tok input to 16K until num_ctx raised."
         },
         "llama3.1:8b": {
             "when": "General chat fallback when you want a non-MLX / non-Gemma flavor. 14 months old; keep only if you have prompts tuned to llama3.",
-            "speed": "42 tok/s GGUF",
+            "speed": "~142 tok/s prompt-eval, ~16 tok/s decode (measured 2026-07-24, 33K-tok file, COLD) \u2014 slowest prefill+decode of installed general models",
             "tags": [
                 "chat",
                 "general",
                 "older",
                 "fallback"
             ],
-            "location": "sd"
+            "location": "sd",
+            "tested": "2026-07-24: worst prefill (~4min for 33K tokens). Summary accurate but no reason to pick over gemma for summarization."
         },
         "qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
@@ -62,11 +66,13 @@
             "location": "sd"
         },
         "qwen3.5:9b": {
-            "when": "untagged \u2014 annotate when we know its role",
+            "when": "General, thinking-capable summarizer (GGUF Q4). Mid-pack prefill. think:false REQUIRED for plain tasks (else ~80s internal monologue).",
             "tags": [
                 "unknown"
             ],
-            "location": "both"
+            "location": "both",
+            "speed": "~225 tok/s prompt-eval, ~21 tok/s decode (measured 2026-07-24, 34K-tok file, COLD, think:false)",
+            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF."
         }
     },
     "graveyard": {
