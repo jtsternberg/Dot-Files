@@ -119,12 +119,15 @@ wptests() {
 	fi
 }
 
-# Summarize a file's contents via agy (Google's Antigravity CLI), non-interactive print mode
-agy-summarize-file() {
-	agy --print "Can you summarize in a few sentences the contents of this file: $1" \
-		--print-timeout 15m0s \
-		--dangerously-skip-permissions
-}
+# File summarizers now live in one CLI: `llmsummarize` (bin/llmsummarize), which
+# unifies the forks (ollama/haiku/agy) + size-based auto-routing and bakes in the
+# empirical guardrails (num_ctx sized to file, think:false, /api/generate, etc.).
+# These names are kept as thin back-compat wrappers → the subcommand for each fork.
+#   llmsummarize <file>        # auto-route by size
+#   llmsummarize ollama|haiku|agy <file> [model]
+agy-summarize-file()    { llmsummarize agy "$@" }
+haiku-summarize-file()  { llmsummarize haiku "$@" }
+ollama-summarize-file() { llmsummarize ollama "$@" }
 
 # Open in MacDown
 macdown() { open -a MacDown $1 }
