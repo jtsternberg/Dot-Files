@@ -699,6 +699,24 @@ final class GraveyardTest extends TestCase
 		$this->assertTrue($this->gy->passesPreExportGate($probed, $screenShell));
 	}
 
+	public function testMemberRowToBury(): void
+	{
+		// A _probed member MUST use its synthesized (targetable) row. Re-resolving via
+		// liveSessions() returns at best the untargetable row that made us probe — the
+		// fresh session IS in liveSessions(), just as targetable=false / "no resume-script
+		// ancestor" — and buryOne's gate 0 would reject that. This was the live bug.
+		$probed   = ['session_id' => 's1', 'targetable' => true, '_probed' => true, 'reason' => 'bound via /status probe'];
+		$resolved = ['session_id' => 's1', 'targetable' => false, 'reason' => 'no resume-script ancestor'];
+		$this->assertSame($probed, $this->gy->memberRowToBury($probed, $resolved));
+		$this->assertSame($probed, $this->gy->memberRowToBury($probed, null));
+
+		// A normal member uses the freshly re-resolved row (may be null if it vanished).
+		$normal = ['session_id' => 's2', 'targetable' => true];
+		$fresh  = ['session_id' => 's2', 'targetable' => true, 'idle_seconds' => 42];
+		$this->assertSame($fresh, $this->gy->memberRowToBury($normal, $fresh));
+		$this->assertNull($this->gy->memberRowToBury($normal, null));
+	}
+
 	public function testEllipsizeHelpers(): void
 	{
 		$this->assertSame('hello w…', $this->gy->ellipsizeText('hello world', 8));

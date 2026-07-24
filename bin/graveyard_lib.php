@@ -899,6 +899,18 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Pick the row buryWorkspace's member loop should actually bury. A _probed
+	 * member MUST use its synthesized (targetable) row: re-resolving via liveSessions()
+	 * returns at best the untargetable row that triggered the probe (a fresh/drifted
+	 * session IS present in liveSessions(), just as targetable=false / "no resume-script
+	 * ancestor"), which buryOne's gate 0 would reject. A normal member uses the freshly
+	 * re-resolved row ($resolved), which may be null if the session vanished after classify.
+	 */
+	public function memberRowToBury(array $member, ?array $resolved): ?array {
+		return !empty($member['_probed']) ? $member : $resolved;
+	}
+
+	/**
 	 * PURE. Content-probe fallback binding (dotfiles-c15). For Claude sessions the
 	 * ancestry join could not bind (fresh / non-cmux-resumed), match each to a still-
 	 * unbound terminal surface by reading its on-screen statusline cwd. A session binds
@@ -1607,11 +1619,11 @@ class Graveyard {
 		$buried = 0; $failed = 0; $stillAlive = [];
 		foreach ($cls['members'] as $m) {
 			$sid = $m['session_id'];
-			$fresh = $this->resolveLiveBySessionId($sid);
-			// A /status-probed member cannot re-resolve via liveSessions() (its join is
-			// exactly what failed) — use its synthesized row directly. The probe just
-			// confirmed it alive, and buryOne re-reads the live screen for its own gates.
-			if (!$fresh && !empty($m['_probed'])) { $fresh = $m; }
+			// A /status-probed member uses its synthesized row directly: re-resolving via
+			// liveSessions() returns the untargetable row that made us probe (fresh sessions
+			// ARE in liveSessions(), just as targetable=false), which gate 0 rejects. The
+			// probe confirmed it alive, and buryOne re-reads the live screen for its gates.
+			$fresh = $this->memberRowToBury($m, $this->resolveLiveBySessionId($sid));
 			if (!$fresh) { $this->cli->msg("  {$sid} is gone — skipping.", 'yellow'); $failed++; continue; }
 			$fresh['group_pos'] = $m['group_pos'];
 			$grp = ['group_id' => $group, 'group_title' => $wsTitle, 'group_pos' => $m['group_pos']];
