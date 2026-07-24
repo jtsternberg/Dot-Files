@@ -668,6 +668,39 @@ class Graveyard {
 	}
 
 	/**
+	 * I/O. Ask a Claude REPL who it is by sending /status and reading the identity modal
+	 * it prints ("Session ID: <uuid>" + "cwd: <path>"). Returns parseStatusProbe()'s
+	 * result (['session_id'=>..,'cwd'=>..]) or null on timeout / no id.
+	 *
+	 * This is the last-resort bind for a surface the statusline content-probe cannot pin
+	 * to a session (fresh/non-resumed sessions that cd'd: on-screen cwd drifted from the
+	 * recorded launch cwd, and the drifted cwd collides with other sessions). /status
+	 * bypasses both cwd-drift and tty-sharing — it prints the definitive identity.
+	 *
+	 * The prompt is cleared first (same reason as /export: a half-typed fragment would
+	 * corrupt the command). /status opens a MODAL ("Esc to cancel"); we ALWAYS send Escape
+	 * afterward — success or timeout — so the REPL is left clean for the /export that
+	 * follows. Interactive + adds a turn, so it lives only in the bury path, never in the
+	 * liveSessions()/ls hot path.
+	 */
+	public function probeSurfaceIdentity(string $surfaceRef, string $wsRef, int $timeoutSeconds = 6): ?array {
+		$this->cmux->sendToSurface($surfaceRef, $wsRef, self::CLEAR_PROMPT);
+		$this->cmux->sendToSurface($surfaceRef, $wsRef, '/status');
+		$this->cmux->sendKeyToSurface($surfaceRef, $wsRef, 'Return');
+
+		$found    = null;
+		$deadline = time() + max(1, $timeoutSeconds);
+		while (time() < $deadline) {
+			usleep(400000); // 0.4s — let the modal render before reading
+			$probe = $this->parseStatusProbe($this->readLastScreen($surfaceRef, $wsRef, 40));
+			if ($probe) { $found = $probe; break; }
+		}
+
+		$this->cmux->sendKeyToSurface($surfaceRef, $wsRef, 'Escape'); // dismiss modal (always)
+		return $found;
+	}
+
+	/**
 	 * PURE: reduce a raw user-message body to a short human summary, or '' if the
 	 * message is noise (empty, a tool/skill wrapper, a local-command dump).
 	 *
@@ -751,6 +784,75 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. Parse the identity block a Claude REPL prints in response to /status
+	 * ("Session ID:  <uuid>" + "cwd:  <path>"). Returns ['session_id'=>.., 'cwd'=>..]
+	 * when a session id is found (cwd is '' if its line is absent), or [] when no
+	 * session id is present (the probe is useless without it). The cwd MAY CONTAIN
+	 * SPACES, so capture the whole field to end of line — same rule as
+	 * extractStatuslineCwd(). This bypasses the cwd-drift / tty-sharing that make a
+	 * fresh (non-resumed) session's surface unbindable by the statusline content-probe.
+	 */
+	public function parseStatusProbe(string $screen): array {
+		if (!preg_match('/Session ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i', $screen, $m)) {
+			return [];
+		}
+		$cwd = '';
+		if (preg_match('/\bcwd:\s*(.+)/i', $screen, $c)) {
+			$cwd = trim($c[1]);
+		}
+		return ['session_id' => strtolower($m[1]), 'cwd' => $cwd];
+	}
+
+	/**
+	 * PURE. Build a targetable liveSessions()-shaped row for a Claude surface bound via
+	 * the /status probe (parseStatusProbe), so classifyWorkspaceLayout treats it as a
+	 * member and buryOne can act on it. Returns null when the probe carried no session id
+	 * or the id is not tracked by any live pid file (nothing to bury).
+	 *
+	 * $sessionsByPid is loadClaudeSessionsByPid() output (keyed by pid). The row's cwd is
+	 * the session file's LAUNCH cwd — NOT the probe's current cwd — because every
+	 * JSONL-based step downstream (gate 2 needles, deriveSummary, last_active, and
+	 * resurrect's `claude --resume`) resolves ~/.claude/projects/<encoded-cwd>/<sid>.jsonl
+	 * by the launch cwd; the drifted current cwd points at the wrong project dir. The
+	 * mismatch the probe defeats (statusline shows current cwd) is instead handled by
+	 * passesPreExportGate(), which bypasses gate 1 for _probed rows. The pid comes from the
+	 * session file that records this session id, so killMember's gate 3 (sessionIdForPid
+	 * === target) still holds. Marked _probed so buryWorkspace's member loop uses this row
+	 * directly instead of re-resolving via liveSessions() (which cannot bind a fresh/drifted
+	 * session — the whole reason we probed).
+	 */
+	public function synthesizeProbedRow(string $ref, string $wsRef, array $probe, array $sessionsByPid, array $treeIx, int $idleSeconds = PHP_INT_MAX): ?array {
+		$sid = $probe['session_id'] ?? '';
+		if ($sid === '') { return null; }
+
+		$pid = null; $meta = null;
+		foreach ($sessionsByPid as $p => $s) {
+			if (($s['session_id'] ?? '') === $sid) { $pid = (int) $p; $meta = $s; break; }
+		}
+		if ($meta === null) { return null; }
+
+		$cwd = (string) ($meta['cwd'] ?? '');
+
+		return [
+			'session_id'      => $sid,
+			'cwd'             => $cwd,
+			'model'           => $meta['model'] ?? null,
+			'skip_perms'      => $meta['skip_perms'] ?? null,
+			'pid'             => $pid,
+			'tty'             => '',
+			'surface_ref'     => $ref,
+			'surface_id'      => $treeIx['surface'][$ref]['id'] ?? $ref,
+			'workspace_ref'   => $wsRef,
+			'workspace_title' => $treeIx['workspace'][$wsRef] ?? '',
+			'tab_title'       => $treeIx['surface'][$ref]['title'] ?? '',
+			'idle_seconds'    => $idleSeconds,
+			'targetable'      => true,
+			'reason'          => 'bound via /status probe',
+			'_probed'         => true,
+		];
+	}
+
+	/**
 	 * PURE. Split a path into its non-empty components, dropping a leading ~ and any
 	 * elision markers (…), so an abbreviated statusline path can be compared by its
 	 * trailing components. "~/Documents/Southport UDO" → [Documents, Southport UDO];
@@ -781,6 +883,19 @@ class Graveyard {
 		$n = count($tokComps);
 		if ($n === 0 || $n > count($sessComps)) { return false; }
 		return array_slice($sessComps, -$n) === $tokComps;
+	}
+
+	/**
+	 * PURE. GATE 1 decision for buryOne: may we type /export into this surface? For a
+	 * normal row this is the statusline-cwd heuristic (statuslineMatchesSession). A
+	 * _probed row is exempt: the /status probe already read the surface's own Session ID
+	 * back, which is a STRONGER surface↔session proof than matching an abbreviated,
+	 * cwd-drifting statusline — and the row deliberately carries the launch cwd (for JSONL
+	 * resolution), which would fail the heuristic against the drifted on-screen cwd.
+	 */
+	public function passesPreExportGate(array $sess, string $screen): bool {
+		if (!empty($sess['_probed'])) { return true; }
+		return $this->statuslineMatchesSession($screen, (string) ($sess['cwd'] ?? ''));
 	}
 
 	/**
@@ -922,7 +1037,9 @@ class Graveyard {
 		// GATE 1 (pre-export): the resolved surface must actually be showing THIS
 		// session's idle Claude REPL. A statusline cwd mismatch means the join pointed
 		// at the wrong tab; abort before typing /export into someone else's session.
-		if (!$this->statuslineMatchesSession($screen, (string) $sess['cwd'])) {
+		// A /status-probed row is exempt — the probe already read this surface's Session
+		// ID back, a stronger proof than the drift-prone statusline heuristic.
+		if (!$this->passesPreExportGate($sess, $screen)) {
 			$onscreen = $this->extractStatuslineCwd($screen);
 			$this->cli->err("  Refusing to bury {$id} (gate 1): resolved surface shows "
 				. ($onscreen !== null ? "cwd '{$onscreen}'" : 'no Claude REPL statusline')
@@ -1385,6 +1502,28 @@ class Graveyard {
 			}
 		}
 
+		// Last-resort bind: for a Claude surface the join left unbound (a fresh /
+		// non-resumed session that cd'd — its on-screen cwd drifted from its recorded
+		// launch cwd, so the statusline content-probe can't pin it, and the drifted cwd
+		// collides with other sessions' launch cwds), ask it who it is via /status and
+		// synthesize a targetable row. Interactive (sends keystrokes + reads a modal), so
+		// it lives ONLY here in the bury path — never the liveSessions()/ls hot path. Never
+		// probe the caller's own surface (that would type /status into our own REPL).
+		$selfSurf = $this->selfSurfaceId();
+		$treeIx   = $this->treeIndex($this->cmux->tree());
+		$byPid    = $this->cmux->loadClaudeSessionsByPid();
+		foreach ($isClaudeByRef as $ref => $isClaude) {
+			if (!$isClaude || $ref === '' || isset($liveByRef[$ref])) { continue; }
+			if ($selfSurf && ($ref === $selfSurf || ($treeIx['surface'][$ref]['id'] ?? null) === $selfSurf)) { continue; }
+			$probe = $this->probeSurfaceIdentity($ref, $wsRef);
+			if (!$probe) { continue; }
+			$row = $this->synthesizeProbedRow($ref, $wsRef, $probe, $byPid, $treeIx);
+			if ($row) {
+				$this->cli->msg('  Bound ' . $ref . ' via /status → ' . substr($row['session_id'], 0, 8) . ' (' . $row['cwd'] . ').', 'cyan');
+				$liveByRef[$ref] = $row;
+			}
+		}
+
 		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef);
 
 		// Self-guard: never bury a workspace containing the caller's own session.
@@ -1469,6 +1608,10 @@ class Graveyard {
 		foreach ($cls['members'] as $m) {
 			$sid = $m['session_id'];
 			$fresh = $this->resolveLiveBySessionId($sid);
+			// A /status-probed member cannot re-resolve via liveSessions() (its join is
+			// exactly what failed) — use its synthesized row directly. The probe just
+			// confirmed it alive, and buryOne re-reads the live screen for its own gates.
+			if (!$fresh && !empty($m['_probed'])) { $fresh = $m; }
 			if (!$fresh) { $this->cli->msg("  {$sid} is gone — skipping.", 'yellow'); $failed++; continue; }
 			$fresh['group_pos'] = $m['group_pos'];
 			$grp = ['group_id' => $group, 'group_title' => $wsTitle, 'group_pos' => $m['group_pos']];

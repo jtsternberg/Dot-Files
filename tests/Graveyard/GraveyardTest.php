@@ -603,6 +603,102 @@ final class GraveyardTest extends TestCase
 		$this->assertSame([], $this->gy->contentProbeBind([['session_id' => 'f-5', 'cwd' => '/nope', 'tty' => 't']], $unbound, $screens));
 	}
 
+	public function testParseStatusProbe(): void
+	{
+		// The definitive identity block a Claude REPL prints for /status.
+		$screen = <<<TXT
+		 Claude Code Status v2.0.1
+
+		 Session ID:       7404aa63-8617-4fdd-9e39-9d40882d3faa
+		 cwd:              /Users/JT/.dotfiles
+		 Model:            claude-opus-4-8
+
+		 Esc to cancel
+		TXT;
+		$got = $this->gy->parseStatusProbe($screen);
+		$this->assertSame('7404aa63-8617-4fdd-9e39-9d40882d3faa', $got['session_id'] ?? null);
+		$this->assertSame('/Users/JT/.dotfiles', $got['cwd'] ?? null);
+
+		// cwd may contain spaces — capture the whole field to end of line.
+		$spaced = "Session ID: 11111111-2222-3333-4444-555555555555\ncwd: /Users/JT/Southport UDO";
+		$got2 = $this->gy->parseStatusProbe($spaced);
+		$this->assertSame('11111111-2222-3333-4444-555555555555', $got2['session_id'] ?? null);
+		$this->assertSame('/Users/JT/Southport UDO', $got2['cwd'] ?? null);
+
+		// No Session ID line → useless probe → empty array.
+		$this->assertSame([], $this->gy->parseStatusProbe('some plain shell output\n$ ls'));
+
+		// Session ID present but no cwd line → id captured, cwd empty string.
+		$noCwd = $this->gy->parseStatusProbe('Session ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+		$this->assertSame('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', $noCwd['session_id'] ?? null);
+		$this->assertSame('', $noCwd['cwd'] ?? null);
+	}
+
+	public function testSynthesizeProbedRow(): void
+	{
+		$sid = '7404aa63-8617-4fdd-9e39-9d40882d3faa';
+		// loadClaudeSessionsByPid() shape: keyed by pid, values carry session_id/cwd/model/skip_perms.
+		$byPid = [
+			51234 => ['session_id' => $sid, 'cwd' => '/Users/JT', 'model' => 'opus', 'skip_perms' => true, 'status' => 'idle'],
+			99999 => ['session_id' => 'other-sid', 'cwd' => '/tmp', 'model' => 'sonnet', 'skip_perms' => false],
+		];
+		$treeIx = [
+			'surface'   => ['surface:51' => ['id' => 'srf-uuid-51', 'title' => 'llmsummarize']],
+			'workspace' => ['workspace:3' => 'llmsummarize'],
+		];
+
+		// cwd-drift case: probe reports the CURRENT cwd (/.dotfiles), which differs from the
+		// session file's LAUNCH cwd (/Users/JT). The row must carry the LAUNCH cwd, because
+		// every JSONL-based step (gate 2 needles, summary, last_active, resurrect) resolves
+		// ~/.claude/projects/<encoded-cwd>/<sid>.jsonl by the launch cwd — the current cwd
+		// would point at the wrong project dir. Gate 1 (which sees the current cwd) is instead
+		// bypassed for probed rows: the probe already proved surface↔session identity.
+		$probe = ['session_id' => $sid, 'cwd' => '/Users/JT/.dotfiles'];
+		$row = $this->gy->synthesizeProbedRow('surface:51', 'workspace:3', $probe, $byPid, $treeIx);
+
+		$this->assertSame($sid, $row['session_id']);
+		$this->assertSame('/Users/JT', $row['cwd'], 'must use LAUNCH cwd (where the JSONL lives), not the drifted current cwd');
+		$this->assertSame(51234, $row['pid']);
+		$this->assertSame('opus', $row['model']);
+		$this->assertTrue($row['skip_perms']);
+		$this->assertSame('surface:51', $row['surface_ref']);
+		$this->assertSame('srf-uuid-51', $row['surface_id']);
+		$this->assertSame('workspace:3', $row['workspace_ref']);
+		$this->assertSame('llmsummarize', $row['workspace_title']);
+		$this->assertSame('llmsummarize', $row['tab_title']);
+		$this->assertTrue($row['targetable']);
+		$this->assertTrue($row['_probed'], 'must be flagged so the member loop uses it directly');
+
+		// Probe with no cwd → fall back to the session file's launch cwd.
+		$noCwd = $this->gy->synthesizeProbedRow('surface:51', 'workspace:3', ['session_id' => $sid, 'cwd' => ''], $byPid, $treeIx);
+		$this->assertSame('/Users/JT', $noCwd['cwd']);
+
+		// session_id not tracked in any live pid file → cannot synthesize → null.
+		$this->assertNull($this->gy->synthesizeProbedRow('surface:51', 'workspace:3', ['session_id' => 'ghost-sid', 'cwd' => '/x'], $byPid, $treeIx));
+
+		// Empty probe (parser found nothing) → null.
+		$this->assertNull($this->gy->synthesizeProbedRow('surface:51', 'workspace:3', [], $byPid, $treeIx));
+	}
+
+	public function testPassesPreExportGate(): void
+	{
+		$screenMatch   = '📁 /Users/JT/asana-cli | 🌿 main';
+		$screenDrifted = '📁 /Users/JT/.dotfiles | 🌿 master';
+		$screenShell   = 'plain shell $';
+
+		// Normal (non-probed) row: delegates to the statusline heuristic.
+		$normal = ['cwd' => '/Users/JT/asana-cli'];
+		$this->assertTrue($this->gy->passesPreExportGate($normal, $screenMatch));
+		$this->assertFalse($this->gy->passesPreExportGate($normal, $screenDrifted));
+		$this->assertFalse($this->gy->passesPreExportGate($normal, $screenShell));
+
+		// Probed row: identity already proven by /status, so the gate is bypassed even when
+		// the statusline shows a drifted cwd that would fail the heuristic.
+		$probed = ['cwd' => '/Users/JT/asana-cli', '_probed' => true];
+		$this->assertTrue($this->gy->passesPreExportGate($probed, $screenDrifted));
+		$this->assertTrue($this->gy->passesPreExportGate($probed, $screenShell));
+	}
+
 	public function testEllipsizeHelpers(): void
 	{
 		$this->assertSame('hello w…', $this->gy->ellipsizeText('hello world', 8));
