@@ -1194,7 +1194,8 @@ class Graveyard {
 	 *   has_shell         that wrapper's shell chain is alive
 	 *   has_claude        a live claude process exists under it
 	 *   has_session_file  that claude has a ~/.claude/sessions/<pid>.json
-	 *   cwd_conflict      statusline cwd could not be uniquely matched (ambiguous)
+	 *   cwd               the surface's working dir (for the fresh-session message)
+	 *   cwd_session_count how many live Claude sessions share that cwd (>1 = ambiguous)
 	 */
 	public function untargetableReasonFor(array $f): string {
 		$type = $f['type'] ?? 'terminal';
@@ -1202,9 +1203,23 @@ class Graveyard {
 			return 'cmux-native agent session (not a Claude CLI terminal) — unsupported by bury';
 		}
 		if (empty($f['has_script'])) {
-			return !empty($f['cwd_conflict'])
-				? 'fresh/non-resumed Claude — statusline cwd matches multiple sessions (ambiguous); can\'t bind safely'
-				: 'fresh/non-resumed Claude — no unique statusline-cwd match to bind it';
+			$cwd   = trim((string) ($f['cwd'] ?? ''));
+			$count = (int) ($f['cwd_session_count'] ?? 0);
+			$where = $cwd !== '' ? " in {$cwd}" : '';
+			// Fresh = not launched via graveyard/cmux, so there's no resume-script link
+			// from surface→process. The only fallback is matching the tab's on-screen cwd
+			// to a session's cwd — which fails when several live sessions share that cwd.
+			if ($count > 1) {
+				return "fresh/non-resumed Claude{$where}: {$count} live Claude sessions share this cwd, "
+					. "so bury can't tell which process backs this tab — it wasn't started via graveyard, "
+					. "so there's no resume-script link, and the shared cwd makes the on-screen fallback "
+					. "ambiguous (bury won't guess which session to /export + kill). Fix: bury/close the "
+					. "other sessions in this cwd first (then this one becomes the unique match), or re-run "
+					. "with --force to skip it (left alive).";
+			}
+			return "fresh/non-resumed Claude{$where}: no resume-script link and its on-screen cwd "
+				. "couldn't be matched to this session's cwd (statusline missing, scrolled, or mismatched). "
+				. "Fix: give the tab a moment and retry, or re-run with --force to skip it (left alive).";
 		}
 		if (empty($f['has_shell']))   { return 'resumed surface with no live shell — stale; nothing to bury'; }
 		if (empty($f['has_claude']))  { return 'resumed Claude not running (exited or never launched) — no live session to bury'; }
@@ -1248,15 +1263,30 @@ class Graveyard {
 			}
 		}
 
+		// For the fresh-session message: diagnose from the ON-SCREEN statusline cwd (the
+		// exact signal the cwd-match fallback uses), not the surface's shell cwd — a claude
+		// launched from ~ but running in ~/.dotfiles shows the latter. Count how many live
+		// sessions that statusline cwd matches; >1 is the ambiguity that blocks the bind.
+		$screen    = $this->readLastScreen($ref, (string) ($debug[$ref]['workspace_ref'] ?? ''), 30);
+		$cwd       = (string) ($this->extractStatuslineCwd($screen) ?? '');
+		$cwdSessionCount = 0;
+		if ($cwd !== '') {
+			foreach ($this->cmux->loadClaudeSessionsByPid() as $s) {
+				if ($this->statuslineMatchesSession($screen, (string) ($s['cwd'] ?? ''))) { $cwdSessionCount++; }
+			}
+		}
+
 		return $this->untargetableReasonFor([
-			'type'             => $type,
-			'has_script'       => $script !== null,
-			'has_shell'        => (bool) $roots,
-			'has_claude'       => $claude !== null,
-			'has_session_file' => $sid !== null,
-			'session_id'       => $sid,
-			'bound_elsewhere'  => $boundElsewhere,
-			'session_reason'   => $sessionReason,
+			'type'              => $type,
+			'has_script'        => $script !== null,
+			'has_shell'         => (bool) $roots,
+			'has_claude'        => $claude !== null,
+			'has_session_file'  => $sid !== null,
+			'session_id'        => $sid,
+			'bound_elsewhere'   => $boundElsewhere,
+			'session_reason'    => $sessionReason,
+			'cwd'               => $cwd,
+			'cwd_session_count' => $cwdSessionCount,
 		]);
 	}
 
@@ -1376,7 +1406,10 @@ class Graveyard {
 			foreach ($cls['untargetable'] as $u) {
 				$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc);
 				$this->cli->msg('  ' . $this->ellipsizeText($u['ref'] . '  ' . $this->stripGlyph((string) $u['title']), $w - 2), 'yellow');
-				$this->cli->msg('      ↳ ' . $this->ellipsizeText($reason, $w - 8), 'yellow');
+				// Wrap the reason (never ellipsize) so the full explanation + fix is always shown.
+				foreach (explode("\n", wordwrap($reason, max(30, $w - 8))) as $line) {
+					$this->cli->msg('      ↳ ' . $line, 'yellow');
+				}
 			}
 			if (!$force) {
 				$this->cli->exitErr('Refusing to partially destroy a workspace. Resolve these (or re-run with --force to skip them and leave them alive).');

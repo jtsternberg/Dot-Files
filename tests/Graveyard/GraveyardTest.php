@@ -541,8 +541,16 @@ final class GraveyardTest extends TestCase
 		$this->assertStringContainsString('not running', $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => false]));
 		$this->assertStringContainsString('no live shell', $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => false]));
 		$this->assertStringContainsString('no session file yet', $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => false]));
-		$this->assertStringContainsString('no unique statusline-cwd match', $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false]));
-		$this->assertStringContainsString('multiple sessions', $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false, 'cwd_conflict' => true]));
+		// Fresh, cwd not matchable (only this session in the cwd) — names the cwd + retry/force fix.
+		$soloFresh = $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false, 'cwd' => '/Users/JT/.dotfiles', 'cwd_session_count' => 1]);
+		$this->assertStringContainsString('/Users/JT/.dotfiles', $soloFresh);
+		$this->assertStringContainsString("couldn't be matched", $soloFresh);
+		$this->assertStringContainsString('--force', $soloFresh);
+		// Fresh, cwd shared by several sessions — reports the concrete count + the ambiguity.
+		$sharedFresh = $this->gy->untargetableReasonFor(['type' => 'terminal', 'has_script' => false, 'cwd' => '/Users/JT/.dotfiles', 'cwd_session_count' => 5]);
+		$this->assertStringContainsString('5 live Claude sessions share this cwd', $sharedFresh);
+		$this->assertStringContainsString('/Users/JT/.dotfiles', $sharedFresh);
+		$this->assertStringContainsString('--force', $sharedFresh);
 
 		$dupFacts = ['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => true, 'session_id' => '93de80a4-x', 'bound_elsewhere' => 'surface:33'];
 		$this->assertStringContainsString('duplicate live view of session 93de80a4', $this->gy->untargetableReasonFor($dupFacts));
