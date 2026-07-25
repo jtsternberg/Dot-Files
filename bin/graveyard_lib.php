@@ -29,7 +29,30 @@ class Graveyard {
 	}
 
 	public function sessionDir(string $id): string { return $this->storeRoot() . "/sessions/{$id}"; }
-	public function transcriptPath(string $id): string { return $this->sessionDir($id) . '/transcript.txt'; }
+	/**
+	 * The archived transcript for a session, whichever renderer wrote it (dotfiles-36a).
+	 *
+	 * The extension follows the RENDERER, not the version: export-session.mjs emits
+	 * markdown SOURCE (transcript.md — so `graveyard show` gets a markdown preview and the
+	 * page can render it), while Claude Code's own /export emits already-rendered TUI text
+	 * (transcript.txt — glyphs and hard wrapping that read correctly raw). The store is
+	 * permanently mixed: every archive buried before the seam landed is TUI .txt and stays
+	 * that way, so this is the resolver EVERY reader goes through — prefer .md, fall back
+	 * to .txt. Writers use transcriptMdPath()/transcriptTxtPath() explicitly instead.
+	 *
+	 * With nothing archived it returns the legacy .txt name, so a missing-transcript error
+	 * still reads the way it always did.
+	 */
+	public function transcriptPath(string $id): string {
+		$md = $this->transcriptMdPath($id);
+		return is_file($md) ? $md : $this->transcriptTxtPath($id);
+	}
+
+	/** Where exportTranscriptViaBin() writes: markdown source from export-session.mjs. */
+	public function transcriptMdPath(string $id): string { return $this->sessionDir($id) . '/transcript.md'; }
+
+	/** Where exportTranscriptViaRepl() writes: TUI-rendered text from Claude Code's /export. */
+	public function transcriptTxtPath(string $id): string { return $this->sessionDir($id) . '/transcript.txt'; }
 	public function metaPath(string $id): string { return $this->sessionDir($id) . '/meta.json'; }
 	public function workspaceGroupDir(string $group): string { return $this->storeRoot() . "/workspaces/{$group}"; }
 	public function manifestPath(string $group): string { return $this->workspaceGroupDir($group) . '/manifest.json'; }
@@ -714,9 +737,24 @@ class Graveyard {
 
 		$tmp = $this->transcriptTmpPath($sess);
 		if (file_put_contents($tmp, $text . "\n") === false) { return false; }
-		if (@rename($tmp, $this->transcriptPath($id))) { return true; }
+		if (@rename($tmp, $this->transcriptMdPath($id))) {
+			$this->dropSupersededArchive($this->transcriptTxtPath($id));
+			return true;
+		}
 		@unlink($tmp);
 		return false;
+	}
+
+	/**
+	 * One archive per session, named for the renderer that wrote it. Called only AFTER the
+	 * fresh export is safely in place, to remove the other renderer's file.
+	 *
+	 * Not housekeeping — correctness. transcriptPath() prefers .md, so an /export-rendered
+	 * .txt landing next to a surviving .md would leave every reader (GATE 2 included) on
+	 * the STALE file. Legacy archives are untouched: nothing re-exports them.
+	 */
+	protected function dropSupersededArchive(string $path): void {
+		if (is_file($path)) { @unlink($path); }
 	}
 
 	/** The temp file an in-flight export writes before it is renamed into place. */
@@ -747,7 +785,9 @@ class Graveyard {
 			if (is_file($tmp)) {
 				$size = filesize($tmp);
 				if ($size > 0 && $size === $lastSize) {
-					return @rename($tmp, $this->transcriptPath($id));
+					if (!@rename($tmp, $this->transcriptTxtPath($id))) { return false; }
+					$this->dropSupersededArchive($this->transcriptMdPath($id));
+					return true;
 				}
 				$lastSize = $size;
 			}
