@@ -64,7 +64,7 @@ $helpyHelperton
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
 		'repair [--apply]' => 'Backfill stored config (skip_perms/model) for already-buried sessions from their surviving JSONL — fixes false-negatives recorded when the JSONL was missing at burial. Dry-run by default; --apply writes the corrections to both the index and per-session meta.json.',
 		'env: GRAVEYARD_ROOT' => 'Where the store lives (default ~/.claude-graveyard).',
-		'env: GRAVEYARD_EXPORT_BIN' => 'Path to export-session.mjs, which bury uses to archive transcripts by reading the session JSONL directly (works on dead sessions, ~100ms, appends no turn to the target). Auto-detected; set it to point at a specific copy. Set it to "off" to archive the old way instead — typing /export into the live REPL, which is slower and needs the session alive, but renders slash-command prompts and tool output that the .mjs drops (dotfiles-6bx).',
+		'env: GRAVEYARD_EXPORT_BIN' => 'Path to export-session.mjs, which bury uses to archive transcripts by reading the session JSONL directly (works on dead sessions, ~100ms, appends no turn to the target). Auto-detected; set it to point at a specific copy. Set it to "off" to archive the old way instead: typing /export into the live REPL, which is slower and needs the session alive, but writes Claude Code\'s own TUI-rendered text. The two renderers name their output differently — transcript.md for the binary, transcript.txt for /export — and every reader resolves either.',
 	]);
 
 if ($helpyHelperton->batSignal) {
