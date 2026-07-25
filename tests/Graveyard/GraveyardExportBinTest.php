@@ -210,7 +210,7 @@ final class GraveyardExportBinTest extends TestCase
 
 	public function testExportTranscriptPrefersBinAndNeverTouchesTheRepl(): void
 	{
-		$bin = $this->stubExportBin('# rendered by export-session.mjs');
+		$this->stubExportBin('# rendered by export-session.mjs');
 		$gy  = $this->spyGraveyard();
 		$sid = 'sess-prefers-bin';
 
