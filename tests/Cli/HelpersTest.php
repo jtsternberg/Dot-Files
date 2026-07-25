@@ -28,6 +28,32 @@ class HelpersTest extends TestCase
 		$this->assertSame('positional', $cli->getArg(1));
 	}
 
+	/**
+	 * setStreams() reads null as "leave this one alone", so injecting a stream was a
+	 * one-way door on a SINGLETON: every later caller kept writing into the injected
+	 * stream. resetStreams() is the way back to the default echo/STDERR behavior — the
+	 * suite's base TestCase calls it so one test's swallowed output cannot silently void
+	 * another test's output assertion.
+	 */
+	public function testResetStreamsRestoresDefaultOutput(): void
+	{
+		$cli  = Helpers::getInstance();
+		$sink = fopen('php://memory', 'w+');
+		$cli->setStreams($sink, $sink);
+
+		ob_start();
+		$cli->msg('into the sink');
+		$this->assertSame('', ob_get_clean(), 'injected stream must bypass output buffering');
+
+		$cli->resetStreams();
+
+		ob_start();
+		$cli->msg('back to stdout');
+		$this->assertStringContainsString('back to stdout', (string) ob_get_clean());
+
+		fclose($sink);
+	}
+
 	public function testSetArgsParsesLongShortAndPositional(): void
 	{
 		$cli = Helpers::getInstance()->setArgs(['tool', 'name', '--host=h', '--yes', '-v']);

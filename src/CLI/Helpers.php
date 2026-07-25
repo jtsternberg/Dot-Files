@@ -211,6 +211,24 @@ class Helpers {
 	}
 
 	/**
+	 * Drop any injected streams and go back to the defaults (echo / STDERR).
+	 *
+	 * setStreams() reads null as "leave this one alone", which made injection a one-way
+	 * door on a singleton: whoever swallowed output into a memory stream kept every later
+	 * caller writing there too. This is the way back.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @return Helpers
+	 */
+	public function resetStreams() {
+		$this->stdout = null;
+		$this->stderr = null;
+
+		return $this;
+	}
+
+	/**
 	 * Setup our args, flags, and short flags from the provided CLI args.
 	 *
 	 * @since 1.0.0
