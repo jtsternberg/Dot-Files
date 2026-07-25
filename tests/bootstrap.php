@@ -2,11 +2,9 @@
 /**
  * PHPUnit bootstrap for the dotfiles CLI test suite.
  *
- * Composer's autoloader covers JT\ → src/ (including JT\CLI\Helpers,
- * JT\Helpers\Cmux) and JT\Tests\ → tests/. The tool libs are
- * hand-required until Task 4 of the src/ migration moves them into src/.
+ * Composer's autoloader covers everything: JT\ → src/, JT\Tests\ → tests/.
+ * Nothing is hand-required — the last two tool libs (JT\Graveyard, JT\CmuxBak)
+ * moved into src/ in Task 4 of the src/ PSR-4 migration (dotfiles-206).
  */
 
 require dirname(__DIR__) . '/vendor/autoload.php';
-require_once dirname(__DIR__) . '/bin/graveyard_lib.php';   // JT\Graveyard (until Task 4)
-require_once dirname(__DIR__) . '/bin/cmux-bak_lib.php';    // JT\CmuxBak (until Task 4)

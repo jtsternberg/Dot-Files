@@ -46,8 +46,6 @@ if ($helpyHelperton->batSignal) {
 	exit(0);
 }
 
-require_once __DIR__ . '/cmux-bak_lib.php';
-
 try {
 	$cmd = new CmuxBak($cli);
 	$cmd->run();

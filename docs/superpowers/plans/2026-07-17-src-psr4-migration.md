@@ -387,7 +387,7 @@ Expected: **empty output**. If anything prints, the parallel graveyard session h
 **Files:**
 - Move: `bin/graveyard_lib.php` → `src/Graveyard.php`
 - Move: `bin/cmux-bak_lib.php` → `src/CmuxBak.php`
-- Modify: `bin/graveyard` (bootstrap line swap + delete both requires), `bin/cmux-bak` (delete lib require)
+- Modify: `bin/graveyard` (bootstrap line swap + delete both requires), `bin/graveyard_router.php` (same two — **missing from this plan as written**; it is what `php -S` runs for `graveyard page/serve`, so leaving it would have broken the page at runtime while every test stayed green), `bin/cmux-bak` (delete lib require)
 - Delete: `misc/helpers.php` and `misc/helpers/cmux.php` (Task 3's transitional shims), then `misc/helpers/` and `misc/` if empty
 - Modify: `tests/bootstrap.php` (final form)
 
@@ -395,26 +395,26 @@ Expected: **empty output**. If anything prints, the parallel graveyard session h
 - Consumes: Task 3's autoloading for `JT\Helpers\Cmux`.
 - Produces: `JT\Graveyard` → `src/Graveyard.php`; `JT\CmuxBak` → `src/CmuxBak.php`; entry scripts with zero class requires; `tests/bootstrap.php` reduced to one line; `misc/` free of PHP class files.
 
-- [ ] **Step 1: Move the libs**
+- [x] **Step 1: Move the libs**
 
 ```bash
 git mv bin/graveyard_lib.php src/Graveyard.php
 git mv bin/cmux-bak_lib.php src/CmuxBak.php
 ```
 
-- [ ] **Step 2: Rewire `bin/graveyard` (three deletions/swaps)**
+- [x] **Step 2: Rewire `bin/graveyard` (three deletions/swaps)**
 
 1. Swap the bootstrap line: `dirname(__DIR__) . '/misc/helpers.php'` → `dirname(__DIR__) . '/src/bootstrap.php'`
 2. Delete: `require_once dirname(__DIR__) . '/misc/helpers/cmux.php';`
 3. Delete: `require_once __DIR__ . '/graveyard_lib.php';`
 
-- [ ] **Step 3: Delete the lib require in `bin/cmux-bak`**
+- [x] **Step 3: Delete the lib require in `bin/cmux-bak`**
 
 ```php
 require_once __DIR__ . '/cmux-bak_lib.php';
 ```
 
-- [ ] **Step 4: Delete the shims**
+- [x] **Step 4: Delete the shims**
 
 ```bash
 git rm misc/helpers.php misc/helpers/cmux.php
@@ -423,7 +423,7 @@ rmdir misc/helpers 2>/dev/null; rmdir misc 2>/dev/null; true
 
 (`misc/` also holds shell assets — `bootstrap`, `bootstrap-linux`, `gtag` — so it likely survives; only the PHP class files leave.)
 
-- [ ] **Step 5: Final tests/bootstrap.php**
+- [x] **Step 5: Final tests/bootstrap.php**
 
 ```php
 <?php
@@ -435,21 +435,21 @@ rmdir misc/helpers 2>/dev/null; rmdir misc 2>/dev/null; true
 require dirname(__DIR__) . '/vendor/autoload.php';
 ```
 
-- [ ] **Step 6: Regenerate + run the suite**
+- [x] **Step 6: Regenerate + run the suite**
 
 ```bash
 composer dump-autoload && composer test
 ```
 Expected: green except the 7 pre-existing GraveyardPageTest failures.
 
-- [ ] **Step 7: Smoke both tools**
+- [x] **Step 7: Smoke both tools**
 
 ```bash
 php bin/graveyard --help | head -3 && php bin/cmux-bak --help | head -3
 ```
 Expected: help headers, no errors.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A src bin misc tests/bootstrap.php

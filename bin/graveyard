@@ -30,9 +30,7 @@ namespace JT;
 # graveyard resurrect <id|name> [--from-transcript]   (name = workspace/tab title substring; unique match required)
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
-require_once dirname(__DIR__) . '/misc/helpers/cmux.php';
-require_once __DIR__ . '/graveyard_lib.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $helpyHelperton = $cli->getHelp();
 $helpyHelperton

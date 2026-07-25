@@ -148,25 +148,16 @@ per-file `require` — and tests target the class directly with zero setup.
 Directory/file case must match the namespace (`tests/Graveyard/` for
 `JT\Tests\Graveyard`; `src/Godo.php` for `JT\Godo`) — this matters on Linux.
 
-Legacy note: a few older libs still live in `bin/` with lowercase/snake
-filenames (`graveyard_lib.php`, `cmux-bak_lib.php`). Those can't be
-PSR-4-autoloaded (PSR-4 wants `Graveyard.php`), so `tests/bootstrap.php`
-`require`s them explicitly and their bin entries do too. They're a migration
-backlog, not a template — don't add new libs to `bin/`; put them in `src/`.
+No lib lives in `bin/` any more. The last two holdouts (`graveyard_lib.php` →
+`src/Graveyard.php`, `cmux-bak_lib.php` → `src/CmuxBak.php`) moved in Task 4 of
+the src/ migration, so **no PHP class is hand-`require`d anywhere**:
+`tests/bootstrap.php` is one line (composer's autoloader) and every bin entry
+just does `require_once '.../src/bootstrap.php'`. If you find yourself adding a
+`require_once` for a class, the file is in the wrong place — put it in `src/`
+named to match its namespace.
 
-> **Beads: `dotfiles-206`** (in_progress) — "Execute src/ PSR-4 migration
-> plan", Task 4. Plan: `docs/superpowers/plans/2026-07-17-src-psr4-migration.md`.
-> This is the task these leftover `bin/*_lib.php` files belong to.
-
-**You have standing permission to migrate one of these while you're already
-working in it** — it's just waiting to be moved. Rename to
-`src/<Class>.php` (matching the namespace), drop its `require_once` from the
-bin entry and `tests/bootstrap.php`, run `composer test`, and commit the
-migration separately from your feature work. One exception: `bin/graveyard` /
-`graveyard_lib.php` are under a coordination gate — only migrate them if those
-paths are clean and no parallel session owns them (see the plan doc's Task 4
-gate); if unsure, leave them and note it. Update `dotfiles-206` when a file is
-migrated.
+> **Beads: `dotfiles-206`** — "Execute src/ PSR-4 migration plan". Tasks 1-4
+> done; Plan: `docs/superpowers/plans/2026-07-17-src-psr4-migration.md`.
 
 ## Content Conversion Tools
 

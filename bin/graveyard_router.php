@@ -16,8 +16,7 @@ namespace JT;
 # 127.0.0.1 only by the launching command; never shells out with request data.
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/misc/helpers.php';
-require_once __DIR__ . '/graveyard_lib.php';
+$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $path   = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
