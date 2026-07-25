@@ -521,7 +521,7 @@ Deferred to Task 4 (documents the post-T4 layout): "Testing" section — replace
    composer maps the same root for tests, so no hand-requires anywhere.
    ```
 
-- [ ] **Step 4: Final sweep**
+- [x] **Step 4: Final sweep** — re-run post-Task-4: the only remaining hit is the AGENTS.md paragraph that *documents* the move (an intentional historical mention).
 
 ```bash
 grep -rn "misc/helpers\|misc/bootstrap\|_lib\.php" bin tests src AGENTS.md composer.json | grep -v phploy-source
@@ -537,7 +537,7 @@ php bin/html-to-markdown --help 2>&1 | head -3 || echo '<b>x</b>' | php bin/html
 ```
 Expected: suite green except the 7 pre-existing failures; help/markdown output, no PHP errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit** — landed as `9b736c4`; the checkbox was simply never ticked (found while closing Task 4).
 
 ```bash
 git add -A bin composer.json misc AGENTS.md
