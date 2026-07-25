@@ -2582,11 +2582,18 @@ class Graveyard {
 	 * (window.GYT[id] = "…"), read fresh from the archived transcript on disk.
 	 * Returns null when no transcript is archived for the id, so the router can
 	 * answer 404 and the modal shows "(no transcript lies here)". Never writes.
+	 *
+	 * A markdown archive is presented as /export-style TUI text (dotfiles-0p4): the modal
+	 * drops this into a `<pre>`, where markdown source reads as a wall of literal `**You:**`
+	 * markers with no hanging indents. The FILE stays markdown — `graveyard show` opens it
+	 * in an editor that previews it, and full-text search greps the source. Legacy /export
+	 * archives are already in this shape and pass through untouched.
 	 */
 	public function renderTranscriptJs(string $id): ?string {
 		$tp = $this->transcriptPath($id);
 		if ($id === '' || !is_file($tp)) { return null; }
-		return $this->pageTranscriptJs($id, (string) file_get_contents($tp));
+		$text = (new Helpers\TuiTranscript())->fromMarkdown((string) file_get_contents($tp));
+		return $this->pageTranscriptJs($id, $text);
 	}
 
 	/**
