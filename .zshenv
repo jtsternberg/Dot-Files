@@ -53,6 +53,7 @@ command -v code &>/dev/null && export OPEN_IN_EDITOR_COMMAND='code'
 export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl -w'
 
 export WP_TESTS_DIR=/tmp/wordpress/tests
+export CLAUDE_CATCHUP_YOLO=1
 
 export NVM_DIR="$HOME/.nvm"
 # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # This loads nvm
