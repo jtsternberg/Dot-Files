@@ -619,13 +619,118 @@ class Graveyard {
 		return $lastReal < filemtime($tp);
 	}
 
+	/**
+	 * Archive the session's transcript. Prefers export-session.mjs (reads the session
+	 * JSONL straight off disk: works on a dead session, ~100ms, appends nothing to the
+	 * target, mutates nothing) and falls back to typing /export into the live REPL when
+	 * that binary is absent — or present but broken, which must not cost graveyard a
+	 * capability it had before this seam existed.
+	 *
+	 * Either way GATE 2 (bury, post-export) re-checks the written transcript against the
+	 * session's recent genuine turns before anything destructive happens.
+	 */
 	public function exportTranscript(array $sess, int $timeoutSecs = 30): bool {
-		$id  = $sess['session_id'];
-		$dir = $this->sessionDir($id);
-		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
+		$bin = $this->exportBinPath();
+		if ($bin !== '') {
+			if ($this->exportTranscriptViaBin($sess, $bin)) { return true; }
+			$this->cli->msg('  export-session.mjs produced nothing — falling back to typing /export into the REPL.', 'yellow');
+		}
+		return $this->exportTranscriptViaRepl($sess, $timeoutSecs);
+	}
 
+	/**
+	 * Resolved path to export-session.mjs, or '' when it is not usable here (caller
+	 * falls back to the REPL). GRAVEYARD_EXPORT_BIN overrides ABSOLUTELY — a set-but-
+	 * missing override resolves to '' rather than quietly running the machine's install,
+	 * which is what makes both branches of exportTranscript() unit-testable (same seam
+	 * shape as GODO_DIRMAP_BIN in src/Godo.php).
+	 *
+	 * Otherwise: the claude-plugins working checkout first (that is the copy JT edits and
+	 * the one Claude Code loads from), then any marketplace-installed session-tools cache,
+	 * newest version dir first. All $HOME-relative, so this resolves on Linux too.
+	 */
+	public function exportBinPath(): string {
+		$env = getenv('GRAVEYARD_EXPORT_BIN');
+		if ($env !== false && $env !== '') {
+			return $this->usableExportBin($env) ? $env : '';
+		}
+
+		$home  = getenv('HOME') ?: '';
+		$leaf  = '/skills/sessions-catch-up/scripts/export-session.mjs';
+		$cands = [$home . '/Code/claude-plugins/plugins/session-tools' . $leaf];
+		$cache = glob($home . '/.claude/plugins/cache/*/session-tools/*' . $leaf) ?: [];
+		rsort($cache);
+
+		foreach (array_merge($cands, $cache) as $cand) {
+			if ($this->usableExportBin($cand)) { return $cand; }
+		}
+		return '';
+	}
+
+	protected function usableExportBin(string $path): bool {
+		return $path !== '' && is_file($path) && is_executable($path);
+	}
+
+	/**
+	 * PURE. The export-session.mjs invocation graveyard wants.
+	 *
+	 * `--format md` is the full-fidelity renderer: every turn, no window, no per-turn
+	 * character cap. The digest formats window recent turns and clip turn text, and
+	 * graveyard is writing a PERMANENT archive that GATE 2 then matches against the tail
+	 * of the session's genuine turns — so no --window/--truncate/--max-chars/--fast here.
+	 * `--no-beads` skips a `bd show` round-trip whose output the md renderer never emits.
+	 * `--cwd` only disambiguates name lookups; the full session id resolves ahead of it.
+	 */
+	public function exportBinCommand(string $bin, string $sessionId, string $cwd): string {
+		$cmd = escapeshellcmd($bin) . ' ' . escapeshellarg($sessionId) . ' --format md --no-beads';
+		if ($cwd !== '') { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
+		return $cmd;
+	}
+
+	/**
+	 * I/O. Render the transcript with export-session.mjs and land it atomically.
+	 *
+	 * A non-zero exit (no such session, ambiguous id, parse failure) or empty output is a
+	 * FAILURE, not an empty archive: bury would otherwise tear a session down against a
+	 * transcript with no turns in it.
+	 */
+	public function exportTranscriptViaBin(array $sess, string $bin): bool {
+		$id  = (string) $sess['session_id'];
+		$cwd = (string) ($sess['cwd'] ?? '');
+
+		$out  = [];
+		$code = 0;
+		exec($this->exportBinCommand($bin, $id, $cwd) . ' 2>/dev/null', $out, $code);
+		if ($code !== 0) { return false; }
+
+		$text = trim(implode("\n", $out));
+		if ($text === '') { return false; }
+
+		$tmp = $this->transcriptTmpPath($sess);
+		if (file_put_contents($tmp, $text . "\n") === false) { return false; }
+		if (@rename($tmp, $this->transcriptPath($id))) { return true; }
+		@unlink($tmp);
+		return false;
+	}
+
+	/** The temp file an in-flight export writes before it is renamed into place. */
+	protected function transcriptTmpPath(array $sess): string {
+		$dir = $this->sessionDir((string) $sess['session_id']);
+		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
 		$tmp = $dir . '/.transcript.' . ($sess['pid'] ?? getmypid()) . '.tmp';
 		if (file_exists($tmp)) { @unlink($tmp); }
+		return $tmp;
+	}
+
+	/**
+	 * Legacy path: drive Claude Code's own /export by typing it into the live REPL and
+	 * polling for the file to stop growing. Needs the session alive in a pane, appends a
+	 * synthetic turn to it, and costs up to $timeoutSecs. Kept as the fallback for when
+	 * export-session.mjs is unavailable.
+	 */
+	public function exportTranscriptViaRepl(array $sess, int $timeoutSecs = 30): bool {
+		$id  = $sess['session_id'];
+		$tmp = $this->transcriptTmpPath($sess);
 
 		$this->sendExportCommand($sess, $tmp);
 
