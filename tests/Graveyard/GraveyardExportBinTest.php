@@ -101,6 +101,25 @@ final class GraveyardExportBinTest extends TestCase
 		$this->assertSame('', $this->makeGraveyard()->exportBinPath());
 	}
 
+	/**
+	 * The escape hatch. export-session.mjs is the faster, non-mutating path but it is a
+	 * DIFFERENT renderer: it drops slash-command prompts and every tool-output body that
+	 * Claude Code's own /export keeps (see the fidelity comparison in dotfiles-6bx).
+	 * GRAVEYARD_EXPORT_BIN=off pins bury back to the REPL renderer without editing code.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider('offValues')]
+	public function testExportBinPathHonorsAnOffSwitch(string $off): void
+	{
+		putenv('GRAVEYARD_EXPORT_BIN=' . $off);
+
+		$this->assertSame('', $this->makeGraveyard()->exportBinPath());
+	}
+
+	public static function offValues(): array
+	{
+		return [['off'], ['OFF'], ['0'], ['none'], ['false'], ['repl']];
+	}
+
 	public function testExportBinPathIsEmptyWhenOverrideIsNotExecutable(): void
 	{
 		$bin = $this->tmpName('export-noexec');

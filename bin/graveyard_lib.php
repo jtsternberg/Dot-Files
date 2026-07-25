@@ -652,6 +652,12 @@ class Graveyard {
 	public function exportBinPath(): string {
 		$env = getenv('GRAVEYARD_EXPORT_BIN');
 		if ($env !== false && $env !== '') {
+			// Escape hatch. The two renderers are NOT equivalent: export-session.mjs drops
+			// slash-command prompts and every tool-output body Claude Code's own /export
+			// keeps (measured in dotfiles-6bx). GRAVEYARD_EXPORT_BIN=off pins bury back to
+			// the REPL renderer without a code change. Checked before the filesystem so the
+			// token means "off" even if a file by that name happens to exist.
+			if (in_array(strtolower($env), ['off', '0', 'none', 'false', 'repl'], true)) { return ''; }
 			return $this->usableExportBin($env) ? $env : '';
 		}
 
