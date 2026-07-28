@@ -15,6 +15,10 @@ class Graveyard {
 	// byte through the text `send` path does, and clears the input reliably.
 	const CLEAR_PROMPT = "\x03";
 
+	// Flags the members of a buried workspace that a search term actually hit; the
+	// unmatched siblings get a blank column of the same width so titles stay aligned.
+	const MATCH_MARK = '✱';
+
 	protected $cli;
 	protected $cmux;
 
@@ -2024,30 +2028,37 @@ class Graveyard {
 	 * wrap. Returns ['primary'=>string, 'secondary'=>?string]. Wide terminals get a
 	 * single line (id · title · cwd · date); below the threshold it stacks the title on
 	 * line 1 and dim cwd·date on line 2 — one consistent shape for grouped & loose.
+	 *
+	 * $marker is an optional glyph column between the id and the title, used by search
+	 * to flag which members of a plot actually matched. It's budgeted into the width, so
+	 * passing a single space for the unmatched siblings keeps a plot's titles aligned.
+	 * Empty (the default, i.e. ls) emits no column at all.
 	 */
-	public function lsEntryLines(array $t, int $width, string $home, int $indent = 0): array {
+	public function lsEntryLines(array $t, int $width, string $home, int $indent = 0, string $marker = ''): array {
 		$id    = substr((string) $t['session_id'], 0, 8);
 		$date  = substr((string) ($t['buried_at'] ?? ''), 0, 10);
 		$title = $this->titleizeSummary($t, $home);
 		$cwd   = (string) ($t['cwd'] ?? '');
 		$pad   = str_repeat(' ', $indent);
+		$mark  = $marker === '' ? '' : $marker . ' ';
+		$mw    = mb_strlen($mark);
 		$STACK_BELOW = 100;
 
 		if ($width >= $STACK_BELOW) {
-			$avail = $width - $indent - 8 - 6 - strlen($date); // id + three 2-space gaps + date
+			$avail = $width - $indent - 8 - 6 - $mw - strlen($date); // id + three 2-space gaps + marker + date
 			if ($avail >= 24) {
 				$cwdMax   = min(40, intdiv($avail, 2));
 				$shortCwd = $this->shortenCwd($cwd, $home, $cwdMax);
 				$titleTxt = $this->ellipsizeText($title, $avail - mb_strlen($shortCwd));
-				return ['primary' => $pad . $id . '  ' . $titleTxt . '  ' . $shortCwd . '  ' . $date, 'secondary' => null];
+				return ['primary' => $pad . $id . '  ' . $mark . $titleTxt . '  ' . $shortCwd . '  ' . $date, 'secondary' => null];
 			}
 		}
 
 		// Stacked: bright title line + dim, indented cwd·date line. (Do NOT run the
 		// secondary through ellipsizeText — it trims the leading indent; the fields are
 		// already sized to fit within $width here.)
-		$titleTxt  = $this->ellipsizeText($title, $width - $indent - 8 - 2);
-		$primary   = $pad . $id . '  ' . $titleTxt;
+		$titleTxt  = $this->ellipsizeText($title, $width - $indent - 8 - 2 - $mw);
+		$primary   = $pad . $id . '  ' . $mark . $titleTxt;
 		$dPad      = str_repeat(' ', $indent + 2);
 		$cwdMax    = $width - mb_strlen($dPad) - 3 - strlen($date);
 		$shortCwd  = $this->shortenCwd($cwd, $home, max(0, $cwdMax));
@@ -2094,8 +2105,8 @@ class Graveyard {
 		foreach ($loose as $t) { $this->printLsEntry($t, $w, $home, 0); }
 	}
 
-	protected function printLsEntry(array $t, int $width, string $home, int $indent): void {
-		$lines = $this->lsEntryLines($t, $width, $home, $indent);
+	protected function printLsEntry(array $t, int $width, string $home, int $indent, string $marker = ''): void {
+		$lines = $this->lsEntryLines($t, $width, $home, $indent, $marker);
 		$this->cli->msg($lines['primary']);
 		if ($lines['secondary'] !== null) { $this->cli->msg($lines['secondary'], 'cyan'); }
 	}
@@ -2119,26 +2130,45 @@ class Graveyard {
 
 	/**
 	 * Search buried tombstones by a case-insensitive term across the human-meaningful
-	 * metadata (workspace_title/tab_title/cwd/summary). With $fullText, also grep the
-	 * rendered transcript body for tombstones whose metadata didn't already match.
-	 * Results are sorted newest-first (buried_at desc). Returns the matching tombstones.
+	 * metadata (workspace_title/tab_title/cwd/summary) plus the title of the workspace a
+	 * session was buried with. group_title is in there because a plot's own name is
+	 * stamped at the bury and can differ from every member's per-session titles — without
+	 * it, a workspace is unfindable by its name. With $fullText, also grep the rendered
+	 * transcript body for tombstones whose metadata didn't already match.
+	 *
+	 * Each hit is stamped with `match_scope`: 'session' when the term hit that session's
+	 * own fields (tab_title/cwd/summary, or the transcript) and 'group' when only the
+	 * plot-level ones did (group_title/workspace_title — for a grouped session those name
+	 * the workspace, not the session, and every member carries them). So a plot named for
+	 * the term surfaces whole, and display can still tell which member you actually meant.
+	 * A loose session has no plot, so its workspace_title counts as its own. Sorted
+	 * newest-first (buried_at desc).
 	 */
 	public function searchTombstones(string $term, bool $fullText = false): array {
 		$needle = mb_strtolower(trim($term));
 		$tombs  = $this->readIndex()['tombstones'] ?? [];
 		$hits   = [];
 		foreach ($tombs as $t) {
-			$meta = mb_strtolower(implode(' ', [
-				(string) ($t['workspace_title'] ?? ''),
-				(string) ($t['tab_title'] ?? ''),
-				(string) ($t['cwd'] ?? ''),
-				(string) ($t['summary'] ?? ''),
-			]));
-			if ($needle !== '' && str_contains($meta, $needle)) { $hits[] = $t; continue; }
+			if ($needle === '') { continue; }
+			$grouped = !empty($t['group_id']);
+			$own = mb_strtolower(implode(' ', array_merge(
+				$grouped ? [] : [(string) ($t['workspace_title'] ?? '')],
+				[
+					(string) ($t['tab_title'] ?? ''),
+					(string) ($t['cwd'] ?? ''),
+					(string) ($t['summary'] ?? ''),
+				]
+			)));
+			if (str_contains($own, $needle)) { $hits[] = $t + ['match_scope' => 'session']; continue; }
+
+			$plot = $grouped
+				? mb_strtolower(((string) ($t['group_title'] ?? '')) . ' ' . ((string) ($t['workspace_title'] ?? '')))
+				: '';
+			if (trim($plot) !== '' && str_contains($plot, $needle)) { $hits[] = $t + ['match_scope' => 'group']; continue; }
 
 			if ($fullText) {
 				$tp = $this->transcriptPath($t['session_id']);
-				if ($needle !== '' && is_file($tp) && $this->fileContains($tp, $needle)) { $hits[] = $t; }
+				if (is_file($tp) && $this->fileContains($tp, $needle)) { $hits[] = $t + ['match_scope' => 'session']; }
 			}
 		}
 		usort($hits, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
@@ -2157,9 +2187,13 @@ class Graveyard {
 		return $found;
 	}
 
-	/** PURE: a search hit reduced to the stable JSON-friendly field set. */
-	public function searchRowJson(array $t): array {
-		return [
+	/**
+	 * PURE: a search hit reduced to the stable JSON-friendly field set. Pass $matched to
+	 * append the flag search uses when a row is a plot sibling that rode along unmatched;
+	 * omit it (ls, and the legacy flat search rows) to keep the original key set.
+	 */
+	public function searchRowJson(array $t, ?bool $matched = null): array {
+		$row = [
 			'session_id'      => $t['session_id'] ?? '',
 			'workspace_title' => $t['workspace_title'] ?? '',
 			'tab_title'       => $t['tab_title'] ?? '',
@@ -2168,6 +2202,81 @@ class Graveyard {
 			'buried_at'       => $t['buried_at'] ?? '',
 			'last_active'     => $t['last_active'] ?? null,
 		];
+		if ($matched !== null) { $row['matched'] = $matched; }
+		return $row;
+	}
+
+	/**
+	 * PURE. Promote search hits from a flat session list to the same grouped view ls
+	 * shows: any hit that belongs to a buried workspace pulls in its WHOLE plot, because
+	 * the plot is the resurrect unit — you want the siblings and the group id, not one
+	 * orphaned row. Returns
+	 *   ['workspaces' => [['group_id','title','buried_at','sessions'=>members (group_pos
+	 *                      order), 'matched'=>[session_id => true]]],
+	 *    'sessions'   => loose hits (newest-first, as given)]
+	 * Plots sort newest-first by their newest member; $hits order is otherwise preserved.
+	 */
+	public function expandSearchHits(array $hits, array $allTombs): array {
+		$matchedIds = [];
+		$groupIds   = [];
+		$loose      = [];
+		foreach ($hits as $t) {
+			// A member that only matched via its plot's shared title isn't what you were
+			// looking for — it rides along like any other sibling, unflagged.
+			if (($t['match_scope'] ?? 'session') !== 'group') {
+				$matchedIds[(string) ($t['session_id'] ?? '')] = true;
+			}
+			$gid = $t['group_id'] ?? null;
+			if ($gid) { $groupIds[$gid] = true; }
+			else { $loose[] = $t; }
+		}
+
+		$workspaces = [];
+		foreach (array_keys($groupIds) as $gid) {
+			$members = array_values(array_filter($allTombs, fn($t) => ($t['group_id'] ?? null) === $gid));
+			usort($members, fn($a, $b) => ($a['group_pos'] ?? 0) <=> ($b['group_pos'] ?? 0));
+			if (!$members) { continue; }
+			$matched = [];
+			$newest  = '';
+			foreach ($members as $m) {
+				$sid = (string) ($m['session_id'] ?? '');
+				if (isset($matchedIds[$sid])) { $matched[$sid] = true; }
+				$at = (string) ($m['buried_at'] ?? '');
+				if (strcmp($at, $newest) > 0) { $newest = $at; }
+			}
+			$workspaces[] = [
+				'group_id'  => $gid,
+				'title'     => $members[0]['group_title'] ?? '',
+				'buried_at' => substr((string) ($members[0]['buried_at'] ?? ''), 0, 10),
+				'newest'    => $newest,
+				'sessions'  => $members,
+				'matched'   => $matched,
+			];
+		}
+		usort($workspaces, fn($a, $b) => strcmp($b['newest'], $a['newest']));
+
+		return ['workspaces' => $workspaces, 'sessions' => $loose];
+	}
+
+	/**
+	 * PURE. search --json: the same {workspaces,sessions} shape as ls --json, so one
+	 * consumer handles both, plus a `matched` flag on every session row.
+	 */
+	public function searchJson(array $hits, array $allTombs): array {
+		$grouped = $this->expandSearchHits($hits, $allTombs);
+		$out     = ['workspaces' => [], 'sessions' => []];
+		foreach ($grouped['workspaces'] as $ws) {
+			$out['workspaces'][] = [
+				'group_id' => $ws['group_id'],
+				'title'    => $ws['title'],
+				'sessions' => array_map(
+					fn($t) => $this->searchRowJson($t, isset($ws['matched'][(string) ($t['session_id'] ?? '')])),
+					$ws['sessions']
+				),
+			];
+		}
+		$out['sessions'] = array_map(fn($t) => $this->searchRowJson($t, true), $grouped['sessions']);
+		return $out;
 	}
 
 	public function resolveTombstone(string $prefix): ?array {
@@ -2236,14 +2345,28 @@ class Graveyard {
 
 	public function printSearch(string $term, bool $json, bool $fullText): void {
 		$hits = $this->searchTombstones($term, $fullText);
+		$all  = $this->readIndex()['tombstones'] ?? [];
 		if ($json) {
-			echo json_encode(array_map(fn($t) => $this->searchRowJson($t), $hits), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+			echo json_encode($this->searchJson($hits, $all), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
 			return;
 		}
 		if (!$hits) { $this->cli->msg("No buried sessions match '{$term}'.", 'yellow'); return; }
-		$w    = $this->termWidth();
-		$home = getenv('HOME') ?: '';
-		foreach ($hits as $t) { $this->printLsEntry($t, $w, $home, 0); }
+
+		$w       = $this->termWidth();
+		$home    = getenv('HOME') ?: '';
+		$grouped = $this->expandSearchHits($hits, $all);
+
+		foreach ($grouped['workspaces'] as $ws) {
+			$title = $ws['title'] !== '' ? $ws['title'] : '(workspace)';
+			$this->cli->msg($this->groupHeaderLine($title, count($ws['sessions']), $ws['buried_at'], $w), 'green');
+			$this->cli->msg('  ↻ graveyard resurrect --workspace ' . substr((string) $ws['group_id'], 0, 8), 'blue');
+			foreach ($ws['sessions'] as $t) {
+				$hit = isset($ws['matched'][(string) ($t['session_id'] ?? '')]);
+				$this->printLsEntry($t, $w, $home, 4, $hit ? self::MATCH_MARK : ' ');
+			}
+		}
+		if ($grouped['workspaces'] && $grouped['sessions']) { $this->cli->msg(''); }
+		foreach ($grouped['sessions'] as $t) { $this->printLsEntry($t, $w, $home, 0); }
 	}
 
 	public function showTombstone(string $prefix): void {
