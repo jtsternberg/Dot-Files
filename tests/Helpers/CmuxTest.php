@@ -426,4 +426,80 @@ final class CmuxTest extends TestCase
 		$this->expectException(\RuntimeException::class);
 		$this->cmux->resolveWorkspaceNode($wtree, 'deploy');
 	}
+
+	private function twoWindowTree(): array
+	{
+		return ['windows' => [
+			['ref' => 'window:1', 'workspaces' => [
+				['ref' => 'workspace:23', 'title' => '~/Sites/lindris-monorepo'],
+				['ref' => 'workspace:27', 'title' => 'levamo cloudflare setup'],
+			]],
+			['ref' => 'window:2', 'workspaces' => [
+				['ref' => 'workspace:18', 'title' => '⠐ graveyard resurrect naming'],
+				['ref' => 'workspace:17', 'title' => 'claudeplugins codex friendly'],
+				['ref' => 'workspace:5',  'title' => 'cmb security'],
+			]],
+		]];
+	}
+
+	/** A ref alone is not a location: the description leads with the workspace NAME. */
+	public function testDescribeWorkspaceRefNamesTheWorkspace(): void
+	{
+		$this->assertSame(
+			'"levamo cloudflare setup" (window 1, workspace 2 of 2, workspace:27)',
+			$this->cmux->describeWorkspaceRef($this->twoWindowTree(), 'workspace:27')
+		);
+	}
+
+	/** Sidebar position is per-window and 1-based, so it matches what you count on screen. */
+	public function testDescribeWorkspaceRefPositionIsPerWindow(): void
+	{
+		$this->assertSame(
+			'"cmb security" (window 2, workspace 3 of 3, workspace:5)',
+			$this->cmux->describeWorkspaceRef($this->twoWindowTree(), 'workspace:5')
+		);
+	}
+
+	/** cmux's live status glyph is noise in a "go look here" message. */
+	public function testDescribeWorkspaceRefStripsStatusGlyph(): void
+	{
+		$this->assertSame(
+			'"graveyard resurrect naming" (window 2, workspace 1 of 3, workspace:18)',
+			$this->cmux->describeWorkspaceRef($this->twoWindowTree(), 'workspace:18')
+		);
+	}
+
+	/** One window means the window number carries no information — drop it. */
+	public function testDescribeWorkspaceRefOmitsWindowWhenOnlyOne(): void
+	{
+		$tree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:9',  'title' => 'asana-skill update'],
+			['ref' => 'workspace:12', 'title' => 'boss backend'],
+		]]]];
+		$this->assertSame(
+			'"boss backend" (workspace 2 of 2, workspace:12)',
+			$this->cmux->describeWorkspaceRef($tree, 'workspace:12')
+		);
+	}
+
+	/** Ref not in the tree: still name it from the caller's fallback title. */
+	public function testDescribeWorkspaceRefFallsBackToGivenTitle(): void
+	{
+		$this->assertSame(
+			'"levamo cloudflare setup" (workspace:99)',
+			$this->cmux->describeWorkspaceRef($this->twoWindowTree(), 'workspace:99', 'levamo cloudflare setup')
+		);
+		$this->assertSame(
+			'workspace:99',
+			$this->cmux->describeWorkspaceRef($this->twoWindowTree(), 'workspace:99')
+		);
+	}
+
+	/** displayTitle keeps ASCII-leading titles (paths) intact while dropping glyphs. */
+	public function testDisplayTitle(): void
+	{
+		$this->assertSame('~/Sites/lindris-monorepo', $this->cmux->displayTitle('~/Sites/lindris-monorepo'));
+		$this->assertSame('deploy', $this->cmux->displayTitle('⠂ deploy'));
+		$this->assertSame('deploy', $this->cmux->displayTitle('  ✳ deploy  '));
+	}
 }

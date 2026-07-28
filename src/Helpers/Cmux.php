@@ -323,6 +323,44 @@ class Cmux {
 	}
 
 	/**
+	 * PURE. A workspace/tab title as a human reads it: cmux prefixes live titles with a
+	 * status glyph ("⠐ foo"), which is noise when the title is being printed for someone
+	 * to go find. Strips a leading non-ASCII run only, so ASCII-leading titles survive
+	 * intact (unlike normalizeTitle(), which would eat the "~/" of "~/Sites/x").
+	 */
+	public function displayTitle(string $title): string {
+		return trim((string) preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));
+	}
+
+	/**
+	 * PURE. Where a workspace ref actually IS, phrased so it can be found on screen:
+	 * `"levamo cloudflare setup" (window 1, workspace 2 of 7, workspace:27)`. A bare
+	 * "workspace:27" is an internal handle — it says nothing about where to look, so
+	 * user-facing messages name the workspace and its 1-based sidebar slot instead.
+	 * The window clause is dropped when there's only one window (no information in it).
+	 * Ref not in the tree: falls back to `"$fallbackTitle" (ref)`, or the bare ref.
+	 */
+	public function describeWorkspaceRef(array $tree, string $wsRef, string $fallbackTitle = ''): string {
+		$windows = array_values($tree['windows'] ?? []);
+		foreach ($windows as $wi => $window) {
+			$spaces = array_values($window['workspaces'] ?? []);
+			foreach ($spaces as $i => $ws) {
+				if ((string) ($ws['ref'] ?? '') !== $wsRef) { continue; }
+				return sprintf('"%s" (%sworkspace %d of %d, %s)',
+					$this->displayTitle((string) ($ws['title'] ?? '')),
+					count($windows) > 1 ? sprintf('window %d, ', $wi + 1) : '',
+					$i + 1, count($spaces), $wsRef);
+			}
+		}
+		return $fallbackTitle !== '' ? sprintf('"%s" (%s)', $this->displayTitle($fallbackTitle), $wsRef) : $wsRef;
+	}
+
+	/** Live-tree wrapper around describeWorkspaceRef(). */
+	public function describeWorkspace(string $wsRef, string $fallbackTitle = ''): string {
+		return $this->describeWorkspaceRef($this->tree(), $wsRef, $fallbackTitle);
+	}
+
+	/**
 	 * PURE. Resolve a workspace node from a cmux tree by exact ref (workspace:N), an
 	 * exact (normalized, case-insensitive) title match, or a case-insensitive title
 	 * substring. Returns ['ref','title','node','window_ref'] or null (none) / throws

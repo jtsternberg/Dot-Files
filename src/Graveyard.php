@@ -1968,7 +1968,7 @@ class Graveyard {
 
 	/** PURE. Strip Claude's leading status glyph (e.g. ✳/⠂) from a tab title. */
 	public function stripGlyph(string $title): string {
-		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));
+		return $this->cmux->displayTitle($title);
 	}
 
 	/** PURE. Strip machine noise from a raw summary: <tags>, [MACHINE_KEY: ...], home→~. */
@@ -3062,7 +3062,10 @@ class Graveyard {
 
 		$mode = $this->launchSessionIntoSurface($t, $ws['firstSurfRef'], $ws['ref'], $fromTranscript);
 		$note = $mode === 'resume' ? 'via --resume (restored in place)' : 'Claude is reading the transcript';
-		$this->cli->successMsg("Resurrected '{$title}' in {$ws['ref']} — {$note}.");
+		// Name + sidebar slot, not a bare workspace ref — the ref is an internal handle
+		// and tells you nothing about which workspace to go look at.
+		$where = $this->cmux->describeWorkspace($ws['ref'], $title);
+		$this->cli->successMsg("Resurrected into {$where} — {$note}.");
 	}
 
 	/**
@@ -3164,7 +3167,8 @@ class Graveyard {
 						$refByPos[$e['group_pos']] = (string) $refs[$k];
 					}
 					$this->applyPaneSelections($layout, $refByPos, $wsRef);
-					$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s (layout restored) — %d Claude session(s) restored.', $title, $wsRef, $restored));
+					$this->cli->successMsg(sprintf('Resurrected workspace %s — layout restored, %d Claude session(s) restored.',
+						$this->cmux->describeWorkspace($wsRef, $title), $restored));
 					return;
 				}
 				$this->cli->msg('  Restored surface count did not match the manifest — falling back to manual rebuild.', 'yellow');
@@ -3243,7 +3247,8 @@ class Graveyard {
 		}
 		$this->applyPaneSelections($layout, $refByPos, $wsRef);
 
-		$this->cli->successMsg(sprintf('Resurrected workspace "%s" in %s — %d Claude session(s) restored.', $m['group_title'], $wsRef, $restored));
+		$this->cli->successMsg(sprintf('Resurrected workspace %s — %d Claude session(s) restored.',
+			$this->cmux->describeWorkspace($wsRef, (string) $m['group_title']), $restored));
 	}
 
 	/**
