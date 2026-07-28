@@ -1966,9 +1966,14 @@ class Graveyard {
 		return '…' . mb_substr($s, -($max - 1));
 	}
 
-	/** PURE. Strip Claude's leading status glyph (e.g. ✳/⠂) from a tab title. */
+	/**
+	 * PURE. Strip Claude's leading status glyph (e.g. ✳/⠂) from a tab title.
+	 * Deliberately NOT delegated to Cmux::displayTitle() (its twin): the served
+	 * page runs with a null cmux (bin/graveyard_router.php), and every stone title
+	 * goes through here — reaching for $this->cmux fatals the whole page.
+	 */
 	public function stripGlyph(string $title): string {
-		return $this->cmux->displayTitle($title);
+		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));
 	}
 
 	/** PURE. Strip machine noise from a raw summary: <tags>, [MACHINE_KEY: ...], home→~. */

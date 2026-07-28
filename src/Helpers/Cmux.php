@@ -327,6 +327,7 @@ class Cmux {
 	 * status glyph ("⠐ foo"), which is noise when the title is being printed for someone
 	 * to go find. Strips a leading non-ASCII run only, so ASCII-leading titles survive
 	 * intact (unlike normalizeTitle(), which would eat the "~/" of "~/Sites/x").
+	 * Twin of Graveyard::stripGlyph() — kept separate on purpose, see the note there.
 	 */
 	public function displayTitle(string $title): string {
 		return trim((string) preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));

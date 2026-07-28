@@ -65,6 +65,22 @@ final class GraveyardPageTest extends TestCase
 		$this->assertStringContainsString('2026-07-15', $html);      // buried date on the stone
 	}
 
+	/**
+	 * The served page is rendered by bin/graveyard_router.php, which constructs
+	 * Graveyard with a NULL cmux on purpose (the HTTP path never talks to cmux).
+	 * Anything on the render path that reaches for $this->cmux is a fatal for the
+	 * whole page, so pin the render — and stripGlyph, which every stone title goes
+	 * through — as cmux-free.
+	 */
+	public function testPageRenderWorksWithoutCmux(): void
+	{
+		$gy = new Graveyard($this->cli, null);
+		$this->assertSame('Review domain config', $gy->stripGlyph('✳ Review domain config'));
+
+		$html = $gy->pageHtml([$this->tomb('abc12345-full', '✳ Review domain config')], '2026-07-17');
+		$this->assertStringContainsString('Review domain config', $html);
+	}
+
 	public function testStoneCrackedIsSeededByTitle(): void
 	{
 		foreach (['fix the bug', 'FIX login', 'failing test', 'error handling', 'broken pipe'] as $t) {
