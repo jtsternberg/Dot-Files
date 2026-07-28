@@ -3,6 +3,10 @@ namespace JT;
 
 class Graveyard {
 
+	// stripGlyph(): shared with Helpers\Cmux via the trait, NOT borrowed off
+	// $this->cmux — the served page renders with a null cmux (graveyard_router.php).
+	use \JT\Helpers\TitleGlyphTrait;
+
 	// Active-turn markers Claude Code prints while a turn is running. Absence-based
 	// detection (NOT prompt matching, which is fragile with custom/powerline prompts).
 	const ACTIVE_TURN_RE = '/(esc to interrupt|\(\s*[\d.]+k?\s+tokens\s*\)|Cogitating|Thinking…|Pondering|Deciphering)/i';
@@ -1964,16 +1968,6 @@ class Graveyard {
 		if (mb_strlen($s) <= $max) { return $s; }
 		if ($max === 1) { return '…'; }
 		return '…' . mb_substr($s, -($max - 1));
-	}
-
-	/**
-	 * PURE. Strip Claude's leading status glyph (e.g. ✳/⠂) from a tab title.
-	 * Deliberately NOT delegated to Cmux::displayTitle() (its twin): the served
-	 * page runs with a null cmux (bin/graveyard_router.php), and every stone title
-	 * goes through here — reaching for $this->cmux fatals the whole page.
-	 */
-	public function stripGlyph(string $title): string {
-		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));
 	}
 
 	/** PURE. Strip machine noise from a raw summary: <tags>, [MACHINE_KEY: ...], home→~. */

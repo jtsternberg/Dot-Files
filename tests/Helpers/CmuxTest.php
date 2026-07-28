@@ -495,11 +495,17 @@ final class CmuxTest extends TestCase
 		);
 	}
 
-	/** displayTitle keeps ASCII-leading titles (paths) intact while dropping glyphs. */
-	public function testDisplayTitle(): void
+	/**
+	 * stripGlyph() comes from TitleGlyphTrait — one implementation shared with
+	 * Graveyard (which renders the served page with no cmux at all, so it can't
+	 * borrow the method off this class). Keeps ASCII-leading titles (paths) intact.
+	 */
+	public function testStripGlyph(): void
 	{
-		$this->assertSame('~/Sites/lindris-monorepo', $this->cmux->displayTitle('~/Sites/lindris-monorepo'));
-		$this->assertSame('deploy', $this->cmux->displayTitle('⠂ deploy'));
-		$this->assertSame('deploy', $this->cmux->displayTitle('  ✳ deploy  '));
+		$this->assertSame('~/Sites/lindris-monorepo', $this->cmux->stripGlyph('~/Sites/lindris-monorepo'));
+		$this->assertSame('deploy', $this->cmux->stripGlyph('⠂ deploy'));
+		$this->assertSame('deploy', $this->cmux->stripGlyph('  ✳ deploy  '));
+		// Same method, same result, in the class that has no cmux.
+		$this->assertSame($this->gy->stripGlyph('⠂ deploy'), $this->cmux->stripGlyph('⠂ deploy'));
 	}
 }

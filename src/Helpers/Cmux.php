@@ -8,6 +8,8 @@ namespace JT\Helpers;
 
 class Cmux {
 
+	use TitleGlyphTrait;
+
 	const SESSIONS_DIR = '~/.claude/sessions';
 
 	protected $cli;
@@ -323,17 +325,6 @@ class Cmux {
 	}
 
 	/**
-	 * PURE. A workspace/tab title as a human reads it: cmux prefixes live titles with a
-	 * status glyph ("⠐ foo"), which is noise when the title is being printed for someone
-	 * to go find. Strips a leading non-ASCII run only, so ASCII-leading titles survive
-	 * intact (unlike normalizeTitle(), which would eat the "~/" of "~/Sites/x").
-	 * Twin of Graveyard::stripGlyph() — kept separate on purpose, see the note there.
-	 */
-	public function displayTitle(string $title): string {
-		return trim((string) preg_replace('/^[^\x00-\x7F]+\s*/u', '', trim($title)));
-	}
-
-	/**
 	 * PURE. Where a workspace ref actually IS, phrased so it can be found on screen:
 	 * `"levamo cloudflare setup" (window 1, workspace 2 of 7, workspace:27)`. A bare
 	 * "workspace:27" is an internal handle — it says nothing about where to look, so
@@ -348,12 +339,12 @@ class Cmux {
 			foreach ($spaces as $i => $ws) {
 				if ((string) ($ws['ref'] ?? '') !== $wsRef) { continue; }
 				return sprintf('"%s" (%sworkspace %d of %d, %s)',
-					$this->displayTitle((string) ($ws['title'] ?? '')),
+					$this->stripGlyph((string) ($ws['title'] ?? '')),
 					count($windows) > 1 ? sprintf('window %d, ', $wi + 1) : '',
 					$i + 1, count($spaces), $wsRef);
 			}
 		}
-		return $fallbackTitle !== '' ? sprintf('"%s" (%s)', $this->displayTitle($fallbackTitle), $wsRef) : $wsRef;
+		return $fallbackTitle !== '' ? sprintf('"%s" (%s)', $this->stripGlyph($fallbackTitle), $wsRef) : $wsRef;
 	}
 
 	/** Live-tree wrapper around describeWorkspaceRef(). */
