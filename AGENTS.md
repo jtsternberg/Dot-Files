@@ -20,6 +20,13 @@ This is a personal dotfiles repository that provides shell configuration, CLI ut
 
 ## CLI Script Development
 
+**For any work on a PHP CLI command, first read and follow
+`.claude/skills/author-cli-commands/SKILL.md`.** That skill is the canonical
+detailed authoring workflow for attributed handlers, direct reflection-based
+dispatch, testing, help, and completion. Put new command-authoring guidance
+there instead of expanding this file; keep this section to repository-wide
+invariants.
+
 ### Creating New CLI Scripts
 
 New CLI scripts should be placed in `bin/` and written in PHP with the `JT` namespace.
@@ -42,12 +49,15 @@ namespace JT;
 # =============================================================================
 ```
 
-### CLI Helpers Setup
+### Legacy CLI Helpers Setup
 
 ```php
 $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $helpyHelperton = $cli->getHelp();
 ```
+
+New and migrated commands use the attributed handler/dispatcher pattern from
+the command-authoring skill instead of constructing help procedurally.
 
 ### Zsh Autocomplete
 
@@ -58,13 +68,11 @@ follow-up work.
 
 Keep dotfiles-owned command completions together in
 `zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh`.
-Create that plugin when adding the first completion, and add
-`dotfiles-completions` to the `.zshrc` `plugins` array so Oh My Zsh loads it.
-Define one `_command_name` function per command and attach it with
-`compdef _command_name command-name`. Use
-`zsh-custom/plugins/dirmap-completions/` and
-`zsh-custom/plugins/godo-completions/` as implementation references; those
-older command-specific plugins remain valid, but do not add new ones.
+It is loaded by the `.zshrc` `plugins` array. Attributed commands generate
+their completion with `<command> completion zsh`; check the marked generated
+block into the shared plugin and pin exact parity in a test. Existing
+command-specific plugins remain valid while they are migrated, but do not add
+new ones.
 
 The completion must reflect `--help` and every supported command/subcommand,
 flag, and argument shape. Update it alongside the CLI, then verify it in a
@@ -111,7 +119,11 @@ zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/dotfiles-
 
 **Git operations:** Available via `$cli->git` (see `src/CLI/Helpers/Git.php`)
 
-### Help Documentation Patterns
+### Legacy Help Documentation Patterns
+
+These builders remain compatible for existing procedural commands. New and
+migrated commands derive help from PHP attributes through the generic
+dispatcher.
 
 **Single command:**
 ```php

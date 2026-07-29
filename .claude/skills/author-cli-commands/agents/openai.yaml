@@ -1,0 +1,4 @@
+interface:
+  display_name: "Author CLI Commands"
+  short_description: "Build attributed, tested PHP CLI commands"
+  default_prompt: "Use $author-cli-commands to add or update a PHP CLI command with synchronized help and Zsh completion."
