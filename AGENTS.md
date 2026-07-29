@@ -131,6 +131,32 @@ $helpyHelperton
 - Exit 0 for success, 1 for error
 - Colors: red=errors, green=success, yellow=info/warning
 
+### Multiple Views of One Dataset Stay in Lock-Step
+
+**When several verbs present the same records — `graveyard ls` / `search` / `page`,
+or any future equivalent — they must read ONE shared accessor that has already
+assembled and annotated the data. Adding a field to what a record shows means
+adding it in that one place, so every view gains it at once.**
+
+A shared *renderer* is not enough and is the trap that has caught this repo. `ls`
+and `search` both rendered through `lsEntryLines()`/`printLsEntry()` and still
+diverged, because each read the index itself and only `ls` annotated the new
+`live` flag on the way through — so the `↑` marker appeared in `ls` and silently
+not in `search`. The renderer was DRY; the input wasn't. Share the source, not
+just the formatting.
+
+Practically:
+
+- Read through the annotated accessor (`Graveyard::tombstones()`), never
+  `readIndex()['tombstones']` directly, in any user-facing view.
+- Memoise anything expensive in that accessor. Liveness shells out to cmux, `lsof`
+  and `ps`, and one `search` can render many rows.
+- Pin it with a test that asserts the views' sources agree, not merely that each
+  one works alone. `tests/Graveyard/GraveyardLaunchSafetyTest.php` has the
+  reference case.
+- Structured output (`--json`) counts as a view. A field visible in the text output
+  and missing from the JSON is the same bug.
+
 ### Testing
 
 **Follow TDD.** For any behavior change to a class under `src/` — new method,
