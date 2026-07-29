@@ -140,16 +140,27 @@ _graveyard() {
 	esac
 }
 
-_cmux_bak() {
-	_arguments -s \
-		'(-h --help)'{-h,--help}'[display help]' \
-		'1:command:(audit)' \
-		'--restore[restore missing workspaces and sessions from the backup]' \
-		'--file=[use a specific backup file]:backup file:_files' \
-		'--dry-run[show what would be done without making changes]' \
-		'--verbose[show detailed progress]'
+_cmux_bak_lazy() {
+	local generated
+
+	generated="$(command cmux-bak completion zsh 2>/dev/null)" || {
+		_message 'unable to generate cmux-bak completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load cmux-bak completion'
+		return 1
+	}
+
+	if (( ! $+functions[_cmux_bak] )); then
+		_message 'cmux-bak completion did not define _cmux_bak'
+		return 1
+	fi
+
+	_cmux_bak "$@"
 }
 
 compdef _graveyard graveyard
-compdef _cmux_bak cmux-bak
+compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup

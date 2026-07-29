@@ -18,7 +18,7 @@ namespace JT;
 # environment and reports per surface as the tree's `id`. Both joins are exact
 # and tty-free — cmux recycles tty numbers, so a tty is not an identity.
 #
-# On --restore, audits existing workspaces by name and only acts on what's
+# On restore, audits existing workspaces by name and only acts on what's
 # missing: resumes dead sessions in existing workspaces (`claude --resume <id>`
 # or `codex resume <id>`), and recreates workspaces that are gone entirely.
 #
@@ -38,36 +38,14 @@ namespace JT;
 # claude_* keys, are still readable.
 #
 # Usage:
-# cmux-bak [--restore] [--file=<path>] [--dry-run] [--verbose]
+# cmux-bak [--file=<path>] [--dry-run] [--verbose]
+# cmux-bak restore [--file=<path>] [--dry-run] [--verbose]
 # cmux-bak audit [--file=<path>] [--dry-run] [--verbose]
+# cmux-bak completion zsh
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
-$helpyHelperton = $cli->getHelp();
+use JT\CLI\Command\Dispatcher;
 
-$helpyHelperton
-	->setScriptName('cmux-bak')
-	->setDescription('Backup and restore cmux workspace/session state (Claude Code + codex).')
-	->setSampleUsage('[audit] [--restore] [--file=<path>] [--dry-run] [--verbose]')
-	->buildDocs([
-		'audit'          => 'Report which backed-up agent sessions are not running now, then offer to resume them',
-		'--restore'      => 'Restore from backup, auditing existing workspaces first',
-		'--file=<path>'  => 'Backup file path (default: ~/.config/cmux/bak.json)',
-		'--dry-run'      => 'Show what would be done without making changes',
-		'--verbose'      => 'Show detailed progress',
-	]);
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
 
-if ($helpyHelperton->batSignal) {
-	$cli->msg($helpyHelperton->getHelp());
-	exit(0);
-}
-
-try {
-	$cmd = new CmuxBak($cli);
-	$cmd->run();
-} catch (\Exception $e) {
-	$cli->err($e->getMessage());
-	exit(1);
-}
-
-exit(0);
+exit( ( new Dispatcher( $cli, new CmuxBakCommand( $cli ) ) )->run() );

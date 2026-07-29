@@ -1,6 +1,8 @@
 <?php
 namespace JT;
 
+use JT\Helpers\Cmux;
+
 class CmuxBak {
 
 	const BAK_DEFAULT = '~/.config/cmux/bak.json';
@@ -11,34 +13,45 @@ class CmuxBak {
 	protected $dryRun;
 	protected $verbose;
 
-	public function __construct($cli) {
+	public function __construct(
+		$cli,
+		string $bakFile = self::BAK_DEFAULT,
+		bool $dryRun = false,
+		bool $verbose = false,
+		?Cmux $cmux = null
+	) {
 		$this->cli     = $cli;
-		$this->dryRun  = $cli->hasFlag('dry-run');
-		$this->verbose = $cli->isVerbose();
-		$this->cmux    = new \JT\Helpers\Cmux($cli, $this->dryRun);
-
-		$file          = $cli->getFlag('file', self::BAK_DEFAULT);
-		$this->bakFile = $this->cli->convertPathToAbsolute($file);
+		$this->dryRun  = $dryRun;
+		$this->verbose = $verbose;
+		$this->cmux    = $cmux;
+		$this->bakFile = $this->cli->convertPathToAbsolute($bakFile);
 	}
 
-	public function run() {
-		$result = shell_exec('cmux ping 2>/dev/null');
-		if (trim((string) $result) !== 'PONG') {
-			$this->cli->exitErr('cmux is not reachable. Is cmux running?');
+	protected function prepare(): bool {
+		if (!$this->cmux()->ping()) {
+			$this->cli->err('cmux is not reachable. Is cmux running?');
+
+			return false;
 		}
 
-		if ($this->cli->hasArg('audit')) {
-			$this->audit();
-		} elseif ($this->cli->hasFlag('restore')) {
-			$this->restore();
-		} else {
-			$this->backup();
+		return true;
+	}
+
+	protected function cmux(): Cmux {
+		if (!$this->cmux instanceof Cmux) {
+			$this->cmux = new Cmux($this->cli, $this->dryRun);
 		}
+
+		return $this->cmux;
 	}
 
 	// ── Backup ────────────────────────────────────────────────────────────────
 
-	protected function backup() {
+	public function backup(): int {
+		if (!$this->prepare()) {
+			return 1;
+		}
+
 		$this->cli->msg('Scanning cmux state...', 'yellow');
 
 		$tree  = $this->cmux->tree();
@@ -86,6 +99,8 @@ class CmuxBak {
 		$this->cli->successMsg(
 			"Saved {$wsCount} workspaces, {$surfCount} surfaces, {$sessCount} agent sessions{$breakdown} → {$this->bakFile}"
 		);
+
+		return 0;
 	}
 
 	/**
@@ -137,9 +152,15 @@ class CmuxBak {
 
 	// ── Restore ───────────────────────────────────────────────────────────────
 
-	protected function restore() {
+	public function restore(): int {
+		if (!$this->prepare()) {
+			return 1;
+		}
+
 		if (!file_exists($this->bakFile)) {
-			$this->cli->exitErr("Backup file not found: {$this->bakFile}\nRun cmux-bak first.");
+			$this->cli->err("Backup file not found: {$this->bakFile}\nRun cmux-bak first.");
+
+			return 1;
 		}
 
 		$backup = json_decode(file_get_contents($this->bakFile), true);
@@ -361,6 +382,8 @@ class CmuxBak {
 		}
 
 		$this->cli->successMsg('Restore complete.');
+
+		return 0;
 	}
 
 	// ── Audit ───────────────────────────────────────────────────────────────
@@ -373,11 +396,17 @@ class CmuxBak {
 	 * and where each currently lives. A backed-up session absent from that set did
 	 * not re-open. For the missing ones we offer to resume into their existing
 	 * surface (dead-session-in-live-surface — the common post-restart case);
-	 * a vanished workspace/surface is deferred to `--restore` to recreate.
+	 * a vanished workspace/surface is deferred to `restore` to recreate.
 	 */
-	protected function audit() {
+	public function audit(): int {
+		if (!$this->prepare()) {
+			return 1;
+		}
+
 		if (!file_exists($this->bakFile)) {
-			$this->cli->exitErr("Backup file not found: {$this->bakFile}\nRun cmux-bak first.");
+			$this->cli->err("Backup file not found: {$this->bakFile}\nRun cmux-bak first.");
+
+			return 1;
 		}
 
 		$backup = json_decode(file_get_contents($this->bakFile), true);
@@ -447,18 +476,18 @@ class CmuxBak {
 
 		if (!$missing) {
 			$this->cli->successMsg('All backed-up agent sessions are live. Nothing to restore.');
-			return;
+			return 0;
 		}
 
 		if ($this->dryRun) {
 			$this->cli->msg('(dry run — re-run without --dry-run to resume the missing session(s))', 'cyan');
-			return;
+			return 0;
 		}
 
 		$this->cli->lineBreak();
 		if (!$this->cli->confirm('Resume the ' . count($missing) . ' missing session(s)?')) {
 			$this->cli->msg('Left as-is.', 'cyan');
-			return;
+			return 0;
 		}
 
 		$tree = $this->cmux->tree();
@@ -467,11 +496,13 @@ class CmuxBak {
 		}
 
 		$this->cli->successMsg('Audit resume complete.');
+
+		return 0;
 	}
 
 	/**
 	 * Resume one missing session into its existing surface, matched by workspace
-	 * title + (normalized) surface title. Skips — pointing at `--restore` — when
+	 * title + (normalized) surface title. Skips — pointing at `restore` — when
 	 * the workspace or surface is gone, and refuses to clobber a surface that
 	 * already hosts a live agent session.
 	 */
@@ -489,7 +520,7 @@ class CmuxBak {
 
 		$currentWs = $this->cmux->findWorkspaceByTitle($tree, $m['ws_title']);
 		if (!$currentWs) {
-			$this->cli->msg("    ✗ Workspace '{$m['ws_title']}' is gone — run `cmux-bak --restore` to recreate it.", 'yellow');
+			$this->cli->msg("    ✗ Workspace '{$m['ws_title']}' is gone — run `cmux-bak restore` to recreate it.", 'yellow');
 			return;
 		}
 		$wsRef = $currentWs['ref'] ?? '';
@@ -507,7 +538,7 @@ class CmuxBak {
 			}
 		}
 		if (!$target) {
-			$this->cli->msg("    ✗ Surface not found in '{$m['ws_title']}' — run `cmux-bak --restore` to recreate it.", 'yellow');
+			$this->cli->msg("    ✗ Surface not found in '{$m['ws_title']}' — run `cmux-bak restore` to recreate it.", 'yellow');
 			return;
 		}
 		$surfRef = $target['ref'] ?? '';
