@@ -22,6 +22,18 @@ namespace JT\Helpers;
  */
 class TuiTranscript {
 
+	/**
+	 * Speaker labels an archive may use, as a regex alternation.
+	 *
+	 * FOUR places have to agree on this — detection, turn-open, turn-end, and the header
+	 * scan's stop condition — and the fourth is the dangerous one: renderHeader() consumes
+	 * every line it walks and only stops at a marker it recognizes, so a transcript whose
+	 * speaker is missing from this list is consumed WHOLE and renders as a bare banner.
+	 * A codex archive that opens with an agent message (imported sessions do) has no user
+	 * turn to stop the scan. One const, so adding a speaker cannot half-land.
+	 */
+	const SPEAKERS = 'You|Claude|Codex';
+
 	/** Turn glyphs, matching what /export printed. */
 	const USER_GLYPH = '❯';
 	const ASST_GLYPH = '⏺';
@@ -56,8 +68,9 @@ class TuiTranscript {
 		while ($i < $n) {
 			$line = $lines[$i];
 
-			// A turn: "**You:** …" / "**Claude:** …" plus every line up to the next turn.
-			if (preg_match('/^\*\*(You|Claude):\*\*\s?(.*)$/u', $line, $m)) {
+			// A turn: "**You:** …" / "**Claude:** …" / "**Codex:** …" plus every line up to
+			// the next turn.
+			if (preg_match('/^\*\*(' . self::SPEAKERS . '):\*\*\s?(.*)$/u', $line, $m)) {
 				$glyph = $m[1] === 'You' ? self::USER_GLYPH : self::ASST_GLYPH;
 				$body  = [$m[2]];
 				$i++;
@@ -92,7 +105,7 @@ class TuiTranscript {
 	 * "- session `<id>`" header line. Anything else is left alone.
 	 */
 	public function looksLikeMarkdownArchive(string $text): bool {
-		return (bool) preg_match('/^\*\*(You|Claude):\*\*/mu', $text)
+		return (bool) preg_match('/^\*\*(' . self::SPEAKERS . '):\*\*/mu', $text)
 			|| (bool) preg_match('/^- session `/mu', $text);
 	}
 
@@ -103,7 +116,7 @@ class TuiTranscript {
 	 * stray-prose path, unindented and with literal ↳ markers.
 	 */
 	private function startsTurn(string $line): bool {
-		return (bool) preg_match('/^\*\*(You|Claude):\*\*/u', $line)
+		return (bool) preg_match('/^\*\*(' . self::SPEAKERS . '):\*\*/u', $line)
 			|| $line === '---'
 			|| (bool) preg_match('/^#{1,6}\s/u', $line);
 	}
@@ -117,7 +130,7 @@ class TuiTranscript {
 		$consumed = 0;
 		$title = $where = $when = '';
 		foreach ($lines as $idx => $line) {
-			if (preg_match('/^\*\*(You|Claude):\*\*/u', $line)) { break; }
+			if (preg_match('/^\*\*(' . self::SPEAKERS . '):\*\*/u', $line)) { break; }
 			$consumed = $idx + 1;
 			if (preg_match('/^#\s+(.*)$/u', $line, $m)) { $title = trim($this->demark($m[1])); continue; }
 			if (preg_match('/^- session\s/u', $line)) { continue; }

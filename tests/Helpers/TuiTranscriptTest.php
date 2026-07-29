@@ -283,6 +283,48 @@ final class TuiTranscriptTest extends TestCase
 	}
 
 	// =====================================================================
+	// Codex archives (dotfiles-6me) — a third speaker
+	// =====================================================================
+
+	public function testCodexSpeakerRendersAsAnAssistantTurn(): void
+	{
+		$out = $this->render("**You:** do the thing\n\n**Codex:** done\n");
+
+		$this->assertStringContainsString('❯ do the thing', $out);
+		$this->assertStringContainsString('⏺ done', $out);
+		$this->assertStringNotContainsString('Codex:', $out, 'the speaker label becomes a glyph, not literal text');
+	}
+
+	public function testACodexMarkerEndsThePrecedingTurn(): void
+	{
+		// Without Codex in startsTurn(), the assistant turn is absorbed into the user's
+		// as prose: one glyph instead of two, and the label surviving as literal text.
+		$out = $this->render("**You:** ship it\n**Codex:** shipped\n");
+
+		$this->assertMatchesRegularExpression('/❯ ship it\n\n⏺ shipped/', $out);
+	}
+
+	/**
+	 * The data-destroying case. renderHeader() walks until it sees a turn marker it
+	 * recognizes, consuming every line on the way; a transcript whose only speaker is
+	 * unrecognized is consumed WHOLE and renders as a bare banner. An imported codex
+	 * session that opens with an agent message has no user turn to stop the scan.
+	 */
+	public function testACodexOnlyArchiveKeepsItsTurns(): void
+	{
+		$md = "# a title\n\n- session `019fa586-a9b7-7df0-a430-49907c5193f6`\n\n"
+			. "**Codex:** picking up where we left off\n"
+			. "  ↳ `shell: ls -la`\n"
+			. "      total 48\n";
+
+		$out = $this->render($md);
+
+		$this->assertStringContainsString('picking up where we left off', $out, 'the whole transcript was swallowed by the header scan');
+		$this->assertStringContainsString('⏺ shell(ls -la)', $out);
+		$this->assertMatchesRegularExpression('/⎿ {2}total 48/', $out);
+	}
+
+	// =====================================================================
 	// End to end on a real archive
 	// =====================================================================
 
