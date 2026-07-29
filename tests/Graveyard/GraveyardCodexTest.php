@@ -21,6 +21,29 @@ use JT\Graveyard;
  */
 final class GraveyardCodexTest extends TestCase
 {
+	private string $root;
+
+	protected function setUp(): void
+	{
+		parent::setUp();
+		// MUST redirect the store. Without this, any test reaching a working bury
+		// writes into ~/.claude-graveyard and tears down whatever real session the
+		// fixture names. That is exactly what happened here: this class originally
+		// carried a live pid because codex bury was refused unconditionally, and it
+		// destroyed a real session the moment bury started working. Fixtures below
+		// also use deliberately synthetic ids/pids as a second line of defence.
+		$this->root = sys_get_temp_dir() . '/gy-codex-' . getmypid() . '-' . random_int(1000, 9999);
+		mkdir($this->root, 0777, true);
+		putenv('GRAVEYARD_ROOT=' . $this->root);
+		$this->gy = new Graveyard($this->cli, $this->cmux);
+	}
+
+	protected function tearDown(): void
+	{
+		putenv('GRAVEYARD_ROOT');
+		parent::tearDown();
+	}
+
 	// ── codexLastActivity: idle time from a rollout ────────────────────────────
 
 	private function writeRollout(string $path, array $records): void
@@ -78,47 +101,63 @@ final class GraveyardCodexTest extends TestCase
 		$this->assertNull($this->gy->codexLastActivity('/no/such/rollout.jsonl'));
 	}
 
-	// ── bury refuses codex ────────────────────────────────────────────────────
+	// ── bury: codex goes through the CODEX gates ──────────────────────────────
+	//
+	// Codex used to be refused outright. It is now buryable via buryCodexOne(), so
+	// what these pin is that it still cannot be buried WITHOUT its gates passing.
 
 	private function codexSess(): array
 	{
 		return [
-			'session_id' => '019fa599-6b5f-7de1-9822-52643135bb95',
+			// Synthetic id/pid on purpose: never a value that could match a live
+			// session or process on the machine running the suite.
+			'session_id' => 'zztest-codex-0000-0000-000000000000',
 			'agent'      => 'codex',
-			'cwd'        => '/Users/JT/Code/claude-plugins',
-			'surface_ref' => 'surface:86', 'workspace_ref' => 'workspace:17',
+			'cwd'        => '/zztest/cwd',
+			'surface_ref' => 'surface:99999', 'workspace_ref' => 'workspace:99999',
 			'targetable' => true, 'reason' => '', 'idle_seconds' => 999999,
-			'tab_title'  => 'codex: p81u worker', 'workspace_title' => 'cp',
-			'pid'        => 39834, 'model' => null, 'skip_perms' => false,
+			'tab_title'  => 'zztest codex', 'workspace_title' => 'zztest',
+			'pid'        => 0, 'model' => null, 'skip_perms' => false,
 		];
 	}
 
-	public function testBuryRefusesACodexSession(): void
+	public function testBuryCodexRefusesWhenNoLiveCodexOccupiesTheSurface(): void
 	{
-		$this->assertFalse($this->gy->buryOne($this->codexSess(), false, true));
+		// GATE 1 (codex): nothing is running there, so there is nothing to bury and
+		// certainly nothing to kill.
+		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+			public function liveCodexBySurfaceRef(): array { return []; }
+			public function readLastScreen(string $s, string $w, int $lines = 6): string { return ''; }
+		};
+
+		$this->assertFalse($stub->buryOne($this->codexSess(), true, true));
+		$this->assertFileDoesNotExist($stub->metaPath('zztest-codex-0000-0000-000000000000'));
 	}
 
-	public function testForceDoesNotBypassTheCodexRefusal(): void
+	public function testBuryCodexRefusesWhenAnotherSessionOccupiesTheSurface(): void
 	{
-		// --force exists to override "looks busy", not to override "we don't know how
-		// to do this safely".
-		$this->assertFalse($this->gy->buryOne($this->codexSess(), true, true));
+		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+			public function liveCodexBySurfaceRef(): array { return ['surface:99999' => 'someone-else']; }
+			public function readLastScreen(string $s, string $w, int $lines = 6): string { return ''; }
+		};
+
+		$this->assertFalse($stub->buryOne($this->codexSess(), true, true));
 	}
 
-	public function testCodexRefusalWritesNoArchive(): void
+	public function testBuryRefusesAnAgentWithNoGatesAtAll(): void
 	{
 		$sess = $this->codexSess();
-		$this->gy->buryOne($sess, true, true);
+		$sess['agent'] = 'opencode';
 
-		$this->assertFileDoesNotExist($this->gy->metaPath($sess['session_id']));
+		$this->assertFalse($this->gy->buryOne($sess, true, true));
 	}
 
-	public function testCodexRefusalHappensBeforeAnySurfaceIsTouched(): void
+	public function testCodexGate1RunsBeforeAnySurfaceIsRead(): void
 	{
-		// The guard must sit ahead of every gate, so a refusal costs no screen reads
-		// and — critically — never types into a surface.
+		// A refusal must cost no screen read and, above all, never type into a surface.
 		$stub = new class($this->cli, $this->cmux) extends Graveyard {
 			public array $screenReads = [];
+			public function liveCodexBySurfaceRef(): array { return []; }
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
 			{
 				$this->screenReads[] = $surfaceRef;
@@ -127,15 +166,12 @@ final class GraveyardCodexTest extends TestCase
 		};
 
 		$this->assertFalse($stub->buryOne($this->codexSess(), true, true));
-		$this->assertSame([], $stub->screenReads, 'a refused codex bury must not read the surface');
+		$this->assertSame([], $stub->screenReads);
 	}
 
 	public function testClaudeSessionsAreStillSubjectToTheNormalGates(): void
 	{
-		// Regression guard: the agent check must not accidentally swallow claude rows.
-		// This claude row fails GATE 1 (statusline cwd mismatch), so it returns false
-		// too — but for the gate reason, having gotten past the agent check and read
-		// the screen.
+		// Regression guard: the agent split must not divert claude rows.
 		$stub = new class($this->cli, $this->cmux) extends Graveyard {
 			public array $screenReads = [];
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
@@ -150,12 +186,11 @@ final class GraveyardCodexTest extends TestCase
 		$sess['session_id'] = 'zztest-codexguard';
 
 		$this->assertFalse($stub->buryOne($sess, true, true));
-		$this->assertSame(['surface:86'], $stub->screenReads, 'a claude row must still reach the gates');
+		$this->assertSame(['surface:99999'], $stub->screenReads, 'a claude row must still reach the gates');
 	}
 
 	public function testAMissingAgentIsTreatedAsClaude(): void
 	{
-		// Rows built before `agent` existed (or by an older caller) must keep working.
 		$stub = new class($this->cli, $this->cmux) extends Graveyard {
 			public array $screenReads = [];
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
@@ -170,7 +205,7 @@ final class GraveyardCodexTest extends TestCase
 		$sess['session_id'] = 'zztest-noagent';
 
 		$this->assertFalse($stub->buryOne($sess, true, true));
-		$this->assertSame(['surface:86'], $stub->screenReads);
+		$this->assertSame(['surface:99999'], $stub->screenReads);
 	}
 
 	// ── candidates carry the agent through ────────────────────────────────────
@@ -185,7 +220,7 @@ final class GraveyardCodexTest extends TestCase
 		], false);
 
 		$this->assertSame('codex', $row['agent']);
-		$this->assertFalse($row['buryable']);
+		$this->assertTrue($row['buryable'], 'codex is buryable now (dotfiles-nvf)');
 	}
 
 	public function testClaudeCandidateRowIsBuryable(): void

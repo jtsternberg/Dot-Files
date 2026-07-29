@@ -24,6 +24,7 @@ abstract class TestCase extends BaseTestCase
 	protected $cli;
 	protected Cmux $cmux;
 	protected Graveyard $gy;
+	protected string $graveyardRoot;
 
 	protected function setUp(): void
 	{
@@ -31,6 +32,44 @@ abstract class TestCase extends BaseTestCase
 		$this->cli->resetStreams();
 		$this->cli->forceSilent = false;
 		$this->cmux = new Cmux($this->cli);
-		$this->gy   = new Graveyard($this->cli, $this->cmux);
+
+		// EVERY test gets a throwaway graveyard store, so no test can write into the
+		// real ~/.claude-graveyard — or, far worse, tear down a real session that a
+		// fixture happens to name. That is not hypothetical: a codex test carried a
+		// live pid while codex bury was still refused unconditionally, and it buried
+		// and killed a real session the moment bury started working. Defaulting the
+		// root here fixes the whole class of that bug rather than one test file.
+		// Tests that want their own root still just set GRAVEYARD_ROOT in their setUp.
+		$this->graveyardRoot = sys_get_temp_dir() . '/gy-test-' . getmypid() . '-' . bin2hex(random_bytes(4));
+		mkdir($this->graveyardRoot, 0777, true);
+		putenv('GRAVEYARD_ROOT=' . $this->graveyardRoot);
+
+		$this->gy = new Graveyard($this->cli, $this->cmux);
+	}
+
+	protected function tearDown(): void
+	{
+		putenv('GRAVEYARD_ROOT');
+		if (isset($this->graveyardRoot) && is_dir($this->graveyardRoot)) {
+			$this->rmrf($this->graveyardRoot);
+		}
+	}
+
+	/** Recursively remove a directory tree created for a test. */
+	private function rmrf(string $dir): void
+	{
+		// Refuse anything outside the temp dir — a bad root must never delete real data.
+		$tmp = realpath(sys_get_temp_dir());
+		$real = realpath($dir);
+		if ($tmp === false || $real === false || !str_starts_with($real, $tmp)) { return; }
+
+		$it = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($real, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::CHILD_FIRST
+		);
+		foreach ($it as $f) {
+			$f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getPathname());
+		}
+		@rmdir($real);
 	}
 }

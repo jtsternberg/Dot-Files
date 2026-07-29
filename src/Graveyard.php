@@ -59,6 +59,17 @@ class Graveyard {
 	/** Where exportTranscriptViaBin() writes: markdown source from export-session.mjs. */
 	public function transcriptMdPath(string $id): string { return $this->sessionDir($id) . '/transcript.md'; }
 
+	/**
+	 * Where a buried codex session's rollout is archived.
+	 *
+	 * Codex is archived by COPYING its rollout, not by rendering it: there is no
+	 * `/export` equivalent to type into the REPL, and the rollout is the complete
+	 * record. Kept as raw .jsonl so nothing is lost now — rendering it as TUI-style
+	 * text for ls/search/page needs its own reader (session_meta / turn_context /
+	 * response_item envelopes, nothing like Claude's), tracked as dotfiles-6me.
+	 */
+	public function codexRolloutArchivePath(string $id): string { return $this->sessionDir($id) . '/rollout.jsonl'; }
+
 	/** Where exportTranscriptViaRepl() writes: TUI-rendered text from Claude Code's /export. */
 	public function transcriptTxtPath(string $id): string { return $this->sessionDir($id) . '/transcript.txt'; }
 	public function metaPath(string $id): string { return $this->sessionDir($id) . '/meta.json'; }
@@ -262,10 +273,13 @@ class Graveyard {
 	public function buildTombstone(array $session, array $surface, string $summary, string $buriedAt, ?array $group = null): array {
 		$sessionId = $session['session_id'];
 		$cwd       = $session['cwd'] ?? '';
+		$agent      = $session['agent'] ?? 'claude';
 		$lastActive = null;
-		$jsonl = $this->cmux->jsonlPathFor($sessionId, $cwd);
-		if (is_file($jsonl)) {
-			$lastActive = gmdate('Y-m-d\TH:i:s\Z', filemtime($jsonl));
+		$src = $agent === 'codex'
+			? $this->cmux->codexRolloutPathFor($sessionId)
+			: $this->cmux->jsonlPathFor($sessionId, $cwd);
+		if ($src !== null && is_file($src)) {
+			$lastActive = gmdate('Y-m-d\TH:i:s\Z', filemtime($src));
 		}
 		$tomb = [
 			'session_id'      => $sessionId,
@@ -278,6 +292,16 @@ class Graveyard {
 			'buried_at'       => $buriedAt,
 			'last_active'     => $lastActive,
 		];
+		// ADDITIVE schema (dotfiles-51b): only non-claude tombstones gain keys, so every
+		// archive written before codex support — and every claude archive written after —
+		// keeps exactly the shape it had. Readers dispatch via tombstoneAgent(), which
+		// treats a missing kind as claude. agent_opts carries the sandbox/approval/effort
+		// that `codex resume` will NOT rehydrate on its own (see Cmux::buildCodexResumeCommand).
+		if ($agent !== 'claude') {
+			$tomb['kind']       = $agent;
+			$tomb['agent_opts'] = is_array($session['opts'] ?? null) ? $session['opts'] : [];
+		}
+
 		// Grouped (workspace) bury: stamp the shared group id + layout position so
 		// ls/resurrect can operate on the workspace as a unit, while the member
 		// tombstone stays self-sufficient for single-member resurrect.
@@ -687,6 +711,165 @@ class Graveyard {
 		if ($lastReal === null) { return true; } // transcript exists, nothing genuine to capture
 		clearstatcache(true, $tp);
 		return $lastReal < filemtime($tp);
+	}
+
+	# =========================================================================
+	# Codex bury/resurrect (dotfiles-nvf, schema per dotfiles-51b).
+	#
+	# Codex does not reuse Claude's gates — it gets stronger ones. Claude's GATE 1
+	# scrapes the REPL statusline for a cwd because its session<->surface join is
+	# heuristic; codex can be proved outright. The live codex on a surface is
+	# identified by CMUX_SURFACE_ID (read from the process's own environment) and
+	# its session id by the rollout it holds open — both from the OS, not the
+	# screen. So GATE 1 becomes "the codex process on this surface IS this session",
+	# and GATE 2 becomes an exact session_meta match on the archived copy instead of
+	# fuzzy turn-text matching.
+	# =========================================================================
+
+	/** Archive a codex session by copying its rollout. False (never an empty archive) if unavailable. */
+	public function archiveCodexRollout(array $sess): bool {
+		$sid  = (string) $sess['session_id'];
+		$live = $this->cmux->codexRolloutPathFor($sid);
+		if ($live === null || !is_file($live) || filesize($live) === 0) {
+			return false;
+		}
+
+		$dest = $this->codexRolloutArchivePath($sid);
+		$dir  = dirname($dest);
+		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
+
+		// Copy to a temp name then rename, so a partially-copied rollout can never be
+		// mistaken for a complete archive by the gate that follows.
+		$tmp = $dest . '.tmp';
+		if (!@copy($live, $tmp) || filesize($tmp) === 0) {
+			@unlink($tmp);
+			return false;
+		}
+		return @rename($tmp, $dest);
+	}
+
+	/** GATE 2 (codex): the archived rollout's session_meta must carry this session id. */
+	public function codexArchiveBelongsToSession(string $path, string $sessionId): bool {
+		$h = @fopen($path, 'rb');
+		if (!$h) { return false; }
+		$found = null;
+		for ($i = 0; $i < 5 && ($line = fgets($h)) !== false; $i++) {
+			$rec = json_decode(trim($line), true);
+			if (is_array($rec) && ($rec['type'] ?? '') === 'session_meta') {
+				$found = $rec['payload']['session_id'] ?? null;
+				break;
+			}
+		}
+		fclose($h);
+		return $found !== null && $found === $sessionId;
+	}
+
+	/** Is the archived rollout at least as new as the live one? */
+	public function codexArchiveUpToDate(string $sessionId): bool {
+		$archived = $this->codexRolloutArchivePath($sessionId);
+		if (!is_file($archived)) { return false; }
+		$live = $this->cmux->codexRolloutPathFor($sessionId);
+		if ($live === null || !is_file($live)) { return true; } // nothing left to capture
+		clearstatcache(true, $archived);
+		clearstatcache(true, $live);
+		return filemtime($live) <= filemtime($archived);
+	}
+
+	/**
+	 * [ surface_ref => session_id ] for every live codex bound to a surface.
+	 * Public so tests can substitute it without shelling out to cmux/lsof.
+	 */
+	public function liveCodexBySurfaceRef(): array {
+		$out = $this->cmux->joinCodexToSurfaces(
+			$this->cmux->loadCodexSessionsByPid(),
+			$this->cmux->mapSurfaceUuids($this->cmux->tree())
+		);
+		$bySurf = [];
+		foreach ($out as $r) {
+			if (($r['surface_ref'] ?? '') !== '' && !empty($r['session_id'])) {
+				$bySurf[$r['surface_ref']] = $r['session_id'];
+			}
+		}
+		return $bySurf;
+	}
+
+	/**
+	 * GATE 1 (codex): re-derive, right now, which codex session occupies this surface
+	 * and require it to be the one we're about to destroy. Replaces the statusline
+	 * heuristic with OS-level proof; a surface hosting something else, or nothing,
+	 * fails closed.
+	 */
+	public function codexSurfaceHostsSession(string $surfaceRef, string $sessionId): bool {
+		return ($this->liveCodexBySurfaceRef()[$surfaceRef] ?? null) === $sessionId;
+	}
+
+	/** PURE. Which agent a tombstone describes. Archives written before codex support have no kind. */
+	public function tombstoneAgent(array $tomb): string {
+		return ($tomb['kind'] ?? '') === 'codex' ? 'codex' : 'claude';
+	}
+
+	/**
+	 * Bury a codex session. Mirrors buryOne's shape but with the codex gates, and
+	 * kept as its own method so the Claude path stays byte-identical.
+	 */
+	protected function buryCodexOne(array $sess, bool $force, bool $autoConfirm, ?array $group = null, bool $deferClose = false): bool {
+		$sid = (string) $sess['session_id'];
+		$id  = substr($sid, 0, 8);
+
+		// GATE 1 (codex): prove this surface really hosts this session.
+		if (!$this->codexSurfaceHostsSession((string) $sess['surface_ref'], $sid)) {
+			$this->cli->err("  Refusing to bury {$id} (gate 1): {$sess['surface_ref']} does not currently host this codex session — leaving it ALIVE.");
+			return false;
+		}
+
+		// Busy check. Idle comes from the rollout's last record; the screen regex also
+		// catches codex's "Esc to interrupt" working indicator.
+		$screen = $this->readLastScreen((string) $sess['surface_ref'], (string) $sess['workspace_ref']);
+		if ($this->isBusy((int) $sess['idle_seconds'], self::IDLE_FLOOR_DEFAULT, $screen)) {
+			if (!$force) {
+				$this->cli->msg("  Skipping {$sess['tab_title']} — session looks busy (use --force to override).", 'yellow');
+				return false;
+			}
+			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
+		}
+
+		if ($this->codexArchiveUpToDate($sid)) {
+			$this->cli->msg("  Rollout already archived for {$id} — skipping copy.", 'cyan');
+		} else {
+			$this->cli->msg("  Archiving rollout for {$id}…", 'cyan');
+			if (!$this->archiveCodexRollout($sess)) {
+				$this->cli->err('  Archive failed (no rollout copied) — leaving session ALIVE.');
+				return false;
+			}
+		}
+
+		// GATE 2 (codex): exact — the archived copy must be this session's rollout.
+		if (!$this->codexArchiveBelongsToSession($this->codexRolloutArchivePath($sid), $sid)) {
+			$this->cli->err("  Refusing to tear down {$id} (gate 2): archived rollout is not this session's — leaving it ALIVE (archive kept for inspection).");
+			return false;
+		}
+
+		$summary = $this->deriveSummary($sess);
+		$tomb = $this->buildTombstone($sess, [
+			'workspace_title' => $sess['workspace_title'],
+			'tab_title'       => $sess['tab_title'],
+		], $summary, gmdate('Y-m-d\TH:i:s\Z'), $group);
+		file_put_contents($this->metaPath($sid), json_encode($tomb, JSON_PRETTY_PRINT));
+		$this->upsertIndex($tomb);
+		$this->cli->successMsg($this->ellipsizeText('  Buried [codex]: ' . $this->cleanSummaryText($summary, getenv('HOME') ?: ''), $this->termWidth()));
+
+		if (!$autoConfirm && !$this->cli->confirm('  Close the cmux tab and kill this session now?')) {
+			$this->cli->msg('  Left the tab open; rollout is archived.', 'yellow');
+			return true;
+		}
+
+		$ok = $deferClose ? $this->killMember($sess) : $this->teardown($sess);
+		if ($ok) {
+			$this->cli->msg('  Process terminated — RAM freed.', 'green');
+		} else {
+			$this->cli->err('  Archived, but could not terminate the live session automatically — kill it manually (rollout is safe).');
+		}
+		return true;
 	}
 
 	/**
@@ -1182,7 +1365,12 @@ class Graveyard {
 			$this->cli->err('  Teardown aborted: no resolved pid for this session — leaving it ALIVE.');
 			return false;
 		}
-		$pidSid = $this->cmux->sessionIdForPid($pid);
+		// GATE 3: the pid must still map to the target session. Claude publishes that in
+		// ~/.claude/sessions/<pid>.json; a codex process instead holds its rollout open,
+		// whose filename carries the session id.
+		$pidSid = ($sess['agent'] ?? 'claude') === 'codex'
+			? $this->cmux->parseLsofRollout($this->cmux->lsofForPid($pid))
+			: $this->cmux->sessionIdForPid($pid);
 		if ($pidSid !== $target) {
 			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
 			return false;
@@ -1236,23 +1424,17 @@ class Graveyard {
 		$id      = substr((string) $sess['session_id'], 0, 8);
 		$idFloor = self::IDLE_FLOOR_DEFAULT;
 
-		// GATE 0a: only Claude sessions can be buried. graveyard DISCOVERS codex
-		// sessions (candidates lists them with real idle times), but every gate below
-		// is Claude-shaped: GATE 1 matches the Claude REPL statusline cwd, the busy
-		// check greps a Claude active-turn spinner, and the /status probe reads a
-		// Claude Session ID back off the screen. A codex bury would sail past all of
-		// them — i.e. run blind through the very checks that exist to stop us
-		// destroying the wrong session — and then kill a process tree and close a
-		// surface. --force does NOT override this: force overrides "looks busy", not
-		// "we don't know how to do this safely". See beads dotfiles-nvf.
-		//
-		// Deliberately ahead of every gate so a refusal reads no screen and, above
-		// all, never types into a surface.
+		// GATE 0a: the agent must be one we have gates for. Claude and codex each have
+		// their own set — the gates below are Claude-shaped (GATE 1 matches the Claude
+		// REPL statusline cwd, the busy check greps a Claude active-turn spinner, the
+		// /status probe reads a Claude Session ID off the screen), and running any other
+		// agent through them would sail past the very checks that exist to stop us
+		// destroying the wrong session, then kill a process tree and close a surface.
+		// Ahead of everything else so a refusal reads no screen and never types into a
+		// surface.
 		$agent = $sess['agent'] ?? 'claude';
-		if ($agent !== 'claude') {
-			$this->cli->err("  Refusing to bury {$id}: {$agent} sessions can't be buried yet — "
-				. 'bury\'s safety gates are Claude-specific (see beads dotfiles-nvf). '
-				. 'Close it by hand, or leave it running.');
+		if ($agent !== 'claude' && $agent !== 'codex') {
+			$this->cli->err("  Refusing to bury {$id}: unknown agent '{$agent}' — no gates exist for it. Close it by hand, or leave it running.");
 			return false;
 		}
 
@@ -1262,6 +1444,13 @@ class Graveyard {
 		if (!($sess['targetable'] ?? false)) {
 			$this->cli->err("  Refusing to bury {$id}: untargetable — " . ($sess['reason'] ?: 'ambiguous session↔surface mapping') . '. Resolve it first.');
 			return false;
+		}
+
+		// Codex has its own gates (stronger than the statusline heuristic below) and its
+		// own archiving (a rollout copy, not /export typed into a REPL). Split here so
+		// the Claude path stays exactly as it was.
+		if ($agent === 'codex') {
+			return $this->buryCodexOne($sess, $force, $autoConfirm, $group, $deferClose);
 		}
 
 		$screen = $this->readLastScreen($sess['surface_ref'], $sess['workspace_ref']);
@@ -3105,13 +3294,15 @@ class Graveyard {
 			$this->cli->exitErr("No buried session matches '{$prefix}'.");
 		}
 
-		$jsonl         = $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
-		$hasJsonl      = is_file($jsonl);
-		$transcript    = $this->transcriptPath($t['session_id']);
+		$native        = $this->tombstoneSessionFile($t);
+		$hasNative     = $native !== null && is_file($native);
+		$transcript    = $this->tombstoneAgent($t) === 'codex'
+			? $this->codexRolloutArchivePath((string) $t['session_id'])
+			: $this->transcriptPath($t['session_id']);
 		$hasTranscript = is_file($transcript);
 
-		if (!$hasJsonl && !$hasTranscript) {
-			$this->cli->exitErr("Neither live JSONL nor exported transcript available for {$t['session_id']} — cannot resurrect.");
+		if (!$hasNative && !$hasTranscript) {
+			$this->cli->exitErr("Neither a live session file nor an archived transcript available for {$t['session_id']} — cannot resurrect.");
 		}
 
 		$title = $t['workspace_title'] ?: 'resurrected';
@@ -3119,7 +3310,10 @@ class Graveyard {
 		$ws = $this->cmux->newWorkspace($title, $cwd ?: null);
 
 		$mode = $this->launchSessionIntoSurface($t, $ws['firstSurfRef'], $ws['ref'], $fromTranscript);
-		$note = $mode === 'resume' ? 'via --resume (restored in place)' : 'Claude is reading the transcript';
+		$agent = $this->tombstoneAgent($t);
+		$note  = $mode === 'resume'
+			? ($agent === 'codex' ? 'via codex resume (restored in place)' : 'via --resume (restored in place)')
+			: ($agent === 'codex' ? 'codex is reading the archived rollout' : 'Claude is reading the transcript');
 		// Name + sidebar slot, not a bare workspace ref — the ref is an internal handle
 		// and tells you nothing about which workspace to go look at.
 		$where = $this->cmux->describeWorkspace($ws['ref'], $title);
@@ -3132,10 +3326,45 @@ class Graveyard {
 	 * the exported transcript. Returns 'resume' or 'transcript'. Shared by single- and
 	 * workspace-resurrect so both restore members identically.
 	 */
+	/**
+	 * PURE-ish. The relaunch command for a tombstone, dispatched on agent.
+	 *
+	 * Codex gets its recorded sandbox/approval/model replayed, because `codex resume`
+	 * re-reads config rather than rehydrating the session's own turn_context — bare,
+	 * a session that ran read-only comes back with full access (measured). Claude's
+	 * command is produced exactly as before.
+	 */
+	public function buildTombstoneLaunch(array $t, bool $fresh): string {
+		if ($this->tombstoneAgent($t) === 'codex') {
+			$opts = is_array($t['agent_opts'] ?? null) ? $t['agent_opts'] : [];
+			return $fresh
+				? 'codex'
+				: $this->cmux->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts);
+		}
+
+		if (!$fresh) {
+			return $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
+		}
+		$launch = 'claude';
+		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
+		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+		return $launch;
+	}
+
+	/** The still-resumable native session file for a tombstone, or null. */
+	public function tombstoneSessionFile(array $t): ?string {
+		if ($this->tombstoneAgent($t) === 'codex') {
+			return $this->cmux->codexRolloutPathFor((string) $t['session_id']);
+		}
+		return $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
+	}
+
 	protected function launchSessionIntoSurface(array $t, string $surfRef, string $wsRef, bool $fromTranscript): string {
-		$jsonl      = $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
-		$transcript = $this->transcriptPath($t['session_id']);
-		$useResume  = !$fromTranscript && is_file($jsonl);
+		$native     = $this->tombstoneSessionFile($t);
+		$transcript = $this->tombstoneAgent($t) === 'codex'
+			? $this->codexRolloutArchivePath((string) $t['session_id'])
+			: $this->transcriptPath($t['session_id']);
+		$useResume  = !$fromTranscript && $native !== null && is_file($native);
 
 		// A workspace is restored under one cwd (its first member's), but members can
 		// each have their own. `claude --resume <id>` resolves the session against the
@@ -3147,15 +3376,13 @@ class Graveyard {
 		$prefix = $cwd !== '' ? 'cd ' . escapeshellarg($cwd) . ' && ' : '';
 
 		if ($useResume) {
-			$launch = $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
+			$launch = $this->buildTombstoneLaunch($t, false);
 			$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
 			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
 			return 'resume';
 		}
 
-		$launch = 'claude';
-		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
-		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
+		$launch = $this->buildTombstoneLaunch($t, true);
 		$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
 		sleep(3); // let the REPL come up
 		$this->cmux->sendToSurface($surfRef, $wsRef,
@@ -3422,10 +3649,9 @@ class Graveyard {
 	/**
 	 * PURE. One live-session row reduced to a candidate row.
 	 *
-	 * `buryable` is what keeps discovery and destruction separate: codex sessions
-	 * are listed (they're real, and their idle time is real) but buryOne refuses
-	 * them until bury's Claude-shaped gates have codex analogues (dotfiles-nvf).
-	 * Callers should surface that rather than offering a bury that will be refused.
+	 * `buryable` marks agents bury has gates for. Both Claude and codex now do
+	 * (codex via buryCodexOne's own, stronger gates); anything else is listed but
+	 * refused, so a caller offering a bury can tell which rows would bounce.
 	 */
 	public function candidateRowFor(array $r, bool $busy): array {
 		$agent = $r['agent'] ?? 'claude';
@@ -3438,7 +3664,7 @@ class Graveyard {
 			'workspace_title' => $r['workspace_title'],
 			'tab_title'       => $r['tab_title'],
 			'busy'            => $busy,
-			'buryable'        => $agent === 'claude',
+			'buryable'        => in_array($agent, ['claude', 'codex'], true),
 			'surface_ref'     => $r['surface_ref'],
 			'workspace_ref'   => $r['workspace_ref'],
 			'pid'             => $r['pid'],
@@ -3523,7 +3749,7 @@ class Graveyard {
 			}
 			if (!($r['buryable'] ?? true)) {
 				$this->cli->msg($this->ellipsizeText(
-					'          ⚠ ' . ($r['agent'] ?? '?') . " can't be buried yet (bury's gates are Claude-specific)", $w
+					'          ⚠ ' . ($r['agent'] ?? '?') . ' has no bury gates — it will be refused', $w
 				), 'yellow');
 			}
 		}
