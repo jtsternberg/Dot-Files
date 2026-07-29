@@ -45,6 +45,7 @@ final class Dispatcher {
 		}
 
 		try {
+			$this->validateOptions( $command );
 			$arguments = $this->bind( $command, $argAt );
 		} catch ( UsageException $e ) {
 			$this->cli->err( $e->getMessage() );
@@ -55,6 +56,39 @@ final class Dispatcher {
 		$result = $command->method->invokeArgs( $this->definition->handler, $arguments );
 
 		return is_int( $result ) ? $result : 0;
+	}
+
+	private function validateOptions( CommandDefinition $command ): void {
+		$long  = [];
+		$short = [];
+
+		foreach ( $command->parameters as $parameter ) {
+			if ( ! $parameter->isOption() ) {
+				continue;
+			}
+
+			$long[] = $parameter->name;
+			$short  = array_merge( $short, $parameter->aliases );
+		}
+
+		$unknown = [];
+		foreach ( array_keys( $this->cli->flags ) as $name ) {
+			if ( ! in_array( $name, $long, true ) ) {
+				$unknown[] = '--' . $name;
+			}
+		}
+		foreach ( array_keys( $this->cli->shortFlags ) as $alias ) {
+			if ( ! in_array( $alias, $short, true ) ) {
+				$unknown[] = '-' . $alias;
+			}
+		}
+
+		if ( ! empty( $unknown ) ) {
+			throw new UsageException(
+				( 1 === count( $unknown ) ? 'Unknown option: ' : 'Unknown options: ' )
+				. implode( ', ', $unknown )
+			);
+		}
 	}
 
 	private function completion(): int {

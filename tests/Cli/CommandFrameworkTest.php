@@ -117,6 +117,32 @@ final class CommandFrameworkTest extends TestCase {
 		$this->assertStringContainsString( 'Missing required argument: <name>', $output );
 	}
 
+	public function testDispatcherRejectsAnUnknownLongOptionWithoutCallingTheHandler(): void {
+		$handler = new DemoCommand();
+		$this->cli->setArgs( [ 'demo', 'target', '--bogus' ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $this->cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 1, $code );
+		$this->assertSame( [], $handler->calls );
+		$this->assertStringContainsString( 'Unknown option: --bogus', $output );
+	}
+
+	public function testDispatcherRejectsAnUnknownShortOptionWithoutCallingTheHandler(): void {
+		$handler = new DemoCommand();
+		$this->cli->setArgs( [ 'demo', 'greet', 'JT', '-x' ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $this->cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 1, $code );
+		$this->assertSame( [], $handler->calls );
+		$this->assertStringContainsString( 'Unknown option: -x', $output );
+	}
+
 	public function testHelpRendersFromTheReflectedDefinition(): void {
 		$definition = Registry::fromHandler( new DemoCommand() );
 		$output     = $this->cli->getHelp()->renderProgram( $definition );
