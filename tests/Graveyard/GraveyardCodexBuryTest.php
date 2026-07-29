@@ -312,6 +312,51 @@ final class GraveyardCodexBuryTest extends TestCase
 		$this->assertFalse($stub->buryOne($sess, true, true));
 	}
 
+	// ── the recorded context must survive the whole bury→resurrect round trip ──
+
+	public function testBuriedCodexKeepsItsRecordedContextForResurrect(): void
+	{
+		// Regression: liveSessions() built its row without 'opts', so the sandbox /
+		// approval / effort the join had resolved were dropped between discovery and
+		// the tombstone. Resurrect then replayed nothing and `codex resume` fell back
+		// to config — silently widening a read-only session to full access. Caught by
+		// a live bury whose tombstone came out with agent_opts: [].
+		$stub = $this->buryStub(['surface:86' => self::SID]);
+
+		$this->assertTrue($stub->buryOne($this->codexSess(), true, true));
+
+		$tomb = json_decode(file_get_contents($stub->metaPath(self::SID)), true);
+		$this->assertSame('read-only', $tomb['agent_opts']['sandbox'], 'sandbox must survive into the tombstone');
+		$this->assertSame('never', $tomb['agent_opts']['approval']);
+
+		// …and come back out on the resume command.
+		$cmd = $stub->buildTombstoneLaunch($tomb, false);
+		$this->assertStringContainsString('--sandbox=read-only', $cmd);
+		$this->assertStringContainsString('--ask-for-approval=never', $cmd);
+	}
+
+	public function testLiveSessionRowCarriesOptsThrough(): void
+	{
+		// The join row's opts must reach the candidate/liveSessions row shape, since
+		// that is what bury reads.
+		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+			public function candidatePassthrough(array $joinRow): array
+			{
+				return $this->candidateRowFor($joinRow + ['idle_seconds' => 1, 'workspace_title' => '', 'tab_title' => ''], false);
+			}
+		};
+
+		$row = $stub->candidatePassthrough([
+			'session_id' => self::SID, 'agent' => 'codex', 'cwd' => '/x',
+			'model' => 'gpt-5.6-terra', 'skip_perms' => false,
+			'opts' => ['sandbox' => 'read-only'],
+			'surface_ref' => 'surface:86', 'workspace_ref' => 'ws:1', 'pid' => 1,
+			'targetable' => true, 'reason' => '',
+		]);
+
+		$this->assertSame('read-only', $row['opts']['sandbox'] ?? null);
+	}
+
 	// ── resurrect ─────────────────────────────────────────────────────────────
 
 	public function testCodexResurrectUsesCodexResumeWithRecordedContext(): void

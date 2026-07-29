@@ -518,6 +518,11 @@ class Graveyard {
 				'cwd'             => $j['cwd'],
 				'model'           => $j['model'],
 				'skip_perms'      => $j['skip_perms'],
+				// Agent-specific knobs (codex sandbox/approval/effort). MUST be carried:
+				// buildTombstone() stores them as agent_opts and resurrect replays them,
+				// and `codex resume` re-reads config rather than rehydrating turn_context —
+				// so dropping them here silently widens a restored session's sandbox.
+				'opts'            => $j['opts'] ?? [],
 				'pid'             => $j['pid'],
 				'tty'             => $j['tty'],
 				'surface_ref'     => $ref,
@@ -3672,6 +3677,10 @@ class Graveyard {
 			'skip_perms'      => $r['skip_perms'],
 			'targetable'      => $r['targetable'] ?? true,
 			'reason'          => $r['reason'] ?? '',
+			// Carried for the same reason liveSessions() carries it: whatever reaches
+			// buryOne must still know a codex session's recorded sandbox/approval, or
+			// resurrect replays nothing and widens it.
+			'opts'            => $r['opts'] ?? [],
 		];
 	}
 
