@@ -432,26 +432,65 @@ class Graveyard {
 		return (string) shell_exec($cmd);
 	}
 
+	/**
+	 * Idle clock for a codex session: the timestamp of the last complete record in
+	 * its rollout. Scanned backward, because rollouts run to megabytes.
+	 *
+	 * An unparseable tail line is skipped rather than treated as "no activity" — a
+	 * rollout being appended to can end mid-write, and reporting no activity would
+	 * read as infinitely idle, i.e. make a live session look buryable.
+	 */
+	public function codexLastActivity(string $rolloutPath): ?int {
+		$ts = null;
+		$this->cmux->eachLineReverse($rolloutPath, function (string $line) use (&$ts) {
+			$rec = json_decode(trim($line), true);
+			if (!is_array($rec) || empty($rec['timestamp'])) {
+				return true; // partial/blank tail line — keep walking back
+			}
+			$parsed = strtotime((string) $rec['timestamp']);
+			if ($parsed === false) { return true; }
+			$ts = $parsed;
+			return false;
+		});
+		return $ts;
+	}
+
 	public function liveSessions(): array {
-		// Deterministic session<->surface join via process ancestry (dotfiles-yt2):
-		// tty numbers are recycled across live surfaces, so a tty join mis-pairs.
+		// Deterministic session<->surface joins. Claude binds via process ancestry
+		// (dotfiles-yt2) — tty numbers are recycled across live surfaces, so a tty
+		// join mis-pairs. Codex has no resume-script ancestor to walk to, so it binds
+		// via CMUX_SURFACE_ID against the tree's per-surface id (dotfiles-zcm).
 		$sessions = $this->cmux->loadClaudeSessionsByPid();
 		$proc     = $this->cmux->parseProcTable($this->cmux->psProcTable());
 		$debug    = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
-		$joined   = $this->cmux->joinSessionsToSurfaces($sessions, $proc, $debug);
+		$tree     = $this->cmux->tree();
+		$joined   = array_merge(
+			$this->cmux->joinSessionsToSurfaces($sessions, $proc, $debug),
+			$this->cmux->joinCodexToSurfaces(
+				$this->cmux->loadCodexSessionsByPid(),
+				$this->cmux->mapSurfaceUuids($tree)
+			)
+		);
 
 		// Tree supplies stable surface UUID + workspace/surface titles, keyed by ref.
-		$treeIx = $this->treeIndex($this->cmux->tree());
+		$treeIx = $this->treeIndex($tree);
 		$now    = time();
 		$out    = [];
 
 		foreach ($joined as $j) {
 			if (!$j['session_id']) { continue; }
-			$ts   = $this->cmux->lastRealActivity($j['session_id'], $j['cwd']);
+			$agent = $j['agent'] ?? 'claude';
+			if ($agent === 'codex') {
+				$rollout = $this->cmux->codexRolloutPathFor($j['session_id']);
+				$ts      = $rollout !== null ? $this->codexLastActivity($rollout) : null;
+			} else {
+				$ts = $this->cmux->lastRealActivity($j['session_id'], $j['cwd']);
+			}
 			$idle = $ts !== null ? ($now - $ts) : PHP_INT_MAX;
 			$ref  = $j['surface_ref'];
 			$out[] = [
 				'session_id'      => $j['session_id'],
+				'agent'           => $agent,
 				'cwd'             => $j['cwd'],
 				'model'           => $j['model'],
 				'skip_perms'      => $j['skip_perms'],
@@ -1196,6 +1235,26 @@ class Graveyard {
 	public function buryOne(array $sess, bool $force, bool $autoConfirm, ?array $group = null, bool $deferClose = false): bool {
 		$id      = substr((string) $sess['session_id'], 0, 8);
 		$idFloor = self::IDLE_FLOOR_DEFAULT;
+
+		// GATE 0a: only Claude sessions can be buried. graveyard DISCOVERS codex
+		// sessions (candidates lists them with real idle times), but every gate below
+		// is Claude-shaped: GATE 1 matches the Claude REPL statusline cwd, the busy
+		// check greps a Claude active-turn spinner, and the /status probe reads a
+		// Claude Session ID back off the screen. A codex bury would sail past all of
+		// them — i.e. run blind through the very checks that exist to stop us
+		// destroying the wrong session — and then kill a process tree and close a
+		// surface. --force does NOT override this: force overrides "looks busy", not
+		// "we don't know how to do this safely". See beads dotfiles-nvf.
+		//
+		// Deliberately ahead of every gate so a refusal reads no screen and, above
+		// all, never types into a surface.
+		$agent = $sess['agent'] ?? 'claude';
+		if ($agent !== 'claude') {
+			$this->cli->err("  Refusing to bury {$id}: {$agent} sessions can't be buried yet — "
+				. 'bury\'s safety gates are Claude-specific (see beads dotfiles-nvf). '
+				. 'Close it by hand, or leave it running.');
+			return false;
+		}
 
 		// Refuse sessions the join could not bind to a single surface with confidence.
 		// --force does NOT override this: an unresolved surface_ref means we don't know
@@ -3355,23 +3414,39 @@ class Graveyard {
 				self::IDLE_FLOOR_DEFAULT,
 				$this->readLastScreen($r['surface_ref'], $r['workspace_ref'])
 			);
-			$out[] = [
-				'session_id'      => $r['session_id'],
-				'idle_seconds'    => $r['idle_seconds'],
-				'cwd'             => $r['cwd'],
-				'workspace_title' => $r['workspace_title'],
-				'tab_title'       => $r['tab_title'],
-				'busy'            => $busy,
-				'surface_ref'     => $r['surface_ref'],
-				'workspace_ref'   => $r['workspace_ref'],
-				'pid'             => $r['pid'],
-				'model'           => $r['model'],
-				'skip_perms'      => $r['skip_perms'],
-				'targetable'      => $r['targetable'] ?? true,
-				'reason'          => $r['reason'] ?? '',
-			];
+			$out[] = $this->candidateRowFor($r, $busy);
 		}
 		return $out;
+	}
+
+	/**
+	 * PURE. One live-session row reduced to a candidate row.
+	 *
+	 * `buryable` is what keeps discovery and destruction separate: codex sessions
+	 * are listed (they're real, and their idle time is real) but buryOne refuses
+	 * them until bury's Claude-shaped gates have codex analogues (dotfiles-nvf).
+	 * Callers should surface that rather than offering a bury that will be refused.
+	 */
+	public function candidateRowFor(array $r, bool $busy): array {
+		$agent = $r['agent'] ?? 'claude';
+
+		return [
+			'session_id'      => $r['session_id'],
+			'agent'           => $agent,
+			'idle_seconds'    => $r['idle_seconds'],
+			'cwd'             => $r['cwd'],
+			'workspace_title' => $r['workspace_title'],
+			'tab_title'       => $r['tab_title'],
+			'busy'            => $busy,
+			'buryable'        => $agent === 'claude',
+			'surface_ref'     => $r['surface_ref'],
+			'workspace_ref'   => $r['workspace_ref'],
+			'pid'             => $r['pid'],
+			'model'           => $r['model'],
+			'skip_perms'      => $r['skip_perms'],
+			'targetable'      => $r['targetable'] ?? true,
+			'reason'          => $r['reason'] ?? '',
+		];
 	}
 
 	/**
@@ -3401,8 +3476,10 @@ class Graveyard {
 	public function candidatesJson(array $rows): array {
 		return array_map(fn($r) => [
 			'session_id'      => $r['session_id'] ?? '',
+			'agent'           => $r['agent'] ?? 'claude',
 			'idle_seconds'    => (int) ($r['idle_seconds'] ?? 0),
 			'busy'            => (bool) ($r['busy'] ?? false),
+			'buryable'        => (bool) ($r['buryable'] ?? (($r['agent'] ?? 'claude') === 'claude')),
 			'targetable'      => (bool) ($r['targetable'] ?? true),
 			'reason'          => $r['reason'] ?? '',
 			'workspace_title' => $r['workspace_title'] ?? '',
@@ -3444,6 +3521,11 @@ class Graveyard {
 			if (!$targetable) {
 				$this->cli->msg($this->ellipsizeText('          ⚠ ' . $r['reason'], $w), 'yellow');
 			}
+			if (!($r['buryable'] ?? true)) {
+				$this->cli->msg($this->ellipsizeText(
+					'          ⚠ ' . ($r['agent'] ?? '?') . " can't be buried yet (bury's gates are Claude-specific)", $w
+				), 'yellow');
+			}
 		}
 	}
 
@@ -3456,6 +3538,11 @@ class Graveyard {
 		$title = $this->stripGlyph((string) ($r['tab_title'] ?? ''));
 		if ($title === '' || $title === 'Terminal') { $title = (string) ($r['workspace_title'] ?? ''); }
 		if ($title === '') { $title = '(untitled)'; }
+		// Tag anything that isn't Claude: these rows are real and idle, but bury
+		// refuses them (dotfiles-nvf), and an unmarked row teaches that only by
+		// trial. Claude stays unmarked — it's the overwhelming majority.
+		$agent = $r['agent'] ?? 'claude';
+		if ($agent !== 'claude') { $title = "[{$agent}] {$title}"; }
 		$left = sprintf('%s  %-4s %-4s', $id, $idle, $state);
 
 		$avail = $width - mb_strlen($left) - 2 - mb_strlen($flag);

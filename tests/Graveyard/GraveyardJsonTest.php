@@ -29,9 +29,15 @@ final class GraveyardJsonTest extends TestCase
 		$this->assertSame('tailscale', $j[0]['workspace_title']);
 		$this->assertSame('net', $j[0]['tab_title']);
 		$this->assertSame('/x', $j[0]['cwd']);
-		// stable key set so agents can rely on it
+		// A claude row with no explicit agent still reports itself as claude/buryable.
+		$this->assertSame('claude', $j[0]['agent']);
+		$this->assertTrue($j[0]['buryable']);
+		// Stable key set so agents can rely on it. `agent` and `buryable` were added
+		// when graveyard learned to DISCOVER codex sessions without being able to
+		// bury them (dotfiles-nvf) — a consumer that offers a bury needs to know
+		// which rows would be refused. Additive; every pre-existing key kept.
 		$this->assertSame(
-			['session_id', 'idle_seconds', 'busy', 'targetable', 'reason', 'workspace_title', 'tab_title', 'cwd'],
+			['session_id', 'agent', 'idle_seconds', 'busy', 'buryable', 'targetable', 'reason', 'workspace_title', 'tab_title', 'cwd'],
 			array_keys($j[0])
 		);
 	}
