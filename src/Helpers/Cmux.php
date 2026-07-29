@@ -331,6 +331,17 @@ class Cmux {
 	# Session ids come from the rollout file the live codex holds open, so two
 	# codex sessions started in the same minute can't be confused — which any
 	# "newest file in ~/.codex/sessions" heuristic would do.
+	#
+	# NOTE — cmux already knows some of this, and we deliberately don't rely on it:
+	# `cmux surface resume get --surface <uuid>` returns a resume_binding cmux's own
+	# agent hooks wrote (kind, checkpoint_id = the session id, cwd, and the command
+	# cmux would relaunch). It agrees with what we derive here, it survives the
+	# process dying, and it needs no lsof. But measured coverage is incomplete —
+	# 8 of 26 live terminal surfaces had no binding, 7 of them hosting live Claude
+	# sessions this join does find — so it can only ever be a second source, never
+	# the primary one. See beads dotfiles-0ue (adopt it as a fallback) and
+	# dotfiles-0u4 (cmux's stored codex command ends in --yolo, so cmux's own
+	# restore widens the sandbox the same way a bare resume does).
 	# =========================================================================
 
 	/** Absolute path of the codex sessions root (CODEX_SESSIONS_DIR overrides, for tests). */
@@ -479,10 +490,14 @@ class Cmux {
 	 * at the END of the conversation, so a mid-session change wins. Same principle
 	 * as resolveModel()/resolveSkipPerms() treating Claude's jsonl as truth.
 	 *
-	 * This exists because `codex resume` does NOT rehydrate them: measured, a
-	 * session created with `-s read-only` and resumed bare came back
-	 * `danger-full-access` (the ~/.codex/config.toml default). Restoring without
-	 * replaying these would silently widen a session's sandbox.
+	 * This exists because `codex resume` does NOT rehydrate them. Measured in the
+	 * real interactive TUI, not just under `codex exec`: a session created with
+	 * `-s read-only` and resumed bare reports `Permissions: Full Access` in
+	 * /status; resumed with these values replayed it reports
+	 * `Permissions: Read Only (never)`. Restoring bare silently widens the sandbox.
+	 * (Test on a FRESH session — one that was previously resumed WITH explicit
+	 * flags reports Read Only on a later bare resume, which looks like rehydration
+	 * and isn't.)
 	 *
 	 * Scanned backward — rollouts run to megabytes, so the head is never read.
 	 */
