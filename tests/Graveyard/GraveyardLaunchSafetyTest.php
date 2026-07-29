@@ -129,4 +129,41 @@ final class GraveyardLaunchSafetyTest extends TestCase
 		$this->assertFalse($out[0]['live']);
 		$this->assertArrayNotHasKey('live_agent', $out[0]);
 	}
+
+	/**
+	 * ls and search must stay in lock-step.
+	 *
+	 * They already shared the RENDERER (lsEntryLines/printLsEntry); what drifted was the
+	 * DATA — ls annotated liveness and search didn't, so `↑` appeared in one and not the
+	 * other. Both now read tombstones() and the annotation happens once, in there.
+	 */
+	public function testLsAndSearchReadTheSameAnnotatedSource(): void
+	{
+		$root = sys_get_temp_dir() . '/gy-parity-' . getmypid() . '-' . random_int(1000, 9999);
+		mkdir($root . '/sessions', 0777, true);
+		putenv('GRAVEYARD_ROOT=' . $root);
+
+		file_put_contents($root . '/index.json', json_encode(['tombstones' => [
+			['session_id' => 'aaaa1111-2222-3333-4444-555555555555', 'tab_title' => 'tailscale notes', 'workspace_title' => 'net', 'cwd' => '/x', 'summary' => 's', 'buried_at' => '2026-07-10'],
+		]]));
+
+		// Stub the live map so no cmux/lsof/ps is touched, and claim this session is live.
+		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+			public function liveSessionIdsByAgent(): array
+			{
+				return ['aaaa1111-2222-3333-4444-555555555555' => 'codex'];
+			}
+		};
+
+		$fromLs     = $stub->tombstones();
+		$fromSearch = $stub->searchTombstones('tailscale');
+
+		$this->assertTrue($fromLs[0]['live'], 'ls source must carry liveness');
+		$this->assertTrue($fromSearch[0]['live'], 'search source must carry the SAME liveness');
+		$this->assertSame($fromLs[0]['live_agent'], $fromSearch[0]['live_agent']);
+
+		// …and it must reach the JSON both verbs emit.
+		$this->assertTrue($stub->searchRowJson($fromSearch[0])['live']);
+		$this->assertSame('codex', $stub->searchRowJson($fromSearch[0])['live_agent']);
+	}
 }

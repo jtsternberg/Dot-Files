@@ -26,6 +26,9 @@ class Graveyard {
 	protected $cli;
 	protected $cmux;
 
+	/** Memoised [session_id => agent] for liveness annotation; null until first resolved. */
+	protected ?array $liveIdCache = null;
+
 	public function __construct($cli, $cmux) {
 		$this->cli  = $cli;
 		$this->cmux = $cmux;
@@ -2354,7 +2357,7 @@ class Graveyard {
 	}
 
 	protected function printTombstones(bool $json): void {
-		$tombs = $this->annotateLiveness($this->readIndex()['tombstones'] ?? [], $this->liveSessionIdsByAgent());
+		$tombs = $this->tombstones();
 		if (!$tombs) {
 			if ($json) { echo json_encode(['workspaces' => [], 'sessions' => []], JSON_PRETTY_PRINT) . "\n"; return; }
 			$this->cli->msg('Graveyard is empty.', 'yellow'); return;
@@ -2423,7 +2426,7 @@ class Graveyard {
 	 */
 	public function searchTombstones(string $term, bool $fullText = false): array {
 		$needle = mb_strtolower(trim($term));
-		$tombs  = $this->readIndex()['tombstones'] ?? [];
+		$tombs  = $this->tombstones();
 		$hits   = [];
 		foreach ($tombs as $t) {
 			if ($needle === '') { continue; }
@@ -2975,7 +2978,7 @@ class Graveyard {
 	 * refresh (no stale index.html snapshot). Never writes anything.
 	 */
 	public function renderStorePageHtml(): string {
-		$tombs = $this->readIndex()['tombstones'] ?? [];
+		$tombs = $this->tombstones();
 		usort($tombs, fn($a, $b) => strcmp($b['buried_at'] ?? '', $a['buried_at'] ?? ''));
 		$tombs = $this->stampPlotPositions($tombs);
 		return $this->pageHtml($tombs, gmdate('Y-m-d\TH:i:s\Z'), getenv('HOME') ?: '');
@@ -3482,6 +3485,31 @@ class Graveyard {
 	 */
 	public function launchTargetIsSafe(string $surfRef): bool {
 		return !isset($this->liveAgentSurfaceRefs()[$surfRef]);
+	}
+
+	/**
+	 * Every tombstone, annotated with liveness — the accessor every user-facing view
+	 * (ls, search, page) reads, so they cannot drift apart.
+	 *
+	 * The renderer was already shared (lsEntryLines/printLsEntry); what wasn't was the
+	 * DATA, so `↑` showed up in ls and not in search purely because ls happened to
+	 * annotate and search didn't. Annotating in one accessor is what actually keeps
+	 * them in lock-step; a shared renderer alone does not.
+	 *
+	 * The live map is resolved once per process — liveSessions() shells out to cmux,
+	 * lsof and ps, so several views (or a search that also lists groups) must not each
+	 * pay for it.
+	 */
+	public function tombstones(): array {
+		return $this->annotateLiveness($this->readIndex()['tombstones'] ?? [], $this->liveSessionIdsByAgentCached());
+	}
+
+	/** liveSessionIdsByAgent(), resolved once per process. */
+	protected function liveSessionIdsByAgentCached(): array {
+		if ($this->liveIdCache === null) {
+			$this->liveIdCache = $this->liveSessionIdsByAgent();
+		}
+		return $this->liveIdCache;
 	}
 
 	/** PURE. Flag tombstones whose session is running again (resurrect keeps the tombstone). */
