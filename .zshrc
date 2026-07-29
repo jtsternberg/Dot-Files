@@ -194,6 +194,7 @@ setopt RM_STAR_WAIT
 plugins=(
 	goto-sites
 	dirmap-completions
+	dotfiles-completions
 	pester
 	goto-dirmap # https://github.com/jtsternberg/Dot-Files/blob/master/zsh-custom/plugins/goto-dirmap/goto-dirmap.plugin.zsh
 	godo-completions # https://github.com/jtsternberg/Dot-Files/blob/master/zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh
