@@ -2,8 +2,6 @@
 namespace JT\Tests\Godo;
 
 use JT\CLI\Command\Dispatcher;
-use JT\CLI\Command\Registry;
-use JT\CLI\Command\ZshCompletion;
 use JT\Godo;
 use JT\GodoCommand;
 use JT\Tests\TestCase;
@@ -75,13 +73,95 @@ final class GodoCommandTest extends TestCase {
 		$this->assertSame( [], $godo->getStoredCommands( 'dotfiles' ) );
 	}
 
-	public function testGodoCompletionFileMatchesGeneratedOutput(): void {
-		$handler  = new GodoCommand( $this->cli, new Godo( $this->cli ) );
-		$expected = ( new ZshCompletion() )->render( Registry::fromHandler( $handler ) );
-		$actual   = file_get_contents(
-			dirname( __DIR__, 2 ) . '/zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh'
+	public function testGodoCompletionPluginLazyLoadsGeneratedOutput(): void {
+		$plugin   = dirname( __DIR__, 2 )
+			. '/zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh';
+		$contents = (string) file_get_contents( $plugin );
+		$binDir   = sys_get_temp_dir() . '/godo-completion-bin-' . uniqid();
+		$calls    = $binDir . '/calls';
+		$stub     = $binDir . '/godo';
+
+		$this->assertStringContainsString( '_godo_lazy()', $contents );
+		$this->assertStringContainsString( 'command godo completion zsh', $contents );
+		$this->assertStringNotContainsString( '# BEGIN GENERATED COMPLETION', $contents );
+		$this->assertStringNotContainsString( 'commands=(', $contents );
+		$this->assertStringNotContainsString( "'get:", $contents );
+		$this->assertStringNotContainsString( 'Print the stored commands for a key.', $contents );
+
+		mkdir( $binDir, 0777, true );
+		file_put_contents(
+			$stub,
+			"#!/bin/sh\n"
+			. 'printf "%s\n" "$*" >> ' . escapeshellarg( $calls ) . "\n"
+			. "cat <<'ZSH'\n"
+			. "_godo() { return 0; }\n"
+			. "compdef _godo godo\n"
+			. "ZSH\n"
+		);
+		chmod( $stub, 0755 );
+
+		$script = <<<'ZSH'
+autoload -Uz compinit
+compinit -C
+source "$1"
+[[ ${_comps[godo]} == _godo_lazy ]] || exit 10
+[[ ! -e "$2" ]] || exit 11
+_godo_lazy || exit 12
+[[ ${_comps[godo]} == _godo ]] || exit 13
+[[ $+functions[_godo] -eq 1 ]] || exit 14
+ZSH;
+		exec(
+			'PATH=' . escapeshellarg( $binDir . ':' . getenv( 'PATH' ) )
+			. ' zsh -fc '
+			. escapeshellarg( $script )
+			. ' -- '
+			. escapeshellarg( $plugin )
+			. ' '
+			. escapeshellarg( $calls ),
+			$output,
+			$code
 		);
 
-		$this->assertSame( $expected, $actual );
+		$this->assertSame( 0, $code );
+		$this->assertSame( "completion zsh\n", file_get_contents( $calls ) );
+
+		@unlink( $calls );
+		@unlink( $stub );
+		@rmdir( $binDir );
+	}
+
+	public function testGodoCompletionPluginFailsWithoutRecursingWhenGenerationFails(): void {
+		$plugin = dirname( __DIR__, 2 )
+			. '/zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh';
+		$binDir = sys_get_temp_dir() . '/godo-completion-failure-' . uniqid();
+		$stub   = $binDir . '/godo';
+
+		mkdir( $binDir, 0777, true );
+		file_put_contents( $stub, "#!/bin/sh\nexit 23\n" );
+		chmod( $stub, 0755 );
+
+		$script = <<<'ZSH'
+autoload -Uz compinit
+compinit -C
+source "$1"
+_godo_lazy >/dev/null 2>&1
+[[ $? -ne 0 ]] || exit 20
+[[ ${_comps[godo]} == _godo_lazy ]] || exit 21
+[[ $+functions[_godo] -eq 0 ]] || exit 22
+ZSH;
+		exec(
+			'PATH=' . escapeshellarg( $binDir . ':' . getenv( 'PATH' ) )
+			. ' zsh -fc '
+			. escapeshellarg( $script )
+			. ' -- '
+			. escapeshellarg( $plugin ),
+			$output,
+			$code
+		);
+
+		$this->assertSame( 0, $code );
+
+		@unlink( $stub );
+		@rmdir( $binDir );
 	}
 }
