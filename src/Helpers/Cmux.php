@@ -335,13 +335,21 @@ class Cmux {
 	# NOTE — cmux already knows some of this, and we deliberately don't rely on it:
 	# `cmux surface resume get --surface <uuid>` returns a resume_binding cmux's own
 	# agent hooks wrote (kind, checkpoint_id = the session id, cwd, and the command
-	# cmux would relaunch). It agrees with what we derive here, it survives the
-	# process dying, and it needs no lsof. But measured coverage is incomplete —
-	# 8 of 26 live terminal surfaces had no binding, 7 of them hosting live Claude
-	# sessions this join does find — so it can only ever be a second source, never
-	# the primary one. See beads dotfiles-0ue (adopt it as a fallback) and
-	# dotfiles-0u4 (cmux's stored codex command ends in --yolo, so cmux's own
-	# restore widens the sandbox the same way a bare resume does).
+	# cmux would relaunch). It agrees with what we derive here and survives the
+	# process dying. But measured coverage is incomplete — 8 of 26 live terminal
+	# surfaces had no binding, 7 of them hosting live Claude sessions this join does
+	# find — so it could only ever be a second source, and as a fallback it buys
+	# nothing these joins miss (beads dotfiles-0ue, closed).
+	#
+	# That binding tracks the agent process's LAUNCH ARGV, not the session's
+	# history: relaunch a session bare and the binding loses the sandbox flag;
+	# relaunch it with --sandbox=… and the hook rewrites the binding to carry that.
+	# So cmux faithfully replays how a process was started, and buildCodexResume-
+	# Command() replaying the rollout's recorded context is what makes cmux's own
+	# next restore correct too — the hook picks our flags up. No binding writes
+	# needed (they're clobbered by the next hook firing anyway, and gated behind a
+	# GUI approval prompt). dotfiles-0u4 asserted cmux hardcodes --yolo and widens
+	# the sandbox; that was wrong and is closed.
 	# =========================================================================
 
 	/** Absolute path of the codex sessions root (CODEX_SESSIONS_DIR overrides, for tests). */
