@@ -181,7 +181,14 @@ class TuiTranscript {
 
 		foreach ($body as $line) {
 			// Fenced block: dump it as-is, indented under the turn.
-			if (preg_match('/^\s*```/u', $line)) {
+			//
+			// Structure only at low indent, for the same reason startsTurn() is column-0
+			// only: a ``` line indented into a tool-result block is command OUTPUT (a `sed`
+			// of a markdown file, say), not a fence. Matching it at any indent flipped the
+			// renderer into verbatim mode mid-transcript, and every tool label after it
+			// dumped as literal "↳ `…`" text instead of rendering as a call — 56 of 230
+			// sessions in the measured corpus.
+			if (preg_match('/^ {0,3}```/u', $line)) {
 				$flush();
 				$fenced = !$fenced;
 				continue;

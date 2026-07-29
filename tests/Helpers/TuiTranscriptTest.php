@@ -282,6 +282,34 @@ final class TuiTranscriptTest extends TestCase
 		$this->assertStringContainsString('summary text', $out);
 	}
 
+	/**
+	 * A ``` line inside TOOL OUTPUT is command output, not document structure.
+	 *
+	 * Fence detection matched at any indent, so `sed`-ing a markdown file flipped the
+	 * renderer into verbatim mode and everything after it — including the next turn's tool
+	 * labels — dumped as literal `↳ \`…\`` text instead of rendering as calls. Measured on
+	 * the real corpus: 56 of 230 sessions. Claude archives hit this too whenever a tool
+	 * prints a fence; codex just triggers it constantly because it reads markdown all day.
+	 */
+	public function testAFenceInsideToolOutputDoesNotHijackTheRenderer(): void
+	{
+		$md = "**Claude:** reading the skill\n"
+			. "  ↳ `Bash: sed -n '1,20p' SKILL.md`\n"
+			. "      # A heading\n"
+			. "      ```php\n"
+			. "      echo 'hi';\n"
+			. "      ```\n"
+			. "  ↳ `Bash: bd onboard`\n"
+			. "      ready\n";
+
+		$out = $this->render($md);
+
+		$this->assertStringContainsString("⏺ Bash(sed -n '1,20p' SKILL.md)", $out);
+		$this->assertStringContainsString('⏺ Bash(bd onboard)', $out);
+		$this->assertDoesNotMatchRegularExpression('/^\s*↳/m', $out, 'a label leaked as literal text — the fence hijacked the renderer');
+		$this->assertMatchesRegularExpression('/⎿ {2}ready/', $out);
+	}
+
 	// =====================================================================
 	// Codex archives (dotfiles-6me) — a third speaker
 	// =====================================================================
