@@ -447,6 +447,42 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('claude-untargetable', $ca['layout'][0]['kind']);
 	}
 
+	/**
+	 * dotfiles-5p5: a codex session lives in a plain 'terminal' surface and shows no
+	 * Claude statusline, so it must NOT fall through to 'shell' (which a workspace bury
+	 * would close without archiving — data loss). A targetable codex is a member; a live
+	 * codex the join can't bind is untargetable and forces an abort like Claude does.
+	 */
+	public function testClassifyWorkspaceLayoutClassifiesCodexMembers(): void
+	{
+		$wsNode = ['panes' => [
+			['index' => 0, 'surfaces' => [
+				['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'codex a', 'index_in_pane' => 0],
+				['ref' => 'surface:2', 'type' => 'terminal', 'title' => 'codex fresh', 'index_in_pane' => 1],
+				['ref' => 'surface:3', 'type' => 'terminal', 'title' => 'a shell', 'index_in_pane' => 2],
+			]],
+		]];
+		// surface:1 is a bound, targetable codex row; surface:2 is a live codex the join
+		// left unbound (no targetable row); surface:3 is a genuine shell.
+		$liveByRef = ['surface:1' => ['session_id' => 'cdx-1', 'agent' => 'codex', 'cwd' => '/c', 'targetable' => true, 'tab_title' => 'codex a']];
+		$isClaudeByRef = ['surface:1' => false, 'surface:2' => false, 'surface:3' => false];
+		$isCodexByRef  = ['surface:1' => true, 'surface:2' => true, 'surface:3' => false];
+
+		$c = $this->gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef, $isCodexByRef);
+
+		$this->assertSame(['codex', 'codex-untargetable', 'shell'], array_column($c['layout'], 'kind'));
+		$this->assertCount(1, $c['members']);
+		$this->assertSame('cdx-1', $c['members'][0]['session_id']);
+		$this->assertSame('codex', $c['members'][0]['agent']);
+		$this->assertSame(0, $c['members'][0]['group_pos']);
+		// The manifest keys resurrect off claude_session_id; a codex member stores its
+		// codex session id there so manifestPositions()/resurrect can find its tombstone.
+		$this->assertSame('cdx-1', $c['layout'][0]['claude_session_id']);
+		$this->assertCount(1, $c['untargetable']);
+		$this->assertSame('surface:2', $c['untargetable'][0]['ref']);
+		$this->assertSame('codex', $c['untargetable'][0]['agent']);
+	}
+
 	public function testPaneSelectionsPicksVisibleTabPerPane(): void
 	{
 		$layout = [
