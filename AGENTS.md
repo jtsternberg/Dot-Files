@@ -49,6 +49,33 @@ $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $helpyHelperton = $cli->getHelp();
 ```
 
+### Zsh Autocomplete
+
+**Every new CLI command, and every CLI whose subcommands, flags, or positional
+arguments change, must ship with a matching Zsh completion update in the same
+change.** Completion is part of the command's public interface, not deferred
+follow-up work.
+
+Keep dotfiles-owned command completions together in
+`zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh`.
+Create that plugin when adding the first completion, and add
+`dotfiles-completions` to the `.zshrc` `plugins` array so Oh My Zsh loads it.
+Define one `_command_name` function per command and attach it with
+`compdef _command_name command-name`. Use
+`zsh-custom/plugins/dirmap-completions/` and
+`zsh-custom/plugins/godo-completions/` as implementation references; those
+older command-specific plugins remain valid, but do not add new ones.
+
+The completion must reflect `--help` and every supported command/subcommand,
+flag, and argument shape. Update it alongside the CLI, then verify it in a
+clean Zsh process by loading `compinit` and the shared plugin, checking that
+the function exists and that `_comps[command-name]` resolves to it. For
+example:
+
+```zsh
+zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh; [[ ${_comps[graveyard]} == _graveyard ]]'
+```
+
 ### Available `$cli` Methods
 
 **Arguments/Flags:**
