@@ -2354,7 +2354,7 @@ class Graveyard {
 	}
 
 	protected function printTombstones(bool $json): void {
-		$tombs = $this->readIndex()['tombstones'] ?? [];
+		$tombs = $this->annotateLiveness($this->readIndex()['tombstones'] ?? [], $this->liveSessionIdsByAgent());
 		if (!$tombs) {
 			if ($json) { echo json_encode(['workspaces' => [], 'sessions' => []], JSON_PRETTY_PRINT) . "\n"; return; }
 			$this->cli->msg('Graveyard is empty.', 'yellow'); return;
@@ -2378,6 +2378,11 @@ class Graveyard {
 	}
 
 	protected function printLsEntry(array $t, int $width, string $home, int $indent, string $marker = ''): void {
+		// A resurrected session keeps its tombstone, so distinguish "buried" from
+		// "archived but running again" rather than implying it is still down.
+		if (!empty($t['live'])) {
+			$marker = trim($marker . ' ↑') ;
+		}
 		$lines = $this->lsEntryLines($t, $width, $home, $indent, $marker);
 		$this->cli->msg($lines['primary']);
 		if ($lines['secondary'] !== null) { $this->cli->msg($lines['secondary'], 'cyan'); }
@@ -2473,7 +2478,11 @@ class Graveyard {
 			'summary'         => $t['summary'] ?? '',
 			'buried_at'       => $t['buried_at'] ?? '',
 			'last_active'     => $t['last_active'] ?? null,
+			// resurrect keeps the tombstone so it can be resurrected again, so a row can
+			// describe a session that is running right now. Say which.
+			'live'            => (bool) ($t['live'] ?? false),
 		];
+		if (!empty($t['live_agent'])) { $row['live_agent'] = $t['live_agent']; }
 		if ($matched !== null) { $row['matched'] = $matched; }
 		return $row;
 	}
@@ -3450,7 +3459,61 @@ class Graveyard {
 		return $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
 	}
 
+	/** [ surface_ref => agent ] for every live agent session bound to a surface. */
+	public function liveAgentSurfaceRefs(): array {
+		$out = [];
+		foreach ($this->liveSessions() as $r) {
+			if (($r['surface_ref'] ?? '') !== '' && !empty($r['session_id'])) {
+				$out[$r['surface_ref']] = $r['agent'] ?? 'claude';
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * May we type a launch command into this surface? Only if nothing is running in it.
+	 *
+	 * Defence in depth for a real incident: resurrect resolved a workspace by title,
+	 * got a DIFFERENT pre-existing workspace that shared the title, took its first
+	 * surface, and typed `codex resume …` into a live Claude Code REPL. The resolution
+	 * bug is fixed at its source too, but a launch target must be an idle shell, full
+	 * stop — if an agent is already there, the target is wrong by definition, and
+	 * keystrokes into someone's REPL cannot be taken back.
+	 */
+	public function launchTargetIsSafe(string $surfRef): bool {
+		return !isset($this->liveAgentSurfaceRefs()[$surfRef]);
+	}
+
+	/** PURE. Flag tombstones whose session is running again (resurrect keeps the tombstone). */
+	public function annotateLiveness(array $tombs, array $liveBySessionId): array {
+		foreach ($tombs as &$t) {
+			$sid  = (string) ($t['session_id'] ?? '');
+			$live = $sid !== '' && isset($liveBySessionId[$sid]);
+			$t['live'] = $live;
+			if ($live) { $t['live_agent'] = $liveBySessionId[$sid]; }
+		}
+		unset($t);
+		return $tombs;
+	}
+
+	/** [ session_id => agent ] for every live agent session, for liveness annotation. */
+	public function liveSessionIdsByAgent(): array {
+		$out = [];
+		foreach ($this->liveSessions() as $r) {
+			if (!empty($r['session_id'])) { $out[$r['session_id']] = $r['agent'] ?? 'claude'; }
+		}
+		return $out;
+	}
+
 	protected function launchSessionIntoSurface(array $t, string $surfRef, string $wsRef, bool $fromTranscript): string {
+		if (!$this->launchTargetIsSafe($surfRef)) {
+			$agent = $this->liveAgentSurfaceRefs()[$surfRef] ?? 'an agent';
+			$this->cli->exitErr(
+				"Refusing to launch into {$surfRef}: a live {$agent} session is already running there. "
+				. 'That surface is not an idle shell, so the resurrect target resolved wrong — '
+				. 'nothing was typed into it.'
+			);
+		}
 		$native     = $this->tombstoneSessionFile($t);
 		$transcript = $this->tombstoneAgent($t) === 'codex'
 			? $this->codexRolloutArchivePath((string) $t['session_id'])

@@ -1080,20 +1080,56 @@ class Cmux {
 		return false;
 	}
 
+	/**
+	 * Create a workspace and return handles into the one we ACTUALLY created.
+	 *
+	 * Identified by diffing workspace uuids across the call, not by
+	 * findWorkspaceByTitle(): titles are not unique, and resolving by title returned
+	 * the FIRST match — so when a workspace with this title already existed (e.g. the
+	 * workspace a buried tab had lived inside), callers got that pre-existing
+	 * workspace and its panes[0].surfaces[0]. graveyard then typed a launch command
+	 * into a stranger's surface, which in one case was a running Claude Code REPL.
+	 */
 	public function newWorkspace(string $title, ?string $cwd, ?string $windowRef = null): array {
+		$before = [];
+		foreach ($this->tree()['windows'] ?? [] as $w) {
+			foreach ($w['workspaces'] ?? [] as $ws) {
+				if (!empty($ws['id'])) { $before[$ws['id']] = true; }
+			}
+		}
+
 		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title);
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
 		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
 		if ($res['exitCode'] !== 0) { $this->cli->exitErr('new-workspace failed: ' . $res['error']); }
 		usleep(500000);
-		$ws = $this->findWorkspaceByTitle($this->tree(), $title);
-		if (!$ws) { $this->cli->exitErr("Could not find new workspace '{$title}'."); }
+
+		$ws = $this->firstNewWorkspace($this->tree(), $before, $title);
+		if (!$ws) { $this->cli->exitErr("Could not find the workspace just created for '{$title}'."); }
 		return [
 			'ref'          => $ws['ref'] ?? '',
+			'id'           => $ws['id'] ?? null,
 			'firstPaneRef' => $ws['panes'][0]['ref'] ?? null,
 			'firstSurfRef' => $ws['panes'][0]['surfaces'][0]['ref'] ?? null,
 		];
+	}
+
+	/**
+	 * PURE. The workspace present now, absent from $beforeIds, and carrying $title —
+	 * i.e. the one this process just created. Title still has to match so a workspace
+	 * someone else opened concurrently isn't mistaken for ours.
+	 */
+	public function firstNewWorkspace(array $tree, array $beforeIds, string $title): ?array {
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$id = $ws['id'] ?? '';
+				if ($id === '' || isset($beforeIds[$id])) { continue; }
+				if (($ws['title'] ?? '') !== $title) { continue; }
+				return $ws;
+			}
+		}
+		return null;
 	}
 
 	/**

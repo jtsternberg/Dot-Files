@@ -94,10 +94,15 @@ final class GraveyardSearchTest extends TestCase
 		]);
 		$gy = new Graveyard($this->cli, $this->cmux);
 		$rows = $gy->searchTombstones('tailscale');
+		// `live` was added because resurrect deliberately keeps a tombstone, so a row
+		// can describe a session that is running right now — ls/search previously
+		// implied every row was still down. Additive; `live_agent` only appears when
+		// the session is actually live.
 		$this->assertSame(
-			['session_id', 'workspace_title', 'tab_title', 'cwd', 'summary', 'buried_at', 'last_active'],
+			['session_id', 'workspace_title', 'tab_title', 'cwd', 'summary', 'buried_at', 'last_active', 'live'],
 			array_keys($gy->searchRowJson($rows[0]))
 		);
+		$this->assertFalse($gy->searchRowJson($rows[0])['live']);
 	}
 
 	/**
