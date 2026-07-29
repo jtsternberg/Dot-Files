@@ -1,5 +1,26 @@
 # Completions for CLI commands maintained in this dotfiles repository.
 
+_linux_catchup_lazy() {
+	local generated
+
+	generated="$(command linux-catchup completion zsh 2>/dev/null)" || {
+		_message 'unable to generate linux-catchup completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load linux-catchup completion'
+		return 1
+	}
+
+	if (( ! $+functions[_linux_catchup] )); then
+		_message 'linux-catchup completion did not define _linux_catchup'
+		return 1
+	fi
+
+	_linux_catchup "$@"
+}
+
 _graveyard() {
 	local context state state_descr line
 	local -a commands
@@ -131,3 +152,4 @@ _cmux_bak() {
 
 compdef _graveyard graveyard
 compdef _cmux_bak cmux-bak
+compdef _linux_catchup_lazy linux-catchup

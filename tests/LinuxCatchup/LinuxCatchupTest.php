@@ -7,8 +7,8 @@ use JT\LinuxCatchup;
 /**
  * linux-catchup — config loading and apt output parsing.
  *
- * Command execution (codex/claude/godo/apt via passthru) is orchestration in
- * the bin entry script and isn't unit-tested; this covers the pure logic.
+ * LinuxCatchupCommand tests command orchestration separately; this covers the
+ * domain service's pure config and parsing logic.
  * LINUX_CATCHUP_CONFIG points at a throwaway file so the real config is safe.
  */
 final class LinuxCatchupTest extends TestCase

@@ -14,9 +14,9 @@ use JT\CLI\Helpers;
  *   4. system: refresh apt, report upgradable + security + reboot-required;
  *      with --apply, actually run the upgrade.
  *
- * This class holds the testable logic — config loading/defaults and parsing
- * apt output into a structured report. The bin/linux-catchup entry script does
- * the actual command execution (passthru), which isn't unit-tested.
+ * This class holds config loading/defaults and parsing apt output into a
+ * structured report. LinuxCatchupCommand owns the attributed CLI contract and
+ * testable orchestration.
  *
  * The system step is Linux-only; on other platforms it's reported as skipped
  * so the codex/claude/repo steps still work for development.

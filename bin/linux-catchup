@@ -15,181 +15,21 @@ namespace JT;
 #   4. system: refresh apt and report upgradable + security + reboot-required.
 #              With --apply, runs the upgrade (apt-get upgrade).
 #
-# The system step is Linux-only; elsewhere it's reported as skipped so the
-# tool/repo steps still work for development on macOS.
+# The attributed LinuxCatchupCommand handler defines dispatch, help, and
+# completion while keeping operational dependencies lazy and testable.
 #
 # Usage:
 # linux-catchup [--apply] [--yes|-y] [--only=<steps>]
 # linux-catchup --only=system --apply   Only apply system updates
 # linux-catchup config          Print the resolved config + its path
+# linux-catchup completion zsh
 #
 # Steps: codex, claude, repos, system (alias: system-update). --only runs just
 # the named step(s), comma-separated, overriding the config toggles.
 # =============================================================================
 
-$cli = require_once dirname(__DIR__) . '/src/bootstrap.php'; // autoloads JT\LinuxCatchup from src/
+use JT\CLI\Command\Dispatcher;
 
-$helpyHelperton = $cli->getHelp();
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
 
-$helpyHelperton
-	->setScriptName( 'linux-catchup' )
-	->setDescription( 'Catch this Linux box up: update codex + claude, pull configured repos (via godo), and report/apply system (apt) updates.' )
-	->setSampleUsage( '[--apply] [--yes|-y] [--only=<steps>]' )
-	->buildDocs( [
-		'--apply'        => 'Apply system (apt) updates, not just report them.',
-		'-y, --yes'      => 'Assume yes for prompts (map-seed offers, apt -y).',
-		'--only=<steps>' => 'Run only these steps (comma-separated): codex, claude, repos, system (alias system-update). Overrides config toggles.',
-		'config'         => 'Print the resolved config and where it lives, then exit.',
-	] );
-
-if ( $helpyHelperton->batSignal ) {
-	$cli->msg( $helpyHelperton->getHelp() );
-	exit( 0 );
-}
-
-$catchup = new LinuxCatchup( $cli );
-$command = $cli->getArg( 1, '' );
-
-if ( 'config' === $command ) {
-	$cli->msg( sprintf( "\nConfig: %s\n", $catchup->configPath ), 'cyan' );
-	$cli->msg( json_encode( $catchup->config(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
-	exit( 0 );
-}
-
-$apply = $cli->hasFlag( 'apply' );
-$yes   = $cli->isAutoconfirm();
-$only  = $cli->hasFlag( 'only' ) ? (string) $cli->getFlag( 'only' ) : null;
-
-if ( null !== $only ) {
-	[ $known, $unknown ] = $catchup->parseOnly( $only );
-	if ( ! empty( $unknown ) ) {
-		$cli->err( sprintf( "\nUnknown --only step(s): %s", implode( ', ', $unknown ) ) );
-		$cli->msg( sprintf( "Valid steps: %s (alias: system-update).\n", implode( ', ', LinuxCatchup::STEPS ) ) );
-		exit( 1 );
-	}
-	if ( empty( $known ) ) {
-		$cli->exitErr( "\n--only needs at least one step, e.g. --only=system\n" );
-	}
-}
-
-$cyan  = $cli->color( 'cyan' );
-$green = $cli->color( 'green' );
-$reset = $cli->color( 'none' );
-
-$section = static function ( $title ) use ( $cli, $cyan, $reset ) {
-	$cli->msg( sprintf( "\n%s══ %s ══%s", $cyan, $title, $reset ) );
-};
-
-$run = static function ( $cmd ) use ( $cli ) {
-	$cli->msg( sprintf( "  %s➜ %s%s", $cli->color( 'dark_gray' ), $cmd, $cli->color( 'none' ) ) );
-	passthru( $cmd, $code );
-
-	return $code;
-};
-
-# ── 1. codex ────────────────────────────────────────────────────────────────
-if ( $catchup->shouldRun( 'codex', $only ) ) {
-	$section( 'codex update' );
-	if ( commandExists( 'codex' ) ) {
-		$run( 'codex update' );
-	} else {
-		$cli->msg( '  codex not found on PATH — skipping.', 'yellow' );
-	}
-}
-
-# ── 2. claude ─────────────────────────────────────────────────────────────────
-if ( $catchup->shouldRun( 'claude', $only ) ) {
-	$section( 'claude update' );
-	if ( commandExists( 'claude' ) ) {
-		$run( 'claude update' );
-	} else {
-		$cli->msg( '  claude not found on PATH — skipping.', 'yellow' );
-	}
-}
-
-# ── 3. repos (via godo) ───────────────────────────────────────────────────────
-$repos = $catchup->repos();
-if ( $catchup->shouldRun( 'repos', $only ) ) {
-	$section( sprintf( 'repos (%d)', count( $repos ) ) );
-	$godoBin = JT_DOTFILES_DIR . '/bin/godo';
-	$godo    = new Godo( $cli );
-	foreach ( $repos as $key ) {
-		$cli->msg( sprintf( "\n%s• %s%s", $green, $key, $reset ) );
-
-		if ( '' === $godo->resolvePath( $key ) ) {
-			$cli->err( sprintf( "  No dirmap entry for '%s' — add it: dirmap add %s <path>", $key, $key ) );
-			continue;
-		}
-
-		// No silent default: a repo with no godo commands is an error, and we
-		// offer to fix it by writing `git prb` into the map (persisted), not
-		// by overriding at runtime.
-		if ( empty( $godo->getStoredCommands( $key ) ) ) {
-			$cli->err( sprintf( "  No godo commands set for '%s'.", $key ) );
-			if ( $cli->confirm( sprintf( "  Add '%s' to the map for '%s'?", LinuxCatchup::DEFAULT_REPO_COMMAND, $key ) ) ) {
-				$godo->appendCommand( $key, LinuxCatchup::DEFAULT_REPO_COMMAND );
-				$cli->msg( sprintf( "  Added to map: %s => %s", $key, LinuxCatchup::DEFAULT_REPO_COMMAND ), 'green' );
-			} else {
-				$cli->msg( sprintf( "  Skipped %s — set commands with: godo addcmd %s '<command>'", $key, $key ), 'yellow' );
-				continue;
-			}
-		}
-
-		$run( escapeshellarg( $godoBin ) . ' ' . escapeshellarg( $key ) );
-	}
-} elseif ( null !== ( $reposHint = $catchup->reposEmptyHint( $only ) ) ) {
-	$section( 'repos (0)' );
-	$cli->msg( '  ' . $reposHint, 'yellow' );
-}
-
-# ── 4. system (apt) ───────────────────────────────────────────────────────────
-if ( $catchup->shouldRun( 'system', $only ) ) {
-	$section( 'system updates' );
-
-	if ( ! $catchup->isLinux() ) {
-		$cli->msg( sprintf( '  skipped: system step is Linux-only (this is %s).', PHP_OS_FAMILY ), 'yellow' );
-	} else {
-		$cli->msg( '  refreshing package lists (sudo apt-get update)…' );
-		passthru( 'sudo apt-get update -qq' );
-
-		$raw = shell_exec( 'apt list --upgradable 2>/dev/null' ) ?: '';
-		$report = $catchup->parseUpgradable( $raw, file_exists( '/var/run/reboot-required' ) );
-
-		if ( 0 === $report['count'] ) {
-			$cli->msg( '  system is up to date. ✔', 'green' );
-		} else {
-			$cli->msg( sprintf( "\n  %d package(s) upgradable:", $report['count'] ), 'yellow' );
-			foreach ( $report['packages'] as $pkg ) {
-				$isSec = in_array( $pkg, $report['security'], true );
-				$cli->msg( sprintf( '    %s%s%s', $isSec ? $cli->color( 'red' ) : '', $pkg . ( $isSec ? '  [security]' : '' ), $reset ) );
-			}
-
-			if ( ! empty( $report['security'] ) ) {
-				$cli->msg( sprintf( "\n  ⚠ %d security update(s) pending.", count( $report['security'] ) ), 'red' );
-			}
-		}
-
-		if ( $report['reboot_required'] ) {
-			$cli->msg( "\n  ⚠ reboot required (/var/run/reboot-required present).", 'red' );
-		}
-
-		if ( $apply && $report['count'] > 0 ) {
-			$cli->msg( "\n  applying updates (sudo apt-get upgrade)…", 'cyan' );
-			passthru( 'sudo apt-get upgrade ' . ( $yes ? '-y ' : '' ) . '2>&1', $code );
-			if ( 0 !== $code ) {
-				$cli->err( sprintf( "\n  apt-get upgrade exited %d.\n", $code ), false );
-				exit( $code );
-			}
-		} elseif ( $report['count'] > 0 ) {
-			$cli->msg( "\n  (report-only — re-run with --apply to install: `linux-catchup --only=system --apply`)", 'yellow' );
-		}
-	}
-}
-
-$cli->msg( sprintf( "\n%sCaught up.%s\n", $green, $reset ) );
-
-function commandExists( string $cmd ): bool {
-	$which = trim( (string) shell_exec( 'command -v ' . escapeshellarg( $cmd ) . ' 2>/dev/null' ) );
-
-	return '' !== $which;
-}
+exit( ( new Dispatcher( $cli, new LinuxCatchupCommand( $cli ) ) )->run() );
