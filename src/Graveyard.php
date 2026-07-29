@@ -29,6 +29,13 @@ class Graveyard {
 	/** Memoised [session_id => agent] for liveness annotation; null until first resolved. */
 	protected ?array $liveIdCache = null;
 
+	/**
+	 * Memoised codex rollout reader. Held rather than newed per call because its
+	 * per-file parse cache lives on the instance, and one `search --full-text` or page
+	 * render can ask about the same 60 MB rollout more than once.
+	 */
+	protected ?Helpers\CodexRollout $codexRollout = null;
+
 	public function __construct($cli, $cmux) {
 		$this->cli  = $cli;
 		$this->cmux = $cmux;
@@ -63,6 +70,57 @@ class Graveyard {
 	public function transcriptMdPath(string $id): string { return $this->sessionDir($id) . '/transcript.md'; }
 
 	/**
+	 * The archived transcript for a tombstone, RENDERING a codex rollout into one first if
+	 * that is all there is. Returns the path either way; the caller's existing
+	 * missing-transcript behaviour is preserved when there is nothing to render.
+	 *
+	 * This is what makes codex archives readable without teaching five readers a second
+	 * format. `show`, `search --full-text`, the page modal, the copy-path button and
+	 * resurrect-from-transcript all resolve ONE markdown archive; codex bury preserves a raw
+	 * rollout, which none of them understand. Rendering it into the same markdown the Claude
+	 * path writes means every one of them keeps its single input.
+	 *
+	 * Rendering LAZILY on read, not only at bury, is deliberate: it also heals sessions
+	 * buried before this existed, so the store's already-buried codex tombstone gains a
+	 * transcript on its next view with no `repair` pass.
+	 *
+	 * Never writes an empty archive, and never writes next to a surviving .txt — the
+	 * resolver prefers .md, so adding one beside a legacy .txt would silently move every
+	 * reader onto the new file (the same hazard dropSupersededArchive() exists for).
+	 */
+	public function ensureTranscript(array $t): string {
+		$id = (string) ($t['session_id'] ?? '');
+		if ($id === '' || $this->tombstoneAgent($t) !== 'codex') { return $this->transcriptPath($id); }
+
+		$existing = $this->transcriptPath($id);
+		if (is_file($existing)) { return $existing; }
+
+		$rollout = $this->codexRolloutArchivePath($id);
+		if (!is_file($rollout)) { return $existing; }
+
+		// A rollout with no readable turns must not become a header-only archive. That is
+		// the same rule exportTranscriptViaBin() enforces for Claude — an empty transcript
+		// is a failure, not an archive — and it matters more here, because resurrect points
+		// a fresh agent at this file and tells it to re-orient from it.
+		if (!$this->codexRollout()->genuineTurns($rollout)) { return $existing; }
+
+		$md = $this->codexRollout()->toMarkdownArchive($rollout, ['title' => $this->titleizeSummary($t)]);
+		if (trim($md) === '') { return $existing; }
+
+		$dest = $this->transcriptMdPath($id);
+		$dir  = dirname($dest);
+		if (!is_dir($dir) && !@mkdir($dir, 0755, true)) { return $existing; }
+
+		// Temp-then-rename, so a reader can never catch a half-written transcript and treat
+		// it as the whole conversation.
+		$tmp = $dir . '/.transcript.md.tmp';
+		if (@file_put_contents($tmp, $md) === false) { @unlink($tmp); return $existing; }
+		if (!@rename($tmp, $dest)) { @unlink($tmp); return $existing; }
+
+		return $dest;
+	}
+
+	/**
 	 * Where a buried codex session's rollout is archived.
 	 *
 	 * Codex is archived by COPYING its rollout, not by rendering it: there is no
@@ -76,6 +134,30 @@ class Graveyard {
 	/** Where exportTranscriptViaRepl() writes: TUI-rendered text from Claude Code's /export. */
 	public function transcriptTxtPath(string $id): string { return $this->sessionDir($id) . '/transcript.txt'; }
 	public function metaPath(string $id): string { return $this->sessionDir($id) . '/meta.json'; }
+
+	/**
+	 * One buried session's stored tombstone, read from its own meta.json.
+	 *
+	 * For readers that need a single record WITHOUT the liveness annotation tombstones()
+	 * adds — specifically the page server, which bin/graveyard runs as a store-only verb
+	 * with no cmux ping, so anything that shells out to cmux to answer a page request turns
+	 * "show me this transcript" into "is cmux up?". meta.json is a byte-identical copy of
+	 * the index entry, written at bury.
+	 */
+	public function sessionMeta(string $id): ?array {
+		if ($id === '') { return null; }
+
+		// The index first — it is the record every other reader resolves against — then the
+		// per-session copy, which survives an index that has not been written yet.
+		foreach ($this->readIndex()['tombstones'] ?? [] as $t) {
+			if (($t['session_id'] ?? '') === $id) { return $t; }
+		}
+
+		$path = $this->metaPath($id);
+		if (!is_file($path)) { return null; }
+		$meta = json_decode((string) @file_get_contents($path), true);
+		return is_array($meta) ? $meta : null;
+	}
 	public function workspaceGroupDir(string $group): string { return $this->storeRoot() . "/workspaces/{$group}"; }
 	public function manifestPath(string $group): string { return $this->workspaceGroupDir($group) . '/manifest.json'; }
 	public function indexPath(): string { return $this->storeRoot() . '/index.json'; }
@@ -493,6 +575,16 @@ class Graveyard {
 	}
 
 	public function liveSessions(): array {
+		// No cmux, no live sessions — and NOT a fatal.
+		//
+		// bin/graveyard_router.php builds `new Graveyard($cli, null)` on purpose: `page` and
+		// `serve` are store-only verbs, and bin/graveyard exempts them from the cmux ping.
+		// Once tombstones() started annotating liveness (dotfiles-0e6), every page render
+		// reached this method through renderStorePageHtml() and dereferenced that null, so
+		// the page server fataled on EVERY request. Guarding here rather than in
+		// liveSessionIdsByAgent() covers all the paths a cmux-less caller can arrive by.
+		if ($this->cmux === null) { return []; }
+
 		// Deterministic session<->surface joins. Claude binds via process ancestry
 		// (dotfiles-yt2) — tty numbers are recycled across live surfaces, so a tty
 		// join mis-pairs. Codex has no resume-script ancestor to walk to, so it binds
@@ -884,6 +976,13 @@ class Graveyard {
 		], $summary, gmdate('Y-m-d\TH:i:s\Z'), $group);
 		file_put_contents($this->metaPath($sid), json_encode($tomb, JSON_PRETTY_PRINT));
 		$this->upsertIndex($tomb);
+		// Render the transcript now so a just-buried codex session is immediately greppable
+		// by `search --full-text` and openable by `show`. A render failure is NOT a bury
+		// failure: the lossless rollout is already archived and gates 2/3 have passed, and
+		// ensureTranscript() will retry on the next read anyway.
+		try { $this->ensureTranscript($tomb); } catch (\Throwable) {
+			$this->cli->msg('  Could not render the rollout as a transcript — the raw rollout is archived.', 'yellow');
+		}
 		$this->cli->successMsg($this->ellipsizeText('  Buried [codex]: ' . $this->cleanSummaryText($summary, getenv('HOME') ?: ''), $this->termWidth()));
 
 		if (!$autoConfirm && !$this->cli->confirm('  Close the cmux tab and kill this session now?')) {
@@ -1152,7 +1251,58 @@ class Graveyard {
 		return mb_substr($clean, 0, 100);
 	}
 
+	/**
+	 * PURE. Which agent a row belongs to, for rows of EITHER shape.
+	 *
+	 * A live session row carries `agent` while a tombstone carries `kind`, and code that
+	 * reads both (deriveSummary, called at bury time with a live row and by repair with a
+	 * tombstone) needs one answer. tombstoneAgent() stays the tombstone-only reader it was.
+	 */
+	public function rowAgent(array $row): string {
+		if (($row['agent'] ?? '') === 'codex' || ($row['kind'] ?? '') === 'codex') { return 'codex'; }
+		return 'claude';
+	}
+
+	/** The codex rollout reader, held so its per-file parse cache survives across views. */
+	protected function codexRollout(): Helpers\CodexRollout {
+		return $this->codexRollout ??= new Helpers\CodexRollout();
+	}
+
+	/**
+	 * The best rollout to READ for a codex session: the live one if it still exists, else
+	 * the archived copy, else ''.
+	 *
+	 * Live first because bury derives a summary while the session is still running, and the
+	 * live file is the one with the newest turns in it. Archive second so everything keeps
+	 * working after the session is gone — which is the whole point of archiving it.
+	 */
+	public function codexRolloutReadPath(string $sessionId): string {
+		// The live lookup needs a cmux; the page server has none (see liveSessions()). No
+		// cmux just means no LIVE rollout to prefer — the archived copy still answers.
+		$live = $this->cmux === null ? null : $this->cmux->codexRolloutPathFor($sessionId);
+		if ($live !== null && is_file($live)) { return $live; }
+		$archived = $this->codexRolloutArchivePath($sessionId);
+		return is_file($archived) ? $archived : '';
+	}
+
 	public function deriveSummary(array $sess): string {
+		// Codex keeps its prompts in a rollout, not a Claude jsonl, so reading the jsonl
+		// path found nothing and every codex headstone fell through to its tab title —
+		// which is a DIRECTORY name. The live store's one codex tombstone reads
+		// ".dotfiles" where its opening prompt was "/system-watchdog".
+		//
+		// The text is handed to summarizeUserText() unchanged rather than pre-cleaned: that
+		// method is what turns a "<command-name>/foo</command-name>" wrapper into "/foo",
+		// so a slash-command session names itself the same way for both agents.
+		if ($this->rowAgent($sess) === 'codex') {
+			$rollout = $this->codexRolloutReadPath((string) $sess['session_id']);
+			if ($rollout !== '') {
+				$summary = $this->summarizeUserText($this->codexRollout()->firstUserText($rollout));
+				if ($summary !== '') { return $summary; }
+			}
+			return $this->summaryFallback($sess);
+		}
+
 		$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
 		if (is_file($jsonl)) {
 			$fh = fopen($jsonl, 'r');
@@ -1176,6 +1326,11 @@ class Graveyard {
 			}
 			fclose($fh);
 		}
+		return $this->summaryFallback($sess);
+	}
+
+	/** PURE. The last resort for a summary: the tab title, minus the REPL's status glyph. */
+	protected function summaryFallback(array $sess): string {
 		$title = $sess['tab_title'] ?? '';
 		// strip Claude Code's leading status glyph
 		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title)) ?: '(no summary)';
@@ -2315,7 +2470,11 @@ class Graveyard {
 		$title = $this->titleizeSummary($t, $home);
 		$cwd   = (string) ($t['cwd'] ?? '');
 		$pad   = str_repeat(' ', $indent);
-		$mark  = $marker === '' ? '' : $marker . ' ';
+		// `candidates` already tags live codex rows "[codex]"; a BURIED one was
+		// indistinguishable from a Claude headstone. Folded into $marker rather than the
+		// title so the existing width arithmetic covers it and lines still fit.
+		$tag   = $this->tombstoneAgent($t) === 'codex' ? '[codex] ' : '';
+		$mark  = ($marker === '' ? '' : $marker . ' ') . $tag;
 		$mw    = mb_strlen($mark);
 		$STACK_BELOW = 100;
 
@@ -2447,7 +2606,9 @@ class Graveyard {
 			if (trim($plot) !== '' && str_contains($plot, $needle)) { $hits[] = $t + ['match_scope' => 'group']; continue; }
 
 			if ($fullText) {
-				$tp = $this->transcriptPath($t['session_id']);
+				// ensureTranscript, not transcriptPath: a codex archive is a raw rollout until
+				// something renders it, and a body nobody rendered is a body nobody can grep.
+				$tp = $this->ensureTranscript($t);
 				if (is_file($tp) && $this->fileContains($tp, $needle)) { $hits[] = $t + ['match_scope' => 'session']; }
 			}
 		}
@@ -2481,6 +2642,10 @@ class Graveyard {
 			'summary'         => $t['summary'] ?? '',
 			'buried_at'       => $t['buried_at'] ?? '',
 			'last_active'     => $t['last_active'] ?? null,
+			// Which agent this session belongs to. Structured output is a VIEW (AGENTS.md):
+			// a codex row was indistinguishable from a Claude one here — only `live_agent`
+			// said so, and only while the session happened to be running.
+			'agent'           => $this->tombstoneAgent($t),
 			// resurrect keeps the tombstone so it can be resurrected again, so a row can
 			// describe a session that is running right now. Say which.
 			'live'            => (bool) ($t['live'] ?? false),
@@ -2656,7 +2821,7 @@ class Graveyard {
 	public function showTombstone(string $prefix): void {
 		$t = $this->resolveTombstone($prefix);
 		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
-		$path = $this->transcriptPath($t['session_id']);
+		$path = $this->ensureTranscript($t);
 		if (!is_file($path)) { $this->cli->exitErr("Transcript missing: {$path}"); }
 		$editor = trim((string) shell_exec('command -v code 2>/dev/null'));
 		if ($editor) { shell_exec('code -r ' . escapeshellarg($path)); }
@@ -2997,8 +3162,22 @@ class Graveyard {
 	 * archives are already in this shape and pass through untouched.
 	 */
 	public function renderTranscriptJs(string $id): ?string {
+		if ($id === '') { return null; }
+		// Render a codex rollout on demand — the modal said "(no transcript lies here)" for
+		// every codex headstone otherwise.
+		//
+		// Resolved from the session's own meta.json, NOT through tombstones(): `page` and
+		// `serve` are store-only verbs that bin/graveyard deliberately does not gate on a
+		// cmux ping, and tombstones() annotates liveness by shelling out to cmux/lsof/ps.
+		// Going through it made the page server require a running cmux to show a transcript.
+		// No annotation is involved in fetching one record, so the store copy is the right
+		// source here — the lock-step rule is about views of the COLLECTION not diverging.
 		$tp = $this->transcriptPath($id);
-		if ($id === '' || !is_file($tp)) { return null; }
+		if (!is_file($tp)) {
+			$t = $this->sessionMeta($id);
+			if ($t !== null) { $tp = $this->ensureTranscript($t); }
+		}
+		if (!is_file($tp)) { return null; }
 		$text = (new Helpers\TuiTranscript())->fromMarkdown((string) file_get_contents($tp));
 		return $this->pageTranscriptJs($id, $text);
 	}
@@ -3183,7 +3362,8 @@ class Graveyard {
 		}
 
 		// The modal shows the transcript path (display: ~/-collapsed; copy: FULL path).
-		$tpath      = $this->transcriptPath($sid);
+		// Rendered here too, so the copy button hands over a path that exists.
+		$tpath      = $this->ensureTranscript($t);
 		$tpathShort = $home !== '' ? str_replace($home, '~', $tpath) : $tpath;
 
 		$where = implode(' · ', array_filter([$cwd, $ws . ($tab !== '' ? ' / ' . $tab : '')], fn($p) => trim($p) !== ''));
@@ -3385,9 +3565,10 @@ class Graveyard {
 
 		$native        = $this->tombstoneSessionFile($t);
 		$hasNative     = $native !== null && is_file($native);
-		$transcript    = $this->tombstoneAgent($t) === 'codex'
-			? $this->codexRolloutArchivePath((string) $t['session_id'])
-			: $this->transcriptPath($t['session_id']);
+		// The RENDERED archive, not the raw rollout: this path is handed to a fresh agent
+		// with "read this to re-orient", and a .jsonl of session_meta/response_item envelopes
+		// is a far worse briefing than the transcript ensureTranscript() renders from it.
+		$transcript    = $this->ensureTranscript($t);
 		$hasTranscript = is_file($transcript);
 
 		if (!$hasNative && !$hasTranscript) {
@@ -3543,9 +3724,10 @@ class Graveyard {
 			);
 		}
 		$native     = $this->tombstoneSessionFile($t);
-		$transcript = $this->tombstoneAgent($t) === 'codex'
-			? $this->codexRolloutArchivePath((string) $t['session_id'])
-			: $this->transcriptPath($t['session_id']);
+		// The RENDERED archive, not the raw rollout: this path is handed to a fresh agent
+		// with "read this to re-orient", and a .jsonl of session_meta/response_item envelopes
+		// is a far worse briefing than the transcript ensureTranscript() renders from it.
+		$transcript = $this->ensureTranscript($t);
 		$useResume  = !$fromTranscript && $native !== null && is_file($native);
 
 		// A workspace is restored under one cwd (its first member's), but members can
@@ -4200,6 +4382,19 @@ class Graveyard {
 		}
 		$this->cli->msg('');
 
+		// Codex keeps its turns in a rollout, so reading a Claude jsonl found nothing and
+		// `peek <codex-id>` printed a header followed by "(no genuine conversation turns
+		// found)" for every codex session. Both agents normalise to the same turn shape, so
+		// they share the renderer.
+		if ($this->rowAgent($s) === 'codex') {
+			$rollout  = $this->codexRolloutReadPath((string) $s['session_id']);
+			$rendered = $rollout === ''
+				? ''
+				: $this->renderNormalizedTurns($this->codexRollout()->genuineTurns($rollout), $turns);
+			echo $rendered !== '' ? $rendered : "(no genuine conversation turns found)\n";
+			return;
+		}
+
 		$jsonl = $this->cmux->jsonlPathFor($s['session_id'], $s['cwd']);
 		$entries = [];
 		if (is_file($jsonl)) {
@@ -4250,9 +4445,25 @@ class Graveyard {
 	}
 
 	public function renderTurns(array $entries, int $limit = 6, int $width = 160): string {
+		return $this->renderNormalizedTurns($this->genuineTurns($entries), $limit, $width);
+	}
+
+	/**
+	 * PURE. Render ALREADY-NORMALIZED turns ([['role'=>..,'text'=>..], ...]).
+	 *
+	 * Split out from renderTurns() so codex can share it: CodexRollout produces this exact
+	 * shape from a rollout, and the alternative was a second copy of the glyph-and-truncate
+	 * logic that would drift from this one.
+	 */
+	public function renderNormalizedTurns(array $normalized, int $limit = 6, int $width = 160): string {
 		$turns = [];
-		foreach ($this->genuineTurns($entries) as $t) {
-			$text = mb_strlen($t['text']) > $width ? mb_substr($t['text'], 0, $width - 1) . '…' : $t['text'];
+		foreach ($normalized as $t) {
+			// Collapsed here, not by the callers: one turn is one line. Claude's turns arrive
+			// pre-collapsed by genuineTurns(), but a codex turn keeps its newlines because
+			// the markdown archive needs them, and a multi-line peek row breaks the glyph
+			// alignment that makes the output scannable.
+			$flat = trim(preg_replace('/\s+/', ' ', (string) $t['text']));
+			$text = mb_strlen($flat) > $width ? mb_substr($flat, 0, $width - 1) . '…' : $flat;
 			$turns[] = ($t['role'] === 'user' ? '❯ ' : '⏺ ') . $text;
 		}
 		$turns = array_slice($turns, -$limit);

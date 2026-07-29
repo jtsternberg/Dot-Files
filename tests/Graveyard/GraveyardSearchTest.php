@@ -99,7 +99,9 @@ final class GraveyardSearchTest extends TestCase
 		// implied every row was still down. Additive; `live_agent` only appears when
 		// the session is actually live.
 		$this->assertSame(
-			['session_id', 'workspace_title', 'tab_title', 'cwd', 'summary', 'buried_at', 'last_active', 'live'],
+			// `agent` was added with codex rendering: structured output is a view, and a
+			// codex row was otherwise indistinguishable from a Claude one here.
+			['session_id', 'workspace_title', 'tab_title', 'cwd', 'summary', 'buried_at', 'last_active', 'agent', 'live'],
 			array_keys($gy->searchRowJson($rows[0]))
 		);
 		$this->assertFalse($gy->searchRowJson($rows[0])['live']);
