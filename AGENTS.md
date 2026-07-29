@@ -69,19 +69,20 @@ follow-up work.
 Keep dotfiles-owned command completions together in
 `zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh`.
 It is loaded by the `.zshrc` `plugins` array. Attributed commands generate
-their completion with `<command> completion zsh`; check the marked generated
-block into the shared plugin and pin exact parity in a test. Existing
-command-specific plugins remain valid while they are migrated, but do not add
-new ones.
+their completion with `<command> completion zsh`; check in only a lazy loader
+which invokes that generator on the first completion request in each shell.
+Never duplicate attributed command names or documentation in the plugin.
+Existing command-specific plugins remain valid while they are migrated, but do
+not add new ones. The exact loader and test contract lives in the
+command-authoring skill.
 
-The completion must reflect `--help` and every supported command/subcommand,
-flag, and argument shape. Update it alongside the CLI, then verify it in a
-clean Zsh process by loading `compinit` and the shared plugin, checking that
-the function exists and that `_comps[command-name]` resolves to it. For
-example:
+The generated completion must reflect `--help` and every supported
+command/subcommand, flag, and argument shape. Update it alongside the CLI, then
+verify the lazy loader and generated function in a clean Zsh process by loading
+`compinit` and the plugin.
 
 ```zsh
-zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh; [[ ${_comps[graveyard]} == _graveyard ]]'
+zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh; [[ ${_comps[godo]} == _godo_lazy ]]'
 ```
 
 ### Available `$cli` Methods

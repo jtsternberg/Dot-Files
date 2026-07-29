@@ -7,7 +7,7 @@ description: Build, change, or review PHP CLI commands in this dotfiles reposito
 
 Keep each command's behavior, help, and completion driven by one attributed
 handler contract. Keep `bin/<command>` thin, domain logic testable, and every
-interface change covered by tests and regenerated completion.
+interface change covered by tests and runtime-generated completion.
 
 ## Start from the reference implementation
 
@@ -21,8 +21,8 @@ multi-command CLI:
 - `src/CLI/Command/`: reflection registry, dispatcher, definitions, and Zsh
   renderer.
 - `tests/Cli/CommandFrameworkTest.php`: framework contract.
-- `tests/Godo/GodoCommandTest.php`: handler dispatch and generated-completion
-  parity.
+- `tests/Godo/GodoCommandTest.php`: handler dispatch and lazy completion
+  loading.
 
 Read `.claude/skills/verify/SKILL.md` before live verification.
 
@@ -110,27 +110,59 @@ example completion zsh
 The Help renderer and Zsh renderer must consume the same reflected
 `ProgramDefinition` used by dispatch.
 
-Check generated completion into the repository so shell startup never invokes
-PHP merely to construct completion metadata. New dotfiles-owned completions go
-in:
+Do not check generated command names, descriptions, arguments, or options into
+a completion plugin. That creates a second interface definition which can
+drift from the attributed handler. Instead, bind a small loader at shell startup
+which invokes `<command> completion zsh` only on the first completion request
+in that shell, evaluates the generated function, and delegates to it:
 
-```text
-zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh
+```zsh
+_<command>_lazy() {
+	local generated
+
+	generated="$(command <command> completion zsh 2>/dev/null)" || {
+		_message 'unable to generate <command> completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load <command> completion'
+		return 1
+	}
+
+	if (( ! $+functions[_<command>] )); then
+		_message '<command> completion did not define _<command>'
+		return 1
+	fi
+
+	_<command> "$@"
+}
+
+compdef _<command>_lazy <command>
 ```
 
-Existing command-specific plugins may remain while they are migrated. Add an
-exact parity test between `completion zsh` and the checked-in completion text;
-`tests/Godo/GodoCommandTest.php` is the reference. Generated output carries
-`BEGIN/END GENERATED COMPLETION` markers. When several commands share
-`dotfiles-completions.plugin.zsh`, extract the marked command block and compare
-that exact block instead of testing only that the shared file contains a few
-expected strings.
+New dotfiles-owned loaders go in
+`zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh`.
+Existing command-specific plugins may remain while they are migrated;
+`zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh` is the
+reference implementation.
+
+Test that sourcing the plugin performs no command invocation, the first loader
+call invokes exactly `<command> completion zsh`, successful generation rebinds
+`_comps[<command>]` to the generated function, and generation failure returns
+nonzero without recursion. Also assert that the checked-in plugin contains no
+enumerated command metadata.
+
+Do not add persistent disk caching to this loader unless measured latency shows
+the once-per-shell generation is materially slow. The proposed
+content-addressed XDG cache, automatic invalidation requirements, and cache
+tests are tracked in Beads task `dotfiles-kmc`.
 
 Verify syntax and registration in a clean process:
 
 ```bash
-zsh -n zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh
-zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/dotfiles-completions/dotfiles-completions.plugin.zsh; [[ ${_comps[example]} == _example ]]'
+zsh -n <completion-plugin>
+zsh -fc 'autoload -Uz compinit; compinit -C; source <completion-plugin>; [[ ${_comps[example]} == _example_lazy ]]'
 ```
 
 ## Keep logic and output testable
@@ -164,7 +196,7 @@ zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/dotfiles-
 1. Compare the attributed contract with runtime parsing and every documented
    invocation.
 2. Verify `--help`, subcommand help, `completion zsh`, and read-only live paths.
-3. Run completion parity, Zsh syntax/registration, focused PHPUnit tests, and
-   the full suite.
+3. Run lazy-loader integration checks, Zsh syntax/registration, focused PHPUnit
+   tests, and the full suite.
 4. Update this skill when the command framework gains a durable authoring rule;
    keep AGENTS.md to the short routing rule and repository-wide invariants.
