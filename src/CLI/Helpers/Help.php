@@ -45,6 +45,9 @@
 namespace JT\CLI\Helpers;
 
 use JT\CLI\Helpers;
+use JT\CLI\Command\CommandDefinition;
+use JT\CLI\Command\ParameterDefinition;
+use JT\CLI\Command\ProgramDefinition;
 
 /**
  * CLI Help handler.
@@ -324,6 +327,100 @@ class Help {
 				}
 				$output .= $this->cli->getMsg( "    $msg", 'yellow' );
 			}
+		}
+
+		return $output;
+	}
+
+	public function renderProgram( ProgramDefinition $program, string $command = '' ): string {
+		if ( '' !== $command ) {
+			if ( 'completion' === $command ) {
+				return "\nGenerate the Zsh completion script.\n\n"
+					. "usage: {$program->name} completion zsh\n";
+			}
+			if ( 'help' === $command ) {
+				return "\nDisplay command help.\n\n"
+					. "usage: {$program->name} help [<command>]\n";
+			}
+
+			$definition = $program->command( $command );
+			if ( null === $definition || $definition->hidden ) {
+				return "Unknown command: {$command}\n";
+			}
+
+			return $this->renderProgramCommand( $program, $definition );
+		}
+
+		$default = $program->defaultCommand();
+		$output  = "\n{$program->description}\n\n";
+		if ( null !== $default ) {
+			$output .= 'usage: ' . $this->programUsage( $program, $default ) . "\n";
+			$output .= $this->renderProgramParameters( $default );
+		}
+
+		foreach ( $program->visibleCommands() as $definition ) {
+			$output .= "\n   or: " . $this->programUsage( $program, $definition );
+			if ( '' !== $definition->description ) {
+				$output .= "\n       {$definition->description}";
+			}
+			$output .= "\n";
+		}
+
+		$output .= "\n   or: {$program->name} help [<command>]";
+		$output .= "\n   or: {$program->name} completion zsh\n";
+
+		return $output;
+	}
+
+	private function renderProgramCommand(
+		ProgramDefinition $program,
+		CommandDefinition $command
+	): string {
+		$output = '';
+		if ( '' !== $command->description ) {
+			$output .= "\n{$command->description}\n\n";
+		}
+		$output .= 'usage: ' . $this->programUsage( $program, $command ) . "\n";
+		$output .= $this->renderProgramParameters( $command );
+
+		return $output;
+	}
+
+	private function programUsage(
+		ProgramDefinition $program,
+		CommandDefinition $command
+	): string {
+		$usage = $program->name;
+		if ( ! $command->default ) {
+			$usage .= ' ' . $command->name;
+		}
+		$args = $command->usageArguments();
+
+		return $usage . ( '' === $args ? '' : ' ' . $args );
+	}
+
+	private function renderProgramParameters( CommandDefinition $command ): string {
+		$parameters = array_filter(
+			$command->parameters,
+			static fn( ParameterDefinition $parameter ) => '' !== $parameter->description
+		);
+		if ( empty( $parameters ) ) {
+			return '';
+		}
+
+		$width = max(
+			array_map(
+				static fn( ParameterDefinition $parameter ) => strlen( $parameter->usageToken() ),
+				$parameters
+			)
+		);
+		$output = '';
+		foreach ( $parameters as $parameter ) {
+			$output .= sprintf(
+				"   %-{$width}s  %s\n",
+				$parameter->usageToken(),
+				$parameter->description
+			);
 		}
 
 		return $output;
