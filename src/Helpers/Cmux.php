@@ -12,6 +12,19 @@ class Cmux {
 
 	const SESSIONS_DIR = '~/.claude/sessions';
 
+	/** Codex rollout transcripts live under <root>/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl. */
+	const CODEX_SESSIONS_DIR = '~/.codex/sessions';
+
+	/**
+	 * codex subcommands that never own a cmux surface: the VS Code extension's
+	 * `app-server`, headless `exec`, and the various one-shot utilities. Only an
+	 * interactive TUI is a session cmux-bak can back up and resume.
+	 */
+	const CODEX_NON_TUI_SUBCOMMANDS = [
+		'app-server', 'exec', 'mcp', 'mcp-server', 'login', 'logout',
+		'completion', 'apply', 'sandbox', 'debug', 'generate-ts',
+	];
+
 	protected $cli;
 	protected $dryRun;
 
@@ -304,6 +317,384 @@ class Cmux {
 		return $out;
 	}
 
+	# =========================================================================
+	# Codex sessions (dotfiles-zcm).
+	#
+	# Codex cannot reuse Claude's session<->surface join. Claude bridges through
+	# the unique cmux-{surface,agent}-resume/claude-<UUID>.zsh script each surface
+	# launches; a codex TUI is started by hand in a plain shell, so its ancestry is
+	# `-/bin/zsh` -> login -> cmux with no resume script to match on. What every
+	# process in a surface *does* have is CMUX_SURFACE_ID in its environment, and
+	# the tree already reports that same UUID per surface as `id` (tree() passes
+	# --id-format both). That pairing is exact and, unlike tty, never recycled.
+	#
+	# Session ids come from the rollout file the live codex holds open, so two
+	# codex sessions started in the same minute can't be confused — which any
+	# "newest file in ~/.codex/sessions" heuristic would do.
+	# =========================================================================
+
+	/** Absolute path of the codex sessions root (CODEX_SESSIONS_DIR overrides, for tests). */
+	public function codexSessionsDir(): string {
+		$override = getenv('CODEX_SESSIONS_DIR');
+		return $this->cli->convertPathToAbsolute($override !== false && $override !== '' ? $override : self::CODEX_SESSIONS_DIR);
+	}
+
+	/** PURE. Is argv[0] the codex binary itself (not codex-code-mode-host, etc.)? */
+	public function isCodexCommand(string $cmd): bool {
+		$first = preg_split('/\s+/', trim($cmd))[0] ?? '';
+		return $first !== '' && basename($first) === 'codex';
+	}
+
+	/**
+	 * PURE. The first argv word that looks like a subcommand rather than a flag or
+	 * a flag's value — i.e. the first non-flag word not immediately preceded by a
+	 * flag. Callers only ever REJECT known names with this (never require a match),
+	 * because a value-carrying flag can leave arbitrary junk in the position:
+	 * `--enable hooks` must not read as the `hooks` subcommand, while
+	 * `-c features.x=true app-server` must still read as `app-server`.
+	 */
+	public function codexSubcommand(string $cmd): ?string {
+		$words = preg_split('/\s+/', trim($cmd)) ?: [];
+		array_shift($words); // argv[0]
+		$prevWasFlag = false;
+		foreach ($words as $w) {
+			if ($w === '') { continue; }
+			if ($w[0] === '-') { $prevWasFlag = true; continue; }
+			if ($prevWasFlag) { $prevWasFlag = false; continue; } // a flag's value
+			return $w;
+		}
+		return null;
+	}
+
+	/** PURE. Does this command line run a non-interactive codex subcommand? */
+	public function isCodexNonTuiCommand(string $cmd): bool {
+		$sub = $this->codexSubcommand($cmd);
+		return $sub !== null && in_array($sub, self::CODEX_NON_TUI_SUBCOMMANDS, true);
+	}
+
+	/**
+	 * PURE. Pids of interactive codex TUIs in a parseProcTable() table. Cheap
+	 * pre-filter only — the caller still confirms each pid with an open rollout
+	 * and a CMUX_SURFACE_ID before treating it as a backable session.
+	 */
+	public function codexProcPids(array $proc): array {
+		$pids = [];
+		foreach ($proc as $pid => $info) {
+			$cmd = $info['cmd'] ?? '';
+			if ($this->isCodexCommand($cmd) && !$this->isCodexNonTuiCommand($cmd)) {
+				$pids[] = (int) $pid;
+			}
+		}
+		return $pids;
+	}
+
+	/** Raw `lsof -p <pid>` output — yields the open rollout AND the cwd in one call. */
+	public function lsofForPid(int $pid): string {
+		return (string) shell_exec('lsof -p ' . (int) $pid . ' 2>/dev/null');
+	}
+
+	/**
+	 * Raw `ps -wwEp <pid>`. NOTE: -E appends the environment to the command
+	 * column on the same line, so this output carries every env var of the
+	 * process — including CMUX_SOCKET_CAPABILITY, a live auth token. Feed it
+	 * straight to parseSurfaceIdFromEnv() and never log or persist it.
+	 */
+	public function pidEnv(int $pid): string {
+		return (string) shell_exec('ps -wwEp ' . (int) $pid . ' 2>/dev/null');
+	}
+
+	/** PURE. Path of the rollout jsonl an lsof dump shows open, or null. */
+	public function parseLsofRolloutPath(string $raw): ?string {
+		return preg_match('#(\S*/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-fA-F-]{36}\.jsonl)#', $raw, $m)
+			? $m[1]
+			: null;
+	}
+
+	/**
+	 * PURE. The codex session id (uuid) from an lsof dump, or null. The uuid is
+	 * positional — it trails a `rollout-<ISO-ish timestamp>-` prefix — so the
+	 * shape is matched strictly rather than grabbing any uuid-looking run.
+	 */
+	public function parseLsofRollout(string $raw): ?string {
+		$path = $this->parseLsofRolloutPath($raw);
+		return $path !== null ? $this->rolloutUuidFromPath($path) : null;
+	}
+
+	/** PURE. The session uuid embedded in a rollout filename, or null. */
+	public function rolloutUuidFromPath(string $path): ?string {
+		return preg_match('/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$/', $path, $m)
+			? $m[1]
+			: null;
+	}
+
+	/** PURE. The process working directory from an lsof dump (the FD=cwd row), or null. */
+	public function parseLsofCwd(string $raw): ?string {
+		// NAME is the last column and may contain spaces, so it's "rest of line".
+		return preg_match('/^\S+\s+\d+\s+\S+\s+cwd\s+\S+\s+\S+\s+\S+\s+\S+\s+(.+)$/m', $raw, $m)
+			? rtrim($m[1])
+			: null;
+	}
+
+	/** PURE. CMUX_SURFACE_ID out of a `ps -wwEp` dump (and nothing else from it), or null. */
+	public function parseSurfaceIdFromEnv(string $raw): ?string {
+		return preg_match('/\bCMUX_SURFACE_ID=([0-9A-Fa-f-]{36})\b/', $raw, $m) ? $m[1] : null;
+	}
+
+	/**
+	 * The cwd recorded in a rollout's `session_meta` header — where the
+	 * conversation actually ran, which is what restore should cd into even if the
+	 * live process has since been cd'd elsewhere.
+	 */
+	public function codexSessionCwd(string $rolloutPath): ?string {
+		$h = @fopen($rolloutPath, 'rb');
+		if (!$h) { return null; }
+		$cwd = null;
+		// The header is the first record, but scan a few lines in case of a
+		// leading blank or a writer that emits a preamble.
+		for ($i = 0; $i < 5 && ($line = fgets($h)) !== false; $i++) {
+			$rec = json_decode(trim($line), true);
+			if (is_array($rec) && ($rec['type'] ?? '') === 'session_meta') {
+				$cwd = $rec['payload']['cwd'] ?? null;
+				break;
+			}
+		}
+		fclose($h);
+		return $cwd !== null && $cwd !== '' ? $cwd : null;
+	}
+
+	/**
+	 * Path of the rollout for a codex session id, or null if it's gone. Globbed
+	 * rather than reconstructed: the YYYY/MM/DD directories aren't derivable from
+	 * a bare uuid, and this is what audit's "resumable" check rests on.
+	 */
+	public function codexRolloutPathFor(string $sessionId): ?string {
+		if (!preg_match('/^[0-9a-fA-F-]{36}$/', $sessionId)) { return null; }
+		$hits = glob($this->codexSessionsDir() . "/*/*/*/rollout-*-{$sessionId}.jsonl") ?: [];
+		return $hits ? $hits[0] : null;
+	}
+
+	/**
+	 * The model / sandbox / approval / reasoning-effort a codex session was last
+	 * running under, from the LAST turn_context record in its rollout — the state
+	 * at the END of the conversation, so a mid-session change wins. Same principle
+	 * as resolveModel()/resolveSkipPerms() treating Claude's jsonl as truth.
+	 *
+	 * This exists because `codex resume` does NOT rehydrate them: measured, a
+	 * session created with `-s read-only` and resumed bare came back
+	 * `danger-full-access` (the ~/.codex/config.toml default). Restoring without
+	 * replaying these would silently widen a session's sandbox.
+	 *
+	 * Scanned backward — rollouts run to megabytes, so the head is never read.
+	 */
+	public function codexRolloutContext(string $rolloutPath): array {
+		$ctx = ['model' => null, 'sandbox' => null, 'approval' => null, 'effort' => null];
+
+		$this->eachLineReverse($rolloutPath, function (string $line) use (&$ctx) {
+			$rec = json_decode(trim($line), true);
+			if (!is_array($rec) || ($rec['type'] ?? '') !== 'turn_context') {
+				return true;
+			}
+			$pl  = $rec['payload'] ?? [];
+			$ctx = [
+				'model'    => $pl['model'] ?? ($pl['settings']['model'] ?? null),
+				'sandbox'  => $pl['sandbox_policy']['type'] ?? null,
+				'approval' => $pl['approval_policy'] ?? null,
+				'effort'   => $pl['reasoning_effort'] ?? ($pl['settings']['reasoning_effort'] ?? null),
+			];
+			return false; // last one wins; stop at the first hit scanning backward
+		});
+
+		return $ctx;
+	}
+
+	/**
+	 * Live codex sessions keyed by pid — the codex counterpart of
+	 * loadClaudeSessionsByPid().
+	 * [ pid => [session_id, cwd, surface_id, model, opts] ].
+	 * A codex with no open rollout (starting up, or a subcommand that slipped the
+	 * pre-filter) is skipped: there's nothing to resume.
+	 */
+	public function loadCodexSessionsByPid(): array {
+		$proc = $this->parseProcTable($this->psProcTable());
+		$out  = [];
+		foreach ($this->codexProcPids($proc) as $pid) {
+			$lsof = $this->lsofForPid($pid);
+			$path = $this->parseLsofRolloutPath($lsof);
+			if ($path === null) { continue; }
+			$sid = $this->rolloutUuidFromPath($path);
+			if ($sid === null) { continue; }
+			$ctx = $this->codexRolloutContext($path);
+			$out[$pid] = [
+				'session_id' => $sid,
+				'cwd'        => $this->codexSessionCwd($path) ?? $this->parseLsofCwd($lsof) ?? '',
+				'surface_id' => $this->parseSurfaceIdFromEnv($this->pidEnv($pid)),
+				'model'      => $ctx['model'],
+				'opts'       => [
+					'sandbox'  => $ctx['sandbox'],
+					'approval' => $ctx['approval'],
+					'effort'   => $ctx['effort'],
+				],
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * PURE. surface UUID => [surface_ref, workspace_ref, tty, title, type] over a
+	 * cmux tree. tree() already requests --id-format both, so no extra shell call.
+	 */
+	public function mapSurfaceUuids(array $tree): array {
+		$map = [];
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				foreach ($ws['panes'] ?? [] as $pane) {
+					foreach ($pane['surfaces'] ?? [] as $surf) {
+						$id = $surf['id'] ?? null;
+						if (!$id) { continue; }
+						$map[$id] = [
+							'surface_ref'   => $surf['ref'] ?? '',
+							'workspace_ref' => $ws['ref'] ?? '',
+							'pane_ref'      => $pane['ref'] ?? '',
+							'tty'           => $surf['tty'] ?? '',
+							'title'         => $surf['title'] ?? '',
+							'type'          => $surf['type'] ?? 'terminal',
+						];
+					}
+				}
+			}
+		}
+		return $map;
+	}
+
+	/**
+	 * PURE. Bind each live codex session to its cmux surface by CMUX_SURFACE_ID.
+	 * Emits the SAME row shape as joinSessionsToSurfaces() (plus agent => 'codex')
+	 * so CmuxBak reads both agents through one code path.
+	 *
+	 * Ambiguity mirrors the Claude join and always yields targetable=false with a
+	 * reason, never a guess: no CMUX_SURFACE_ID (not inside a cmux surface), an id
+	 * absent from the tree (surface closed), or two sessions claiming one surface.
+	 *
+	 * @param array $codexSessions  pid => [session_id, cwd, surface_id]  (loadCodexSessionsByPid)
+	 * @param array $surfaceUuids   uuid => [surface_ref, workspace_ref, tty, title] (mapSurfaceUuids)
+	 */
+	public function joinCodexToSurfaces(array $codexSessions, array $surfaceUuids): array {
+		$rows    = [];
+		$claimed = []; // surface_ref => [session_id,...]
+
+		foreach ($codexSessions as $pid => $s) {
+			$row = [
+				'session_id'    => $s['session_id'] ?? null,
+				'pid'           => (int) $pid,
+				'cwd'           => $s['cwd'] ?? '',
+	'model'         => $s['model'] ?? null,
+				// Claude's skip_perms has no codex analogue; codex expresses the
+				// same idea through sandbox/approval, which ride in opts.
+				'skip_perms'    => false,
+				'opts'          => $s['opts'] ?? [],
+				'surface_ref'   => '',
+				'workspace_ref' => '',
+				'tty'           => '',
+				'title'         => '',
+				'targetable'    => false,
+				'reason'        => '',
+				'agent'         => 'codex',
+			];
+
+			$surfaceId = $s['surface_id'] ?? null;
+			if (!$surfaceId) {
+				$row['reason'] = 'no CMUX_SURFACE_ID (not running in a cmux surface)';
+				$rows[] = $row; continue;
+			}
+			if (!isset($surfaceUuids[$surfaceId])) {
+				$row['reason'] = 'CMUX_SURFACE_ID not found among cmux surfaces';
+				$rows[] = $row; continue;
+			}
+
+			$d = $surfaceUuids[$surfaceId];
+			$row['surface_ref']   = $d['surface_ref'];
+			$row['workspace_ref'] = $d['workspace_ref'];
+			$row['tty']           = $d['tty'];
+			$row['title']         = $d['title'];
+			$row['targetable']    = true;
+			$claimed[$d['surface_ref']][] = $row['session_id'];
+			$rows[] = $row;
+		}
+
+		foreach ($rows as &$r) {
+			$ref = $r['surface_ref'];
+			if ($ref && count(array_unique($claimed[$ref] ?? [])) > 1) {
+				$r['targetable'] = false;
+				$r['reason']     = 'surface claimed by multiple codex sessions (collision)';
+			}
+		}
+		unset($r);
+
+		return $rows;
+	}
+
+	/**
+	 * The relaunch command for a session, dispatched on agent. Wraps rather than
+	 * replaces buildResumeCommand() so graveyard's callers stay put.
+	 *
+	 * $opts carries agent-specific knobs with no Claude equivalent — for codex,
+	 * sandbox/approval/effort. skip_perms is Claude-only and never reaches codex.
+	 */
+	public function buildAgentResumeCommand(string $agent, string $sessionId, bool $skipPerms = false, ?string $model = null, array $opts = []): string {
+		if ($agent === 'codex') {
+			return $this->buildCodexResumeCommand($sessionId, $model, $opts);
+		}
+		return $this->buildResumeCommand($sessionId, $skipPerms, $model);
+	}
+
+	/**
+	 * `codex resume <uuid>` replaying the session's recorded context.
+	 *
+	 * The flags are NOT redundant with the rollout: resume re-reads
+	 * ~/.codex/config.toml rather than rehydrating turn_context — measured, a
+	 * read-only session resumed bare came back danger-full-access. Omitting a flag
+	 * we don't know still falls back to config, which is the old behaviour; what we
+	 * must never do is quietly widen a sandbox.
+	 *
+	 * Values originate in a file on disk and land on a shell command line, so each
+	 * is whitelisted to a plain token and anything else is dropped, not quoted.
+	 */
+	public function buildCodexResumeCommand(string $sessionId, ?string $model, array $opts = []): string {
+		$safe = fn($v) => is_string($v) && $v !== '' && preg_match('/^[A-Za-z0-9._-]+$/', $v) ? $v : null;
+
+		// Flags go BEFORE the session id, matching the documented
+		// `codex resume [OPTIONS] [SESSION_ID] [PROMPT]` shape — the positional is
+		// what the parser is lenient about, not the options.
+		$flags = '';
+		if ($m = $safe($model)) {
+			$flags .= " --model={$m}";
+		}
+		if ($s = $safe($opts['sandbox'] ?? null)) {
+			$flags .= " --sandbox={$s}";
+		}
+		if ($a = $safe($opts['approval'] ?? null)) {
+			$flags .= " --ask-for-approval={$a}";
+		}
+		if ($e = $safe($opts['effort'] ?? null)) {
+			// reasoning effort has no dedicated flag; it's a config override.
+			$flags .= " -c model_reasoning_effort=\"{$e}\"";
+		}
+		return "codex resume{$flags} {$sessionId}";
+	}
+
+	/**
+	 * Transcript path for a session, dispatched on agent — what "is this still
+	 * resumable?" is decided on. Claude's is derivable from (id, cwd); codex's
+	 * must be globbed by id, so this can return null where jsonlPathFor() always
+	 * returns a (possibly nonexistent) path.
+	 */
+	public function transcriptPathFor(string $agent, string $sessionId, string $cwd): ?string {
+		if ($agent === 'codex') {
+			return $this->codexRolloutPathFor($sessionId);
+		}
+		return $cwd !== '' ? $this->jsonlPathFor($sessionId, $cwd) : null;
+	}
+
 	/** Generate a v4 UUID (for graveyard group ids). */
 	public function uuidv4(): string {
 		$b = random_bytes(16);
@@ -449,6 +840,12 @@ class Cmux {
 				'title'         => '',
 				'targetable'    => false,
 				'reason'        => '',
+				// Tagged so CmuxBak can merge these rows with joinCodexToSurfaces()
+				// output and read both through one code path. 'opts' holds
+				// agent-specific knobs; Claude expresses everything it needs through
+				// model + skip_perms, so it stays empty here.
+				'agent'         => 'claude',
+				'opts'          => [],
 			];
 
 			$script = $this->ancestorResumeScript($proc, (int) $pid);

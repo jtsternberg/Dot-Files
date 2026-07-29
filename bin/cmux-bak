@@ -5,21 +5,37 @@ namespace JT;
 # Backup and restore cmux workspace/session state
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.2.0
+# Version 0.3.0
 #
 # Saves all cmux workspaces, panes, and surfaces to ~/.config/cmux/bak.json,
-# capturing each terminal's CWD and any active Claude Code session ID.
+# capturing each terminal's CWD and any active Claude Code OR codex session.
 #
-# Session IDs come from ~/.claude/sessions/<pid>.json — no screen-scraping.
+# Neither agent is screen-scraped. Claude session IDs come from
+# ~/.claude/sessions/<pid>.json, bound to a surface by walking process ancestry
+# to the resume script that surface launched. Codex has no such script, so its
+# sessions come from the rollout jsonl each live codex holds open (lsof) and bind
+# to a surface via CMUX_SURFACE_ID, which cmux puts in every surface process's
+# environment and reports per surface as the tree's `id`. Both joins are exact
+# and tty-free — cmux recycles tty numbers, so a tty is not an identity.
 #
 # On --restore, audits existing workspaces by name and only acts on what's
-# missing: resumes dead Claude sessions in existing workspaces, and recreates
-# workspaces that are gone entirely.
+# missing: resumes dead sessions in existing workspaces (`claude --resume <id>`
+# or `codex resume <id>`), and recreates workspaces that are gone entirely.
 #
-# `audit` is a read-only diff: it compares the backup's Claude sessions against
-# what's actually running now (matched by session id via the deterministic
-# session↔surface join) and reports which conversations did not re-open — then
-# offers to resume the missing ones into their existing surfaces.
+# A codex resume replays the model/sandbox/approval/effort recorded in the
+# rollout's last turn_context. That is NOT redundant: measured, `codex resume`
+# re-reads ~/.codex/config.toml instead of rehydrating turn_context, so a session
+# that ran --sandbox=read-only comes back danger-full-access if resumed bare.
+# Passing the recorded values back keeps a restore from widening a sandbox.
+#
+# `audit` is a read-only diff: it compares the backup's sessions against what's
+# actually running now (matched by session id via those joins) and reports which
+# conversations did not re-open — then offers to resume the missing ones into
+# their existing surfaces.
+#
+# Backup schema v2 records one generic agent per surface (agent,
+# agent_session_id, agent_model, agent_skip_permissions). v1 files, which carried
+# claude_* keys, are still readable.
 #
 # Usage:
 # cmux-bak [--restore] [--file=<path>] [--dry-run] [--verbose]
@@ -31,10 +47,10 @@ $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
 	->setScriptName('cmux-bak')
-	->setDescription('Backup and restore cmux workspace/session state.')
+	->setDescription('Backup and restore cmux workspace/session state (Claude Code + codex).')
 	->setSampleUsage('[audit] [--restore] [--file=<path>] [--dry-run] [--verbose]')
 	->buildDocs([
-		'audit'          => 'Report which backed-up Claude sessions are not running now, then offer to resume them',
+		'audit'          => 'Report which backed-up agent sessions are not running now, then offer to resume them',
 		'--restore'      => 'Restore from backup, auditing existing workspaces first',
 		'--file=<path>'  => 'Backup file path (default: ~/.config/cmux/bak.json)',
 		'--dry-run'      => 'Show what would be done without making changes',

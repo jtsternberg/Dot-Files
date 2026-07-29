@@ -41,21 +41,11 @@ class CmuxBak {
 	protected function backup() {
 		$this->cli->msg('Scanning cmux state...', 'yellow');
 
-		$tree = $this->cmux->tree();
-
-		// Bind each live Claude to its surface via the deterministic, tty-free join
-		// (process ancestry → resume script → surface_ref). Keying by tty instead —
-		// as this used to — mis-pairs sessions, because cmux recycles tty numbers
-		// across surfaces, so one session id gets stamped onto every surface sharing
-		// that tty. See dotfiles-e5g and Cmux::joinSessionsToSurfaces().
+		$tree  = $this->cmux->tree();
 		$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
-		$rows  = $this->cmux->joinSessionsToSurfaces(
-			$this->cmux->loadClaudeSessionsByPid(),
-			$this->cmux->parseProcTable($this->cmux->psProcTable()),
-			$debug
-		);
+		$rows  = $this->agentRows($tree, $debug);
 
-		// cwd for plain terminals (no live Claude), keyed by surface_ref.
+		// cwd for plain terminals (no live agent), keyed by surface_ref.
 		$cwdBySurf = [];
 		foreach ($debug as $ref => $d) {
 			if (!empty($d['cwd'])) {
@@ -64,20 +54,13 @@ class CmuxBak {
 		}
 
 		if ($this->verbose) {
-			$bound = array_filter($rows, fn($r) => $r['surface_ref'] !== '' && !empty($r['session_id']));
-			$this->cli->msg('  Found ' . count($bound) . ' active Claude sessions', 'cyan');
-			foreach ($bound as $r) {
-				$short  = substr((string) $r['session_id'], 0, 8);
-				$flags  = !empty($r['skip_perms']) ? ' --dangerously-skip-permissions' : '';
-				$flags .= !empty($r['model']) ? " --model={$r['model']}" : '';
-				$this->cli->msg("    → {$r['surface_ref']} {$short}… cwd={$r['cwd']}{$flags}", 'green');
-			}
+			$this->reportBoundRows($rows);
 		}
 
 		$workspacesData = $this->buildWorkspacesData($tree['windows'] ?? [], $rows, $cwdBySurf);
 
 		$backup = [
-			'version'    => 1,
+			'version'    => 2,
 			'timestamp'  => gmdate('Y-m-d\TH:i:s\Z'),
 			'workspaces' => $workspacesData,
 		];
@@ -93,15 +76,63 @@ class CmuxBak {
 		$surfCount = array_sum(array_map(function($ws) {
 			return array_sum(array_map(fn($p) => count($p['surfaces']), $ws['panes']));
 		}, $workspacesData));
-		$sessCount = array_sum(array_map(function($ws) {
-			return array_sum(array_map(function($p) {
-				return count(array_filter($p['surfaces'], fn($s) => !empty($s['claude_session_id'])));
-			}, $ws['panes']));
-		}, $workspacesData));
+
+		$byAgent = $this->countSessionsByAgent($workspacesData);
+		$sessCount = array_sum($byAgent);
+		$breakdown = $byAgent
+			? ' (' . implode(', ', array_map(fn($a, $n) => "{$n} {$a}", array_keys($byAgent), $byAgent)) . ')'
+			: '';
 
 		$this->cli->successMsg(
-			"Saved {$wsCount} workspaces, {$surfCount} surfaces, {$sessCount} Claude sessions → {$this->bakFile}"
+			"Saved {$wsCount} workspaces, {$surfCount} surfaces, {$sessCount} agent sessions{$breakdown} → {$this->bakFile}"
 		);
+	}
+
+	/**
+	 * Every live agent session bound to the surface it occupies, both agents in one
+	 * list sharing one row shape.
+	 *
+	 * Claude binds via the deterministic, tty-free ancestry join (process ancestry →
+	 * resume script → surface_ref). Keying by tty instead — as this used to —
+	 * mis-pairs sessions, because cmux recycles tty numbers across surfaces, so one
+	 * session id gets stamped onto every surface sharing that tty (dotfiles-e5g).
+	 *
+	 * Codex has no resume-script ancestor to walk to, so it binds via the surface
+	 * UUID cmux puts in every surface process's environment (CMUX_SURFACE_ID)
+	 * against the tree's per-surface `id`. Also exact, also tty-free.
+	 */
+	protected function agentRows(array $tree, array $debug): array {
+		$claude = $this->cmux->joinSessionsToSurfaces(
+			$this->cmux->loadClaudeSessionsByPid(),
+			$this->cmux->parseProcTable($this->cmux->psProcTable()),
+			$debug
+		);
+		$codex = $this->cmux->joinCodexToSurfaces(
+			$this->cmux->loadCodexSessionsByPid(),
+			$this->cmux->mapSurfaceUuids($tree)
+		);
+
+		return array_merge($claude, $codex);
+	}
+
+	/** --verbose: what bound where, and why anything live didn't. */
+	protected function reportBoundRows(array $rows) {
+		$bound   = array_filter($rows, fn($r) => $r['surface_ref'] !== '' && !empty($r['session_id']));
+		$unbound = array_filter($rows, fn($r) => $r['surface_ref'] === '' && !empty($r['session_id']));
+
+		$this->cli->msg('  Found ' . count($bound) . ' active agent sessions', 'cyan');
+		foreach ($bound as $r) {
+			$short  = substr((string) $r['session_id'], 0, 8);
+			$agent  = $r['agent'] ?? 'claude';
+			$flags  = !empty($r['skip_perms']) ? ' --dangerously-skip-permissions' : '';
+			$flags .= !empty($r['model']) ? " --model={$r['model']}" : '';
+			$this->cli->msg("    → {$r['surface_ref']} [{$agent}] {$short}… cwd={$r['cwd']}{$flags}", 'green');
+		}
+		foreach ($unbound as $r) {
+			$short = substr((string) $r['session_id'], 0, 8);
+			$agent = $r['agent'] ?? 'claude';
+			$this->cli->msg("    ? [{$agent}] {$short}… unbound — {$r['reason']}", 'yellow');
+		}
 	}
 
 	// ── Restore ───────────────────────────────────────────────────────────────
@@ -119,7 +150,7 @@ class CmuxBak {
 		$this->cli->lineBreak();
 
 		$tree      = $this->cmux->tree();
-		$liveBySurf = $this->liveSessionsBySurfaceRef();
+		$liveBySurf = $this->agentRowsBySurfaceRef($tree);
 
 		// Map workspace title → workspace data (current)
 		$currentWsByTitle = [];
@@ -160,11 +191,14 @@ class CmuxBak {
 				foreach ($bakWs['panes'] ?? [] as $bakPane) {
 					foreach ($bakPane['surfaces'] ?? [] as $bakSurf) {
 						$surfTitle  = $bakSurf['title'] ?? '';
-						$sessionId  = $bakSurf['claude_session_id'] ?? null;
 						$bakCwd     = $bakSurf['cwd'] ?? '';
 						$surfType   = $bakSurf['type'] ?? 'terminal';
-						$skipPerms  = $bakSurf['claude_skip_permissions'] ?? false;
-						$model      = $bakSurf['claude_model'] ?? null;
+						$norm       = $this->normalizeBakSurface($bakSurf);
+						$agent      = $norm['agent'];
+						$sessionId  = $norm['session_id'];
+						$skipPerms  = $norm['skip_perms'];
+						$model      = $norm['model'];
+						$opts       = $norm['opts'];
 
 						if ($surfType !== 'terminal' || !$sessionId) {
 							continue;
@@ -185,7 +219,7 @@ class CmuxBak {
 								continue;
 							}
 
-							$choice = $this->askSurfaceNotFound($surfTitle, $bakCwd, $sessionId);
+							$choice = $this->askSurfaceNotFound($surfTitle, $bakCwd, $sessionId, $agent);
 							if ($choice === 'skip') {
 								$this->cli->msg('    Skipped.', 'cyan');
 								continue;
@@ -203,15 +237,17 @@ class CmuxBak {
 
 						$surfRef = $currentSurf['ref'];
 
-						$status = $this->surfaceClaudeStatus($liveBySurf, $surfRef, $sessionId);
+						$status = $this->surfaceAgentStatus($liveBySurf, $surfRef, $sessionId);
 						if ($status === 'same') {
-							$this->cli->msg('    ✓ Same Claude session already running', 'green');
+							$this->cli->msg("    ✓ Same {$agent} session already running", 'green');
 						} elseif ($status === 'other') {
-							$short = substr($liveBySurf[$surfRef]['session_id'], 0, 8);
-							$this->cli->msg("    ✓ Different Claude session running ({$short}…), leaving it", 'cyan');
+							$live      = $liveBySurf[$surfRef];
+							$short     = substr((string) $live['session_id'], 0, 8);
+							$liveAgent = $live['agent'] ?? 'claude';
+							$this->cli->msg("    ✓ Different {$liveAgent} session running ({$short}…), leaving it", 'cyan');
 						} else {
 							$short = substr($sessionId, 0, 8);
-							$this->cli->msg("    ✗ Claude not running — resuming {$short}…", 'yellow');
+							$this->cli->msg("    ✗ {$agent} not running — resuming {$short}…", 'yellow');
 							if ($bakCwd) {
 								$this->cli->msg("    → cd {$bakCwd}");
 								$this->cmux->sendToSurface($surfRef, $currentWsRef, "cd {$bakCwd}\n");
@@ -219,7 +255,7 @@ class CmuxBak {
 									usleep(300000);
 								}
 							}
-							$resumeCmd = $this->cmux->buildResumeCommand($sessionId, $skipPerms, $model);
+							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($surfRef, $currentWsRef, "{$resumeCmd}\n");
 						}
@@ -242,10 +278,13 @@ class CmuxBak {
 
 				if ($this->dryRun) {
 					$surfs   = $this->allSurfacesFromBakWs($bakWs);
-					$sessions = array_filter($surfs, fn($s) => !empty($s['claude_session_id']));
-					$sc = count($surfs);
-					$ss = count($sessions);
-					$this->cli->msg("    Would create with {$sc} surface(s), {$ss} Claude session(s)");
+					$byAgent = $this->countSessionsByAgent([$bakWs]);
+					$sc      = count($surfs);
+					$ss      = array_sum($byAgent);
+					$detail  = $byAgent
+						? ': ' . implode(', ', array_map(fn($a, $n) => "{$n} {$a}", array_keys($byAgent), $byAgent))
+						: '';
+					$this->cli->msg("    Would create with {$sc} surface(s), {$ss} agent session(s){$detail}");
 					continue;
 				}
 
@@ -274,9 +313,19 @@ class CmuxBak {
 				foreach ($bakWs['panes'] ?? [] as $paneIdx => $bakPane) {
 					foreach ($bakPane['surfaces'] ?? [] as $surfIdx => $bakSurf) {
 						$bakCwd    = $bakSurf['cwd'] ?? '';
-						$sessionId = $bakSurf['claude_session_id'] ?? null;
 						$surfType  = $bakSurf['type'] ?? 'terminal';
 						$surfUrl   = $bakSurf['url'] ?? null;
+						// Read per-surface — these used to be read only in the
+						// existing-workspace branch above, so a RECREATED workspace
+						// resumed every session with whatever $skipPerms/$model had
+						// leaked in from that other loop (undefined on the first one),
+						// silently dropping --dangerously-skip-permissions/--model.
+						$norm      = $this->normalizeBakSurface($bakSurf);
+						$agent     = $norm['agent'];
+						$sessionId = $norm['session_id'];
+						$skipPerms = $norm['skip_perms'];
+						$model     = $norm['model'];
+						$opts      = $norm['opts'];
 
 						if ($paneIdx === 0 && $surfIdx === 0) {
 							$targetRef   = $firstSurfRef;
@@ -300,8 +349,7 @@ class CmuxBak {
 						}
 
 						if ($sessionId) {
-							$short      = substr($sessionId, 0, 8);
-							$resumeCmd  = $this->cmux->buildResumeCommand($sessionId, $skipPerms, $model);
+							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
 						}
@@ -318,11 +366,11 @@ class CmuxBak {
 	// ── Audit ───────────────────────────────────────────────────────────────
 
 	/**
-	 * Read-only diff: which backed-up Claude sessions are still running?
+	 * Read-only diff: which backed-up agent sessions are still running?
 	 *
 	 * Liveness is matched by session id (not tty/title, both of which drift):
-	 * the deterministic session↔surface join reports every live Claude and
-	 * where it currently lives. A backed-up session absent from that set did
+	 * the deterministic session↔surface joins report every live Claude and codex
+	 * and where each currently lives. A backed-up session absent from that set did
 	 * not re-open. For the missing ones we offer to resume into their existing
 	 * surface (dead-session-in-live-surface — the common post-restart case);
 	 * a vanished workspace/surface is deferred to `--restore` to recreate.
@@ -339,14 +387,9 @@ class CmuxBak {
 		}
 		$this->cli->lineBreak();
 
-		// Live session_id → current location, via the deterministic join.
+		// Live session_id → current location, via the deterministic joins.
 		$liveById = [];
-		$rows = $this->cmux->joinSessionsToSurfaces(
-			$this->cmux->loadClaudeSessionsByPid(),
-			$this->cmux->parseProcTable($this->cmux->psProcTable()),
-			$this->cmux->parseDebugTerminals($this->cmux->debugTerminals())
-		);
-		foreach ($rows as $r) {
+		foreach ($this->agentRows($this->cmux->tree(), $this->cmux->parseDebugTerminals($this->cmux->debugTerminals())) as $r) {
 			if (!empty($r['session_id'])) {
 				$liveById[$r['session_id']] = $r;
 			}
@@ -360,7 +403,9 @@ class CmuxBak {
 			$wsTitle = $bakWs['title'] ?? '';
 			foreach ($bakWs['panes'] ?? [] as $bakPane) {
 				foreach ($bakPane['surfaces'] ?? [] as $bakSurf) {
-					$sid = $bakSurf['claude_session_id'] ?? null;
+					$norm  = $this->normalizeBakSurface($bakSurf);
+					$sid   = $norm['session_id'];
+					$agent = $norm['agent'];
 					if (($bakSurf['type'] ?? 'terminal') !== 'terminal' || !$sid) {
 						continue;
 					}
@@ -374,17 +419,19 @@ class CmuxBak {
 						$where = $loc['surface_ref']
 							? "{$loc['workspace_ref']} / {$loc['surface_ref']}"
 							: '(live, surface unbound)';
-						$this->cli->msg("  ✓ {$label} — running [{$where}]", 'green');
+						$this->cli->msg("  ✓ [{$agent}] {$label} — running [{$where}]", 'green');
 					} else {
 						$short   = substr($sid, 0, 8);
 						$bakCwd  = $bakSurf['cwd'] ?? '';
-						$hasTx   = $bakCwd && file_exists($this->cmux->jsonlPathFor($sid, $bakCwd));
+						$txPath  = $this->cmux->transcriptPathFor($agent, $sid, $bakCwd);
+						$hasTx   = $txPath !== null && file_exists($txPath);
 						$note    = $hasTx ? 'resumable' : 'transcript NOT found';
-						$this->cli->msg("  ✗ {$label} — NOT running ({$short}…, {$note})", 'yellow');
+						$this->cli->msg("  ✗ [{$agent}] {$label} — NOT running ({$short}…, {$note})", 'yellow');
 						$missing[] = [
 							'ws_title'   => $wsTitle,
 							'surf'       => $bakSurf,
 							'session_id' => $sid,
+							'agent'      => $agent,
 							'resumable'  => $hasTx,
 						];
 					}
@@ -394,12 +441,12 @@ class CmuxBak {
 
 		$this->cli->lineBreak();
 		$this->cli->msg(
-			"Backed-up Claude sessions: {$total} — running: {$running}, missing: " . count($missing),
+			"Backed-up agent sessions: {$total} — running: {$running}, missing: " . count($missing),
 			'cyan'
 		);
 
 		if (!$missing) {
-			$this->cli->successMsg('All backed-up Claude sessions are live. Nothing to restore.');
+			$this->cli->successMsg('All backed-up agent sessions are live. Nothing to restore.');
 			return;
 		}
 
@@ -426,13 +473,14 @@ class CmuxBak {
 	 * Resume one missing session into its existing surface, matched by workspace
 	 * title + (normalized) surface title. Skips — pointing at `--restore` — when
 	 * the workspace or surface is gone, and refuses to clobber a surface that
-	 * already hosts a live Claude.
+	 * already hosts a live agent session.
 	 */
 	protected function resumeMissing(array $tree, array $liveById, array $m) {
 		$surf  = $m['surf'];
 		$sid   = $m['session_id'];
+		$agent = $m['agent'] ?? 'claude';
 		$label = substr($surf['title'] ?? '', 0, 45);
-		$this->cli->msg("Resuming '{$label}'");
+		$this->cli->msg("Resuming [{$agent}] '{$label}'");
 
 		if (!$m['resumable']) {
 			$this->cli->err('    Transcript not found — cannot resume. Skipping.');
@@ -464,18 +512,21 @@ class CmuxBak {
 		}
 		$surfRef = $target['ref'] ?? '';
 
-		// Don't clobber a live Claude already running on this surface.
+		// Don't clobber a live agent session already running on this surface.
 		foreach ($liveById as $liveSid => $row) {
 			if (($row['surface_ref'] ?? '') === $surfRef) {
-				$short = substr($liveSid, 0, 8);
-				$this->cli->msg("    ✓ A Claude session ({$short}…) is already running here — leaving it.", 'cyan');
+				$short     = substr((string) $liveSid, 0, 8);
+				$liveAgent = $row['agent'] ?? 'claude';
+				$this->cli->msg("    ✓ A {$liveAgent} session ({$short}…) is already running here — leaving it.", 'cyan');
 				return;
 			}
 		}
 
+		$norm      = $this->normalizeBakSurface($surf);
 		$bakCwd    = $surf['cwd'] ?? '';
-		$skipPerms = $surf['claude_skip_permissions'] ?? false;
-		$model     = $surf['claude_model'] ?? null;
+		$skipPerms = $norm['skip_perms'];
+		$model     = $norm['model'];
+		$opts      = $norm['opts'];
 
 		if ($bakCwd) {
 			$this->cli->msg("    → cd {$bakCwd}");
@@ -484,7 +535,7 @@ class CmuxBak {
 				usleep(300000);
 			}
 		}
-		$resumeCmd = $this->cmux->buildResumeCommand($sid, $skipPerms, $model);
+		$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sid, $skipPerms, $model, $opts);
 		$this->cli->msg("    → {$resumeCmd}");
 		$this->cmux->sendToSurface($surfRef, $wsRef, "{$resumeCmd}\n");
 	}
@@ -492,15 +543,15 @@ class CmuxBak {
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
 	/**
-	 * Live Claude sessions indexed by the surface they currently occupy:
-	 * [ surface_ref => join row ]. Built from the deterministic, tty-free join so
-	 * a surface's liveness is judged by the surface it launched — not by a tty it
-	 * happens to share with another surface (dotfiles-e5g).
+	 * Live agent sessions (both agents) indexed by the surface they currently
+	 * occupy: [ surface_ref => join row ]. Built from the deterministic, tty-free
+	 * joins so a surface's liveness is judged by the surface a session actually
+	 * launched in — not by a tty it happens to share with another surface
+	 * (dotfiles-e5g).
 	 */
-	protected function liveSessionsBySurfaceRef(): array {
-		$rows = $this->cmux->joinSessionsToSurfaces(
-			$this->cmux->loadClaudeSessionsByPid(),
-			$this->cmux->parseProcTable($this->cmux->psProcTable()),
+	protected function agentRowsBySurfaceRef(?array $tree = null): array {
+		$rows = $this->agentRows(
+			$tree ?? $this->cmux->tree(),
 			$this->cmux->parseDebugTerminals($this->cmux->debugTerminals())
 		);
 		$bySurf = [];
@@ -517,15 +568,59 @@ class CmuxBak {
 	 * PURE. Decide what to do with a surface we want to resume $wantSid into,
 	 * given the live-by-surface_ref map:
 	 *   'same'   — our session is already live on this surface (nothing to do)
-	 *   'other'  — a different Claude is live here (leave it alone)
-	 *   'resume' — no live Claude on this surface (safe to resume)
+	 *   'other'  — some other agent session is live here (leave it alone)
+	 *   'resume' — nothing live on this surface (safe to resume)
+	 *
+	 * Session ids are compared without regard to agent: they're uuids from
+	 * different generators, so a cross-agent id collision isn't a thing, and a
+	 * codex sitting where a Claude was backed up from is still 'other'.
 	 */
-	protected function surfaceClaudeStatus(array $liveBySurf, string $surfRef, ?string $wantSid): string {
+	protected function surfaceAgentStatus(array $liveBySurf, string $surfRef, ?string $wantSid): string {
 		$live = $liveBySurf[$surfRef] ?? null;
 		if (!$live) {
 			return 'resume';
 		}
 		return ($live['session_id'] ?? null) === $wantSid ? 'same' : 'other';
+	}
+
+	/**
+	 * PURE. Read one backed-up surface's agent fields, tolerating v1 files.
+	 * Returns [agent, session_id, model, skip_perms].
+	 *
+	 * v2 stores a single generic agent per surface; v1 stored claude_* keys with no
+	 * agent at all. bak.json is a cache every run rewrites wholesale, so this shim
+	 * only has to cover a file already on disk at upgrade time — it goes away next
+	 * release. A surface carrying a session id but no agent is read as claude, so a
+	 * partial/hand-edited file can never turn into a stray `codex resume`.
+	 */
+	protected function normalizeBakSurface(array $bakSurf): array {
+		$sessionId = $bakSurf['agent_session_id'] ?? $bakSurf['claude_session_id'] ?? null;
+
+		return [
+			'agent'      => $sessionId ? ($bakSurf['agent'] ?? 'claude') : null,
+			'session_id' => $sessionId,
+			'model'      => $bakSurf['agent_model'] ?? $bakSurf['claude_model'] ?? null,
+			'skip_perms' => (bool) ($bakSurf['agent_skip_permissions'] ?? $bakSurf['claude_skip_permissions'] ?? false),
+			'opts'       => is_array($bakSurf['agent_opts'] ?? null) ? $bakSurf['agent_opts'] : [],
+		];
+	}
+
+	/** PURE. [ agent => session count ] across a backup's workspaces, agents with none omitted. */
+	protected function countSessionsByAgent(array $workspaces): array {
+		$counts = [];
+		foreach ($workspaces as $ws) {
+			foreach ($ws['panes'] ?? [] as $pane) {
+				foreach ($pane['surfaces'] ?? [] as $surf) {
+					$norm = $this->normalizeBakSurface($surf);
+					if ($norm['session_id']) {
+						$agent = $norm['agent'];
+						$counts[$agent] = ($counts[$agent] ?? 0) + 1;
+					}
+				}
+			}
+		}
+		ksort($counts);
+		return $counts;
 	}
 
 	/**
@@ -571,34 +666,43 @@ class CmuxBak {
 					foreach ($pane['surfaces'] ?? [] as $surf) {
 						$surfRef   = $surf['ref'] ?? '';
 						$type      = $surf['type'] ?? 'terminal';
+						$agent     = null;
 						$sessionId = null;
 						$cwd       = null;
 						$skipPerms = false;
 						$model     = null;
+						$opts      = [];
 
 						if ($type === 'terminal') {
 							$row = $bySurf[$surfRef] ?? null;
 							if ($row) {
+								$agent     = $row['agent'] ?? 'claude';
 								$sessionId = $row['session_id'];
 								$cwd       = $row['cwd'];
 								$skipPerms = (bool) ($row['skip_perms'] ?? false);
 								$model     = $row['model'] ?? null;
+								$opts      = $row['opts'] ?? [];
 							} else {
 								$cwd = $cwdBySurf[$surfRef] ?? null;
 							}
 						}
 
 						$paneData['surfaces'][] = [
-							'ref'                        => $surfRef,
-							'title'                      => $surf['title'] ?? '',
-							'type'                       => $type,
-							'tty'                        => $surf['tty'] ?? '',
-							'url'                        => $surf['url'] ?? null,
-							'cwd'                        => $cwd,
-							'claude_session_id'          => $sessionId,
-							'claude_skip_permissions'    => $skipPerms,
-							'claude_model'               => $model,
-							'index_in_pane'              => $surf['index_in_pane'] ?? 0,
+							'ref'                    => $surfRef,
+							'title'                  => $surf['title'] ?? '',
+							'type'                   => $type,
+							'tty'                    => $surf['tty'] ?? '',
+							'url'                    => $surf['url'] ?? null,
+							'cwd'                    => $cwd,
+							'agent'                  => $agent,
+							'agent_session_id'       => $sessionId,
+							'agent_skip_permissions' => $skipPerms,
+							'agent_model'            => $model,
+							// Agent-specific knobs with no cross-agent meaning — for
+							// codex, the sandbox/approval/effort that `codex resume`
+							// will NOT rehydrate on its own.
+							'agent_opts'             => $opts,
+							'index_in_pane'          => $surf['index_in_pane'] ?? 0,
 						];
 					}
 
@@ -647,12 +751,12 @@ class CmuxBak {
 	 * Prompt the user when a backed-up surface can't be matched by title.
 	 * Returns 'new' or 'skip'.
 	 */
-	protected function askSurfaceNotFound(string $surfTitle, string $cwd, string $sessionId) {
+	protected function askSurfaceNotFound(string $surfTitle, string $cwd, string $sessionId, string $agent = 'claude') {
 		$short = substr($sessionId, 0, 8);
 		$label = substr($surfTitle, 0, 50);
-		$this->cli->msg("    Session: {$short}… | cwd: {$cwd}", 'cyan');
+		$this->cli->msg("    '{$label}' | {$agent} {$short}… | cwd: {$cwd}", 'cyan');
 		$this->cli->msg('    What would you like to do?', 'cyan');
-		$this->cli->msg('      [n] Open a new surface in this workspace and resume the session');
+		$this->cli->msg("      [n] Open a new surface in this workspace and resume the {$agent} session");
 		$this->cli->msg('      [s] Skip');
 
 		while (true) {
