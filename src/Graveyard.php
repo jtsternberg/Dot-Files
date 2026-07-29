@@ -292,6 +292,16 @@ class Graveyard {
 			'buried_at'       => $buriedAt,
 			'last_active'     => $lastActive,
 		];
+		// Where this tab was buried FROM, so resurrect can put it back rather than
+		// building a fresh workspace next to the one you are still sitting in. Only
+		// written when known, so a tombstone never carries a home resurrect would aim
+		// at and miss.
+		if (!empty($session['home_workspace_id'])) {
+			$tomb['home_workspace_id']  = $session['home_workspace_id'];
+			$tomb['home_pane_id']       = $session['home_pane_id'] ?? null;
+			$tomb['home_index_in_pane'] = $session['home_index_in_pane'] ?? null;
+		}
+
 		// ADDITIVE schema (dotfiles-51b): only non-claude tombstones gain keys, so every
 		// archive written before codex support — and every claude archive written after —
 		// keeps exactly the shape it had. Readers dispatch via tombstoneAgent(), which
@@ -527,6 +537,10 @@ class Graveyard {
 				'tty'             => $j['tty'],
 				'surface_ref'     => $ref,
 				'surface_id'      => $treeIx['surface'][$ref]['id'] ?? $ref,
+				// Where it currently lives, so bury can record a home to resurrect into.
+				'home_workspace_id'  => $treeIx['surface'][$ref]['workspace_id'] ?? null,
+				'home_pane_id'       => $treeIx['surface'][$ref]['pane_id'] ?? null,
+				'home_index_in_pane' => $treeIx['surface'][$ref]['index_in_pane'] ?? null,
 				'workspace_ref'   => $j['workspace_ref'],
 				'workspace_title' => $treeIx['workspace'][$j['workspace_ref']] ?? '',
 				'tab_title'       => $treeIx['surface'][$ref]['title'] ?? $j['title'],
@@ -561,6 +575,12 @@ class Graveyard {
 						$ix['surface'][$ref] = [
 							'id'    => $surf['id'] ?? $ref,
 							'title' => $surf['title'] ?? '',
+							// Where this tab lives, by UUID, so a tombstone can be resurrected
+							// back into it. Refs are positional and get reassigned, so they are
+							// useless for something read back minutes or days later.
+							'workspace_id'  => $ws['id'] ?? null,
+							'pane_id'       => $pane['id'] ?? null,
+							'index_in_pane' => $surf['index_in_pane'] ?? 0,
 						];
 					}
 				}
@@ -3289,6 +3309,58 @@ class Graveyard {
 		]);
 	}
 
+	/** PURE. How a resurrect restored the session, for the success line. */
+	protected function resurrectNote(array $t, string $mode): string {
+		$agent = $this->tombstoneAgent($t);
+		if ($mode === 'resume') {
+			return $agent === 'codex' ? 'resumed via `codex resume`' : 'resumed via `claude --resume`';
+		}
+		return $agent === 'codex' ? 'codex is reading the archived rollout' : 'Claude is reading the transcript';
+	}
+
+	/**
+	 * PURE. Where to bring a tombstone back: into the workspace it was buried from
+	 * when that workspace still exists, else a fresh one.
+	 *
+	 * Returns ['mode' => 'in_place', 'workspace_id' => ..., 'pane_id' => ?string]
+	 * or ['mode' => 'new_workspace'].
+	 *
+	 * Only UUIDs are honoured. A positional ref (workspace:32) stored where a uuid
+	 * belongs is rejected rather than trusted: refs get reassigned as workspaces open
+	 * and close, so one recorded at burial can name a different workspace by now —
+	 * the same hazard that keeps tty out of the session joins.
+	 *
+	 * A missing PANE is not a reason to build a whole new workspace; the tab still
+	 * belongs in that workspace, so we return it with pane_id null and let cmux place it.
+	 */
+	public function resolveResurrectTarget(array $tree, array $tomb): array {
+		$wantWs = (string) ($tomb['home_workspace_id'] ?? '');
+		if ($wantWs === '' || !$this->looksLikeUuid($wantWs)) {
+			return ['mode' => 'new_workspace'];
+		}
+
+		$wantPane = (string) ($tomb['home_pane_id'] ?? '');
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				if (($ws['id'] ?? null) !== $wantWs) { continue; }
+
+				$pane = null;
+				if ($wantPane !== '' && $this->looksLikeUuid($wantPane)) {
+					foreach ($ws['panes'] ?? [] as $p) {
+						if (($p['id'] ?? null) === $wantPane) { $pane = $wantPane; break; }
+					}
+				}
+				return ['mode' => 'in_place', 'workspace_id' => $wantWs, 'pane_id' => $pane];
+			}
+		}
+		return ['mode' => 'new_workspace'];
+	}
+
+	/** PURE. A cmux UUID, as opposed to a positional ref like "workspace:32". */
+	protected function looksLikeUuid(string $v): bool {
+		return (bool) preg_match('/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/', $v);
+	}
+
 	public function resurrect(string $prefix, bool $fromTranscript = false): void {
 		$res = $this->resolveTombstoneFuzzy($prefix);
 		$t   = $res['match'];
@@ -3312,13 +3384,27 @@ class Graveyard {
 
 		$title = $t['workspace_title'] ?: 'resurrected';
 		$cwd   = $t['cwd'] ?? '';
+
+		// Put it back where it came from when that workspace is still open. Burying a
+		// tab out of the workspace you're sitting in and getting it back as a brand-new
+		// one just leaves you dragging it home by hand.
+		$target = $this->resolveResurrectTarget($this->cmux->tree(), $t);
+		if ($target['mode'] === 'in_place') {
+			$surfRef = $this->cmux->createSurface($target['workspace_id'], $target['pane_id'], 'terminal', null);
+			if ($surfRef) {
+				$mode  = $this->launchSessionIntoSurface($t, $surfRef, $target['workspace_id'], $fromTranscript);
+				$where = $this->cmux->describeWorkspace($target['workspace_id'], $title);
+				$note  = $this->resurrectNote($t, $mode);
+				$this->cli->successMsg("Resurrected in place into {$where} — {$note}.");
+				return;
+			}
+			$this->cli->msg('  Could not add a tab to the original workspace — falling back to a new one.', 'yellow');
+		}
+
 		$ws = $this->cmux->newWorkspace($title, $cwd ?: null);
 
 		$mode = $this->launchSessionIntoSurface($t, $ws['firstSurfRef'], $ws['ref'], $fromTranscript);
-		$agent = $this->tombstoneAgent($t);
-		$note  = $mode === 'resume'
-			? ($agent === 'codex' ? 'via codex resume (restored in place)' : 'via --resume (restored in place)')
-			: ($agent === 'codex' ? 'codex is reading the archived rollout' : 'Claude is reading the transcript');
+		$note = $this->resurrectNote($t, $mode);
 		// Name + sidebar slot, not a bare workspace ref — the ref is an internal handle
 		// and tells you nothing about which workspace to go look at.
 		$where = $this->cmux->describeWorkspace($ws['ref'], $title);

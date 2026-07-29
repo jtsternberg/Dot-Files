@@ -282,6 +282,36 @@ final class CmuxCodexTest extends TestCase
 		$this->assertCount(1, $this->cmux->mapSurfaceUuids($tree));
 	}
 
+	// ── workspace handles: ref OR uuid ────────────────────────────────────────
+
+	public function testFindWorkspaceAcceptsEitherARefOrAUuid(): void
+	{
+		// Regression: matching only `ref` made every uuid caller get null, so
+		// createSurface() could not see the surface cmux had just created for it and
+		// reported failure after succeeding — leaving a stray tab and taking the caller
+		// down its fallback path. Anything that outlives one command holds the uuid.
+		$tree = $this->uuidTree();
+
+		$byRef  = $this->cmux->findWorkspaceByRef($tree, 'workspace:17');
+		$byUuid = $this->cmux->findWorkspaceByRef($tree, 'WS-UUID-17');
+
+		$this->assertNotNull($byRef);
+		$this->assertNotNull($byUuid, 'a workspace UUID must resolve');
+		$this->assertSame($byRef, $byUuid);
+		$this->assertNull($this->cmux->findWorkspaceByRef($tree, 'workspace:999'));
+	}
+
+	public function testDescribeWorkspaceAcceptsAUuidAndStillNamesThePosition(): void
+	{
+		// A uuid caller used to fall through to the fallback and print the bare uuid at
+		// the user — the internal handle this function exists to hide.
+		$out = $this->cmux->describeWorkspaceRef($this->uuidTree(), 'WS-UUID-17', 'fallback');
+
+		$this->assertStringContainsString('claudeplugins', $out);
+		$this->assertStringContainsString('workspace 1 of 1', $out);
+		$this->assertStringNotContainsString('WS-UUID-17', $out);
+	}
+
 	// ── joinCodexToSurfaces ───────────────────────────────────────────────────
 
 	private function codexSessions(): array

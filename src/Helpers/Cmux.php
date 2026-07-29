@@ -746,24 +746,27 @@ class Cmux {
 	 * The window clause is dropped when there's only one window (no information in it).
 	 * Ref not in the tree: falls back to `"$fallbackTitle" (ref)`, or the bare ref.
 	 */
-	public function describeWorkspaceRef(array $tree, string $wsRef, string $fallbackTitle = ''): string {
+	public function describeWorkspaceRef(array $tree, string $handle, string $fallbackTitle = ''): string {
 		$windows = array_values($tree['windows'] ?? []);
 		foreach ($windows as $wi => $window) {
 			$spaces = array_values($window['workspaces'] ?? []);
 			foreach ($spaces as $i => $ws) {
-				if ((string) ($ws['ref'] ?? '') !== $wsRef) { continue; }
+				// Ref OR uuid, same reason as findWorkspaceByRef: callers holding a uuid
+				// otherwise fell through to the fallback and printed a bare uuid at the
+				// user, which is exactly the internal handle this function exists to hide.
+				if ((string) ($ws['ref'] ?? '') !== $handle && (string) ($ws['id'] ?? '') !== $handle) { continue; }
 				return sprintf('"%s" (%sworkspace %d of %d, %s)',
 					$this->stripGlyph((string) ($ws['title'] ?? '')),
 					count($windows) > 1 ? sprintf('window %d, ', $wi + 1) : '',
-					$i + 1, count($spaces), $wsRef);
+					$i + 1, count($spaces), $ws['ref'] ?? $handle);
 			}
 		}
-		return $fallbackTitle !== '' ? sprintf('"%s" (%s)', $this->stripGlyph($fallbackTitle), $wsRef) : $wsRef;
+		return $fallbackTitle !== '' ? sprintf('"%s" (%s)', $this->stripGlyph($fallbackTitle), $handle) : $handle;
 	}
 
 	/** Live-tree wrapper around describeWorkspaceRef(). */
-	public function describeWorkspace(string $wsRef, string $fallbackTitle = ''): string {
-		return $this->describeWorkspaceRef($this->tree(), $wsRef, $fallbackTitle);
+	public function describeWorkspace(string $handle, string $fallbackTitle = ''): string {
+		return $this->describeWorkspaceRef($this->tree(), $handle, $fallbackTitle);
 	}
 
 	/**
@@ -1151,10 +1154,21 @@ class Cmux {
 		return null;
 	}
 
-	public function findWorkspaceByRef(array $tree, string $ref): ?array {
+	/**
+	 * Find a workspace by positional ref OR stable UUID.
+	 *
+	 * Both, because cmux itself accepts either anywhere a workspace handle is taken,
+	 * so callers legitimately hold one or the other — and anything that outlives a
+	 * single command SHOULD hold the uuid, since refs get reassigned. Matching only
+	 * `ref` made every uuid caller silently get null: createSurface() then saw an
+	 * empty before-map, failed to spot the surface cmux had just created for it, and
+	 * reported failure after succeeding — leaving a stray tab behind and sending the
+	 * caller down its fallback path.
+	 */
+	public function findWorkspaceByRef(array $tree, string $handle): ?array {
 		foreach ($tree['windows'] ?? [] as $window) {
 			foreach ($window['workspaces'] ?? [] as $ws) {
-				if (($ws['ref'] ?? '') === $ref) {
+				if (($ws['ref'] ?? '') === $handle || ($ws['id'] ?? '') === $handle) {
 					return $ws;
 				}
 			}
