@@ -96,6 +96,17 @@ final class GraveyardFuzzyResurrectTest extends TestCase
 		$this->assertSame(['aaa11111-0000', 'bbb22222-0000'], array_column($res['candidates'], 'session_id'));
 	}
 
+	public function testResolverDoesNotPrintAmbiguity(): void
+	{
+		$this->makeRoot([
+			['session_id' => 'aaa11111-0000', 'workspace_title' => 'tailscale setup'],
+			['session_id' => 'bbb22222-0000', 'workspace_title' => 'tailscale notes'],
+		]);
+		ob_start();
+		$this->makeGy()->resolveTombstoneFuzzy('tailscale');
+		$this->assertSame('', ob_get_clean());
+	}
+
 	public function testNoMatchReturnsNull(): void
 	{
 		$this->makeRoot([

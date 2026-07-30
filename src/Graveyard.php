@@ -2872,7 +2872,6 @@ class Graveyard {
 		$prefix = array_values(array_filter($tombs, fn($t) => str_starts_with((string) ($t['session_id'] ?? ''), $ref)));
 		if (count($prefix) === 1) { return ['match' => $prefix[0], 'candidates' => [], 'ambiguous' => false]; }
 		if (count($prefix) > 1) {
-			$this->reportAmbiguousTombstones($ref, $prefix);
 			return ['match' => null, 'candidates' => $prefix, 'ambiguous' => true];
 		}
 
@@ -2880,7 +2879,6 @@ class Graveyard {
 		$byTitle = $this->matchIdentifier($tombs, $ref);
 		if (count($byTitle) === 1) { return ['match' => $byTitle[0], 'candidates' => [], 'ambiguous' => false]; }
 		if (count($byTitle) > 1) {
-			$this->reportAmbiguousTombstones($ref, $byTitle);
 			return ['match' => null, 'candidates' => $byTitle, 'ambiguous' => true];
 		}
 
