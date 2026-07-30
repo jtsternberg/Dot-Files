@@ -36,7 +36,7 @@ class Graveyard {
 	 */
 	protected ?Helpers\CodexRollout $codexRollout = null;
 
-	public function __construct($cli, $cmux) {
+	public function __construct($cli, Helpers\Cmux $cmux) {
 		$this->cli  = $cli;
 		$this->cmux = $cmux;
 	}
@@ -575,16 +575,6 @@ class Graveyard {
 	}
 
 	public function liveSessions(): array {
-		// No cmux, no live sessions — and NOT a fatal.
-		//
-		// bin/graveyard_router.php builds `new Graveyard($cli, null)` on purpose: `page` and
-		// `serve` are store-only verbs, and bin/graveyard exempts them from the cmux ping.
-		// Once tombstones() started annotating liveness (dotfiles-0e6), every page render
-		// reached this method through renderStorePageHtml() and dereferenced that null, so
-		// the page server fataled on EVERY request. Guarding here rather than in
-		// liveSessionIdsByAgent() covers all the paths a cmux-less caller can arrive by.
-		if ($this->cmux === null) { return []; }
-
 		// Deterministic session<->surface joins. Claude binds via process ancestry
 		// (dotfiles-yt2) — tty numbers are recycled across live surfaces, so a tty
 		// join mis-pairs. Codex has no resume-script ancestor to walk to, so it binds
@@ -1281,9 +1271,9 @@ class Graveyard {
 	 * working after the session is gone — which is the whole point of archiving it.
 	 */
 	public function codexRolloutReadPath(string $sessionId): string {
-		// The live lookup needs a cmux; the page server has none (see liveSessions()). No
-		// cmux just means no LIVE rollout to prefer — the archived copy still answers.
-		$live = $this->cmux === null ? null : $this->cmux->codexRolloutPathFor($sessionId);
+		// NullCmux answers null here, so the page server skips the live lookup and reads
+		// the archived copy without a special-case null guard.
+		$live = $this->cmux->codexRolloutPathFor($sessionId);
 		if ($live !== null && is_file($live)) { return $live; }
 		$archived = $this->codexRolloutArchivePath($sessionId);
 		return is_file($archived) ? $archived : '';

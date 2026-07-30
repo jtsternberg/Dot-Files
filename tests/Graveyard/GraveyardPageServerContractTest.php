@@ -15,7 +15,7 @@ final class GraveyardPageServerContractTest extends TestCase
 
 	private function routerGraveyard(): Graveyard
 	{
-		return new Graveyard($this->cli, null);
+		return new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
 	}
 
 	private function tomb(string $id, string $summary, string $kind = 'claude'): array

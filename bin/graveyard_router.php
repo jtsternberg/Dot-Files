@@ -20,7 +20,7 @@ $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $path   = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
-$gy     = new Graveyard($cli, null);
+$gy     = new Graveyard($cli, new Helpers\NullCmux($cli));
 
 // JSON API — live rename/delete, shared core with the CLI verbs.
 if (strpos($path, '/api/') === 0) {

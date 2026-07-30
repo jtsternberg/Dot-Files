@@ -74,7 +74,7 @@ final class GraveyardPageTest extends TestCase
 	 */
 	public function testPageRenderWorksWithoutCmux(): void
 	{
-		$gy = new Graveyard($this->cli, null);
+		$gy = new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
 		$this->assertSame('Review domain config', $gy->stripGlyph('✳ Review domain config'));
 
 		$html = $gy->pageHtml([$this->tomb('abc12345-full', '✳ Review domain config')], '2026-07-17');

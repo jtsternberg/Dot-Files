@@ -33,9 +33,9 @@ final class GraveyardCodexViewsTest extends TestCase
 	protected function setUp(): void
 	{
 		parent::setUp();
-		$this->root = sys_get_temp_dir() . '/gy-codexviews-' . getmypid() . '-' . random_int(1000, 9999);
-		mkdir($this->root, 0777, true);
-		putenv('GRAVEYARD_ROOT=' . $this->root);
+		// TestCase already created an isolated root and reliably removes it in tearDown.
+		// Reusing it avoids leaking a second randomly named tree between suite runs.
+		$this->root = $this->graveyardRoot;
 		// Point the live-rollout lookup at an EMPTY tree by default, so a test that
 		// wants the archived copy read really gets it (and nothing here can ever
 		// resolve a real codex session on the machine running the suite).
@@ -193,7 +193,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// The transcript endpoint resolves the session from the store, so it needs a record
 		// to resolve — without one, null is the right answer and says nothing about cmux.
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, null);
+		$gy = new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
 
 		$this->assertSame($this->gy->codexRolloutArchivePath(self::SID), $gy->codexRolloutReadPath(self::SID));
 		$this->assertSame('/system-watchdog', $gy->deriveSummary($this->codexTomb()));
@@ -357,7 +357,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// transcript endpoint both go through tombstones() now. Nothing to ask about
 		// liveness means nothing to annotate — not a fatal.
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, null);
+		$gy = new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
 
 		$tombs = $gy->tombstones();
 		$this->assertCount(1, $tombs);
