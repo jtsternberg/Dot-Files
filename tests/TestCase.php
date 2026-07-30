@@ -56,6 +56,8 @@ abstract class TestCase extends BaseTestCase
 		chmod($stub, 0755);
 		putenv('CMUX_BIN=' . $stub);
 
+		// Router-specific coverage must construct `new Graveyard($this->cli, null)`;
+		// see Graveyard/GraveyardPageServerContractTest.php. $this->gy is not that shape.
 		$this->gy = new Graveyard($this->cli, $this->cmux);
 	}
 
