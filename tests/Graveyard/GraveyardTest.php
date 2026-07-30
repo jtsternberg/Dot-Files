@@ -447,6 +447,24 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('claude-untargetable', $ca['layout'][0]['kind']);
 	}
 
+	public function testClassifyWorkspaceLayoutPreservesShellCwdFromTerminalProbe(): void
+	{
+		$wsNode = ['panes' => [['index' => 0, 'surfaces' => [
+			['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'shell', 'index_in_pane' => 0],
+		]]]];
+
+		$layout = $this->gy->classifyWorkspaceLayout(
+			$wsNode,
+			[],
+			['surface:1' => false],
+			[],
+			['surface:1' => '/tmp/restored-shell']
+		);
+
+		$this->assertSame('shell', $layout['layout'][0]['kind']);
+		$this->assertSame('/tmp/restored-shell', $layout['layout'][0]['cwd']);
+	}
+
 	/**
 	 * dotfiles-5p5: a codex session lives in a plain 'terminal' surface and shows no
 	 * Claude statusline, so it must NOT fall through to 'shell' (which a workspace bury

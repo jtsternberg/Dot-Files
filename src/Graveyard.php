@@ -1746,6 +1746,7 @@ class Graveyard {
 	 *                  'terminal' with no Claude statusline, so without this signal it
 	 *                  looks like a shell and a workspace bury CLOSES it unarchived
 	 *                  (dotfiles-5p5, data loss).
+	 *   $cwdByRef      [surface_ref => cwd] cwd probes for plain terminal surfaces.
 	 *
 	 * Returns:
 	 *   'layout'      ordered list of surface entries with position + type + title +
@@ -1756,7 +1757,7 @@ class Graveyard {
 	 *                 (fresh/ambiguous) — presence forces abort unless --force. Each
 	 *                 carries its 'agent' so the abort report can explain it correctly.
 	 */
-	public function classifyWorkspaceLayout(array $wsNode, array $liveByRef, array $isClaudeByRef, array $isCodexByRef = []): array {
+	public function classifyWorkspaceLayout(array $wsNode, array $liveByRef, array $isClaudeByRef, array $isCodexByRef = [], array $cwdByRef = []): array {
 		$layout = [];
 		$members = [];
 		$untargetable = [];
@@ -1777,7 +1778,7 @@ class Graveyard {
 					'type'         => $type,
 					'title'        => $surf['title'] ?? '',
 					'url'          => $surf['url'] ?? null,
-					'cwd'          => $row['cwd'] ?? null,
+					'cwd'          => $row['cwd'] ?? $cwdByRef[$ref] ?? null,
 					'kind'         => 'shell',
 					'claude_session_id' => null,
 					// Whether this was the tab showing in its pane, so resurrect can bring
@@ -2165,6 +2166,20 @@ class Graveyard {
 			if ($present) { $isCodexByRef[$ref] = true; }
 		}
 
+		// Plain terminal surfaces have no session join to supply a cwd. Capture their
+		// foreground process cwd while the workspace still exists so resurrect can cd
+		// the restored shell back to where it was buried.
+		$cwdByRef = [];
+		$debugByRef = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+		foreach ($wsInfo['node']['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				$ref = $surf['ref'] ?? '';
+				if (($surf['type'] ?? '') !== 'terminal' || $ref === '' || isset($liveByRef[$ref]) || ($isClaudeByRef[$ref] ?? false) || ($isCodexByRef[$ref] ?? false)) { continue; }
+				$tty = $debugByRef[$ref]['tty'] ?? '';
+				if ($tty !== '') { $cwdByRef[$ref] = $this->cmux->getCwdForTty($tty); }
+			}
+		}
+
 		// Last-resort bind: for a Claude surface the join left unbound (a fresh /
 		// non-resumed session that cd'd — its on-screen cwd drifted from its recorded
 		// launch cwd, so the statusline content-probe can't pin it, and the drifted cwd
@@ -2187,7 +2202,7 @@ class Graveyard {
 			}
 		}
 
-		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef, $isCodexByRef);
+		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef);
 
 		// Self-guard: never bury a workspace containing the caller's own session.
 		$selfSid = $this->selfSessionId();
