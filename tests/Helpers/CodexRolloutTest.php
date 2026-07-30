@@ -261,6 +261,40 @@ final class CodexRolloutTest extends TestCase
 			array_map(fn($t) => ['role' => $t['role'], 'text' => $t['text']], $turns));
 	}
 
+	/** Canonical response items retain tools, while unmatched event turns fill a partial history gap. */
+	public function testReconcilesEventOnlyTurnsIntoAPartiallyOverlappingPrimaryLane(): void
+	{
+		$path = $this->rollout([
+			$this->meta(),
+			$this->msg('user', 'first request', '2026-07-29T09:01:00.000Z'),
+			['timestamp' => '2026-07-29T09:01:01.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'user_message', 'message' => 'first request']],
+			$this->msg('assistant', 'first answer', '2026-07-29T09:02:00.000Z'),
+			['timestamp' => '2026-07-29T09:02:01.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'agent_message', 'message' => 'first answer']],
+			['timestamp' => '2026-07-29T09:03:00.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'user_message', 'message' => 'event-only request']],
+			['timestamp' => '2026-07-29T09:04:00.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'agent_message', 'message' => 'event-only answer']],
+			$this->msg('user', 'last request', '2026-07-29T09:05:00.000Z'),
+			['timestamp' => '2026-07-29T09:05:01.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'user_message', 'message' => 'last request']],
+			$this->msg('assistant', 'last answer', '2026-07-29T09:06:00.000Z'),
+			['timestamp' => '2026-07-29T09:06:01.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'agent_message', 'message' => 'last answer']],
+		], 'partial-overlap.jsonl');
+
+		$this->assertSame([
+			'first request', 'first answer', 'event-only request', 'event-only answer', 'last request', 'last answer',
+		], array_column($this->reader()->genuineTurns($path), 'text'));
+	}
+
+	public function testNormalizesSlashCommandsInTheEventLaneBeforeReconciliation(): void
+	{
+		$command = "<command-name>/copy</command-name>\n<command-message>copy</command-message>\n<command-args></command-args>";
+		$path = $this->rollout([
+			$this->meta(),
+			$this->msg('user', $command),
+			['timestamp' => '2026-07-29T09:01:01.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'user_message', 'message' => $command]],
+		]);
+
+		$this->assertSame(['/copy'], array_column($this->reader()->genuineTurns($path), 'text'));
+	}
+
 	/**
 	 * Measured across the corpus: `developer` (436 records) carries harness-injected
 	 * permissions/memory blocks, `<environment_context>` (181) is a whole-text cwd/shell

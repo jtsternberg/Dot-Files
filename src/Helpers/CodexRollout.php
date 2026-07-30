@@ -387,7 +387,7 @@ class CodexRollout {
 		});
 
 		$hasPrimaryTurns = (bool) array_filter($primary, fn($i) => $i['kind'] === 'turn');
-		$items = $hasPrimaryTurns ? $primary : $events;
+		$items = $hasPrimaryTurns ? $this->reconcileLanes($primary, $events) : $events;
 
 		// Drop turns that ended up with neither text nor tools (pure noise).
 		$items = array_values(array_filter($items, fn($i) => $i['kind'] !== 'turn'
@@ -406,6 +406,39 @@ class CodexRollout {
 		}
 
 		if ($start !== null) { $lane = array_slice($lane, 0, $start); }
+	}
+
+	/**
+	 * Keep response items as the canonical lane (they carry tool calls), but recover event
+	 * turns which have no corresponding response item. A response item can absorb only one
+	 * event copy: repeated identical messages are still separate turns.
+	 */
+	protected function reconcileLanes(array $primary, array $events): array {
+		$used  = [];
+		$items = $primary;
+
+		foreach ($events as $event) {
+			if ($event['kind'] !== 'turn') { continue; }
+			$match = null;
+			foreach ($primary as $i => $candidate) {
+				if (isset($used[$i]) || $candidate['kind'] !== 'turn') { continue; }
+				if ($candidate['role'] === $event['role'] && $candidate['text'] === $event['text']) {
+					$match = $i;
+					break;
+				}
+			}
+			if ($match !== null) { $used[$match] = true; continue; }
+			$items[] = $event;
+		}
+
+		usort($items, function (array $a, array $b): int {
+			$aAt = (string) ($a['at'] ?? '');
+			$bAt = (string) ($b['at'] ?? '');
+			if ($aAt === '' || $bAt === '') { return 0; }
+			return $aAt <=> $bAt;
+		});
+
+		return $items;
 	}
 
 	/** Fold one response_item into the primary lane. */
@@ -497,6 +530,11 @@ class CodexRollout {
 			case 'agent_reasoning_raw_content':
 				$text = trim((string) ($this->str($p['message'] ?? $p['text'] ?? null) ?? ''));
 				if ($text === '' || $this->isSynthetic($text)) { return; }
+				$slash = $type === 'user_message' ? $this->slashCommand($text) : null;
+				if ($slash !== null) {
+					$this->openTurn($events, 'user', $slash, $at);
+					return;
+				}
 				$lifted = $this->liftExternalToolCalls($text);
 				$noop   = [];
 				foreach ($lifted['results'] as $r) { $this->applyPendingOutput($events, $r); }
