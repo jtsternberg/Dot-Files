@@ -874,6 +874,24 @@ final class CodexRolloutTest extends TestCase
 		$this->assertStringContainsString('### RETRACTED 1 user turn', $md);
 	}
 
+	public function testRollbackIgnoresSyntheticUserRecordsWhenCountingCodexTurns(): void
+	{
+		$path = $this->rollout([
+			$this->meta(),
+			$this->msg('user', 'keep this request', '2026-07-29T09:01:00.000Z'),
+			$this->msg('assistant', 'keep this answer', '2026-07-29T09:02:00.000Z'),
+			$this->msg('user', 'retract this request', '2026-07-29T09:03:00.000Z'),
+			$this->msg('user', '<environment_context>injected</environment_context>', '2026-07-29T09:04:00.000Z'),
+			['timestamp' => '2026-07-29T09:05:00.000Z', 'type' => 'event_msg', 'payload' => [
+				'type' => 'thread_rolled_back', 'num_turns' => 1,
+			]],
+		], 'rollback-synthetic.jsonl');
+
+		$md = $this->reader()->toMarkdownArchive($path);
+		$this->assertStringContainsString('keep this request', $md);
+		$this->assertStringNotContainsString('retract this request', $md);
+	}
+
 	/**
 	 * The trap that eats a turn. Structural markers count at COLUMN 0 only, so a codex
 	 * message — which is markdown-heavy and full of `##` headings and `---` rules — cuts
