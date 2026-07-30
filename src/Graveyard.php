@@ -545,7 +545,7 @@ class Graveyard {
 	}
 
 	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string {
-		$cmd = 'cmux read-screen --surface ' . escapeshellarg($surfaceRef)
+		$cmd = escapeshellcmd($this->cmux->cmuxBin()) . ' read-screen --surface ' . escapeshellarg($surfaceRef)
 			 . ' --workspace ' . escapeshellarg($workspaceRef)
 			 . ' --lines ' . (int) $lines . ' 2>/dev/null';
 		return (string) shell_exec($cmd);
@@ -1565,9 +1565,10 @@ class Graveyard {
 	protected function closeSurfaceOrWorkspace(array $sess): void {
 		$wsRef = $sess['workspace_ref'] ?? '';
 		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
+		$bin = escapeshellcmd($this->cmux->cmuxBin());
 		$cmd = ($count <= 1)
-			? 'cmux close-workspace --workspace ' . escapeshellarg($wsRef)
-			: 'cmux close-surface --surface ' . escapeshellarg($sess['surface_ref']);
+			? $bin . ' close-workspace --workspace ' . escapeshellarg($wsRef)
+			: $bin . ' close-surface --surface ' . escapeshellarg($sess['surface_ref']);
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
 		if (($res['exitCode'] ?? 1) !== 0) {
 			$this->cli->msg('  (Process terminated, but the now-empty cmux tab lingered — close it manually.)', 'yellow');
@@ -1577,7 +1578,7 @@ class Graveyard {
 	/** Close an entire workspace (and every remaining surface in it). */
 	protected function closeWorkspace(string $wsRef): bool {
 		if ($wsRef === '') { return false; }
-		$res = $this->cli->getCommandOutputAndExitCode('cmux close-workspace --workspace ' . escapeshellarg($wsRef));
+		$res = $this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' close-workspace --workspace ' . escapeshellarg($wsRef));
 		return ($res['exitCode'] ?? 1) === 0;
 	}
 
@@ -2294,7 +2295,7 @@ class Graveyard {
 				// Buried members (claude/codex) were already killed; their surface closes
 				// when the shell exits. Only genuine shells/browsers get an explicit close.
 				if (in_array($e['kind'], ['claude', 'codex'], true)) { continue; }
-				$this->cli->getCommandOutputAndExitCode('cmux close-surface --surface ' . escapeshellarg($e['ref']));
+				$this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' close-surface --surface ' . escapeshellarg($e['ref']));
 			}
 			$this->cli->msg('  Workspace left open (some surfaces preserved).', 'yellow');
 		}

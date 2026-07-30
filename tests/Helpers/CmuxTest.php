@@ -508,4 +508,45 @@ final class CmuxTest extends TestCase
 		// Same method, same result, in the class that has no cmux.
 		$this->assertSame($this->gy->stripGlyph('⠂ deploy'), $this->cmux->stripGlyph('⠂ deploy'));
 	}
+
+	/**
+	 * Write a stub cmux at CMUX_BIN whose `tree` subcommand emits $treeOutput (nothing
+	 * when '', as an absent/unreachable cmux would); every other subcommand is a no-op.
+	 */
+	private function stubCmux(string $treeOutput): void
+	{
+		$bin  = sys_get_temp_dir() . '/cmux-stub-' . getmypid() . '-' . uniqid();
+		$body = $treeOutput === '' ? ':' : "cat <<'CMUXEOF'\n{$treeOutput}\nCMUXEOF";
+		file_put_contents($bin, "#!/bin/sh\nif [ \"\$1\" = tree ]; then\n{$body}\nfi\n");
+		chmod($bin, 0755);
+		$this->tmpPaths[] = $bin;
+		putenv('CMUX_BIN=' . $bin);
+	}
+
+	/**
+	 * dotfiles-3qa: tree() must THROW when cmux yields nothing (unreachable/absent),
+	 * not exit() — exit() inside this shelling seam killed PHPUnit mid-run wherever cmux
+	 * was absent. CMUX_BIN is the GODO_DIRMAP_BIN-style hook that lets a test drive it.
+	 */
+	public function testTreeThrowsInsteadOfExitingWhenCmuxYieldsNothing(): void
+	{
+		$this->stubCmux('');
+		$this->expectException(\RuntimeException::class);
+		$this->expectExceptionMessage('cmux tree returned no output.');
+		$this->cmux->tree();
+	}
+
+	public function testTreeThrowsOnUnparseableOutput(): void
+	{
+		$this->stubCmux('not json {');
+		$this->expectException(\RuntimeException::class);
+		$this->expectExceptionMessage('Failed to parse cmux tree JSON.');
+		$this->cmux->tree();
+	}
+
+	public function testTreeParsesOutputFromTheCmuxBinHook(): void
+	{
+		$this->stubCmux('{"windows":[{"ref":"w1"}]}');
+		$this->assertSame([['ref' => 'w1']], $this->cmux->tree()['windows']);
+	}
 }

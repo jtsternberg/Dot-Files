@@ -82,6 +82,9 @@ if (!in_array($sub, $storeOnlyVerbs, true) && !$cmux->ping()) {
 
 $gy  = new Graveyard($cli, $cmux);
 
+// Cmux::tree() throws (not exit()s) when cmux is unreachable/unparseable — process-exit
+// plumbing belongs here at the entry seam, not inside the shelling seam (dotfiles-3qa).
+try {
 switch ($sub) {
 	case 'bury':
 		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {
@@ -189,6 +192,9 @@ switch ($sub) {
 	default:
 		$cli->msg($helpyHelperton->getHelp());
 		exit($sub ? 1 : 0);
+}
+} catch (\RuntimeException $e) {
+	$cli->exitErr($e->getMessage());
 }
 
 exit(0);

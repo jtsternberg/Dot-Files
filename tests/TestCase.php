@@ -44,12 +44,25 @@ abstract class TestCase extends BaseTestCase
 		mkdir($this->graveyardRoot, 0777, true);
 		putenv('GRAVEYARD_ROOT=' . $this->graveyardRoot);
 
+		// Point every cmux shell-out at a harmless stub so NO test reaches the real
+		// binary (dotfiles-3qa). Before this, a test whose path hit Cmux::tree() shelled
+		// out for real and, where cmux is absent (jtbot/CI), exit()ed mid-suite. The stub
+		// returns an empty-but-valid tree, so liveSessions() is [] — deterministic across
+		// machines regardless of what cmux is actually running. A test that needs real
+		// cmux data still injects a Cmux subclass; one that wants tree() to fail overrides
+		// CMUX_BIN itself. See CLAUDE.md's shelling-seam rule (GODO_DIRMAP_BIN).
+		$stub = $this->graveyardRoot . '/cmux-stub';
+		file_put_contents($stub, "#!/bin/sh\ncase \"\$1\" in\n  tree) echo '{\"windows\":[]}' ;;\n  *) : ;;\nesac\n");
+		chmod($stub, 0755);
+		putenv('CMUX_BIN=' . $stub);
+
 		$this->gy = new Graveyard($this->cli, $this->cmux);
 	}
 
 	protected function tearDown(): void
 	{
 		putenv('GRAVEYARD_ROOT');
+		putenv('CMUX_BIN');
 		if (isset($this->graveyardRoot) && is_dir($this->graveyardRoot)) {
 			$this->rmrf($this->graveyardRoot);
 		}
