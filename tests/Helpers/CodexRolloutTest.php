@@ -983,22 +983,30 @@ final class CodexRolloutTest extends TestCase
 		$this->assertStringNotContainsString('**', $tui);
 	}
 
-	/** Rollouts reach tens of MB; nothing may slurp one into memory. */
-	public function testReadsAHugeRolloutWithoutHoldingItInMemory(): void
+	/** Rollouts reach tens of MB; metadata and the opening-prompt scan must not slurp one. */
+	public function testStreamsMetadataAndTheOpeningPromptFromAHugeRollout(): void
 	{
-		$records = [$this->meta()];
+		$path = $this->dir . '/huge.jsonl';
+		$fh   = fopen($path, 'wb');
+		fwrite($fh, json_encode($this->meta()) . "\n");
+		fwrite($fh, json_encode(['timestamp' => '2026-07-29T09:00:01.000Z', 'type' => 'turn_context', 'payload' => [
+			'model' => 'gpt-5.6-terra',
+		]]) . "\n");
+		$padding = str_repeat('x', 500);
 		for ($i = 0; $i < 8000; $i++) {
-			$records[] = $this->msg('user', "prompt {$i} " . str_repeat('x', 500));
-			$records[] = $this->msg('assistant', "reply {$i} " . str_repeat('y', 500));
+			fwrite($fh, json_encode($this->msg('user', "prompt {$i} {$padding}")) . "\n");
+			fwrite($fh, json_encode($this->msg('assistant', "reply {$i} {$padding}")) . "\n");
 		}
-		$path = $this->rollout($records, 'huge.jsonl');
+		fclose($fh);
 		$this->assertGreaterThan(8 * 1024 * 1024, filesize($path));
 
 		$before = memory_get_usage(true);
+		$meta   = $this->reader()->meta($path);
 		$first  = $this->reader()->firstUserText($path);
 		$used   = memory_get_usage(true) - $before;
 
+		$this->assertSame('gpt-5.6-terra', $meta['model']);
 		$this->assertStringStartsWith('prompt 0', $first);
-		$this->assertLessThan(2 * 1024 * 1024, $used, 'firstUserText must stream and stop, not slurp');
+		$this->assertLessThan(2 * 1024 * 1024, $used, 'metadata and firstUserText must stream, not slurp');
 	}
 }
