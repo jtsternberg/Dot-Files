@@ -48,4 +48,10 @@ use JT\CLI\Command\Dispatcher;
 
 $cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
 
-exit( ( new Dispatcher( $cli, new CmuxBakCommand( $cli ) ) )->run() );
+// Cmux::tree() throws (not exit()s) when cmux is unreachable/unparseable; convert it to
+// an exitErr here at the entry seam rather than inside the shelling seam (dotfiles-3qa).
+try {
+	exit( ( new Dispatcher( $cli, new CmuxBakCommand( $cli ) ) )->run() );
+} catch ( \RuntimeException $e ) {
+	$cli->exitErr( $e->getMessage() );
+}

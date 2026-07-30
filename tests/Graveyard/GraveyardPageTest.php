@@ -495,16 +495,23 @@ final class GraveyardPageTest extends TestCase
 		$this->assertSame('Fam', $units[2]['title']);
 	}
 
-	public function testManifestPositionsMapsClaudeMembersOnly(): void
+	public function testManifestPositionsMapsAgentMembers(): void
 	{
+		// Both claude and codex members get positions (dotfiles-5p5): a codex member
+		// stores its codex session id in claude_session_id and must be stamped with a
+		// plot_pos too, or resurrect can't restore it to its slot. Shells/browsers skip.
 		$pos = $this->gy->manifestPositions([
 			'layout' => [
 				['pane_index' => 0, 'index_in_pane' => 2, 'kind' => 'claude', 'claude_session_id' => 'sid-a'],
-				['pane_index' => 0, 'index_in_pane' => 3, 'kind' => 'shell', 'claude_session_id' => null],
+				['pane_index' => 0, 'index_in_pane' => 3, 'kind' => 'codex', 'claude_session_id' => 'cdx-b'],
+				['pane_index' => 0, 'index_in_pane' => 4, 'kind' => 'shell', 'claude_session_id' => null],
 				['pane_index' => 1, 'index_in_pane' => 0, 'kind' => 'browser', 'claude_session_id' => null],
 			],
 		]);
-		$this->assertSame(['sid-a' => ['pane' => 0, 'tab' => 2]], $pos);
+		$this->assertSame([
+			'sid-a' => ['pane' => 0, 'tab' => 2],
+			'cdx-b' => ['pane' => 0, 'tab' => 3],
+		], $pos);
 	}
 
 	public function testPageHtmlRendersWorkspaceGroupAsPlot(): void

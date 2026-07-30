@@ -34,8 +34,18 @@ class Cmux {
 		$this->dryRun = $dryRun;
 	}
 
+	/**
+	 * The cmux binary this class shells out to. CMUX_BIN overrides it — set in tests to
+	 * a stub script so no test reaches the real cmux (mirrors Godo's GODO_DIRMAP_BIN;
+	 * see CLAUDE.md's shelling-seam rule). Every cmux invocation below routes through
+	 * this; call sites escapeshellcmd() it. Public so tests and Graveyard share one hook.
+	 */
+	public function cmuxBin(): string {
+		return getenv('CMUX_BIN') ?: 'cmux';
+	}
+
 	public function ping(): bool {
-		$result = shell_exec('cmux ping 2>/dev/null');
+		$result = shell_exec(escapeshellcmd($this->cmuxBin()) . ' ping 2>/dev/null');
 		return trim((string) $result) === 'PONG';
 	}
 
@@ -43,13 +53,19 @@ class Cmux {
 		// --id-format both so every node carries its stable UUID (`id`) alongside
 		// the positional `ref`. cmux-bak matches by tty/title (unaffected); graveyard
 		// needs the UUID to compare against CMUX_SURFACE_ID for the self-bury guard.
-		$output = shell_exec('cmux tree --all --json --id-format both 2>/dev/null');
+		//
+		// Failure is a RuntimeException, NOT exitErr()/exit(): exit() inside this shelling
+		// seam killed PHPUnit mid-run wherever cmux is absent (dotfiles-3qa). The bin/
+		// entry seam (bin/graveyard, bin/cmux-bak) catches it and calls exitErr(), keeping
+		// process-exit plumbing at the entry where CLAUDE.md says it belongs — and letting
+		// a test assert the failure without dying.
+		$output = shell_exec(escapeshellcmd($this->cmuxBin()) . ' tree --all --json --id-format both 2>/dev/null');
 		if (!$output) {
-			$this->cli->exitErr('cmux tree returned no output.');
+			throw new \RuntimeException('cmux tree returned no output.');
 		}
 		$tree = json_decode($output, true);
 		if (!$tree) {
-			$this->cli->exitErr('Failed to parse cmux tree JSON.');
+			throw new \RuntimeException('Failed to parse cmux tree JSON.');
 		}
 		return $tree;
 	}
@@ -138,7 +154,7 @@ class Cmux {
 
 	/** Raw `cmux debug-terminals` output. */
 	public function debugTerminals(): string {
-		return (string) shell_exec('cmux debug-terminals 2>/dev/null');
+		return (string) shell_exec(escapeshellcmd($this->cmuxBin()) . ' debug-terminals 2>/dev/null');
 	}
 
 	/**
@@ -1029,7 +1045,7 @@ class Cmux {
 	public function sendToSurface(string $surfRef, string $wsRef, string $text): void {
 		if (!$this->dryRun) {
 			shell_exec(
-				'cmux send --surface ' . escapeshellarg($surfRef)
+				escapeshellcmd($this->cmuxBin()) . ' send --surface ' . escapeshellarg($surfRef)
 				. ' --workspace ' . escapeshellarg($wsRef)
 				. ' ' . escapeshellarg($text)
 				. ' 2>/dev/null'
@@ -1040,7 +1056,7 @@ class Cmux {
 	public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {
 		if (!$this->dryRun) {
 			shell_exec(
-				'cmux send-key --surface ' . escapeshellarg($surfRef)
+				escapeshellcmd($this->cmuxBin()) . ' send-key --surface ' . escapeshellarg($surfRef)
 				. ' --workspace ' . escapeshellarg($wsRef)
 				. ' ' . escapeshellarg($key)
 				. ' 2>/dev/null'
@@ -1087,7 +1103,7 @@ class Cmux {
 			foreach ($pane['surfaces'] ?? [] as $s) {
 				if (($s['ref'] ?? '') !== $surfRef) { continue; }
 				$res = $this->cli->getCommandOutputAndExitCode(
-					'cmux move-surface --surface ' . escapeshellarg($surfRef)
+					escapeshellcmd($this->cmuxBin()) . ' move-surface --surface ' . escapeshellarg($surfRef)
 					. ' --pane ' . escapeshellarg((string) ($pane['ref'] ?? ''))
 					. ' --index ' . (int) ($s['index_in_pane'] ?? 0)
 					. ' --workspace ' . escapeshellarg($wsRef)
@@ -1103,7 +1119,7 @@ class Cmux {
 
 		$before = $this->surfacePaneMap($wsRef);
 
-		$cmd = 'cmux new-surface --type ' . escapeshellarg($type)
+		$cmd = escapeshellcmd($this->cmuxBin()) . ' new-surface --type ' . escapeshellarg($type)
 			. ' --workspace ' . escapeshellarg($wsRef);
 
 		if ($type === 'browser' && $url) {
@@ -1132,7 +1148,7 @@ class Cmux {
 		if ($this->dryRun) { return null; }
 
 		$before = $this->surfacePaneMap($wsRef);
-		$cmd = 'cmux new-split ' . escapeshellarg($direction)
+		$cmd = escapeshellcmd($this->cmuxBin()) . ' new-split ' . escapeshellarg($direction)
 			. ' --surface ' . escapeshellarg($fromSurfRef)
 			. ' --workspace ' . escapeshellarg($wsRef);
 		shell_exec($cmd . ' 2>/dev/null');
@@ -1168,7 +1184,7 @@ class Cmux {
 			}
 		}
 
-		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title);
+		$cmd = escapeshellcmd($this->cmuxBin()) . ' new-workspace --name ' . escapeshellarg($title);
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
 		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
@@ -1216,12 +1232,12 @@ class Cmux {
 
 		$name = 'graveyard-capture-' . bin2hex(random_bytes(4));
 		$save = $this->cli->getCommandOutputAndExitCode(
-			'cmux layout save ' . escapeshellarg($name) . ' --workspace ' . escapeshellarg($wsRef) . ' --overwrite'
+			escapeshellcmd($this->cmuxBin()) . ' layout save ' . escapeshellarg($name) . ' --workspace ' . escapeshellarg($wsRef) . ' --overwrite'
 		);
 		if (($save['exitCode'] ?? 1) !== 0) { return null; }
 
-		$get = $this->cli->getCommandOutputAndExitCode('cmux layout get ' . escapeshellarg($name));
-		$this->cli->getCommandOutputAndExitCode('cmux layout delete ' . escapeshellarg($name));
+		$get = $this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmuxBin()) . ' layout get ' . escapeshellarg($name));
+		$this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmuxBin()) . ' layout delete ' . escapeshellarg($name));
 		if (($get['exitCode'] ?? 1) !== 0) { return null; }
 
 		$data = json_decode((string) ($get['output'] ?? ''), true);
@@ -1237,7 +1253,7 @@ class Cmux {
 	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree, ?string $windowRef = null): ?array {
 		if ($this->dryRun) { return null; }
 
-		$cmd = 'cmux new-workspace --name ' . escapeshellarg($title)
+		$cmd = escapeshellcmd($this->cmuxBin()) . ' new-workspace --name ' . escapeshellarg($title)
 			. ' --layout ' . escapeshellarg((string) json_encode($layoutTree));
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
 		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
