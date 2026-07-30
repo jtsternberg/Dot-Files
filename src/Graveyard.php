@@ -2471,7 +2471,8 @@ class Graveyard {
 	/**
 	 * PURE. A title-like label for a tombstone: prefer a cleaned first-prompt summary,
 	 * but fall back to the session's own title when the summary is empty or just a bare
-	 * slash-command (e.g. "/hotline:ringing"), then the workspace title.
+	 * slash-command (e.g. "/hotline:ringing"), then the workspace title. A slash command
+	 * does win when that title is only the basename of the recorded working directory.
 	 */
 	public function titleizeSummary(array $t, string $home = ''): string {
 		// A custom name (via `graveyard rename`) always wins as the display title.
@@ -2483,11 +2484,24 @@ class Graveyard {
 		if (stripos($sum, 'Caveat: The messages below') === 0 || stripos($sum, 'Base directory for this skill:') === 0) { $sum = ''; }
 		$tab = $this->stripGlyph((string) ($t['tab_title'] ?? ''));
 		$goodTab = ($tab !== '' && $tab !== 'Terminal');
-		if (($sum === '' || $sum[0] === '/') && $goodTab) { return $tab; }
+		$isSlashSummary = $sum !== '' && $sum[0] === '/';
+		if (($sum === '' || ($isSlashSummary && (!$this->isSlashCommand($sum) || !$this->isBareDirectoryTab($t, $tab)))) && $goodTab) { return $tab; }
 		if ($sum !== '') { return $sum; }
 		if ($goodTab) { return $tab; }
 		$ws = trim((string) ($t['workspace_title'] ?? ''));
 		return $ws !== '' ? $ws : '(untitled)';
+	}
+
+	/** A slash command's first token has one leading slash, unlike an absolute path. */
+	private function isSlashCommand(string $summary): bool {
+		$first = preg_split('/\\s+/', trim($summary), 2)[0] ?? '';
+		return (bool) preg_match('#^/[^/\\s]+$#', $first);
+	}
+
+	/** A generic tab title is useful only as a fallback when it names the cwd itself. */
+	private function isBareDirectoryTab(array $t, string $tab): bool {
+		$cwd = rtrim((string) ($t['cwd'] ?? ''), '/');
+		return $cwd !== '' && basename($cwd) === $tab;
 	}
 
 	/** PURE. Home→~, then elide middle components with … so the result fits $max. */
