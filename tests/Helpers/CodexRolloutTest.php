@@ -874,7 +874,14 @@ final class CodexRolloutTest extends TestCase
 		$this->assertStringContainsString('### RETRACTED 1 user turn', $md);
 	}
 
-	public function testRollbackIgnoresSyntheticUserRecordsWhenCountingCodexTurns(): void
+	/**
+	 * Codex's num_turns counts conversation turns, not every transport-level user
+	 * message. Real rollback corpus inspection found no isSynthetic()-dropped or
+	 * slashCommand()-converted record inside a reported rollback window; keep this
+	 * fixture as a guard that an adjacent injected transport record stays invisible
+	 * and cannot shift the rendered rollback boundary.
+	 */
+	public function testRollbackKeepsItsBoundaryWithAnAdjacentSyntheticRecord(): void
 	{
 		$path = $this->rollout([
 			$this->meta(),
