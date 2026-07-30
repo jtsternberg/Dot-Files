@@ -44,6 +44,12 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('second', $xs[0]['summary']);
 	}
 
+	public function testReplReadyRecognizesAnInteractivePrompt(): void
+	{
+		$this->assertTrue($this->gy->replReady("Welcome\n❯ "));
+		$this->assertFalse($this->gy->replReady("Starting Claude…\n"));
+	}
+
 	public function testStableGroupIdReusesPriorGroupElseMintsFresh(): void
 	{
 		$mint = fn() => 'FRESH';

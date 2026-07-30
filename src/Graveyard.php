@@ -188,13 +188,30 @@ class Graveyard {
 	}
 
 	public function upsertIndex(array $entry): void {
-		$idx = $this->readIndex();
-		$idx['tombstones'] = array_values(array_filter(
-			$idx['tombstones'],
-			fn($t) => ($t['session_id'] ?? null) !== ($entry['session_id'] ?? null)
-		));
-		$idx['tombstones'][] = $entry;
-		$this->writeIndex($idx);
+		$this->mutateIndex(function (array &$idx) use ($entry): void {
+			$idx['tombstones'] = array_values(array_filter(
+				$idx['tombstones'],
+				fn($t) => ($t['session_id'] ?? null) !== ($entry['session_id'] ?? null)
+			));
+			$idx['tombstones'][] = $entry;
+		});
+	}
+
+	/** I/O. Serialize an index read-modify-write operation across graveyard processes. */
+	public function mutateIndex(callable $mutation): mixed {
+		$dir = dirname($this->indexPath());
+		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
+		$lock = fopen($this->indexPath() . '.lock', 'c');
+		if ($lock === false || !flock($lock, LOCK_EX)) { throw new \RuntimeException('Could not lock graveyard index.'); }
+		try {
+			$idx = $this->readIndex();
+			$result = $mutation($idx);
+			$this->writeIndex($idx);
+			return $result;
+		} finally {
+			flock($lock, LOCK_UN);
+			fclose($lock);
+		}
 	}
 
 	/** I/O. Write the whole index atomically-ish (LOCK_EX). See dotfiles-8tp for full RMW locking. */
@@ -3846,11 +3863,26 @@ class Graveyard {
 
 		$launch = $this->buildTombstoneLaunch($t, true);
 		$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
-		sleep(3); // let the REPL come up
+		$this->waitForReplReady($surfRef, $wsRef);
 		$this->cmux->sendToSurface($surfRef, $wsRef,
 			'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.');
 		$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
 		return 'transcript';
+	}
+
+	/** PURE. A visible interactive Claude prompt means it is safe to type the preamble. */
+	public function replReady(string $screen): bool {
+		return (bool) preg_match('/(?:^|\n)\s*(?:❯|>)\s*$/u', $screen);
+	}
+
+	/** I/O. Wait briefly for a transcript-mode Claude launch to reach its prompt. */
+	protected function waitForReplReady(string $surfRef, string $wsRef): void {
+		$deadline = microtime(true) + 30;
+		do {
+			if ($this->replReady($this->cmux->readScreen($surfRef, $wsRef))) { return; }
+			usleep(200000);
+		} while (microtime(true) < $deadline);
+		$this->cli->msg('  REPL prompt was not observed before timeout; sending the restore preamble.', 'yellow');
 	}
 
 	/** Resolve a group id by exact or prefix match over stored workspace manifests. */
