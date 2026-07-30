@@ -48,7 +48,7 @@ final class GraveyardCodexBuryTest extends TestCase
 	private function liveRollout(string $sid, array $extra = []): string
 	{
 		$dir = $this->root . '/codex-sessions/2026/07/29';
-		mkdir($dir, 0777, true);
+		if (!is_dir($dir)) { mkdir($dir, 0777, true); }
 		putenv('CODEX_SESSIONS_DIR=' . $this->root . '/codex-sessions');
 
 		$path  = "{$dir}/rollout-2026-07-29T09-03-42-{$sid}.jsonl";
@@ -143,6 +143,104 @@ final class GraveyardCodexBuryTest extends TestCase
 		$p = $this->root . '/headerless.jsonl';
 		file_put_contents($p, "not json\n");
 		$this->assertFalse($this->gy->codexArchiveBelongsToSession($p, self::SID));
+	}
+
+	/**
+	 * A RESUMED or forked session must pass. Codex writes a new rollout per resume whose
+	 * session_meta carries `id` = this thread and `session_id` = the ANCESTOR, and whose
+	 * records begin with a verbatim copy of that ancestor — so the first session_meta in the
+	 * file belongs to somebody else. Matching on the first record's `session_id` (as this
+	 * gate first did) refused every resumed session: bury → resurrect → bury could never
+	 * complete, and the refusal read as "the archive is not this session's".
+	 */
+	public function testArchivedRolloutBelongsToSessionAcceptsAResumedSessionWhoseSessionIdNamesItsAncestor(): void
+	{
+		$ancestor = '019fa586-a9b7-7df0-a430-49907c5193f6';
+		$p = $this->root . '/resumed.jsonl';
+		file_put_contents($p, implode("\n", [
+			json_encode(['type' => 'session_meta', 'payload' => ['id' => $ancestor, 'session_id' => $ancestor, 'cwd' => '/x']]),
+			json_encode(['type' => 'response_item', 'payload' => ['type' => 'message', 'role' => 'user', 'content' => [['type' => 'input_text', 'text' => 'before the resume']]]]),
+			json_encode(['type' => 'session_meta', 'payload' => ['id' => self::SID, 'session_id' => $ancestor, 'thread_source' => 'user', 'cwd' => '/x']]),
+		]) . "\n");
+
+		$this->assertTrue($this->gy->codexArchiveBelongsToSession($p, self::SID));
+	}
+
+	/**
+	 * The mirror image, and the reason this gate cannot just accept any session_meta hit: a
+	 * SUBAGENT thread's rollout embeds its parent's header, so an archive of the child stored
+	 * under the parent's id would otherwise pass. Only the file's own thread — the last
+	 * session_meta — counts.
+	 */
+	public function testArchivedRolloutBelongsToSessionRejectsASubagentThreadArchivedUnderItsParentId(): void
+	{
+		$p = $this->root . '/subagent.jsonl';
+		file_put_contents($p, implode("\n", [
+			json_encode(['type' => 'session_meta', 'payload' => ['id' => self::SID, 'session_id' => self::SID, 'cwd' => '/x']]),
+			json_encode(['type' => 'session_meta', 'payload' => [
+				'id' => '019faf55-3260-7cb0-9479-45c53799dfa6', 'session_id' => self::SID,
+				'parent_thread_id' => self::SID, 'thread_source' => 'subagent', 'cwd' => '/x',
+			]]),
+		]) . "\n");
+
+		$this->assertFalse($this->gy->codexArchiveBelongsToSession($p, self::SID));
+	}
+
+	// ── GATE 3: pid → its OWN session, not a subagent's ───────────────────────
+
+	/**
+	 * GATE 3 re-derives the pid's session from the rollout it holds open. A codex that has
+	 * spawned a subagent holds two rollouts open, and lsof order is fd order — so reading
+	 * "the first rollout" made teardown of a perfectly healthy session abort with
+	 * "pid N maps to session <subagent>", and made a subagent's id look killable.
+	 */
+	private function gateThreeStub(string $lsofRaw): Graveyard
+	{
+		$cmux = new class($this->cli, $lsofRaw) extends \JT\Helpers\Cmux {
+			private string $raw;
+			public function __construct($cli, string $raw) { parent::__construct($cli); $this->raw = $raw; }
+			public function lsofForPid(int $pid): string { return $this->raw; }
+		};
+
+		return new class($this->cli, $cmux) extends Graveyard {
+			public array $killedPids = [];
+			public function kill(array $sess): bool { return $this->killMember($sess); }
+			protected function killPidTree(int $pid): bool { $this->killedPids[] = $pid; return true; }
+		};
+	}
+
+	private function lsofFor(array $paths): string
+	{
+		$raw = "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF      NODE NAME\n";
+		$fd  = 60;
+		foreach ($paths as $p) { $raw .= "codex   4242   JT   {$fd}u   REG   1,13 323058 2392 {$p}\n"; $fd++; }
+		return $raw;
+	}
+
+	public function testGateThreeAcceptsASessionWhoseSubagentRolloutIsAlsoOpen(): void
+	{
+		$sub  = $this->liveRollout('019faf55-3260-7cb0-9479-45c53799dfa6', [
+			'id' => '019faf55-3260-7cb0-9479-45c53799dfa6', 'session_id' => self::SID,
+			'parent_thread_id' => self::SID, 'thread_source' => 'subagent',
+		]);
+		$main = $this->liveRollout(self::SID, ['id' => self::SID, 'thread_source' => 'user']);
+
+		$stub = $this->gateThreeStub($this->lsofFor([$sub, $main]));
+
+		$this->assertTrue($stub->kill($this->codexSess()));
+		$this->assertSame([4242], $stub->killedPids);
+	}
+
+	public function testGateThreeStillRefusesAPidHostingADifferentSession(): void
+	{
+		$other = $this->liveRollout('019fbbbb-0000-74c0-aac4-dc767affc6ea', [
+			'id' => '019fbbbb-0000-74c0-aac4-dc767affc6ea', 'thread_source' => 'user',
+		]);
+
+		$stub = $this->gateThreeStub($this->lsofFor([$other]));
+
+		$this->assertFalse($stub->kill($this->codexSess()));
+		$this->assertSame([], $stub->killedPids, 'a mismatched pid must never be killed');
 	}
 
 	// ── archive freshness ─────────────────────────────────────────────────────

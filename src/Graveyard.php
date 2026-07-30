@@ -868,20 +868,24 @@ class Graveyard {
 		return @rename($tmp, $dest);
 	}
 
-	/** GATE 2 (codex): the archived rollout's session_meta must carry this session id. */
+	/**
+	 * GATE 2 (codex): the archived rollout must BE this session's thread.
+	 *
+	 * Identity is the file's own session_meta — the LAST one — read via
+	 * CodexRollout::selfMeta(), and compared on `id`. The two things that look like
+	 * shortcuts here are both wrong:
+	 *
+	 * - `session_id` on the first record. That is what this gate shipped with, and it names
+	 *   the ANCESTOR thread on anything forked or resumed. Codex writes a fresh rollout per
+	 *   resume, so it refused every resumed session — bury → resurrect → bury could never
+	 *   complete — and reported it as "the archive is not this session's".
+	 * - any session_meta whose id matches. A subagent thread's rollout opens with a verbatim
+	 *   copy of its PARENT's records, header included, so that would accept a child archived
+	 *   under its parent's id. Only the file's own thread counts.
+	 */
 	public function codexArchiveBelongsToSession(string $path, string $sessionId): bool {
-		$h = @fopen($path, 'rb');
-		if (!$h) { return false; }
-		$found = null;
-		for ($i = 0; $i < 5 && ($line = fgets($h)) !== false; $i++) {
-			$rec = json_decode(trim($line), true);
-			if (is_array($rec) && ($rec['type'] ?? '') === 'session_meta') {
-				$found = $rec['payload']['session_id'] ?? null;
-				break;
-			}
-		}
-		fclose($h);
-		return $found !== null && $found === $sessionId;
+		$id = $this->codexRollout()->selfMeta($path)['id'];
+		return $id !== null && $id === $sessionId;
 	}
 
 	/** Is the archived rollout at least as new as the live one? */
@@ -1550,9 +1554,12 @@ class Graveyard {
 		}
 		// GATE 3: the pid must still map to the target session. Claude publishes that in
 		// ~/.claude/sessions/<pid>.json; a codex process instead holds its rollout open,
-		// whose filename carries the session id.
+		// whose filename carries the session id — plus one per subagent thread it spawned,
+		// so the pid's OWN thread has to be picked out (codexSessionIdForPid). Reading
+		// "the first open rollout" aborted teardown of healthy sessions with
+		// "pid N maps to session <a subagent>".
 		$pidSid = ($sess['agent'] ?? 'claude') === 'codex'
-			? $this->cmux->parseLsofRollout($this->cmux->lsofForPid($pid))
+			? $this->cmux->codexSessionIdForPid($pid)
 			: $this->cmux->sessionIdForPid($pid);
 		if ($pidSid !== $target) {
 			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
