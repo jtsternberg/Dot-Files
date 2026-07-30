@@ -117,6 +117,76 @@ final class CodexRolloutTest extends TestCase
 		$this->assertSame('019fa586-a9b7-7df0-a430-49907c5193f6', $this->reader()->meta($path)['session_id']);
 	}
 
+	// =====================================================================
+	// selfMeta — WHICH thread the file itself is
+	// =====================================================================
+
+	/**
+	 * meta() answers "what conversation does this archive contain" and so takes the FIRST
+	 * session_meta. selfMeta() answers a different question — "which thread IS this file" —
+	 * and must take the LAST, because a fork/resume/subagent rollout begins with a verbatim
+	 * copy of its ancestor's records, that ancestor's session_meta included. Measured on
+	 * codex 0.146: rollout-…-019fafa8-b788… opens with meta(id=019faf70) and only later
+	 * carries meta(id=019fafa8-b788, session_id=019faf70).
+	 *
+	 * Note `session_id` is the ANCESTOR's id on such a record, not the file's own; `id` is
+	 * the file's own. Anything proving identity (bury's GATE 2, the pid→session join) has to
+	 * read `id`, or every resumed session looks like a stranger.
+	 */
+	public function testSelfMetaIsTheLastSessionMetaBecauseAForkPrependsItsAncestor(): void
+	{
+		$path = $this->rollout([
+			$this->meta(['id' => 'root-0001', 'session_id' => 'root-0001']),
+			$this->msg('user', 'in the ancestor'),
+			$this->meta(['id' => 'fork-0002', 'session_id' => 'root-0001', 'thread_source' => 'user']),
+			$this->msg('user', 'in the fork'),
+		]);
+
+		$self = $this->reader()->selfMeta($path);
+
+		$this->assertSame('fork-0002', $self['id']);
+		$this->assertSame('root-0001', $self['session_id'], 'session_id names the ancestor, not this thread');
+		$this->assertFalse($self['is_subagent']);
+	}
+
+	/** A spawned subagent thread must be recognisable as one — it is not a session to bury. */
+	public function testSelfMetaFlagsASubagentThread(): void
+	{
+		$path = $this->rollout([
+			$this->meta(['id' => 'root-0001', 'session_id' => 'root-0001']),
+			$this->meta([
+				'id'               => 'sub-0002',
+				'session_id'       => 'root-0001',
+				'parent_thread_id' => 'root-0001',
+				'thread_source'    => 'subagent',
+				'source'           => ['subagent' => ['thread_spawn' => ['parent_thread_id' => 'root-0001', 'depth' => 1]]],
+			]),
+		]);
+
+		$self = $this->reader()->selfMeta($path);
+
+		$this->assertSame('sub-0002', $self['id']);
+		$this->assertTrue($self['is_subagent']);
+	}
+
+	/** Older rollouts predate the `id` field; `session_id` is then the file's own thread. */
+	public function testSelfMetaFallsBackToSessionIdOnPreRenameRollouts(): void
+	{
+		$path = $this->rollout([$this->meta(), $this->msg('user', 'hi')]);
+
+		$self = $this->reader()->selfMeta($path);
+
+		$this->assertSame('019fa586-a9b7-7df0-a430-49907c5193f6', $self['id']);
+		$this->assertFalse($self['is_subagent']);
+	}
+
+	/** A source with no readable header answers "unknown", never a wrong id. */
+	public function testSelfMetaOnAHeaderlessOrMissingFile(): void
+	{
+		$this->assertNull($this->reader()->selfMeta('/no/such/rollout.jsonl')['id']);
+		$this->assertNull($this->reader()->selfMeta($this->rollout([$this->msg('user', 'no header')]))['id']);
+	}
+
 	/** 100 of 223 real rollouts carry no turn_context at all — absence is normal, not an error. */
 	public function testWorksWithNoTurnContext(): void
 	{

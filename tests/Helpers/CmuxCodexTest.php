@@ -131,6 +131,97 @@ final class CmuxCodexTest extends TestCase
 		);
 	}
 
+	// ── which of a pid's open rollouts is the SESSION ─────────────────────────
+
+	/**
+	 * A codex TUI holds its own rollout open AND one per subagent thread it has spawned, so
+	 * "the rollout this process has open" is not a session id — it is a set. Measured on a
+	 * live box: pid 53691 had rollout-…-019faf33 (thread_source=user) and
+	 * rollout-…-019faf55 (thread_source=subagent, agent_nickname "Wegener") open at once,
+	 * and lsof listed the SUBAGENT first. Taking the first match made graveyard offer a
+	 * subagent thread as the session to bury.
+	 */
+	private function rolloutFixture(string $sid, string $threadSource, ?string $parent = null): string
+	{
+		$dir = $this->graveyardRoot . '/codex-sessions/2026/07/29';
+		if (!is_dir($dir)) { mkdir($dir, 0777, true); }
+		$path = "{$dir}/rollout-2026-07-29T15-23-44-{$sid}.jsonl";
+
+		$lines = [];
+		// A subagent/fork rollout opens with a verbatim copy of its ancestor's records.
+		if ($parent !== null) {
+			$lines[] = json_encode(['type' => 'session_meta', 'payload' => [
+				'id' => $parent, 'session_id' => $parent, 'thread_source' => 'user', 'cwd' => '/Users/JT/x',
+			]]);
+		}
+		$lines[] = json_encode(['type' => 'session_meta', 'payload' => array_filter([
+			'id'               => $sid,
+			'session_id'       => $parent ?? $sid,
+			'parent_thread_id' => $parent,
+			'thread_source'    => $threadSource,
+			'cwd'              => '/Users/JT/x',
+		], fn($v) => $v !== null)]);
+		file_put_contents($path, implode("\n", $lines) . "\n");
+
+		return $path;
+	}
+
+	private function lsofWithRollouts(array $paths): string
+	{
+		$raw = "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF      NODE NAME\n"
+			. "codex   53691   JT  cwd    DIR   1,13      672  69836678 /Users/JT/.dotfiles\n";
+		$fd = 60;
+		foreach ($paths as $p) {
+			$raw .= "codex   53691   JT   {$fd}u   REG   1,13   323058 239213615 {$p}\n";
+			$fd++;
+		}
+		return $raw;
+	}
+
+	public function testParseLsofRolloutPathsReturnsEveryOpenRollout(): void
+	{
+		$sub  = $this->rolloutFixture('019faf55-3260-7cb0-9479-45c53799dfa6', 'subagent', '019faf33-ad9b-76a1-ae1b-405d50f22ade');
+		$main = $this->rolloutFixture('019faf33-ad9b-76a1-ae1b-405d50f22ade', 'user');
+
+		$this->assertSame([$sub, $main], $this->cmux->parseLsofRolloutPaths($this->lsofWithRollouts([$sub, $main])));
+		$this->assertSame([], $this->cmux->parseLsofRolloutPaths(''));
+	}
+
+	public function testOwnRolloutSkipsSubagentThreadsEvenWhenLsofListsThemFirst(): void
+	{
+		$sub  = $this->rolloutFixture('019faf55-3260-7cb0-9479-45c53799dfa6', 'subagent', '019faf33-ad9b-76a1-ae1b-405d50f22ade');
+		$main = $this->rolloutFixture('019faf33-ad9b-76a1-ae1b-405d50f22ade', 'user');
+
+		$raw = $this->lsofWithRollouts([$sub, $main]);
+
+		$this->assertSame($main, $this->cmux->ownRolloutPathFromLsof($raw));
+		$this->assertSame('019faf33-ad9b-76a1-ae1b-405d50f22ade', $this->cmux->ownSessionIdFromLsof($raw));
+	}
+
+	/** Two subagents open at once must not shift the answer onto one of them. */
+	public function testOwnRolloutIgnoresEverySubagentThread(): void
+	{
+		$main = $this->rolloutFixture('019faf81-8c9a-73c1-a19c-acaa87235734', 'user');
+		$subA = $this->rolloutFixture('019faf82-4497-7453-a9be-de101a222797', 'subagent', '019faf81-8c9a-73c1-a19c-acaa87235734');
+		$subB = $this->rolloutFixture('019fafa8-d4ba-7ea0-ac2f-1081d8b3668f', 'subagent', '019faf81-8c9a-73c1-a19c-acaa87235734');
+
+		$this->assertSame($main, $this->cmux->ownRolloutPathFromLsof($this->lsofWithRollouts([$subA, $subB, $main])));
+	}
+
+	/**
+	 * Fail SOFT, not closed: an unreadable rollout (or a codex old enough to emit no
+	 * thread_source) must still yield the session it did before this selection existed,
+	 * or discovery would silently lose sessions it used to find.
+	 */
+	public function testOwnRolloutFallsBackToTheFirstPathWhenNothingLooksLikeASession(): void
+	{
+		$gone = $this->graveyardRoot . '/codex-sessions/2026/07/29/rollout-2026-07-29T15-23-44-019fadf9-449a-74c0-aac4-dc767affc6ea.jsonl';
+
+		$this->assertSame($gone, $this->cmux->ownRolloutPathFromLsof($this->lsofWithRollouts([$gone])));
+		$this->assertNull($this->cmux->ownRolloutPathFromLsof(''));
+		$this->assertNull($this->cmux->ownSessionIdFromLsof(''));
+	}
+
 	public function testParseLsofCwdReadsTheProcessWorkingDirectoryRow(): void
 	{
 		// One `lsof -p <pid>` yields both the rollout and the cwd, so the join

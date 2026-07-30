@@ -37,6 +37,8 @@ namespace JT\Helpers;
  */
 class CodexRollout {
 
+	use ReverseLinesTrait;
+
 	/**
 	 * Assistant text is written TWICE — as response_item/message and again as
 	 * event_msg/agent_message, roughly 1:1 — so rendering both doubles every turn. We keep
@@ -120,6 +122,55 @@ class CodexRollout {
 		}, 2000);
 
 		return $out;
+	}
+
+	/**
+	 * WHICH THREAD THIS FILE IS — a different question from meta(), and the one every
+	 * identity check has to ask.
+	 *
+	 * A fork, a resume and a spawned subagent each get their own rollout that OPENS with a
+	 * verbatim copy of the ancestor's records, that ancestor's session_meta included. So the
+	 * first session_meta describes the conversation the file contains (meta()'s job) while
+	 * the LAST one describes the thread the file belongs to. Measured on codex 0.146:
+	 * rollout-…-019fafa8-b788… begins with meta(id=019faf70) and only later carries
+	 * meta(id=019fafa8-b788, session_id=019faf70).
+	 *
+	 * Read `id`, never `session_id`: on any non-root thread `session_id` is the ANCESTOR's
+	 * id. Matching it is what made bury refuse resumed sessions and made a pid look like it
+	 * hosted a stranger. `session_id` is the fallback only for rollouts written before the
+	 * field was split, which carry no `id` at all.
+	 *
+	 * Scanned BACKWARD: the file's own header sits after the replayed prefix, so the tail is
+	 * the cheap end to find it from — a 60 MB rollout costs a few KB.
+	 *
+	 * @return array{id: ?string, session_id: ?string, parent_thread_id: ?string, thread_source: ?string, is_subagent: bool}
+	 */
+	public function selfMeta(string $path): array {
+		$key = 'self:' . $this->key($path);
+		if (isset($this->cache[$key])) { return $this->cache[$key]; }
+
+		$out = ['id' => null, 'session_id' => null, 'parent_thread_id' => null, 'thread_source' => null, 'is_subagent' => false];
+
+		$this->eachLineReverse($path, function (string $line) use (&$out): bool {
+			if (!str_contains($line, '"session_meta"')) { return true; }
+			$rec = json_decode(trim($line), true);
+			if (!is_array($rec) || ($rec['type'] ?? '') !== 'session_meta') { return true; }
+
+			$p   = $this->payload($rec);
+			$out = [
+				'id'               => $this->str($p['id'] ?? $p['session_id'] ?? null),
+				'session_id'       => $this->str($p['session_id'] ?? null),
+				'parent_thread_id' => $this->str($p['parent_thread_id'] ?? null),
+				'thread_source'    => $this->str($p['thread_source'] ?? null),
+				// `source` is an enum upstream that deserializes as an object for spawned
+				// threads, so its shape is a second, version-independent tell.
+				'is_subagent'      => ($p['thread_source'] ?? null) === 'subagent'
+					|| isset($p['source']['subagent']),
+			];
+			return false; // last session_meta in the file wins; we found it first going back
+		});
+
+		return $this->cache[$key] = $out;
 	}
 
 	/**

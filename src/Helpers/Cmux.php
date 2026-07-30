@@ -9,6 +9,7 @@ namespace JT\Helpers;
 class Cmux {
 
 	use TitleGlyphTrait;
+	use ReverseLinesTrait;
 
 	const SESSIONS_DIR = '~/.claude/sessions';
 
@@ -422,17 +423,82 @@ class Cmux {
 		return (string) shell_exec('ps -wwEp ' . (int) $pid . ' 2>/dev/null');
 	}
 
-	/** PURE. Path of the rollout jsonl an lsof dump shows open, or null. */
+	/** PURE. Path of the FIRST rollout jsonl an lsof dump shows open, or null. */
 	public function parseLsofRolloutPath(string $raw): ?string {
-		return preg_match('#(\S*/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-fA-F-]{36}\.jsonl)#', $raw, $m)
-			? $m[1]
-			: null;
+		return $this->parseLsofRolloutPaths($raw)[0] ?? null;
+	}
+
+	/**
+	 * PURE. EVERY rollout jsonl an lsof dump shows open, in lsof's own order.
+	 *
+	 * A codex TUI holds more than one: its own, plus one per subagent thread it has spawned
+	 * (they stay open for the life of the process). So "the rollout this pid has open" is a
+	 * set, and lsof's order is fd order — which is why picking the first silently returned a
+	 * SUBAGENT as the session. See ownRolloutPathFromLsof().
+	 */
+	public function parseLsofRolloutPaths(string $raw): array {
+		return preg_match_all('#(\S*/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-fA-F-]{36}\.jsonl)#', $raw, $m)
+			? array_values(array_unique($m[1]))
+			: [];
+	}
+
+	/**
+	 * The rollout of the SESSION a pid is running, out of every rollout it holds open.
+	 *
+	 * Subagent threads are excluded by reading each candidate's own session_meta
+	 * (CodexRollout::selfMeta — the LAST one in the file, since a spawned thread's rollout
+	 * opens with a copy of its parent's records). What remains is the conversation a human is
+	 * sitting in front of: the one to bury, to resume, and to prove a pid against.
+	 *
+	 * Measured: pid 53691 held rollout-…-019faf33 (thread_source=user) and
+	 * rollout-…-019faf55 (thread_source=subagent, "Wegener") open, with the subagent listed
+	 * FIRST — so graveyard offered a subagent thread as a buriable session, and its bury
+	 * then failed the archive gate because the file's ids belong to two different threads.
+	 *
+	 * Ties (more than one real thread open, e.g. after a fork) go to the most recently
+	 * written, which is the one still being appended to. Fails SOFT: if nothing can be read
+	 * — an unreadable file, or a codex old enough not to emit thread_source — the first path
+	 * is returned, so discovery never loses a session it used to find.
+	 */
+	public function ownRolloutPathFromLsof(string $raw): ?string {
+		$paths = $this->parseLsofRolloutPaths($raw);
+		if (count($paths) < 2) { return $paths[0] ?? null; }
+
+		$reader = new CodexRollout();
+		$own    = array_values(array_filter($paths, fn($p) => !$reader->selfMeta($p)['is_subagent']));
+		if (!$own) { return $paths[0]; }
+
+		usort($own, function ($a, $b) {
+			clearstatcache(true, $a);
+			clearstatcache(true, $b);
+			return (int) @filemtime($b) <=> (int) @filemtime($a);
+		});
+		return $own[0];
+	}
+
+	/** The session id of the rollout ownRolloutPathFromLsof() picks, or null. */
+	public function ownSessionIdFromLsof(string $raw): ?string {
+		$path = $this->ownRolloutPathFromLsof($raw);
+		return $path !== null ? $this->rolloutUuidFromPath($path) : null;
+	}
+
+	/**
+	 * The codex session a pid is running — the counterpart of sessionIdForPid() for Claude,
+	 * which reads ~/.claude/sessions/<pid>.json. Codex publishes nothing, so this is derived
+	 * from the rollouts the process holds open. Used by bury's GATE 3.
+	 */
+	public function codexSessionIdForPid(int $pid): ?string {
+		return $this->ownSessionIdFromLsof($this->lsofForPid($pid));
 	}
 
 	/**
 	 * PURE. The codex session id (uuid) from an lsof dump, or null. The uuid is
 	 * positional — it trails a `rollout-<ISO-ish timestamp>-` prefix — so the
 	 * shape is matched strictly rather than grabbing any uuid-looking run.
+	 *
+	 * FIRST match only, and therefore NOT "which session is this pid running" when the
+	 * process has subagent threads open — use ownSessionIdFromLsof()/codexSessionIdForPid()
+	 * for that. This stays as the pure parser it says it is.
 	 */
 	public function parseLsofRollout(string $raw): ?string {
 		$path = $this->parseLsofRolloutPath($raw);
@@ -536,13 +602,17 @@ class Cmux {
 	 * [ pid => [session_id, cwd, surface_id, model, opts] ].
 	 * A codex with no open rollout (starting up, or a subcommand that slipped the
 	 * pre-filter) is skipped: there's nothing to resume.
+	 *
+	 * The session is the process's OWN thread, not whichever rollout lsof happens to list
+	 * first — see ownRolloutPathFromLsof(); a codex with a subagent running holds several
+	 * open, and a subagent thread is not a session anyone can sit in.
 	 */
 	public function loadCodexSessionsByPid(): array {
 		$proc = $this->parseProcTable($this->psProcTable());
 		$out  = [];
 		foreach ($this->codexProcPids($proc) as $pid) {
 			$lsof = $this->lsofForPid($pid);
-			$path = $this->parseLsofRolloutPath($lsof);
+			$path = $this->ownRolloutPathFromLsof($lsof);
 			if ($path === null) { continue; }
 			$sid = $this->rolloutUuidFromPath($path);
 			if ($sid === null) { continue; }
@@ -1232,36 +1302,6 @@ class Cmux {
 		return $cmd;
 	}
 
-	/**
-	 * Invoke $fn($line) on each line of $path from LAST to FIRST, reading fixed
-	 * chunks backward from EOF so the whole file is never held in memory. A line
-	 * straddling a chunk boundary is carried into the next (earlier) chunk before
-	 * it's emitted. $fn returning false stops the scan early. Blank lines are
-	 * skipped. Lets tail-only scans avoid touching the head of a large transcript.
-	 */
-	public function eachLineReverse(string $path, callable $fn): void {
-		$h = @fopen($path, 'rb');
-		if (!$h) { return; }
-		$chunkSize = 65536;
-		$stat = fstat($h);
-		$pos  = $stat ? (int) $stat['size'] : 0;
-		$carry = ''; // fragment that belongs AFTER the current chunk (start of a later line)
-		while ($pos > 0) {
-			$read = (int) min($chunkSize, $pos);
-			$pos -= $read;
-			fseek($h, $pos);
-			$buf   = (string) fread($h, $read) . $carry;
-			$lines = explode("\n", $buf);
-			// Unless we've reached the file start, the first fragment continues into
-			// the earlier chunk — hold it back rather than emit a partial line.
-			$carry = $pos > 0 ? array_shift($lines) : '';
-			for ($i = count($lines) - 1; $i >= 0; $i--) {
-				if ($lines[$i] === '') { continue; }
-				if ($fn($lines[$i]) === false) { fclose($h); return; }
-			}
-		}
-		fclose($h);
-	}
 
 	/**
 	 * Read the last permission-mode and model from a session's JSONL transcript.
