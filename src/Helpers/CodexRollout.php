@@ -49,16 +49,36 @@ class CodexRollout {
 	 */
 	const SPEAKER = 'Codex';
 
-	/** Wrapper-only turns: machine-injected context, not anything a human or model said. */
-	const SYNTHETIC_PREFIXES = [
+	/**
+	 * Injected CONTEXT delivered as a turn: harness and project material, not anything a
+	 * human or model said. Skipped by both filters below.
+	 *
+	 * "# AGENTS.md instructions" earns its place the hard way — codex hands project
+	 * instructions over as a 5KB USER message opening with that heading and an
+	 * <INSTRUCTIONS> block, so two real buries titled their headstone
+	 * "# AGENTS.md instructions ## Compound Codex Tool Mapping…" instead of the prompt.
+	 */
+	const INJECTED_PREFIXES = [
 		'<environment_context>',
 		'<turn_aborted>',
-		'<command-message>',
-		'<command-args>',
 		'<local-command-stdout>',
 		'<local-command-caveat>',
 		'<permissions instructions>',
 		'<system-reminder>',
+		'# AGENTS.md instructions',
+		'<INSTRUCTIONS>',
+	];
+
+	/**
+	 * Wrapper-only turns. A superset of the injected list: a slash-command wrapper is noise
+	 * for DISPLAY but is a real prompt for the summary, so it is only listed here. One
+	 * shared source, because two hand-maintained copies of a marker list is exactly how the
+	 * ls/search divergence AGENTS.md documents came about.
+	 */
+	const SYNTHETIC_PREFIXES = [
+		...self::INJECTED_PREFIXES,
+		'<command-message>',
+		'<command-args>',
 		'Caveat: The messages below',
 	];
 
@@ -773,7 +793,7 @@ class CodexRollout {
 	 */
 	protected function isInjectedContext(string $text): bool {
 		$t = ltrim($text);
-		foreach (['<environment_context>', '<turn_aborted>', '<permissions instructions>', '<system-reminder>', '<local-command-stdout>', '<local-command-caveat>'] as $prefix) {
+		foreach (self::INJECTED_PREFIXES as $prefix) {
 			if (stripos($t, $prefix) === 0) { return true; }
 		}
 		return trim(preg_replace('/<[^>]+>/', ' ', $t)) === '' && !str_contains($t, '<command-name>');

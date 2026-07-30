@@ -688,6 +688,42 @@ final class CodexRolloutTest extends TestCase
 	}
 
 	/**
+	 * Codex delivers project instructions as a USER message opening
+	 * "# AGENTS.md instructions" + an <INSTRUCTIONS> block. Measured in production twice:
+	 * both a real bury and an e2e bury titled their headstone
+	 * "# AGENTS.md instructions ## Compound Codex Tool Mapping…" instead of the prompt.
+	 * It is injected context, not something anyone said.
+	 */
+	public function testSkipsTheInjectedAgentsMdInstructionsBlock(): void
+	{
+		$injected = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\n<!-- BEGIN COMPOUND CODEX TOOL MAP -->\n## Compound Codex Tool Mapping\n" . str_repeat('x', 400) . "\n</INSTRUCTIONS>";
+		$path = $this->rollout([
+			$this->meta(),
+			$this->msg('user', $injected),
+			$this->msg('user', 'reply with exactly: e2e marker'),
+			$this->msg('assistant', 'e2e marker'),
+		]);
+
+		$this->assertSame('reply with exactly: e2e marker', $this->reader()->firstUserText($path));
+
+		$texts = array_column($this->reader()->genuineTurns($path), 'text');
+		$this->assertNotContains($injected, $texts, 'an injected instructions block is not a turn');
+		$this->assertSame(['reply with exactly: e2e marker', 'e2e marker'], $texts);
+	}
+
+	/** The bare <INSTRUCTIONS> wrapper, without the AGENTS.md heading, is the same thing. */
+	public function testSkipsABareInstructionsWrapper(): void
+	{
+		$path = $this->rollout([
+			$this->meta(),
+			$this->msg('user', "<INSTRUCTIONS>\nproject rules\n</INSTRUCTIONS>"),
+			$this->msg('user', 'the real ask'),
+		]);
+
+		$this->assertSame('the real ask', $this->reader()->firstUserText($path));
+	}
+
+	/**
 	 * firstUserText returns the prompt RAW, wrappers intact, because Graveyard's existing
 	 * summarizeUserText() is what turns a slash-command invocation into "/name args" — and
 	 * that is exactly the title the one already-buried codex session should have had
