@@ -78,6 +78,17 @@ final class GraveyardSearchTest extends TestCase
 		$this->assertSame('meta111', $gy->searchTombstones('ollama', true)[0]['session_id']);
 	}
 
+	public function testSearchFullTextMatchesAcrossTranscriptLineBreaks(): void
+	{
+		$root = $this->makeRoot([
+			['session_id' => 'split111', 'workspace_title' => 'unrelated', 'buried_at' => '2026-07-10'],
+		]);
+		@mkdir($root . '/sessions/split111', 0755, true);
+		file_put_contents($root . '/sessions/split111/transcript.txt', "the hidden\nneedle is here");
+
+		$this->assertCount(1, (new Graveyard($this->cli, $this->cmux))->searchTombstones("hidden\nneedle", true));
+	}
+
 	public function testSearchNoHitsReturnsEmpty(): void
 	{
 		$this->makeRoot([

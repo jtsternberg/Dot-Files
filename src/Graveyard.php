@@ -2729,13 +2729,17 @@ class Graveyard {
 		return $hits;
 	}
 
-	/** Streamed case-insensitive substring scan — reads line-by-line instead of slurping the file. */
+	/** Streamed case-insensitive substring scan, preserving chunk overlap for line breaks. */
 	protected function fileContains(string $path, string $needleLower): bool {
 		$h = @fopen($path, 'r');
 		if (!$h) { return false; }
 		$found = false;
-		while (($line = fgets($h)) !== false) {
-			if (str_contains(mb_strtolower($line), $needleLower)) { $found = true; break; }
+		$tail = '';
+		$overlap = max(0, strlen($needleLower) - 1);
+		while (($chunk = fread($h, 8192)) !== false && $chunk !== '') {
+			$scan = $tail . $chunk;
+			if (str_contains(mb_strtolower($scan), $needleLower)) { $found = true; break; }
+			$tail = $overlap ? substr($scan, -$overlap) : '';
 		}
 		fclose($h);
 		return $found;
