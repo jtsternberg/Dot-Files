@@ -134,7 +134,11 @@ switch ($sub) {
 		if ($cli->hasFlag('json')) { $gy->listTombstonesJson(); }
 		else { $gy->listTombstones(); }
 		break;
-	case 'search':    $gy->printSearch((string) $cli->getArg(2), $cli->hasFlag('json'), $cli->hasFlag('full-text')); break;
+	case 'search':
+		$term = trim((string) $cli->getArg(2));
+		if ($term === '') { $cli->exitErr('Usage: graveyard search <term> [--full-text] [--json]'); }
+		$gy->printSearch($term, $cli->hasFlag('json'), $cli->hasFlag('full-text'));
+		break;
 	case 'page':
 	case 'serve':
 		$port = $cli->hasFlag('port') ? (int) $cli->getFlag('port') : 8787;
