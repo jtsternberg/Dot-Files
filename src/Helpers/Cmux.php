@@ -1075,6 +1075,14 @@ class Cmux {
 		}
 	}
 
+	/** Read the visible terminal buffer without sending input. */
+	public function readScreen(string $surfRef, string $wsRef): string {
+		return (string) shell_exec(
+			escapeshellcmd($this->cmuxBin()) . ' read-screen --surface ' . escapeshellarg($surfRef)
+			. ' --workspace ' . escapeshellarg($wsRef) . ' 2>/dev/null'
+		);
+	}
+
 	/** [surface_ref => pane_ref] for every surface in a workspace (current tree). */
 	private function surfacePaneMap(string $wsRef): array {
 		$ws = $this->findWorkspaceByRef($this->tree(), $wsRef);

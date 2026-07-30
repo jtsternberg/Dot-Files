@@ -28,6 +28,7 @@ final class CmuxBakOperationalCmux extends Cmux {
 	public array $codexRows = [];
 	public array $sent = [];
 	public array $resumeArguments = [];
+	public string $screen = '';
 
 	public function __construct( Helpers $cli ) {
 		parent::__construct( $cli, true );
@@ -94,6 +95,10 @@ final class CmuxBakOperationalCmux extends Cmux {
 	public function sendToSurface( string $surfRef, string $wsRef, string $text ): void {
 		$this->sent[] = [ $surfRef, $wsRef, $text ];
 	}
+
+	public function readScreen( string $surfRef, string $wsRef ): string {
+		return $this->screen;
+	}
 }
 
 final class CmuxBakOperationsTest extends TestCase {
@@ -124,6 +129,21 @@ final class CmuxBakOperationsTest extends TestCase {
 		$this->assertFalse( $this->property( $bak, 'dryRun' ) );
 		$this->assertFalse( $this->property( $bak, 'verbose' ) );
 		$this->assertSame( $cmux, $this->property( $bak, 'cmux' ) );
+	}
+
+	public function testCodexTrustPromptIsReportedWithoutSendingConfirmation(): void {
+		$cmux = new CmuxBakOperationalCmux( $this->cli );
+		$cmux->screen = 'Do you trust the contents of this directory?  1. Yes, continue  2. No, quit';
+		$bak = new CmuxBak( $this->cli, sys_get_temp_dir() . '/cmux-bak-trust-' . uniqid() . '.json', false, false, $cmux );
+
+		$method = new \ReflectionMethod( CmuxBak::class, 'warnIfCodexTrustPrompt' );
+		$method->setAccessible( true );
+		ob_start();
+		$method->invoke( $bak, 'codex', 'surface:1', 'workspace:1' );
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'awaiting trust confirmation', $output );
+		$this->assertSame( [], $cmux->sent );
 	}
 
 	public function testConstructionLeavesOperationalCmuxLazy(): void {

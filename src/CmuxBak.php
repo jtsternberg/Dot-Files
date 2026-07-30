@@ -279,6 +279,7 @@ class CmuxBak {
 							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($surfRef, $currentWsRef, "{$resumeCmd}\n");
+							$this->warnIfCodexTrustPrompt($agent, $surfRef, $currentWsRef);
 						}
 					}
 				}
@@ -373,6 +374,7 @@ class CmuxBak {
 							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
+							$this->warnIfCodexTrustPrompt($agent, $targetRef, $targetWsRef);
 						}
 					}
 				}
@@ -569,9 +571,19 @@ class CmuxBak {
 		$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sid, $skipPerms, $model, $opts);
 		$this->cli->msg("    → {$resumeCmd}");
 		$this->cmux->sendToSurface($surfRef, $wsRef, "{$resumeCmd}\n");
+		$this->warnIfCodexTrustPrompt($agent, $surfRef, $wsRef);
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
+
+	/** Codex pauses at this prompt in an untrusted cwd; never answer it on the user's behalf. */
+	protected function warnIfCodexTrustPrompt(string $agent, string $surfRef, string $wsRef): void {
+		if ($agent !== 'codex' || $this->dryRun) { return; }
+		usleep(500000);
+		$screen = $this->cmux->readScreen($surfRef, $wsRef);
+		if (stripos($screen, 'Do you trust the contents of this directory?') === false) { return; }
+		$this->cli->err('    Codex is awaiting trust confirmation in this surface; resume is not complete.');
+	}
 
 	/**
 	 * Live agent sessions (both agents) indexed by the surface they currently
