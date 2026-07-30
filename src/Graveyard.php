@@ -907,6 +907,17 @@ class Graveyard {
 		return $bySurf;
 	}
 
+	/** Surface refs hosting any Codex TUI, including zero-turn sessions with no rollout. */
+	public function liveCodexSurfaceRefs(): array {
+		$surfaces = $this->cmux->mapSurfaceUuids($this->cmux->tree());
+		$out = [];
+		foreach ($this->cmux->codexSurfaceIdsByPid() as $surfaceId) {
+			$ref = $surfaces[$surfaceId]['surface_ref'] ?? '';
+			if ($ref !== '') { $out[$ref] = true; }
+		}
+		return $out;
+	}
+
 	/**
 	 * GATE 1 (codex): re-derive, right now, which codex session occupies this surface
 	 * and require it to be the one we're about to destroy. Replaces the statusline
@@ -2145,6 +2156,9 @@ class Graveyard {
 		$isCodexByRef = [];
 		foreach ($this->liveCodexBySurfaceRef() as $ref => $sid) {
 			if ($ref !== '' && $sid !== '') { $isCodexByRef[$ref] = true; }
+		}
+		foreach ($this->liveCodexSurfaceRefs() as $ref => $present) {
+			if ($present) { $isCodexByRef[$ref] = true; }
 		}
 
 		// Last-resort bind: for a Claude surface the join left unbound (a fresh /

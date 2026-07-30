@@ -676,4 +676,14 @@ final class CmuxCodexTest extends TestCase
 			rmdir(dirname(dirname($dir)));
 		}
 	}
+
+	public function testCodexSurfaceIdsIncludeAFreshSessionWithNoRollout(): void
+	{
+		$cmux = new class($this->cli) extends \JT\Helpers\Cmux {
+			public function psProcTable(): string { return "PID PPID COMMAND\n4242 1 /usr/local/bin/codex\n"; }
+			public function pidEnv(int $pid): string { return "CMUX_SURFACE_ID=11111111-2222-3333-4444-555555555555\n"; }
+		};
+
+		$this->assertSame([4242 => '11111111-2222-3333-4444-555555555555'], $cmux->codexSurfaceIdsByPid());
+	}
 }

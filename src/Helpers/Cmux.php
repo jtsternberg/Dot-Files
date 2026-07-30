@@ -648,6 +648,17 @@ class Cmux {
 		return $out;
 	}
 
+	/** Codex process pid => CMUX_SURFACE_ID, including fresh zero-turn sessions with no rollout yet. */
+	public function codexSurfaceIdsByPid(): array {
+		$proc = $this->parseProcTable($this->psProcTable());
+		$out  = [];
+		foreach ($this->codexProcPids($proc) as $pid) {
+			$surfaceId = $this->parseSurfaceIdFromEnv($this->pidEnv($pid));
+			if ($surfaceId !== null) { $out[$pid] = $surfaceId; }
+		}
+		return $out;
+	}
+
 	/**
 	 * PURE. surface UUID => [surface_ref, workspace_ref, tty, title, type] over a
 	 * cmux tree. tree() already requests --id-format both, so no extra shell call.

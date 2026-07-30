@@ -26,6 +26,7 @@ final class NullCmux extends Cmux
 	public function codexSessionIdForPid(int $pid): ?string { return null; }
 	public function codexRolloutPathFor(string $sessionId): ?string { return null; }
 	public function loadCodexSessionsByPid(): array { return []; }
+	public function codexSurfaceIdsByPid(): array { return []; }
 	public function mapSurfaceUuids(array $tree): array { return []; }
 	public function joinCodexToSurfaces(array $codexSessions, array $surfaceUuids): array { return []; }
 	public function joinSessionsToSurfaces(array $sessions, array $proc, array $debug): array { return []; }
