@@ -1575,7 +1575,7 @@ class Graveyard {
 		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
 		$bin = escapeshellcmd($this->cmux->cmuxBin());
 		$cmd = ($count <= 1)
-			? $bin . ' close-workspace --workspace ' . escapeshellarg($wsRef)
+			? $bin . ' workspace close ' . escapeshellarg($wsRef)
 			: $bin . ' close-surface --surface ' . escapeshellarg($sess['surface_ref']);
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
 		if (($res['exitCode'] ?? 1) !== 0) {
@@ -1586,7 +1586,7 @@ class Graveyard {
 	/** Close an entire workspace (and every remaining surface in it). */
 	protected function closeWorkspace(string $wsRef): bool {
 		if ($wsRef === '') { return false; }
-		$res = $this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' close-workspace --workspace ' . escapeshellarg($wsRef));
+		$res = $this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' workspace close ' . escapeshellarg($wsRef));
 		return ($res['exitCode'] ?? 1) === 0;
 	}
 

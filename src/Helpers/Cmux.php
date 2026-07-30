@@ -1203,11 +1203,11 @@ class Cmux {
 			}
 		}
 
-		$cmd = escapeshellcmd($this->cmuxBin()) . ' new-workspace --name ' . escapeshellarg($title);
+		$cmd = escapeshellcmd($this->cmuxBin()) . ' workspace create --name ' . escapeshellarg($title);
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
 		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
-		if ($res['exitCode'] !== 0) { $this->cli->exitErr('new-workspace failed: ' . $res['error']); }
+		if ($res['exitCode'] !== 0) { $this->cli->exitErr('workspace create failed: ' . $res['error']); }
 		usleep(500000);
 
 		$ws = $this->firstNewWorkspace($this->tree(), $before, $title);
@@ -1272,7 +1272,7 @@ class Cmux {
 	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree, ?string $windowRef = null): ?array {
 		if ($this->dryRun) { return null; }
 
-		$cmd = escapeshellcmd($this->cmuxBin()) . ' new-workspace --name ' . escapeshellarg($title)
+		$cmd = escapeshellcmd($this->cmuxBin()) . ' workspace create --name ' . escapeshellarg($title)
 			. ' --layout ' . escapeshellarg((string) json_encode($layoutTree));
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
 		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }

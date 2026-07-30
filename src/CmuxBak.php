@@ -289,7 +289,7 @@ class CmuxBak {
 
 				$firstCwd = $this->firstCwdFromBakWs($bakWs);
 
-				$cmd = 'cmux new-workspace --name ' . escapeshellarg($wsTitle);
+				$cmd = 'cmux workspace create --name ' . escapeshellarg($wsTitle);
 				if ($firstCwd) {
 					$cmd .= ' --cwd ' . escapeshellarg($firstCwd);
 				}
