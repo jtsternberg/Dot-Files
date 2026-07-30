@@ -1,0 +1,8 @@
+{"timestamp":"2026-07-29T09:00:00.000Z","type":"session_meta","payload":{"session_id":"fixture-hostile-0001","cwd":"/tmp/fixture","originator":"codex-tui"}}
+{"timestamp":"2026-07-29T09:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"before hostile records"}]}}
+{"timestamp":"2026-07-29T09:01:01.000Z","type":"future_top_level_record","payload":null}
+{"timestamp":"2026-07-29T09:01:02.000Z","type":"response_item","payload":{"type":"future_payload_item","value":null}}
+{"timestamp":"2026-07-29T09:01:03.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":null}}
+{"timestamp":"2026-07-29T09:01:04.000Z","type":"event_msg","payload":{"type":"agent_message","message":["not text"]}}
+{"timestamp":"2026-07-29T09:01:05.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":null,"output":{"unexpected":"shape"}}}
+{"timestamp":"2026-07-29T09:02:00.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"after hostile records"}]}}

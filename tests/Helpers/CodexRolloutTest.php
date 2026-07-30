@@ -653,6 +653,16 @@ final class CodexRolloutTest extends TestCase
 		$this->assertSame(1, $r->unknownCounts($path)['response_item/brand_new_item'] ?? 0);
 	}
 
+	public function testHostileFixtureDegradesGracefully(): void
+	{
+		$path  = __DIR__ . '/../fixtures/codex-rollout/hostile.jsonl';
+		$reader = $this->reader();
+
+		$this->assertSame(['before hostile records', 'after hostile records'], array_column($reader->genuineTurns($path), 'text'));
+		$this->assertSame(1, $reader->unknownCounts($path)['future_top_level_record'] ?? 0);
+		$this->assertSame(1, $reader->unknownCounts($path)['response_item/future_payload_item'] ?? 0);
+	}
+
 	public function testSurvivesMalformedAndTruncatedLines(): void
 	{
 		$path = $this->rollout([
