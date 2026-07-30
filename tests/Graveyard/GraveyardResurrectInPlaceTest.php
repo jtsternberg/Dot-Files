@@ -68,11 +68,13 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 			'cwd' => '/Users/JT/.dotfiles',
 			'home_workspace_id' => 'F62E7243-D094-42CD-A9C5-F23CBFC52CD7',
 			'home_pane_id'      => 'BBBBBBBB-0000-4000-8000-000000000060',
+			'window_ref'        => 'window:4',
 			'home_index_in_pane'=> 1,
 		], ['workspace_title' => 'dotfiles', 'tab_title' => 'codex experiment'], 'sum', '2026-07-29T00:00:00Z');
 
 		$this->assertSame('F62E7243-D094-42CD-A9C5-F23CBFC52CD7', $tomb['home_workspace_id']);
 		$this->assertSame('BBBBBBBB-0000-4000-8000-000000000060', $tomb['home_pane_id']);
+		$this->assertSame('window:4', $tomb['window_ref']);
 		$this->assertSame(1, $tomb['home_index_in_pane']);
 	}
 

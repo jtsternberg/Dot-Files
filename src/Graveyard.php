@@ -386,6 +386,7 @@ class Graveyard {
 			$tomb['home_pane_id']       = $session['home_pane_id'] ?? null;
 			$tomb['home_index_in_pane'] = $session['home_index_in_pane'] ?? null;
 		}
+		if (!empty($session['window_ref'])) { $tomb['window_ref'] = $session['window_ref']; }
 
 		// ADDITIVE schema (dotfiles-51b): only non-claude tombstones gain keys, so every
 		// archive written before codex support — and every claude archive written after —
@@ -627,6 +628,7 @@ class Graveyard {
 				'home_pane_id'       => $treeIx['surface'][$ref]['pane_id'] ?? null,
 				'home_index_in_pane' => $treeIx['surface'][$ref]['index_in_pane'] ?? null,
 				'workspace_ref'   => $j['workspace_ref'],
+				'window_ref'      => $treeIx['workspace_window'][$j['workspace_ref']] ?? null,
 				'workspace_title' => $treeIx['workspace'][$j['workspace_ref']] ?? '',
 				'tab_title'       => $treeIx['surface'][$ref]['title'] ?? $j['title'],
 				'idle_seconds'    => $idle,
@@ -648,11 +650,13 @@ class Graveyard {
 	 *   ['surface' => [surface_ref => ['id','title']], 'workspace' => [workspace_ref => title]].
 	 */
 	public function treeIndex(array $tree): array {
-		$ix = ['surface' => [], 'workspace' => []];
+		$ix = ['surface' => [], 'workspace' => [], 'workspace_window' => []];
 		foreach ($tree['windows'] ?? [] as $window) {
+			$windowRef = $window['ref'] ?? null;
 			foreach ($window['workspaces'] ?? [] as $ws) {
 				$wref = $ws['ref'] ?? '';
 				if ($wref) { $ix['workspace'][$wref] = $ws['title'] ?? ''; }
+				if ($wref && $windowRef) { $ix['workspace_window'][$wref] = $windowRef; }
 				foreach ($ws['panes'] ?? [] as $pane) {
 					foreach ($pane['surfaces'] ?? [] as $surf) {
 						$ref = $surf['ref'] ?? '';
@@ -3673,7 +3677,7 @@ class Graveyard {
 			$this->cli->msg('  Could not add a tab to the original workspace — falling back to a new one.', 'yellow');
 		}
 
-		$ws = $this->cmux->newWorkspace($title, $cwd ?: null);
+		$ws = $this->cmux->newWorkspace($title, $cwd ?: null, $this->resolveTargetWindow($t['window_ref'] ?? null));
 
 		$mode = $this->launchSessionIntoSurface($t, $ws['firstSurfRef'], $ws['ref'], $fromTranscript);
 		$note = $this->resurrectNote($t, $mode);
