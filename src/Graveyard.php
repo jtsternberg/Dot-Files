@@ -2932,8 +2932,12 @@ class Graveyard {
 	}
 
 	public function showTombstone(string $prefix): void {
-		$t = $this->resolveTombstone($prefix);
-		if (!$t) { $this->cli->exitErr("No single tombstone matches '{$prefix}'."); }
+		$res = $this->resolveTombstoneFuzzy($prefix);
+		$t = $res['match'];
+		if (!$t) {
+			if ($res['ambiguous']) { $this->cli->exitErr("'{$prefix}' is ambiguous — narrow it or pass a full session-id."); }
+			$this->cli->exitErr("No buried session matches '{$prefix}'.");
+		}
 		$path = $this->ensureTranscript($t);
 		if (!is_file($path)) { $this->cli->exitErr("Transcript missing: {$path}"); }
 		$editor = trim((string) shell_exec('command -v code 2>/dev/null'));
