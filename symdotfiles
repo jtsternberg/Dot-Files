@@ -216,6 +216,29 @@ if ( ! $dirs_only ) {
 			do_notice( "    : $home_file -> $repo_file", false, false );
 		}
 	}
+
+	// Repo-bundled slash commands live beside their supporting agent skills.
+	// Link every command markdown file into the existing ~/.claude/commands dir;
+	// that directory may itself be Dropbox-backed, but its contents remain local links.
+	foreach ( glob( $working_dir . '/agent-skills/*/*.md' ) ?: array() as $repo_file ) {
+		if ( basename( $repo_file ) === 'SKILL.md' ) {
+			continue;
+		}
+
+		$home_file = $destination_dir . '.claude/commands/' . basename( $repo_file );
+		do_notice( 'Symlinking repo command (' . basename( $repo_file ) . ')', true, "\n" );
+		if ( file_exists( $home_file ) || is_link( $home_file ) ) {
+			do_notice( "    : $home_file exists, skipping (use 'hard' to overwrite)", false, false );
+			continue;
+		}
+		if ( ! $testrun ) {
+			if ( ! is_dir( dirname( $home_file ) ) ) {
+				mkdir( dirname( $home_file ), 0777, true );
+			}
+			symlink( $repo_file, $home_file );
+		}
+		do_notice( "    : $home_file -> $repo_file", false, false );
+	}
 }
 
 function do_notice( $text, $before = true, $after = true ) {
