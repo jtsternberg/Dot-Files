@@ -294,6 +294,14 @@ class CodexRollout {
 				continue;
 			}
 
+			if ($i['kind'] === 'rollback') {
+				$out[] = '---';
+				$out[] = '';
+				$out[] = '### RETRACTED ' . $i['turns'] . ' user turn' . ($i['turns'] === 1 ? '' : 's');
+				$out[] = '';
+				continue;
+			}
+
 			$speaker = $i['role'] === 'user' ? 'You' : self::SPEAKER;
 			$body    = $this->bodyLines((string) $i['text']);
 			$first   = array_shift($body);
@@ -386,6 +394,18 @@ class CodexRollout {
 			|| trim((string) $i['text']) !== '' || $i['tools']));
 
 		return $this->cache[$key] = $items;
+	}
+
+	/** Remove the final N user-turn spans, as Codex does when replaying a rollback. */
+	protected function retractLastUserTurns(array &$lane, int $turns): void {
+		$start = null;
+		for ($i = count($lane) - 1; $i >= 0; $i--) {
+			if ($lane[$i]['kind'] !== 'turn' || $lane[$i]['role'] !== 'user') { continue; }
+			$start = $i;
+			if (--$turns === 0) { break; }
+		}
+
+		if ($start !== null) { $lane = array_slice($lane, 0, $start); }
 	}
 
 	/** Fold one response_item into the primary lane. */
@@ -493,6 +513,16 @@ class CodexRollout {
 				$events[]  = $item;
 				return;
 
+			case 'thread_rolled_back':
+				$turns = (int) ($p['num_turns'] ?? 0);
+				if ($turns < 1) { return; }
+				$this->retractLastUserTurns($primary, $turns);
+				$this->retractLastUserTurns($events, $turns);
+				$item = ['kind' => 'rollback', 'at' => $at, 'turns' => $turns];
+				$primary[] = $item;
+				$events[]  = $item;
+				return;
+
 			// Lifecycle/accounting records that are not conversation, and are not drift.
 			case 'token_count':
 			case 'task_started':
@@ -502,7 +532,6 @@ class CodexRollout {
 			case 'turn_aborted':
 			case 'thread_settings_applied':
 			case 'thread_goal_updated':
-			case 'thread_rolled_back':
 			case 'sub_agent_activity':
 			case 'patch_apply_end':
 			case 'mcp_tool_call_end':
