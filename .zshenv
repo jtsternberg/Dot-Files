@@ -23,7 +23,6 @@ PATH=$PATH:~/android/sdk/tools
 PATH=$PATH:~/phpcs/scripts
 PATH=$PATH:~/wpcs/vendor/bin
 PATH=$PATH:~/.dotfiles/bin
-PATH=$PATH:~/.dotfiles/bin/vv
 PATH=$PATH:~/.composer/vendor/bin
 PATH=$PATH:~/.local/bin
 PATH=$PATH:~/.node/bin

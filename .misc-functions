@@ -101,11 +101,6 @@ dwtailtrim() {
 	tailtrim ${dwlog}
 }
 
-# trims and tails my global vagrant debug log
-vdebugtrim() {
-	tailtrim ${vdebuglog}
-}
-
 wptests() {
 	CURRDIR=`pwd`
 	# `localhost` uses the UNIX socket (/tmp/mysql.sock -> LocalWP's MySQL),

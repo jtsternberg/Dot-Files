@@ -8,16 +8,12 @@ ZSH_CUSTOM=$HOME/.dotfiles/zsh-custom
 # Optionally, if you set this to "random", it'll load a random theme each
 # time that oh-my-zsh is loaded.
 ZSH_THEME="jt"
-vdebuglog="$HOME/vagrant/log/debug.log"
 dwlog="$HOME/Sites/dsgnwrks.pro/wp-content/debug.log"
 
 # Iterm commands
 source ~/.dotfiles/.iterm-commands
 
 test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
-alias vup="cd ~/vagrant && vagrant up && flash && say 'vagrant is up'"
-alias valt="cd ~/vagrant && vagrant halt && flash && say 'vagrant is halted'"
-alias vssh="cd ~/vagrant && vagrant ssh"
 # alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
 alias ohmyzsh="subl ~/.dotfiles/.oh-my-zsh"
@@ -27,7 +23,6 @@ alias dwplugins="cd ~/Sites/dsgnwrks.pro/wp-content/plugins"
 alias dwthemes="cd ~/Sites/dsgnwrks.pro/wp-content/themes"
 alias dwsites="cd ~/Sites"
 alias pdfjoin="/System/Library/Automator/Combine\ PDF\ Pages.action/Contents/Resources/join.py"
-alias vdebug="tail -f $vdebuglog"
 alias dwdebug="tail -f $dwlog"
 alias cmbdebug="echo 'hello :)' > /tmp/wordpress/wp-content/debug.log && clear && tail -f /tmp/wordpress/wp-content/debug.log"
 alias testsdebug="echo 'hello :)' > /tmp/wordpress/wp-content/debug.log && clear && tail -f /tmp/wordpress/wp-content/debug.log"
