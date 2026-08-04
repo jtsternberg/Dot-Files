@@ -164,9 +164,21 @@ class FetchFromSiteCommand extends SiteCommand {
 			'strip_tags'        => $this->stripTags,
 			'hard_break'        => true,
 			'preserve_comments' => ! empty( $preserved ),
+			// The library defaults to setext, which underlines H1/H2 but has no
+			// form for H3+ — so one post came back with mixed styles, and
+			// ATX-only parsers (the visual-review renderer, for one) saw the
+			// underlined headings as paragraphs. ATX at every level instead;
+			// bin/html-to-markdown already defaults the same way.
+			'header_style'      => 'atx',
 		] );
 
 		$markdown = $converter->convert( $html );
+
+		// The library treats comments as inline content, so a block-level comment
+		// (WP's <!--more-->, or our own preserved-element placeholders) comes out
+		// glued to whatever follows: "<!--more-->## A Better Analogy". An ATX
+		// heading only reads as a heading at the start of a line, so break it out.
+		$markdown = preg_replace( '/-->(?=#{1,6} )/', "-->\n\n", $markdown );
 
 		// Restore preserved elements
 		return $this->restorePreservedElements( $markdown, $preserved );
