@@ -3,6 +3,7 @@
 namespace JT\CLI\Commands;
 
 use JT\CLI\Helpers;
+use JT\Paths;
 
 /**
  * Abstract base class for WordPress site REST API commands.
@@ -45,15 +46,37 @@ abstract class SiteCommand {
 	}
 
 	/**
+	 * Directory holding the .env file: the repo root.
+	 *
+	 * Resolved through JT\Paths rather than dirname()-counting from __DIR__, so
+	 * moving this class deeper into src/ can't break it again (it did once —
+	 * see the note on JT\Paths). Overridable so tests can point it elsewhere.
+	 *
+	 * @return string
+	 */
+	protected function repoRoot(): string {
+		return Paths::root();
+	}
+
+	/**
+	 * Absolute path to the .env file this command reads.
+	 *
+	 * @return string
+	 */
+	protected function envFilePath(): string {
+		return $this->repoRoot() . '/.env';
+	}
+
+	/**
 	 * Load environment variables from .env file.
 	 */
 	protected function loadEnv(): void {
-		$envFile = dirname( dirname( __DIR__ ) ) . '/.env';
+		$envFile = $this->envFilePath();
 		if ( ! file_exists( $envFile ) ) {
 			throw new \Exception( "Error: .env file not found at {$envFile}. Please create it from .env.example" );
 		}
 
-		$dotenv = \Dotenv\Dotenv::createImmutable( dirname( dirname( __DIR__ ) ) );
+		$dotenv = \Dotenv\Dotenv::createImmutable( $this->repoRoot() );
 		$dotenv->load();
 
 		$required = $this->getRequiredEnvVars();
