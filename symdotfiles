@@ -72,6 +72,8 @@ $ignore = array(
 	'pi',                 // nested; pi/agent/models.json is symlinked as ~/.pi/agent/models.json
 	'aider',              // config only; passed to aider via --model-settings-file/--model-metadata-file
 	'src',                // PSR-4 class tree; loaded via src/bootstrap.php, not $HOME symlinks
+	'AGENTS.md',          // repo-scoped agent instructions; must not become $HOME-wide
+	'CLAUDE.md',          // in-repo alias for AGENTS.md; same reason
 );
 $ignore_begins = array(
 	'.',
