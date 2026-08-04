@@ -229,6 +229,8 @@ named to match its namespace.
 
 - `html-to-markdown <file.html>` - Convert HTML to Markdown (outputs to stdout)
 - `marked <file.md>` - Convert Markdown to HTML (outputs to stdout)
+- `md-atx <path> [--write]` - Rewrite setext headings (underlined with `=`/`-`) as
+  ATX (`#`/`##`) in a file or directory tree. Dry run by default.
 
 ## Shell Configuration
 

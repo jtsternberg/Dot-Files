@@ -1,0 +1,36 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# md-atx — rewrite setext markdown headings as ATX headings.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/md-atx
+#
+# Version 0.1.0
+#
+# Converts underlined headings to the # / ## form:
+#
+#   Credit where it's due          ->   ## Credit where it's due
+#   ---------------------
+#
+# Setext can only express H1 and H2, so any file mixing it with deeper headings
+# is already inconsistent, and ATX-only renderers read the underlined form as
+# plain paragraphs. Conversion is conservative: frontmatter fences, thematic
+# breaks, table delimiter rows, fenced code, and anything that is not a
+# single-line paragraph opening its own block are all left untouched.
+#
+# Defaults to a dry run; --write applies the changes in place.
+#
+# Usage:
+# md-atx <path> [--write]
+# md-atx post.md                  Report what would change in one file
+# md-atx ~/Documents/Notes        Walk a directory (recursive, skips dot dirs)
+# md-atx ~/Documents/Notes --write
+# md-atx completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new SetextToAtxCommand( $cli ) ) )->run() );

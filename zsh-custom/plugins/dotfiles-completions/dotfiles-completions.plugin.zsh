@@ -161,6 +161,28 @@ _cmux_bak_lazy() {
 	_cmux_bak "$@"
 }
 
+_md_atx_lazy() {
+	local generated
+
+	generated="$(command md-atx completion zsh 2>/dev/null)" || {
+		_message 'unable to generate md-atx completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load md-atx completion'
+		return 1
+	}
+
+	if (( ! $+functions[_md_atx] )); then
+		_message 'md-atx completion did not define _md_atx'
+		return 1
+	fi
+
+	_md_atx "$@"
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
+compdef _md_atx_lazy md-atx
