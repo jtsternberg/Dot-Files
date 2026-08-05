@@ -48,10 +48,13 @@ only if JT then wants to pick the work back up.
    `~/.claude-graveyard`). Grep across the members first when the plot is big.
    Never `graveyard show` for this — it opens an editor and hangs an agent.
 3. Report what the transcripts actually say (quote them), then name **which
-   member session** is the one to resume if he wants to continue — session-id
-   plus tab title — and offer `graveyard resurrect <session-id-prefix>` for
-   just that conversation, or `resurrect --workspace <group>` if the whole
-   plot should come back. Resurrect only on his nod.
+   member conversation** to resume if he wants to continue. Identify it by its
+   **tab title** — that's what the resurrected pane is actually called in the
+   UI; the session-id is only the command handle, meaningless on screen. Offer
+   `graveyard resurrect <session-id-prefix>` for just that conversation, or
+   `resurrect --workspace <group>` for the whole plot — and when offering the
+   workspace form, say which tab to continue in: *"the conversation is in the
+   tab titled '<tab_title>'"*. Resurrect only on his nod.
 
 For "did we ever discuss X" questions *not* scoped to a plot, `mempalace
 search "<query>"` (indexes all past conversations) is the better first stop;
