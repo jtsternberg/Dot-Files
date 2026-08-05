@@ -241,6 +241,26 @@ if ( ! $dirs_only ) {
 		}
 		do_notice( "    : $home_file -> $repo_file", false, false );
 	}
+
+	// Repo-bundled agent skills: any agent-skills/<name>/ dir containing a
+	// SKILL.md is symlinked whole into ~/.claude/skills/<name> so Claude Code
+	// discovers it.
+	foreach ( glob( $working_dir . '/agent-skills/*/SKILL.md' ) ?: array() as $skill_md ) {
+		$skill_dir = dirname( $skill_md );
+		$home_file = $destination_dir . '.claude/skills/' . basename( $skill_dir );
+		do_notice( 'Symlinking repo skill (' . basename( $skill_dir ) . ')', true, "\n" );
+		if ( file_exists( $home_file ) || is_link( $home_file ) ) {
+			do_notice( "    : $home_file exists, skipping (use 'hard' to overwrite)", false, false );
+			continue;
+		}
+		if ( ! $testrun ) {
+			if ( ! is_dir( dirname( $home_file ) ) ) {
+				mkdir( dirname( $home_file ), 0777, true );
+			}
+			symlink( $skill_dir, $home_file );
+		}
+		do_notice( "    : $home_file -> $skill_dir", false, false );
+	}
 }
 
 function do_notice( $text, $before = true, $after = true ) {
