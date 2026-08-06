@@ -2,10 +2,10 @@
 <?php
 namespace JT;
 # =============================================================================
-# System watchdog — proactive macOS resource-drain alarm (battery / CPU / RAM).
+# System watchdog — proactive macOS resource-drain alarm (battery / CPU / RAM / disk).
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.2.0
+# Version 0.3.0
 #
 # Periodically (via a LaunchAgent) checks battery state, CPU usage, and memory
 # pressure, and sends a macOS notification BEFORE a runaway process, fast drain,
@@ -22,9 +22,13 @@ namespace JT;
 #                         into the GBs) — a wired-kernel leak that %free/pressure
 #                         cannot see. Caught a real "zone map exhausted" panic on
 #                         2026-07-13 that userspace metrics missed entirely.
-# Each alert lists the top offenders (PID + %CPU or RSS). Sustained-hog and
-# sustained-pressure detection persist state between runs; alerts are throttled
-# to once per ~15 min per key so you are not spammed.
+#   - ON AC *OR* BATTERY: /tmp filling up — 5000MB+ total, or any single top-level
+#                         item at 1000MB+ (parked backups, giant scratch files).
+#                         Measurement only; removal is a human call.
+# Each alert lists the top offenders (PID + %CPU or RSS, or the biggest /tmp items).
+# Sustained-hog and sustained-pressure detection persist state between runs; alerts
+# are throttled to once per ~15 min per key so you are not spammed — but a condition
+# that stays unresolved keeps re-alerting on that cadence, by design.
 #
 # macOS-only (pmset/vm_stat/launchd). On Linux it cleanly no-ops (exit 0).
 #
@@ -37,7 +41,7 @@ namespace JT;
 # system-watchdog --silent    # Quiet check (how the LaunchAgent runs it)
 # system-watchdog status      # Same as a check but never sends notifications
 # system-watchdog test        # Fire a sample notification to confirm they work
-# system-watchdog install     # Write + load the LaunchAgent (every 3 min)
+# system-watchdog install     # Write + load the LaunchAgent (every 4 min)
 # system-watchdog uninstall   # Unload + remove the LaunchAgent
 # =============================================================================
 
@@ -46,13 +50,13 @@ $helpyHelperton = $cli->getHelp();
 
 $helpyHelperton
 	->setScriptName('system-watchdog')
-	->setDescription('Proactive macOS watchdog: alerts on fast battery drain, sustained CPU hogs, or memory pressure/thrashing before they blindside you. macOS-only (no-ops on Linux).')
+	->setDescription('Proactive macOS watchdog: alerts on fast battery drain, sustained CPU hogs, memory pressure/thrashing, kernel zone-map leaks, or a filling /tmp before they blindside you. macOS-only (no-ops on Linux).')
 	->setSampleUsage('[check|install|uninstall|test|status]')
 	->buildDocs([
 		'[check]'     => 'Run a single check (default when no arg). Prints a readout and sends a notification only if a threshold trips.',
 		'[status]'    => 'Like check, but never sends notifications — just prints the current readout. Handy for eyeballing thresholds.',
 		'[test]'      => 'Fire a sample notification immediately (ignores thresholds) so you can confirm macOS notifications actually appear.',
-		'[install]'   => 'Write and load the LaunchAgent (com.jt.system-watchdog) to run a check every 3 minutes.',
+		'[install]'   => 'Write and load the LaunchAgent (com.jt.system-watchdog) to run a check every 4 minutes.',
 		'[uninstall]' => 'Unload and remove the LaunchAgent.',
 		'--silent'    => 'Suppress all stdout (how the LaunchAgent runs it). Notifications still fire.',
 	]);
@@ -66,7 +70,7 @@ if ($helpyHelperton->batSignal) {
 # Config / constants
 # -----------------------------------------------------------------------------
 const PLIST_LABEL         = 'com.jt.system-watchdog';
-const CHECK_INTERVAL      = 180;   // LaunchAgent StartInterval (seconds)
+const CHECK_INTERVAL      = 240;   // LaunchAgent StartInterval (seconds)
 const HOG_CPU_THRESHOLD   = 85.0;  // %CPU considered a "hog"
 const LOW_TIME_MINUTES    = 45;    // alert below this many minutes remaining
 const DRAIN_RATE_LIMIT    = 35.0;  // alert above this drain rate (%/hr)
@@ -80,6 +84,12 @@ const SWAPOUT_RATE_LIMIT  = 2000;  // swapouts/min (16KB pages) considered activ
 // elastic (grows with the leak), so it is set high and rarely the sole trigger.
 const ZONE_SINGLE_GB      = 8.0;   // alert when any single kernel zone's cur size >= this many GB
 const ZONE_MAP_PCT_LIMIT  = 95.0;  // backstop: alert when zone map usage >= this % of its (elastic) limit
+// /tmp is shared scratch space with no quota: one parked backup dir or a runaway
+// task-output file can eat the boot volume's free space with nothing else noticing.
+// Both thresholds are absolute sizes because /tmp has no "normal" baseline to
+// compare against — it should be near-empty.
+const TMP_TOTAL_MB        = 5000;  // alert when everything in /tmp totals >= this many MB
+const TMP_ITEM_MB         = 1000;  // alert when any single top-level /tmp item is >= this many MB
 const NOTIFY_THROTTLE     = 900;   // min seconds between repeat notifications (15 min)
 const TOP_N               = 3;     // how many offenders to list
 const LOG_MAX_BYTES       = 1048576; // rotate the log past ~1MB
@@ -345,6 +355,15 @@ function formatTop(array $top, int $n): string {
 	return implode(', ', $pieces);
 }
 
+/** Format the biggest /tmp items as "name=NNNMB" pieces (already sorted desc, in MB). */
+function formatTmpItems(array $itemsMb, int $n): string {
+	$pieces = [];
+	foreach (array_slice($itemsMb, 0, $n, true) as $name => $mb) {
+		$pieces[] = sprintf('%s=%dMB', $name, $mb);
+	}
+	return implode(', ', $pieces);
+}
+
 /** Format the top RAM users as "label(pid)=NNNmb" pieces (rss is in KB). */
 function formatTopMem(array $top, int $n): string {
 	$pieces = [];
@@ -471,7 +490,13 @@ $top    = readTop($selfPid, 'cpu');
 $mem    = readMemory();
 $topMem = readTop($selfPid, 'mem');
 $zones  = readKernelZones();
+$tmp    = new TmpUsage();
 $state  = readState($stateFile);
+
+$tmpTotalMb = $tmp->totalMb();
+$tmpItemsMb = $tmp->itemsMb();          // basename => MB, largest first
+$tmpTopName = array_key_first($tmpItemsMb);
+$tmpTopMb   = $tmpTopName === null ? 0 : $tmpItemsMb[$tmpTopName];
 
 $alerts        = [];   // human-readable reasons we (would) alert
 $notifications = [];   // [throttleKey => [title, subtitle, message]]
@@ -578,6 +603,30 @@ if (($zones['mapPct'] !== null && $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT)
 	];
 }
 
+// --- /tmp disk-usage detection (AC or battery) ------------------------------
+// Absorbed from a standalone hourly cron script. Size is a steady-state fact, not
+// a sampled rate, so one over-threshold reading is alertable immediately — no
+// 2-check gate. MEASUREMENT ONLY: nothing is deleted here, because "safe to remove"
+// needs a human (a live IPC socket and a parked backup dir look the same to du).
+// The 15-min throttle still applies, and a hog left in place re-nags every 15 min
+// on purpose — the condition is unresolved until someone resolves it.
+$tmpOffenders = $tmp->offenders(TMP_ITEM_MB);
+if ($tmpTotalMb >= TMP_TOTAL_MB || !empty($tmpOffenders)) {
+	$bits = [sprintf('%dMB total', $tmpTotalMb)];
+	foreach ($tmpOffenders as $name => $mb) {
+		$bits[] = sprintf('%s=%dMB', $name, $mb);
+	}
+	$reason = 'Tmp usage: ' . implode(', ', $bits);
+	$alerts[] = $reason;
+	$notifications['tmp'] = [
+		'📦 /tmp filling up',
+		!empty($tmpOffenders)
+			? sprintf('%s=%dMB', (string) array_key_first($tmpOffenders), reset($tmpOffenders))
+			: sprintf('/tmp total %dMB', $tmpTotalMb),
+		'Top items: ' . formatTmpItems($tmpItemsMb, TOP_N) . ' — ' . ASSESS_HINT,
+	];
+}
+
 // --- Battery drain detection (on battery only) -----------------------------
 $drainRate = null;
 if ($batt['onBattery']
@@ -632,7 +681,7 @@ if ($notifyEnabled) {
 if ($notifyEnabled) {
 	// Prune stale throttle entries for PIDs that are no longer hogging, so the
 	// map does not grow without bound. Keep 'battery', 'memory', active hog keys.
-	$activeKeys = array_merge(['battery', 'memory', 'kernelzone'], array_map(fn($pid) => 'hog-' . $pid, array_keys($currentHogs)));
+	$activeKeys = array_merge(['battery', 'memory', 'kernelzone', 'tmp'], array_map(fn($pid) => 'hog-' . $pid, array_keys($currentHogs)));
 	foreach (array_keys($lastNotified) as $key) {
 		if (!in_array($key, $activeKeys, true) && (($now - (int) $lastNotified[$key]) > NOTIFY_THROTTLE)) {
 			unset($lastNotified[$key]);
@@ -661,6 +710,8 @@ if ($notifyEnabled) {
 		'swap=' . ($swapRate === null ? 'n/a' : sprintf('%.0f/min', $swapRate)),
 		'zonemap=' . ($zones['mapPct'] === null ? 'n/a' : sprintf('%.0f%%', $zones['mapPct']))
 			. ($zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0 ? sprintf('(%s=%.1fG)', $zones['topZone'], $zones['topZoneGb']) : ''),
+		'tmp=' . $tmpTotalMb . 'MB'
+			. ($tmpTopName !== null && $tmpTopMb >= 1024 ? sprintf('(%s=%dMB)', $tmpTopName, $tmpTopMb) : ''),
 		'top=[' . formatTop($top, TOP_N) . ']',
 	];
 	if (!empty($alerts)) {
@@ -702,6 +753,14 @@ if (!$cli->isSilent()) {
 				? sprintf(' | largest: %s=%.1fG', $zones['topZone'], $zones['topZoneGb']) : ''
 		), $zoneOver ? 'red' : '');
 	}
+	$tmpOver = $tmpTotalMb >= TMP_TOTAL_MB || $tmpTopMb >= TMP_ITEM_MB;
+	$cli->msg(sprintf(
+		'  /tmp: %dMB total%s',
+		$tmpTotalMb,
+		// Only name the largest item when it is big enough to be worth naming;
+		// otherwise the line is just noise about a few hundred KB of sockets.
+		$tmpTopName !== null && $tmpTopMb >= 100 ? sprintf(' | largest: %s=%dMB', $tmpTopName, $tmpTopMb) : ''
+	), $tmpOver ? 'red' : '');
 	$cli->msg('  Top CPU:');
 	foreach (array_slice($top, 0, TOP_N) as $p) {
 		$color = $p['cpu'] >= HOG_CPU_THRESHOLD ? 'red' : '';
