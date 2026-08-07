@@ -359,6 +359,209 @@ final class CmuxTest extends TestCase
 		$this->assertStringContainsString('ambiguous', $dupRow['reason']);
 	}
 
+	# =========================================================================
+	# CMUX_SURFACE_ID fallback for the Claude join (dotfiles-dr9).
+	#
+	# Fixtures below are the REAL argv shapes cmux launches Claude with — no
+	# resume-script wrapper anywhere, a bare login zsh as the only ancestor, and
+	# the surface identity carried solely in CMUX_SURFACE_ID. Every live session
+	# on the machine looked like this and the script-only join bound none of them.
+	# =========================================================================
+
+	/** The four launch shapes seen live, all as children of a plain login zsh. */
+	private function envJoinProc(): array
+	{
+		$settings = '--settings {"preferredNotifChannel":"notifications_disabled","hooks":{}}';
+
+		return $this->cmux->parseProcTable(
+			"  PID  PPID COMMAND\n"
+			// fresh session — no session flag at all
+			. "  200     1 -/bin/zsh\n"
+			. "  300   200 /opt/homebrew/bin/claude {$settings}\n"
+			// --session-id launched
+			. "  400     1 -/bin/zsh\n"
+			. "  500   400 /opt/homebrew/bin/claude --session-id 22222222-2222-2222-2222-222222222222 {$settings}\n"
+			// --resume launched, via a wrapper shim the session file is keyed on
+			. "  600     1 -/bin/zsh\n"
+			. "  700   600 /bin/zsh -c exec claude --dangerously-skip-permissions --resume 33333333-3333-3333-3333-333333333333\n"
+			. "  710   700 /opt/homebrew/bin/claude --dangerously-skip-permissions --resume 33333333-3333-3333-3333-333333333333 --model=opus\n"
+			// hand-launched outside cmux entirely
+			. "  800     1 /opt/homebrew/bin/zsh -il\n"
+			. "  900   800 claude --dangerously-skip-permissions\n"
+		);
+	}
+
+	/** debug-terminals with NO resume script on any surface — the live shape. */
+	private function envJoinDebug(): array
+	{
+		return $this->cmux->parseDebugTerminals(
+			"[0] surface:28 \"lg\" mapped=1 tree=1 window=window:1 workspace=workspace:9 pane=pane:5 ctx=split\n"
+			. "    tty=ttys052 cwd=/Users/JT/Sites/lindris-monorepo branch=main* ports=[]\n"
+			. "    created=1s initialCommand=nil portalHost=nil\n"
+		);
+	}
+
+	/** uuid => surface map, as mapSurfaceUuids() reads it off a live tree. */
+	private function envJoinSurfaceUuids(): array
+	{
+		return $this->cmux->mapSurfaceUuids([
+			'windows' => [[
+				'ref'        => 'window:1',
+				'workspaces' => [[
+					'ref'   => 'workspace:9',
+					'title' => 'cmb security',
+					'panes' => [[
+						'ref'      => 'pane:5',
+						'surfaces' => [
+							['id' => '17F50BA2-D5AC-4B23-B3CD-B1554F56B253', 'ref' => 'surface:28', 'tty' => 'ttys052', 'title' => 'fresh', 'type' => 'terminal'],
+							['id' => 'FDD57310-4984-47C8-9279-02296D09C575', 'ref' => 'surface:76', 'tty' => 'ttys053', 'title' => 'by-id', 'type' => 'terminal'],
+							['id' => 'AEF5B611-0B13-4BDD-AFB8-B3FC73CB410A', 'ref' => 'surface:30', 'tty' => 'ttys054', 'title' => 'resumed', 'type' => 'terminal'],
+						],
+					]],
+				]],
+			]],
+		]);
+	}
+
+	/** @return array<string,array> join rows keyed by session id */
+	private function envJoinRows(array $sessions): array
+	{
+		$rows = $this->cmux->joinSessionsToSurfaces(
+			$sessions,
+			$this->envJoinProc(),
+			$this->envJoinDebug(),
+			$this->envJoinSurfaceUuids()
+		);
+		$bySid = [];
+		foreach ($rows as $r) {
+			$bySid[(string) $r['session_id']] = $r;
+		}
+
+		return $bySid;
+	}
+
+	public function testJoinSessionsToSurfacesBindsViaSurfaceIdEnvWithNoResumeScript(): void
+	{
+		$rows = $this->envJoinRows([
+			300 => ['session_id' => '11111111-1111-1111-1111-111111111111', 'cwd' => '/Users/JT/Sites/lindris-monorepo', 'model' => null, 'skip_perms' => false, 'surface_id' => '17F50BA2-D5AC-4B23-B3CD-B1554F56B253'],
+			500 => ['session_id' => '22222222-2222-2222-2222-222222222222', 'cwd' => '/Users/JT/Code/claude-plugins', 'model' => null, 'skip_perms' => false, 'surface_id' => 'FDD57310-4984-47C8-9279-02296D09C575'],
+			700 => ['session_id' => '33333333-3333-3333-3333-333333333333', 'cwd' => '/Users/JT/.dotfiles', 'model' => 'opus', 'skip_perms' => true, 'surface_id' => 'AEF5B611-0B13-4BDD-AFB8-B3FC73CB410A'],
+		]);
+
+		// Fresh session, no session flag in argv.
+		$fresh = $rows['11111111-1111-1111-1111-111111111111'];
+		$this->assertTrue($fresh['targetable'], "fresh session unbound: {$fresh['reason']}");
+		$this->assertSame('surface:28', $fresh['surface_ref']);
+		$this->assertSame('workspace:9', $fresh['workspace_ref']);
+		$this->assertSame('ttys052', $fresh['tty']);
+		$this->assertSame('fresh', $fresh['title']);
+		$this->assertSame('claude', $fresh['agent']);
+
+		// --session-id launched.
+		$byId = $rows['22222222-2222-2222-2222-222222222222'];
+		$this->assertTrue($byId['targetable'], "--session-id session unbound: {$byId['reason']}");
+		$this->assertSame('surface:76', $byId['surface_ref']);
+
+		// --resume launched behind a wrapper shim: binds, and the row carries the
+		// claude pid (710), not the shim the session file is keyed on (700).
+		$resumed = $rows['33333333-3333-3333-3333-333333333333'];
+		$this->assertTrue($resumed['targetable'], "--resume session unbound: {$resumed['reason']}");
+		$this->assertSame('surface:30', $resumed['surface_ref']);
+		$this->assertSame(710, $resumed['pid']);
+	}
+
+	public function testJoinSessionsToSurfacesReportsWhySurfaceIdBindFailed(): void
+	{
+		$rows = $this->envJoinRows([
+			// Hand-launched outside cmux: no CMUX_SURFACE_ID to bind with.
+			900 => ['session_id' => '44444444-4444-4444-4444-444444444444', 'cwd' => '/Users/JT', 'surface_id' => null],
+			// Surface closed since the session started (pr-swarm teardown).
+			500 => ['session_id' => '55555555-5555-5555-5555-555555555555', 'cwd' => '/Users/JT', 'surface_id' => 'D5B0E391-C8D5-4F81-8BB9-938BCD6A3DFD'],
+		]);
+
+		// No bridge at all: the only row a screen-scraping fallback may still guess at.
+		$noEnv = $rows['44444444-4444-4444-4444-444444444444'];
+		$this->assertFalse($noEnv['targetable']);
+		$this->assertStringContainsString('CMUX_SURFACE_ID', $noEnv['reason']);
+		$this->assertTrue($noEnv['no_bridge']);
+
+		// Names a surface that has since closed — it is somewhere else, so it is NOT a
+		// content-probe candidate; guessing it onto another surface would mis-bind it.
+		$gone = $rows['55555555-5555-5555-5555-555555555555'];
+		$this->assertFalse($gone['targetable']);
+		$this->assertStringContainsString('not found among cmux surfaces', $gone['reason']);
+		$this->assertFalse($gone['no_bridge']);
+	}
+
+	public function testBoundRowsAreNeverContentProbeCandidates(): void
+	{
+		$rows = $this->envJoinRows([
+			300 => ['session_id' => '11111111-1111-1111-1111-111111111111', 'cwd' => '/Users/JT', 'surface_id' => '17F50BA2-D5AC-4B23-B3CD-B1554F56B253'],
+		]);
+
+		$this->assertFalse($rows['11111111-1111-1111-1111-111111111111']['no_bridge']);
+	}
+
+	public function testEnvBindKeepsThePidFilesSessionIdOverAStaleResumeArg(): void
+	{
+		// Resuming a transcript another live session already holds forks a NEW session
+		// id, leaving --resume in argv pointing at the ORIGINAL — measured live, a
+		// process launched `--resume 33333333…` whose own pid file said 99999999…,
+		// both transcripts growing. The pid file is the process's own report of what
+		// it is now, and CMUX_SURFACE_ID already pins the surface exactly, so the row
+		// binds and carries the pid file's id. Vetoing here (as the script bridge
+		// rightly does) drops a live session from the backup.
+		$rows = $this->envJoinRows([
+			700 => ['session_id' => '99999999-9999-9999-9999-999999999999', 'cwd' => '/Users/JT/.dotfiles', 'surface_id' => 'AEF5B611-0B13-4BDD-AFB8-B3FC73CB410A'],
+		]);
+
+		$row = $rows['99999999-9999-9999-9999-999999999999'];
+		$this->assertTrue($row['targetable'], "stale --resume arg blocked the env bind: {$row['reason']}");
+		$this->assertSame('surface:30', $row['surface_ref']);
+		$this->assertSame('99999999-9999-9999-9999-999999999999', $row['session_id']);
+	}
+
+	public function testJoinSessionsToSurfacesEnvBindDetectsSurfaceCollision(): void
+	{
+		$rows = $this->envJoinRows([
+			300 => ['session_id' => '11111111-1111-1111-1111-111111111111', 'cwd' => '/Users/JT', 'surface_id' => '17F50BA2-D5AC-4B23-B3CD-B1554F56B253'],
+			500 => ['session_id' => '22222222-2222-2222-2222-222222222222', 'cwd' => '/Users/JT', 'surface_id' => '17F50BA2-D5AC-4B23-B3CD-B1554F56B253'],
+		]);
+
+		foreach ($rows as $r) {
+			$this->assertFalse($r['targetable']);
+			$this->assertStringContainsString('collision', $r['reason']);
+		}
+	}
+
+	public function testLoadClaudeSessionsByPidCarriesTheSurfaceId(): void
+	{
+		// The join can only bind by CMUX_SURFACE_ID if the session loader reads it
+		// off the live process. Stub the two shell-outs; keep the real file walk.
+		$dir = sys_get_temp_dir() . '/cmux-sessions-' . getmypid() . '-' . bin2hex(random_bytes(4));
+		mkdir($dir, 0777, true);
+		$this->tmpDirs[] = $dir;
+		file_put_contents($dir . '/4242.json', json_encode([
+			'pid' => 4242, 'sessionId' => '11111111-1111-1111-1111-111111111111', 'cwd' => '/Users/JT/.dotfiles',
+		]));
+		putenv('CLAUDE_SESSIONS_DIR=' . $dir);
+
+		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
+			public function pidIsAlive(int $pid): bool { return true; }
+			public function pidEnv(int $pid): string { return "  {$pid} claude CMUX_SURFACE_ID=17F50BA2-D5AC-4B23-B3CD-B1554F56B253 TERM=xterm"; }
+			public function readSessionJsonl(?string $sid, ?string $cwd): array { return []; }
+		};
+
+		try {
+			$sessions = $cmux->loadClaudeSessionsByPid();
+		} finally {
+			putenv('CLAUDE_SESSIONS_DIR');
+		}
+
+		$this->assertArrayHasKey(4242, $sessions);
+		$this->assertSame('17F50BA2-D5AC-4B23-B3CD-B1554F56B253', $sessions[4242]['surface_id']);
+	}
+
 	public function testUuidv4(): void
 	{
 		$uu = $this->cmux->uuidv4();

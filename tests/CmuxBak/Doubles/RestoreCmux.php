@@ -79,7 +79,7 @@ class RestoreCmux extends Cmux {
 		return [];
 	}
 
-	public function joinSessionsToSurfaces( array $sessions, array $proc, array $debug ): array {
+	public function joinSessionsToSurfaces( array $sessions, array $proc, array $debug, array $surfaceUuids = [] ): array {
 		return $this->joinRows;
 	}
 

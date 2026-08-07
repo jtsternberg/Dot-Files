@@ -663,6 +663,36 @@ final class GraveyardTest extends TestCase
 		$this->assertSame([], $this->gy->contentProbeBind([['session_id' => 'f-5', 'cwd' => '/nope', 'tty' => 't']], $unbound, $screens));
 	}
 
+	/**
+	 * The content probe's trigger is the join's no_bridge flag, NOT a prefix match on
+	 * the human-facing reason string: the reasons grew a CMUX_SURFACE_ID clause
+	 * (dotfiles-dr9) and a `strpos($reason, 'no resume-script') === 0` gate would have
+	 * stopped firing without a single test noticing. Only a row with no bridge at all
+	 * is a candidate; one naming a closed surface is deliberately left alone.
+	 */
+	public function testContentProbeCandidatesComeFromTheNoBridgeFlag(): void
+	{
+		$gy = new class ($this->cli, $this->cmux) extends Graveyard {
+			public array $probedFor = [];
+			public function contentProbeBind(array $fresh, array $unbound, array $screens): array {
+				foreach ($fresh as $f) { $this->probedFor[] = $f['session_id']; }
+				return [];
+			}
+			public function readLastScreen(string $ref, string $wsRef, int $lines = 8): string { return ''; }
+			public function probe(array $rows, array $debug): array {
+				return $this->bindUnresolvedByContentProbe($rows, $debug, ['surface' => [], 'workspace' => []]);
+			}
+		};
+
+		$gy->probe([
+			['session_id' => 'no-bridge', 'pid' => 1, 'cwd' => '/x', 'tty' => '', 'surface_ref' => '', 'targetable' => false, 'reason' => 'no CMUX_SURFACE_ID and no resume-script ancestor (not running in a cmux surface)', 'no_bridge' => true],
+			['session_id' => 'gone',      'pid' => 2, 'cwd' => '/x', 'tty' => '', 'surface_ref' => '', 'targetable' => false, 'reason' => 'CMUX_SURFACE_ID not found among cmux surfaces (surface closed)', 'no_bridge' => false],
+			['session_id' => 'bound',     'pid' => 3, 'cwd' => '/x', 'tty' => '', 'surface_ref' => 'surface:9', 'targetable' => true, 'reason' => '', 'no_bridge' => false],
+		], ['surface:5' => ['tty' => 'ttys005', 'workspace_ref' => 'workspace:1']]);
+
+		$this->assertSame(['no-bridge'], $gy->probedFor);
+	}
+
 	public function testParseStatusProbe(): void
 	{
 		// The definitive identity block a Claude REPL prints for /status.

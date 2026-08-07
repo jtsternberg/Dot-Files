@@ -162,24 +162,29 @@ class CmuxBak {
 	 * Every live agent session bound to the surface it occupies, both agents in one
 	 * list sharing one row shape.
 	 *
-	 * Claude binds via the deterministic, tty-free ancestry join (process ancestry →
-	 * resume script → surface_ref). Keying by tty instead — as this used to —
-	 * mis-pairs sessions, because cmux recycles tty numbers across surfaces, so one
-	 * session id gets stamped onto every surface sharing that tty (dotfiles-e5g).
+	 * Both agents bind on the surface UUID cmux puts in every surface process's
+	 * environment (CMUX_SURFACE_ID) matched against the tree's per-surface `id`;
+	 * Claude additionally bridges through a resume script when it was resurrected
+	 * behind one. Keying by tty instead — as this used to — mis-pairs sessions,
+	 * because cmux recycles tty numbers across surfaces, so one session id gets
+	 * stamped onto every surface sharing that tty (dotfiles-e5g).
 	 *
-	 * Codex has no resume-script ancestor to walk to, so it binds via the surface
-	 * UUID cmux puts in every surface process's environment (CMUX_SURFACE_ID)
-	 * against the tree's per-surface `id`. Also exact, also tty-free.
+	 * Both joins MUST be fed the surface-UUID map: without it the Claude join has
+	 * only the resume-script bridge, and cmux writes no resume script for the
+	 * sessions it launches itself — which is how a backup came to record 6 codex
+	 * sessions and 0 Claude ones (dotfiles-dr9).
 	 */
 	protected function agentRows(array $tree, array $debug): array {
+		$surfaceUuids = $this->cmux->mapSurfaceUuids($tree);
 		$claude = $this->cmux->joinSessionsToSurfaces(
 			$this->cmux->loadClaudeSessionsByPid(),
 			$this->cmux->parseProcTable($this->cmux->psProcTable()),
-			$debug
+			$debug,
+			$surfaceUuids
 		);
 		$codex = $this->cmux->joinCodexToSurfaces(
 			$this->cmux->loadCodexSessionsByPid(),
-			$this->cmux->mapSurfaceUuids($tree)
+			$surfaceUuids
 		);
 
 		return array_merge($claude, $codex);

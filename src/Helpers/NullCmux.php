@@ -29,7 +29,7 @@ final class NullCmux extends Cmux
 	public function codexSurfaceIdsByPid(): array { return []; }
 	public function mapSurfaceUuids(array $tree): array { return []; }
 	public function joinCodexToSurfaces(array $codexSessions, array $surfaceUuids): array { return []; }
-	public function joinSessionsToSurfaces(array $sessions, array $proc, array $debug): array { return []; }
+	public function joinSessionsToSurfaces(array $sessions, array $proc, array $debug, array $surfaceUuids = []): array { return []; }
 	public function lastRealActivity(string $sessionId, string $cwd): ?int { return null; }
 	public function readSessionJsonl(?string $sessionId, ?string $cwd): array { return []; }
 

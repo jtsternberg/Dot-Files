@@ -29,6 +29,9 @@ class Cmux {
 	protected $cli;
 	protected $dryRun;
 
+	/** pid => CMUX_SURFACE_ID|null, memoised (see surfaceIdForPid). */
+	protected array $surfaceIdByPid = [];
+
 	public function __construct($cli, bool $dryRun = false) {
 		$this->cli    = $cli;
 		$this->dryRun = $dryRun;
@@ -77,6 +80,12 @@ class Cmux {
 	public function jsonlPathFor(string $sessionId, string $cwd): string {
 		$claudeDir = $this->cli->convertPathToAbsolute('~/.claude');
 		return "{$claudeDir}/projects/{$this->encodeProjectKey($cwd)}/{$sessionId}.jsonl";
+	}
+
+	/** Absolute path of the Claude per-pid session root (CLAUDE_SESSIONS_DIR overrides, for tests). */
+	public function claudeSessionsDir(): string {
+		$override = getenv('CLAUDE_SESSIONS_DIR');
+		return $this->cli->convertPathToAbsolute($override !== false && $override !== '' ? $override : self::SESSIONS_DIR);
 	}
 
 	/**
@@ -312,7 +321,7 @@ class Cmux {
 	 * which keys by tty). [ pid => [session_id, cwd, skip_perms, model, status] ].
 	 */
 	public function loadClaudeSessionsByPid(): array {
-		$dir = $this->cli->convertPathToAbsolute(self::SESSIONS_DIR);
+		$dir = $this->claudeSessionsDir();
 		$out = [];
 		if (!is_dir($dir)) { return $out; }
 		foreach (glob($dir . '/*.json') ?: [] as $file) {
@@ -329,9 +338,25 @@ class Cmux {
 				'status'     => $data['status'] ?? null,
 				'skip_perms' => $this->resolveSkipPerms($meta['permission_mode'] ?? null, (int) $pid),
 				'model'      => $this->resolveModel($meta['model'] ?? null, (int) $pid),
+				// The surface this session sits in, straight from cmux's own
+				// per-process env — what joinSessionsToSurfaces() binds on when
+				// there is no resume script to bridge through.
+				'surface_id' => $this->surfaceIdForPid((int) $pid),
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * CMUX_SURFACE_ID of a live pid, or null when the process isn't inside a cmux
+	 * surface. Memoised per pid: the join reads it for every live session and the
+	 * lookup costs a `ps` fork each.
+	 */
+	public function surfaceIdForPid(int $pid): ?string {
+		if (!array_key_exists($pid, $this->surfaceIdByPid)) {
+			$this->surfaceIdByPid[$pid] = $this->parseSurfaceIdFromEnv($this->pidEnv($pid));
+		}
+		return $this->surfaceIdByPid[$pid];
 	}
 
 	# =========================================================================
@@ -927,19 +952,33 @@ class Cmux {
 	 * PURE. Deterministically bind each live Claude session to its cmux surface via
 	 * process ancestry, tty-free. Returns rows:
 	 *   [ session_id, pid, cwd, model, skip_perms, surface_ref, workspace_ref, tty,
-	 *     title, targetable(bool), reason(string) ]
+	 *     title, targetable(bool), reason(string), no_bridge(bool) ]
 	 *
-	 * A session is targetable only when its claude pid walks up to exactly one
-	 * surface's resume script AND (when the claude was launched with --resume) that
-	 * id matches the session id. Any ambiguity (no bridge, unknown surface, script
-	 * shared by >1 surface, >1 session on a surface, --resume mismatch) yields
-	 * targetable=false with a reason — never a guess.
+	 * A session binds through whichever of two exact bridges is available:
 	 *
-	 * @param array $sessions  pid => [session_id,cwd,model,skip_perms,...]
-	 * @param array $proc      pid => [ppid,cmd]              (parseProcTable)
-	 * @param array $debug     surface_ref => [tty,cwd,workspace_ref,title,script] (parseDebugTerminals)
+	 *   1. the unique resume-script path a surface launched, found in an ancestor's
+	 *      args (graveyard/cmux-bak resurrections), or
+	 *   2. CMUX_SURFACE_ID from the session process's own environment, matched
+	 *      against the tree's per-surface `id` — the same bridge the codex join
+	 *      uses, and the ONLY one available for a Claude that cmux started itself.
+	 *
+	 * Bridge 2 is not a nicety: cmux launches Claude directly (`claude
+	 * [--session-id <uuid>] --settings {…}` under a bare login zsh) and writes no
+	 * resume script, so a script-only join binds none of those sessions — it bound
+	 * 0 of 33 live ones (dotfiles-dr9). Both bridges also cover the shapes JT
+	 * launches by hand: --resume, --session-id, and a fresh session with no session
+	 * flag at all, wrapper shims included.
+	 *
+	 * Any ambiguity (no bridge, unknown surface, script shared by >1 surface, >1
+	 * session on a surface, a script bridge whose --resume arg disagrees with the
+	 * session id) yields targetable=false with a reason — never a guess.
+	 *
+	 * @param array $sessions      pid => [session_id,cwd,model,skip_perms,surface_id,...]
+	 * @param array $proc          pid => [ppid,cmd]              (parseProcTable)
+	 * @param array $debug         surface_ref => [tty,cwd,workspace_ref,title,script] (parseDebugTerminals)
+	 * @param array $surfaceUuids  uuid => [surface_ref,workspace_ref,tty,title] (mapSurfaceUuids)
 	 */
-	public function joinSessionsToSurfaces(array $sessions, array $proc, array $debug): array {
+	public function joinSessionsToSurfaces(array $sessions, array $proc, array $debug, array $surfaceUuids = []): array {
 		// script basename -> [surface_ref,...]
 		$scriptSurfaces = [];
 		foreach ($debug as $ref => $d) {
@@ -969,27 +1008,71 @@ class Cmux {
 				// model + skip_perms, so it stays empty here.
 				'agent'         => 'claude',
 				'opts'          => [],
+				// True only when NEITHER bridge had anything to say: no resume-script
+				// ancestor and no CMUX_SURFACE_ID. That is the one state where a
+				// screen-scraping fallback (Graveyard's content probe) may still guess a
+				// surface. A session naming a surface that has since CLOSED is not this
+				// state — it is somewhere else, and binding it by on-screen cwd would be
+				// wrong. Flagged rather than sniffed out of `reason`: a prefix match on
+				// that human-facing string is what silently stopped firing the moment the
+				// reasons grew an env clause.
+				'no_bridge'     => false,
 			];
 
+			// Bridge 1: the resume script an ancestor launched.
+			$ref    = null;
+			$reason = '';
 			$script = $this->ancestorResumeScript($proc, (int) $pid);
-			if ($script === null) {
-				$row['reason'] = 'no resume-script ancestor (not a resumed cmux surface)';
-				$rows[] = $row; continue;
+			if ($script !== null) {
+				$surfaces = $scriptSurfaces[$script] ?? [];
+				if (count($surfaces) === 1) {
+					$ref = $surfaces[0];
+				} elseif (count($surfaces) === 0) {
+					$reason = 'resume script not found among cmux surfaces';
+				} else {
+					$reason = 'resume script shared by ' . count($surfaces) . ' surfaces (ambiguous)';
+				}
 			}
-			$surfaces = $scriptSurfaces[$script] ?? [];
-			if (count($surfaces) === 0) {
-				$row['reason'] = 'resume script not found among cmux surfaces';
-				$rows[] = $row; continue;
-			}
-			if (count($surfaces) > 1) {
-				$row['reason'] = 'resume script shared by ' . count($surfaces) . ' surfaces (ambiguous)';
-				$rows[] = $row; continue;
-			}
-			$ref = $surfaces[0];
-			$d   = $debug[$ref];
 
-			// Integrity: if the claude proc carries --resume, it must equal this session id.
-			$resumeArg = $this->claudeResumeArg($proc[$claude]['cmd'] ?? '');
+			// Bridge 2: CMUX_SURFACE_ID, the only bridge a cmux-launched Claude has.
+			// A resume script that pinned a surface wins; anything less falls through
+			// to the env, which is exact rather than merely name-matched.
+			$d      = $ref !== null ? ($debug[$ref] ?? []) : [];
+			$viaEnv = false;
+			if ($ref === null) {
+				$surfaceId = $s['surface_id'] ?? null;
+				if ($surfaceId !== null && isset($surfaceUuids[$surfaceId])) {
+					$ref    = $surfaceUuids[$surfaceId]['surface_ref'] ?? '';
+					$d      = $surfaceUuids[$surfaceId];
+					$viaEnv = true;
+					if ($ref === '') { $ref = null; $viaEnv = false; }
+				}
+			}
+
+			if ($ref === null) {
+				$surfaceId = $s['surface_id'] ?? null;
+				if ($reason === '') {
+					$reason = $surfaceId === null
+						? 'no CMUX_SURFACE_ID and no resume-script ancestor (not running in a cmux surface)'
+						: 'CMUX_SURFACE_ID not found among cmux surfaces (surface closed)';
+				}
+				$row['no_bridge'] = $script === null && $surfaceId === null;
+				$row['reason']    = $reason;
+				$rows[] = $row; continue;
+			}
+
+			// Integrity check for the SCRIPT bridge only: the script filename embeds the
+			// uuid it was written to resume, so a --resume arg that disagrees with the
+			// session id means the pairing is stale — bind nothing.
+			//
+			// It must NOT gate the env bridge. --resume records how the process was
+			// LAUNCHED, and Claude forks a new session id when it resumes a transcript
+			// another live session already holds: measured, a pr-swarm orchestrator
+			// launched `--resume 53385818…` was reported by its own pid file as
+			// b603bfcb…, both transcripts live and growing. Trusting argv there would
+			// stamp the OTHER session's id onto this surface, so the pid file wins and
+			// CMUX_SURFACE_ID (exact, cmux's own) needs no corroboration.
+			$resumeArg = $viaEnv ? null : $this->claudeResumeArg($proc[$claude]['cmd'] ?? '');
 			if ($resumeArg !== null && $row['session_id'] !== null && $resumeArg !== $row['session_id']) {
 				$row['reason'] = "claude --resume ({$resumeArg}) != session id";
 				$rows[] = $row; continue;

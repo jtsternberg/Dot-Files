@@ -593,19 +593,22 @@ class Graveyard {
 	}
 
 	public function liveSessions(): array {
-		// Deterministic session<->surface joins. Claude binds via process ancestry
-		// (dotfiles-yt2) — tty numbers are recycled across live surfaces, so a tty
-		// join mis-pairs. Codex has no resume-script ancestor to walk to, so it binds
-		// via CMUX_SURFACE_ID against the tree's per-surface id (dotfiles-zcm).
-		$sessions = $this->cmux->loadClaudeSessionsByPid();
-		$proc     = $this->cmux->parseProcTable($this->cmux->psProcTable());
-		$debug    = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
-		$tree     = $this->cmux->tree();
-		$joined   = array_merge(
-			$this->cmux->joinSessionsToSurfaces($sessions, $proc, $debug),
+		// Deterministic session<->surface joins. Both agents bind on CMUX_SURFACE_ID
+		// against the tree's per-surface id (dotfiles-zcm, dotfiles-dr9); Claude also
+		// bridges through a resume script when it was resurrected behind one
+		// (dotfiles-yt2). Never by tty — tty numbers are recycled across live
+		// surfaces, so a tty join mis-pairs. BOTH joins need the surface-UUID map:
+		// starve the Claude join of it and every cmux-launched session goes unbound.
+		$sessions     = $this->cmux->loadClaudeSessionsByPid();
+		$proc         = $this->cmux->parseProcTable($this->cmux->psProcTable());
+		$debug        = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+		$tree         = $this->cmux->tree();
+		$surfaceUuids = $this->cmux->mapSurfaceUuids($tree);
+		$joined       = array_merge(
+			$this->cmux->joinSessionsToSurfaces($sessions, $proc, $debug, $surfaceUuids),
 			$this->cmux->joinCodexToSurfaces(
 				$this->cmux->loadCodexSessionsByPid(),
-				$this->cmux->mapSurfaceUuids($tree)
+				$surfaceUuids
 			)
 		);
 
@@ -697,16 +700,22 @@ class Graveyard {
 
 	/**
 	 * I/O wrapper for the content-probe fallback (dotfiles-c15). Finds Claude sessions
-	 * the ancestry join left unbound (reason "no resume-script ancestor"), reads each
-	 * still-unbound terminal surface's screen, and upgrades a row to targetable when
-	 * contentProbeBind() finds it a unique cwd match.
+	 * for which the join had NO bridge at all (no_bridge — neither a resume-script
+	 * ancestor nor a CMUX_SURFACE_ID), reads each still-unbound terminal surface's
+	 * screen, and upgrades a row to targetable when contentProbeBind() finds it a
+	 * unique cwd match.
+	 *
+	 * Now a genuine last resort: CMUX_SURFACE_ID binds cmux-launched sessions exactly
+	 * (dotfiles-dr9), so this fires only for a session cmux never labelled — or one
+	 * whose env we could not read. A row that names a closed surface is deliberately
+	 * NOT a candidate: it is somewhere else, so a cwd guess would mis-bind it.
 	 */
 	protected function bindUnresolvedByContentProbe(array $rows, array $debug, array $treeIx): array {
 		$bound = [];
 		$fresh = [];
 		foreach ($rows as $i => $r) {
 			if ($r['targetable']) { if ($r['surface_ref'] !== '') { $bound[$r['surface_ref']] = true; } continue; }
-			if (strpos((string) $r['reason'], 'no resume-script') === 0) {
+			if (!empty($r['no_bridge'])) {
 				$r['_i'] = $i;
 				$r['tty'] = $this->cmux->getTtyForPid((int) $r['pid']) ?: ($r['tty'] ?? '');
 				$fresh[] = $r;
