@@ -43,6 +43,8 @@ final class NullCmux extends Cmux
 	public function selectSurface(string $wsRef, string $surfRef): bool { $this->mutation(__FUNCTION__); }
 	public function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url): ?string { $this->mutation(__FUNCTION__); }
 	public function newSplit(string $wsRef, string $fromSurfRef, string $direction): ?string { $this->mutation(__FUNCTION__); }
+	public function newPane(string $wsRef, string $direction = 'right'): ?array { $this->mutation(__FUNCTION__); }
 	public function newWorkspace(string $title, ?string $cwd, ?string $windowRef = null): array { $this->mutation(__FUNCTION__); }
+	public function newWorkspaceOrNull(string $title, ?string $cwd, ?string $windowRef = null): ?array { $this->mutation(__FUNCTION__); }
 	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree, ?string $windowRef = null): ?array { $this->mutation(__FUNCTION__); }
 }

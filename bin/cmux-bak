@@ -5,7 +5,7 @@ namespace JT;
 # Backup and restore cmux workspace/session state
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.3.0
+# Version 0.4.0
 #
 # Saves all cmux workspaces, panes, and surfaces to ~/.config/cmux/bak.json,
 # capturing each terminal's CWD and any active Claude Code OR codex session.
@@ -21,6 +21,16 @@ namespace JT;
 # On restore, audits existing workspaces by name and only acts on what's
 # missing: resumes dead sessions in existing workspaces (`claude --resume <id>`
 # or `codex resume <id>`), and recreates workspaces that are gone entirely.
+#
+# A recreated workspace gets its recorded pane COUNT back, with each surface
+# returned to its own pane. Split orientation and divider ratio are not recorded
+# — `cmux tree`, the backup's only source, reports panes as a flat list with no
+# geometry — so panes beyond the first come back as right-splits.
+#
+# A missing workspace whose surfaces hold no agent session at all would restore
+# as an empty shell, so restore asks first and skips by default. Recorded cwds
+# are checked before use: one that has since been deleted is reported and the cd
+# dropped, leaving the shell where it spawned; the agent still resumes.
 #
 # A codex resume replays the model/sandbox/approval/effort recorded in the
 # rollout's last turn_context. That is NOT redundant: measured, `codex resume`

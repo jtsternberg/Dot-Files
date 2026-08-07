@@ -1095,6 +1095,51 @@ class Cmux {
 		return $map;
 	}
 
+	/** [pane_ref => true] for every pane in a workspace (current tree). */
+	private function paneRefSet(string $wsRef): array {
+		$ws  = $this->findWorkspaceByRef($this->tree(), $wsRef);
+		$set = [];
+		foreach ($ws['panes'] ?? [] as $pane) {
+			if (!empty($pane['ref'])) { $set[$pane['ref']] = true; }
+		}
+		return $set;
+	}
+
+	/**
+	 * Add a pane to a workspace, returning [pane_ref, surface_ref] for the pane and
+	 * the terminal surface cmux opens inside it (null if either can't be identified).
+	 *
+	 * $direction is the caller's choice, not a recorded fact: cmux's `system.tree`
+	 * reports panes as a flat list with no orientation or divider ratio, so a
+	 * rebuild from tree data has no geometry to honour. (`layout get` does expose the
+	 * real split tree — see captureLayoutTree() — for callers that captured a layout
+	 * while the workspace was alive.)
+	 */
+	public function newPane(string $wsRef, string $direction = 'right'): ?array {
+		if ($this->dryRun) { return null; }
+
+		$panesBefore = $this->paneRefSet($wsRef);
+		$surfsBefore = $this->surfacePaneMap($wsRef);
+
+		$this->cli->getCommandOutputAndExitCode(
+			escapeshellcmd($this->cmuxBin()) . ' new-pane --type terminal'
+			. ' --direction ' . escapeshellarg($direction)
+			. ' --workspace ' . escapeshellarg($wsRef)
+		);
+		usleep(400000);
+
+		$newPaneRef = null;
+		foreach (array_keys($this->paneRefSet($wsRef)) as $ref) {
+			if (!isset($panesBefore[$ref])) { $newPaneRef = $ref; break; }
+		}
+		if ($newPaneRef === null) { return null; }
+
+		return [
+			'pane_ref'    => $newPaneRef,
+			'surface_ref' => $this->firstNewSurface($wsRef, $surfsBefore),
+		];
+	}
+
 	/** The one surface ref present now but absent in $before (the just-created one). */
 	private function firstNewSurface(string $wsRef, array $before): ?string {
 		foreach (array_keys($this->surfacePaneMap($wsRef)) as $ref) {
@@ -1196,6 +1241,18 @@ class Cmux {
 	 * into a stranger's surface, which in one case was a running Claude Code REPL.
 	 */
 	public function newWorkspace(string $title, ?string $cwd, ?string $windowRef = null): array {
+		$ws = $this->newWorkspaceOrNull($title, $cwd, $windowRef);
+		if (!$ws) { $this->cli->exitErr("Could not create the workspace '{$title}'."); }
+
+		return $ws;
+	}
+
+	/**
+	 * newWorkspace() without the exit: returns null when the create fails or the new
+	 * workspace can't be identified, for callers mid-loop that must carry on with the
+	 * rest of their work instead of taking the whole run down.
+	 */
+	public function newWorkspaceOrNull(string $title, ?string $cwd, ?string $windowRef = null): ?array {
 		$before = [];
 		foreach ($this->tree()['windows'] ?? [] as $w) {
 			foreach ($w['workspaces'] ?? [] as $ws) {
@@ -1207,11 +1264,20 @@ class Cmux {
 		if ($cwd) { $cmd .= ' --cwd ' . escapeshellarg($cwd); }
 		if ($windowRef) { $cmd .= ' --window ' . escapeshellarg($windowRef); }
 		$res = $this->cli->getCommandOutputAndExitCode($cmd);
-		if ($res['exitCode'] !== 0) { $this->cli->exitErr('workspace create failed: ' . $res['error']); }
+		if ($res['exitCode'] !== 0) {
+			$this->cli->err('workspace create failed: ' . $res['error']);
+
+			return null;
+		}
 		usleep(500000);
 
 		$ws = $this->firstNewWorkspace($this->tree(), $before, $title);
-		if (!$ws) { $this->cli->exitErr("Could not find the workspace just created for '{$title}'."); }
+		if (!$ws) {
+			$this->cli->err("Could not find the workspace just created for '{$title}'.");
+
+			return null;
+		}
+
 		return [
 			'ref'          => $ws['ref'] ?? '',
 			'id'           => $ws['id'] ?? null,

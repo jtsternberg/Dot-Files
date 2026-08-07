@@ -8,7 +8,8 @@ use JT\CmuxBak;
  * First tests for `cmux-bak` — the pure/no-I-O helpers only:
  *  - normalizeTitle() strips Claude Code's leading status glyph (✳ / braille spinner)
  *    plus following whitespace, for backup↔restore title matching
- *  - firstCwdFromBakWs() finds the first non-empty cwd across panes[].surfaces[]
+ *  - firstCwdFromBakWs() finds the first non-empty, still-existing cwd across
+ *    panes[].surfaces[]
  *  - allSurfacesFromBakWs() flattens panes[].surfaces[] in pane order
  *
  * The helpers are protected, so tests reach them through a small reflection
@@ -74,11 +75,44 @@ final class CmuxBakTest extends TestCase
 
 	public function testFirstCwdReturnsFirstNonEmptyIncludingLaterPane(): void
 	{
+		$first  = $this->existingDir('first');
+		$second = $this->existingDir('second');
 		$ws = ['panes' => [
 			['surfaces' => [['cwd' => ''], ['cwd' => null]]],
-			['surfaces' => [['cwd' => '/first'], ['cwd' => '/second']]],
+			['surfaces' => [['cwd' => $first], ['cwd' => $second]]],
 		]];
-		$this->assertSame('/first', $this->invokeProtected('firstCwdFromBakWs', [$ws]));
+		$this->assertSame($first, $this->invokeProtected('firstCwdFromBakWs', [$ws]));
+	}
+
+	/**
+	 * A recorded cwd can be deleted between backup and restore. Handing a gone
+	 * directory to `workspace create --cwd` either fails the create or opens the
+	 * workspace somewhere unexpected, so stale entries are passed over.
+	 */
+	public function testFirstCwdSkipsDirectoriesThatNoLongerExist(): void
+	{
+		$live = $this->existingDir('live');
+		$ws = ['panes' => [
+			['surfaces' => [['cwd' => $this->graveyardRoot . '/gone-for-good'], ['cwd' => $live]]],
+		]];
+		$this->assertSame($live, $this->invokeProtected('firstCwdFromBakWs', [$ws]));
+	}
+
+	public function testFirstCwdReturnsNullWhenEveryRecordedCwdIsGone(): void
+	{
+		$ws = ['panes' => [
+			['surfaces' => [['cwd' => $this->graveyardRoot . '/gone-a'], ['cwd' => $this->graveyardRoot . '/gone-b']]],
+		]];
+		$this->assertNull($this->invokeProtected('firstCwdFromBakWs', [$ws]));
+	}
+
+	/** A directory that really exists, inside this test's throwaway root. */
+	private function existingDir(string $name): string
+	{
+		$dir = $this->graveyardRoot . '/' . $name;
+		mkdir($dir, 0777, true);
+
+		return $dir;
 	}
 
 	public function testAllSurfacesEmptyWorkspace(): void

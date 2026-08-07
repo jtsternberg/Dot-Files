@@ -219,6 +219,9 @@ final class CmuxBakOperationsTest extends TestCase {
 		array $expectedResumeArguments
 	): void {
 		$file = $this->temporaryFile( 'restore' );
+		// A cwd that really exists: restore only cd's into a recorded directory that
+		// is still there, so a fictional path would (correctly) yield no cd at all.
+		$cwd = $this->graveyardRoot;
 		file_put_contents(
 			$file,
 			json_encode(
@@ -235,7 +238,7 @@ final class CmuxBakOperationsTest extends TestCase {
 											[
 												'title' => 'Agent',
 												'type'  => 'terminal',
-												'cwd'   => '/tmp/project',
+												'cwd'   => $cwd,
 											],
 											$agentFields
 										),
@@ -285,7 +288,7 @@ final class CmuxBakOperationsTest extends TestCase {
 		$this->assertSame( [ $expectedResumeArguments ], $cmux->resumeArguments );
 		$this->assertSame(
 			[
-				[ 'surface:1', 'workspace:1', "cd /tmp/project\n" ],
+				[ 'surface:1', 'workspace:1', "cd {$cwd}\n" ],
 				[
 					'surface:1',
 					'workspace:1',

@@ -269,13 +269,7 @@ class CmuxBak {
 						} else {
 							$short = substr($sessionId, 0, 8);
 							$this->cli->msg("    ✗ {$agent} not running — resuming {$short}…", 'yellow');
-							if ($bakCwd) {
-								$this->cli->msg("    → cd {$bakCwd}");
-								$this->cmux->sendToSurface($surfRef, $currentWsRef, "cd {$bakCwd}\n");
-								if (!$this->dryRun) {
-									usleep(300000);
-								}
-							}
+							$this->cdToRecordedCwd($surfRef, $currentWsRef, $bakCwd);
 							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($surfRef, $currentWsRef, "{$resumeCmd}\n");
@@ -285,55 +279,72 @@ class CmuxBak {
 				}
 
 			} else {
-				$this->cli->msg('  ✗ Not found — creating workspace', 'yellow');
-
+				$bakPanes = array_values($bakWs['panes'] ?? []);
 				$firstCwd = $this->firstCwdFromBakWs($bakWs);
 
-				$cmd = 'cmux workspace create --name ' . escapeshellarg($wsTitle);
-				if ($firstCwd) {
-					$cmd .= ' --cwd ' . escapeshellarg($firstCwd);
+				// A workspace whose every surface carries agent=null is a husk: nothing to
+				// resume, so recreating it produces an empty shell. One backup held four
+				// husks with the same title and restore silently made four useless
+				// workspaces. Ask; the default answer is to leave it out.
+				if (!$this->bakWsHasAgentSession($bakWs) && !$this->askCreateHuskWorkspace($bakPanes)) {
+					$this->cli->lineBreak();
+					continue;
 				}
 
-				if ($this->verbose) {
-					$this->cli->msg("  \$ {$cmd}");
-				}
+				$this->cli->msg('  ✗ Not found — creating workspace', 'yellow');
 
 				if ($this->dryRun) {
 					$surfs   = $this->allSurfacesFromBakWs($bakWs);
 					$byAgent = $this->countSessionsByAgent([$bakWs]);
 					$sc      = count($surfs);
 					$ss      = array_sum($byAgent);
+					$pc      = max(1, count($bakPanes));
 					$detail  = $byAgent
 						? ': ' . implode(', ', array_map(fn($a, $n) => "{$n} {$a}", array_keys($byAgent), $byAgent))
 						: '';
-					$this->cli->msg("    Would create with {$sc} surface(s), {$ss} agent session(s){$detail}");
+					$this->cli->msg("    Would create with {$pc} pane(s), {$sc} surface(s), {$ss} agent session(s){$detail}");
 					continue;
 				}
 
-				$result = $this->cli->getCommandOutputAndExitCode($cmd);
-				if ($result['exitCode'] !== 0) {
-					$this->cli->err("    Failed to create workspace: " . $result['error']);
-					continue;
+				if ($this->verbose) {
+					$this->cli->msg('    ' . ($firstCwd
+						? "Creating with cwd {$firstCwd}"
+						: 'Creating with no cwd (nothing recorded, or none of it still exists)'));
 				}
 
-				usleep(500000);
-
-				// Re-fetch tree to find the new workspace
-				$newTree = $this->cmux->tree();
-				$newWs   = $this->cmux->findWorkspaceByTitle($newTree, $wsTitle);
-
+				$newWs = $this->cmux->newWorkspaceOrNull($wsTitle, $firstCwd ?: null);
 				if (!$newWs) {
-					$this->cli->err("    Could not find newly created workspace '{$wsTitle}'");
+					$this->cli->err("    Failed to create workspace '{$wsTitle}'");
 					continue;
 				}
 
 				$newWsRef      = $newWs['ref'];
-				$firstPaneRef  = $newWs['panes'][0]['ref'] ?? null;
-				$firstSurfRef  = $newWs['panes'][0]['surfaces'][0]['ref'] ?? null;
+				$firstPaneRef  = $newWs['firstPaneRef'] ?? null;
+				$firstSurfRef  = $newWs['firstSurfRef'] ?? null;
 				$this->cli->msg("    Created as {$newWsRef}", 'green');
 
-				foreach ($bakWs['panes'] ?? [] as $paneIdx => $bakPane) {
-					foreach ($bakPane['surfaces'] ?? [] as $surfIdx => $bakSurf) {
+				// Rebuild the recorded pane COUNT, then put each surface back in its own
+				// pane. cmux gives a new workspace exactly one pane, so panes 1..n are
+				// split off; split orientation and divider ratio are NOT recorded, because
+				// `cmux tree` — the backup's only source — reports panes as a flat list
+				// with no geometry. Extra panes therefore come back as right-splits.
+				$paneTargets = [0 => ['pane' => $firstPaneRef, 'surface' => $firstSurfRef]];
+				for ($i = 1, $n = count($bakPanes); $i < $n; $i++) {
+					$made = $this->cmux->newPane($newWsRef, 'right');
+					if (!$made || empty($made['pane_ref'])) {
+						$this->cli->msg("    ⚠ Could not create pane " . ($i + 1) . " — its surfaces go in pane 1.", 'yellow');
+						$paneTargets[$i] = $paneTargets[0];
+						continue;
+					}
+					$this->cli->msg("    → Pane " . ($i + 1) . " split right as {$made['pane_ref']}", 'green');
+					$paneTargets[$i] = ['pane' => $made['pane_ref'], 'surface' => $made['surface_ref'] ?? null];
+				}
+
+				foreach ($bakPanes as $paneIdx => $bakPane) {
+					$paneRef     = $paneTargets[$paneIdx]['pane'] ?? $firstPaneRef;
+					$paneSurfRef = $paneTargets[$paneIdx]['surface'] ?? null;
+
+					foreach (array_values($bakPane['surfaces'] ?? []) as $surfIdx => $bakSurf) {
 						$bakCwd    = $bakSurf['cwd'] ?? '';
 						$surfType  = $bakSurf['type'] ?? 'terminal';
 						$surfUrl   = $bakSurf['url'] ?? null;
@@ -349,25 +360,23 @@ class CmuxBak {
 						$model     = $norm['model'];
 						$opts      = $norm['opts'];
 
-						if ($paneIdx === 0 && $surfIdx === 0) {
-							$targetRef   = $firstSurfRef;
-							$targetWsRef = $newWsRef;
+						// Each pane already owns one surface (pane 0's came with the
+						// workspace, the rest with their split); further tabs are created
+						// INSIDE that pane, never dumped into pane 0.
+						if ($surfIdx === 0 && $paneSurfRef) {
+							$targetRef = $paneSurfRef;
 						} else {
-							$targetRef = $this->cmux->createSurface($newWsRef, $firstPaneRef, $surfType, $surfUrl);
-							if (!$targetRef) {
-								continue;
-							}
-							$targetWsRef = $newWsRef;
+							$targetRef = $this->cmux->createSurface($newWsRef, $paneRef, $surfType, $surfUrl);
 						}
+						$targetWsRef = $newWsRef;
 
 						if (!$targetRef) {
 							continue;
 						}
 
 						// Only cd if it wasn't handled via --cwd on workspace creation
-						if ($bakCwd && !($paneIdx === 0 && $surfIdx === 0 && $firstCwd)) {
-							$this->cmux->sendToSurface($targetRef, $targetWsRef, "cd {$bakCwd}\n");
-							usleep(300000);
+						if (!($paneIdx === 0 && $surfIdx === 0 && $firstCwd === $bakCwd)) {
+							$this->cdToRecordedCwd($targetRef, $targetWsRef, $bakCwd);
 						}
 
 						if ($sessionId) {
@@ -561,13 +570,7 @@ class CmuxBak {
 		$model     = $norm['model'];
 		$opts      = $norm['opts'];
 
-		if ($bakCwd) {
-			$this->cli->msg("    → cd {$bakCwd}");
-			$this->cmux->sendToSurface($surfRef, $wsRef, "cd {$bakCwd}\n");
-			if (!$this->dryRun) {
-				usleep(300000);
-			}
-		}
+		$this->cdToRecordedCwd($surfRef, $wsRef, $bakCwd);
 		$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sid, $skipPerms, $model, $opts);
 		$this->cli->msg("    → {$resumeCmd}");
 		$this->cmux->sendToSurface($surfRef, $wsRef, "{$resumeCmd}\n");
@@ -769,10 +772,109 @@ class CmuxBak {
 		return preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title);
 	}
 
+	/**
+	 * Send `cd <cwd>` into a surface — unless the recorded directory is gone.
+	 *
+	 * A backup is a snapshot of directories that can be renamed, moved or deleted
+	 * before it is ever restored, and cd'ing into one of those blind just leaves a
+	 * shell error on screen (a restore did exactly that with a since-deleted
+	 * ~/Downloads path). An agent resume follows either way: the shell's spawn
+	 * directory is a worse cwd than the recorded one, but far better than no resume.
+	 *
+	 * Returns whether the cd was sent.
+	 */
+	protected function cdToRecordedCwd(string $surfRef, string $wsRef, ?string $cwd): bool {
+		if (empty($cwd)) {
+			return false;
+		}
+
+		if (!is_dir($cwd)) {
+			$this->cli->msg("    ⚠ Recorded cwd no longer exists: {$cwd} — skipping the cd.", 'yellow');
+
+			return false;
+		}
+
+		$this->cli->msg("    → cd {$cwd}");
+		$this->cmux->sendToSurface($surfRef, $wsRef, "cd {$cwd}\n");
+		if (!$this->dryRun) {
+			usleep(300000);
+		}
+
+		return true;
+	}
+
+	/** PURE. Whether any surface in a backed-up workspace carries an agent session. */
+	protected function bakWsHasAgentSession(array $bakWs): bool {
+		foreach ($bakWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				if ($this->normalizeBakSurface($surf)['session_id']) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Ask whether to recreate a missing workspace that holds no agent session at all.
+	 * Returns true to create it.
+	 *
+	 * Enter (or anything unrecognized) means skip: an agent-less workspace carries no
+	 * state, so the answer that leaves no litter behind is the default. Silent runs
+	 * can neither show the prompt nor read an answer, so they take that default;
+	 * --yes means the caller has pre-answered every prompt affirmatively.
+	 */
+	protected function askCreateHuskWorkspace(array $bakPanes): bool {
+		$surfaces = 0;
+		foreach ($bakPanes as $pane) {
+			$surfaces += count($pane['surfaces'] ?? []);
+		}
+
+		$this->cli->msg("  ✗ Not found — and it has no agent sessions to restore ({$surfaces} plain surface(s))", 'yellow');
+
+		if ($this->dryRun) {
+			$this->cli->msg('    (dry run — would prompt to recreate the empty workspace or skip)', 'cyan');
+
+			return false;
+		}
+
+		if ($this->cli->isAutoconfirm()) {
+			$this->cli->msg('    Recreating it anyway (--yes).', 'cyan');
+
+			return true;
+		}
+
+		if ($this->cli->isSilent()) {
+			return false;
+		}
+
+		$this->cli->msg('    Recreating it gives you an empty workspace. What would you like to do?', 'cyan');
+		$this->cli->msg('      [c] Create the empty workspace anyway');
+		$this->cli->msg('      [s] Skip (default)');
+
+		while (true) {
+			$answer = strtolower(trim((string) $this->cli->ask('    Choice [c/s]: ')));
+			if ($answer === 'c' || $answer === 'create') {
+				return true;
+			}
+			if ($answer === 's' || $answer === 'skip' || $answer === '') {
+				$this->cli->msg('    Skipped.', 'cyan');
+
+				return false;
+			}
+			$this->cli->msg('    Please enter c or s.', 'yellow');
+		}
+	}
+
+	/**
+	 * The first recorded cwd in a workspace that STILL EXISTS, for `workspace create
+	 * --cwd`. A since-deleted directory there would make cmux either fail the create
+	 * or open the workspace somewhere unexpected, so stale entries are passed over.
+	 */
 	protected function firstCwdFromBakWs(array $bakWs) {
 		foreach ($bakWs['panes'] ?? [] as $pane) {
 			foreach ($pane['surfaces'] ?? [] as $surf) {
-				if (!empty($surf['cwd'])) {
+				if (!empty($surf['cwd']) && is_dir($surf['cwd'])) {
 					return $surf['cwd'];
 				}
 			}
