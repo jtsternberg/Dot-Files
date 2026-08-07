@@ -113,6 +113,73 @@ final class CmuxBakCommandTest extends TestCase {
 		$this->assertStringContainsString( 'Unknown option: --restore', $output );
 	}
 
+	/**
+	 * The prompting verbs must accept the auto-confirm flag AND let it reach the
+	 * prompt layer, which reads it back off the parsed arguments through
+	 * Helpers::isAutoconfirm() (restore's husk prompt) and Helpers::confirm()
+	 * (audit's resume prompt).
+	 */
+	#[DataProvider('autoconfirmProvider')]
+	public function testPromptingCommandsAcceptAutoconfirm(
+		string $command,
+		string $flag
+	): void {
+		$cli  = $this->cli;
+		$seen = [];
+		$handler = new CmuxBakCommand(
+			$cli,
+			static function () use ( $cli, &$seen ): object {
+				$seen[] = $cli->isAutoconfirm();
+
+				return new class() {
+
+					public function restore(): int {
+						return 0;
+					}
+
+					public function audit(): int {
+						return 0;
+					}
+				};
+			}
+		);
+		$cli->setArgs( [ 'cmux-bak', $command, $flag ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code, "cmux-bak {$command} {$flag} must dispatch. Output: {$output}" );
+		$this->assertSame(
+			[ true ],
+			$seen,
+			"cmux-bak {$command} {$flag} must reach the prompt layer as auto-confirm."
+		);
+	}
+
+	public static function autoconfirmProvider(): array {
+		return [
+			'restore --yes' => [ 'restore', '--yes' ],
+			'restore -y'    => [ 'restore', '-y' ],
+			'audit --yes'   => [ 'audit', '--yes' ],
+			'audit -y'      => [ 'audit', '-y' ],
+		];
+	}
+
+	/** Backup prompts for nothing, so it must not advertise or accept auto-confirm. */
+	public function testBackupRejectsAutoconfirm(): void {
+		[ $handler, $state ] = $this->handlerWithRecorder();
+		$this->cli->setArgs( [ 'cmux-bak', '--yes' ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $this->cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 1, $code );
+		$this->assertSame( [], $state->actions );
+		$this->assertStringContainsString( 'Unknown option: --yes', $output );
+	}
+
 	public function testOperationalExceptionReturnsFailure(): void {
 		$handler = new CmuxBakCommand(
 			$this->cli,

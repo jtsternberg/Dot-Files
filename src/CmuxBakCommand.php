@@ -6,6 +6,14 @@ use JT\CLI\Attributes\Option;
 use JT\CLI\Attributes\Program;
 use JT\CLI\Helpers;
 
+/**
+ * The `$yes` parameters on the prompting verbs exist to declare `--yes`/`-y` as
+ * part of those verbs' interface so the dispatcher accepts them. Their bound
+ * values are deliberately not threaded into the service: auto-confirm is a
+ * prompt-layer concern which `Helpers::isAutoconfirm()` and `Helpers::confirm()`
+ * read straight back off the parsed arguments, the same way `--silent` works.
+ * Drop a parameter and the flag it declares stops parsing.
+ */
 #[Program(
 	name: 'cmux-bak',
 	description: 'Backup and restore cmux workspace/session state (Claude Code + codex).',
@@ -63,7 +71,13 @@ final class CmuxBakCommand {
 		)]
 		bool $dryRun = false,
 		#[Option(description: 'Show detailed progress.')]
-		bool $verbose = false
+		bool $verbose = false,
+		#[Option(
+			name: 'yes',
+			aliases: [ 'y' ],
+			description: 'Recreate agent-less workspaces without asking.',
+		)]
+		bool $yes = false
 	): int {
 		return $this->execute( 'restore', $file, $dryRun, $verbose );
 	}
@@ -84,7 +98,13 @@ final class CmuxBakCommand {
 		)]
 		bool $dryRun = false,
 		#[Option(description: 'Show detailed progress.')]
-		bool $verbose = false
+		bool $verbose = false,
+		#[Option(
+			name: 'yes',
+			aliases: [ 'y' ],
+			description: 'Resume the missing sessions without asking.',
+		)]
+		bool $yes = false
 	): int {
 		return $this->execute( 'audit', $file, $dryRun, $verbose );
 	}

@@ -99,6 +99,21 @@ final class CmuxBakRestoreShapeTest extends TestCase {
 		$this->assertSame( 0, $code );
 	}
 
+	public function testAutoconfirmCreatesHuskWorkspacesWithoutPrompting(): void {
+		$this->prompts->setArgs( [ 'cmux-bak', 'restore', '--yes' ] );
+		$cmux = $this->cmuxWithLiveWorkspaces( [] );
+		$bak  = $this->bak( $this->huskBackup(), $cmux );
+
+		ob_start();
+		$code   = $bak->restore();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( [], $this->prompts->asked, '--yes pre-answers the husk prompt.' );
+		$this->assertSame( [ [ 'husk-workspace', null ] ], $cmux->newWorkspaces );
+		$this->assertStringContainsString( '--yes', $output );
+	}
+
 	public function testSilentModeSkipsHuskWorkspacesWithoutPrompting(): void {
 		$this->prompts->forceSilent = true;
 		$cmux = $this->cmuxWithLiveWorkspaces( [] );
