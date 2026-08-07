@@ -1312,10 +1312,10 @@ class Cmux {
 	 * (`{direction,split,children}` or a bare `{pane:{surfaces}}`), or null if cmux has
 	 * no layout API / the capture fails (caller falls back to a manual rebuild).
 	 */
-	public function captureLayoutTree(string $wsRef): ?array {
+	public function captureLayoutTree(string $wsRef, string $namePrefix = 'cmux-capture'): ?array {
 		if ($this->dryRun) { return null; }
 
-		$name = 'graveyard-capture-' . bin2hex(random_bytes(4));
+		$name = $namePrefix . '-' . bin2hex(random_bytes(4));
 		$save = $this->cli->getCommandOutputAndExitCode(
 			escapeshellcmd($this->cmuxBin()) . ' layout save ' . escapeshellarg($name) . ' --workspace ' . escapeshellarg($wsRef) . ' --overwrite'
 		);
@@ -1331,12 +1331,72 @@ class Cmux {
 	}
 
 	/**
+	 * PURE. A layout tree's leaf panes in depth-first order, each as its ordered
+	 * `surfaces[]` (the pane's tab stack). This is the join key between a layout tree
+	 * and any flat pane list: cmux's DFS leaf order matches `tree`'s panes[] order, so
+	 * callers zip the two positionally — after checking the shapes agree, since cmux
+	 * drops surface types it can't express in a layout (agent-session, markdown, …).
+	 */
+	public function layoutTreePanes(array $node): array {
+		if (isset($node['pane'])) { return [array_values($node['pane']['surfaces'] ?? [])]; }
+
+		$panes = [];
+		foreach ($node['children'] ?? [] as $child) {
+			foreach ($this->layoutTreePanes($child) as $pane) { $panes[] = $pane; }
+		}
+		return $panes;
+	}
+
+	/** PURE. Total surfaces across a layout tree's panes. */
+	public function layoutTreeSurfaceCount(array $node): int {
+		return array_sum(array_map('count', $this->layoutTreePanes($node)));
+	}
+
+	/**
+	 * PURE. Copy of a captured layout tree with $dropSurfaceKeys removed from every
+	 * surface. `command` always goes: cmux records what a surface was launched with,
+	 * and replaying that would re-run it (double-launching an agent) when every caller
+	 * here drives its own launches afterwards. Callers that also apply cwds themselves
+	 * drop `cwd` too, leaving pure geometry. Geometry, type and url are never touched.
+	 */
+	public function sanitizeLayoutTree(array $node, array $dropSurfaceKeys = ['command']): array {
+		if (isset($node['pane'])) {
+			$surfaces = [];
+			foreach ($node['pane']['surfaces'] ?? [] as $surface) {
+				foreach ($dropSurfaceKeys as $key) { unset($surface[$key]); }
+				$surfaces[] = $surface;
+			}
+			$node['pane']['surfaces'] = $surfaces;
+
+			return $node;
+		}
+
+		if (isset($node['children'])) {
+			$node['children'] = array_map(fn($child) => $this->sanitizeLayoutTree($child, $dropSurfaceKeys), $node['children']);
+		}
+
+		return $node;
+	}
+
+	/**
 	 * Create a workspace from a cmux layout definition (inline JSON), rebuilding the
 	 * exact splits/tabs. Returns the new workspace's full tree node (panes[].surfaces[])
 	 * so the caller can join surfaces to sessions positionally, or null on failure.
+	 *
+	 * Identified by diffing workspace uuids across the call, for the same reason
+	 * newWorkspaceOrNull() does: titles are not unique, so resolving by title returned
+	 * the FIRST match and handed callers a pre-existing workspace's panes — which they
+	 * then typed resume commands into.
 	 */
 	public function newWorkspaceWithLayout(string $title, ?string $cwd, array $layoutTree, ?string $windowRef = null): ?array {
 		if ($this->dryRun) { return null; }
+
+		$before = [];
+		foreach ($this->tree()['windows'] ?? [] as $w) {
+			foreach ($w['workspaces'] ?? [] as $ws) {
+				if (!empty($ws['id'])) { $before[$ws['id']] = true; }
+			}
+		}
 
 		$cmd = escapeshellcmd($this->cmuxBin()) . ' workspace create --name ' . escapeshellarg($title)
 			. ' --layout ' . escapeshellarg((string) json_encode($layoutTree));
@@ -1347,7 +1407,7 @@ class Cmux {
 		if (($res['exitCode'] ?? 1) !== 0) { return null; }
 		usleep(600000);
 
-		return $this->findWorkspaceByTitle($this->tree(), $title);
+		return $this->firstNewWorkspace($this->tree(), $before, $title);
 	}
 
 	public function findWorkspaceByTitle(array $tree, string $title): ?array {

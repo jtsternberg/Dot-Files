@@ -1920,40 +1920,27 @@ class Graveyard {
 	}
 
 	/**
-	 * PURE. Count leaf surfaces in a cmux layout tree (recursive split node or a bare
-	 * pane). Used to gate the geometry-restore path: cmux drops unsupported surface
-	 * types (agent-session, markdown, …) when capturing a layout, so a captured tree
-	 * can hold fewer surfaces than the manifest's flat layout[]. When the counts
-	 * disagree the positional surface↔session join is untrustworthy, so resurrect
-	 * falls back to the manual pane rebuild.
+	 * PURE. Count leaf surfaces in a cmux layout tree, through the one implementation
+	 * in Cmux (cmux-bak gates its own restore on the same count). Used to gate the
+	 * geometry-restore path: cmux drops unsupported surface types (agent-session,
+	 * markdown, …) when capturing a layout, so a captured tree can hold fewer surfaces
+	 * than the manifest's flat layout[]. When the counts disagree the positional
+	 * surface↔session join is untrustworthy, so resurrect falls back to the manual
+	 * pane rebuild.
 	 */
 	public function layoutTreeSurfaceCount(array $node): int {
-		if (isset($node['pane'])) { return count($node['pane']['surfaces'] ?? []); }
-		$n = 0;
-		foreach ($node['children'] ?? [] as $c) { $n += $this->layoutTreeSurfaceCount($c); }
-		return $n;
+		return $this->cmux->layoutTreeSurfaceCount($node);
 	}
 
 	/**
-	 * PURE. Strip per-surface `command` from a captured layout tree. cmux may record
-	 * the command a surface was launched with; replaying it via `new-workspace
-	 * --layout` would re-run it (double-launching Claude) — graveyard drives every
-	 * launch itself afterward. Geometry, type, and cwd are preserved.
+	 * PURE. Strip per-surface `command` from a captured layout tree, through the one
+	 * implementation in Cmux. cmux records the command a surface was launched with;
+	 * replaying it via `new-workspace --layout` would re-run it (double-launching
+	 * Claude) — graveyard drives every launch itself afterward. Geometry, type, and
+	 * cwd are preserved.
 	 */
 	public function sanitizeLayoutTree(array $node): array {
-		if (isset($node['pane'])) {
-			$surfs = [];
-			foreach ($node['pane']['surfaces'] ?? [] as $s) {
-				unset($s['command']);
-				$surfs[] = $s;
-			}
-			$node['pane']['surfaces'] = $surfs;
-			return $node;
-		}
-		if (isset($node['children'])) {
-			$node['children'] = array_map(fn($c) => $this->sanitizeLayoutTree($c), $node['children']);
-		}
-		return $node;
+		return $this->cmux->sanitizeLayoutTree($node);
 	}
 
 	/** Launch one restored surface: resume Claude, open browser, or cd a shell. */

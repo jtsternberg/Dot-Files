@@ -49,7 +49,7 @@ final class CmuxBakCommand {
 
 	#[Command(
 		name: 'restore',
-		description: 'Restore missing workspaces, panes and agent sessions from the backup (extra panes come back as right-splits; cmux records no split geometry).',
+		description: 'Restore missing workspaces, agent sessions, and each workspace\'s recorded split geometry from the backup (panes come back as right-splits where no geometry was recorded).',
 	)]
 	public function restore(
 		#[Option(

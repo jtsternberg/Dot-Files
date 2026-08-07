@@ -154,7 +154,7 @@ final class CmuxBakOperationsTest extends TestCase {
 		$this->assertFileDoesNotExist( $file );
 	}
 
-	public function testBackupWritesVersionTwoDataThroughInjectedCmuxSeams(): void {
+	public function testBackupWritesTheCurrentSchemaThroughInjectedCmuxSeams(): void {
 		$file = $this->temporaryFile( 'backup' );
 		$cmux = new CmuxBakOperationalCmux( $this->cli );
 		$cmux->treeData = [
@@ -206,7 +206,7 @@ final class CmuxBakOperationsTest extends TestCase {
 		$surface = $data['workspaces'][0]['panes'][0]['surfaces'][0];
 
 		$this->assertSame( 0, $code );
-		$this->assertSame( 2, $data['version'] );
+		$this->assertSame( 3, $data['version'] );
 		$this->assertSame( 'dotfiles', $data['workspaces'][0]['title'] );
 		$this->assertSame( 'codex', $surface['agent'] );
 		$this->assertSame( '019fa599-6b5f-7de1-9822-52643135bb95', $surface['agent_session_id'] );

@@ -70,10 +70,11 @@ class CmuxBak {
 			$this->reportBoundRows($rows);
 		}
 
-		$workspacesData = $this->buildWorkspacesData($tree['windows'] ?? [], $rows, $cwdBySurf);
+		$layoutByWsRef  = $this->captureLayoutTrees($tree['windows'] ?? []);
+		$workspacesData = $this->buildWorkspacesData($tree['windows'] ?? [], $rows, $cwdBySurf, $layoutByWsRef);
 
 		$backup = [
-			'version'    => 2,
+			'version'    => 3,
 			'timestamp'  => gmdate('Y-m-d\TH:i:s\Z'),
 			'workspaces' => $workspacesData,
 		];
@@ -95,12 +96,53 @@ class CmuxBak {
 		$breakdown = $byAgent
 			? ' (' . implode(', ', array_map(fn($a, $n) => "{$n} {$a}", array_keys($byAgent), $byAgent)) . ')'
 			: '';
+		$geoCount = count($layoutByWsRef);
 
 		$this->cli->successMsg(
-			"Saved {$wsCount} workspaces, {$surfCount} surfaces, {$sessCount} agent sessions{$breakdown} → {$this->bakFile}"
+			"Saved {$wsCount} workspaces ({$geoCount} with split geometry), {$surfCount} surfaces, "
+			. "{$sessCount} agent sessions{$breakdown} → {$this->bakFile}"
 		);
 
 		return 0;
+	}
+
+	/**
+	 * Each live workspace's real split geometry, keyed by workspace ref, ready to store.
+	 *
+	 * `cmux tree` — the rest of this backup — reports panes as a flat list with no
+	 * orientation, divider ratio or nesting, so a workspace split top/bottom and one
+	 * split left/right are byte-identical in it and restore could only guess. `layout
+	 * get` is the only faithful source, reached through a throwaway named layout per
+	 * workspace (save → get → delete).
+	 *
+	 * What is stored is GEOMETRY ONLY — `command` and `cwd` are dropped. cmux records
+	 * the command each surface was launched with, and replaying that would re-run it, so
+	 * a restored workspace would launch an agent itself on top of the resume restore
+	 * sends. cwds go with it because restore applies every recorded cwd through its own
+	 * is_dir guard; a directory deleted since the backup must never reach cmux.
+	 *
+	 * A workspace cmux can't capture is simply absent from the map: restore then rebuilds
+	 * it from panes[] as before.
+	 */
+	protected function captureLayoutTrees(array $windows): array {
+		$byWsRef = [];
+		foreach ($windows as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$ref = $ws['ref'] ?? '';
+				if ($ref === '') {
+					continue;
+				}
+
+				$tree = $this->cmux->captureLayoutTree($ref, 'cmux-bak-capture');
+				if (is_array($tree) && $tree) {
+					$byWsRef[$ref] = $this->cmux->sanitizeLayoutTree($tree, ['command', 'cwd']);
+				} elseif ($this->verbose) {
+					$this->cli->msg("    ? {$ref} (" . ($ws['title'] ?? '') . ') — cmux reported no layout; its splits will be approximated on restore', 'yellow');
+				}
+			}
+		}
+
+		return $byWsRef;
 	}
 
 	/**
@@ -279,8 +321,10 @@ class CmuxBak {
 				}
 
 			} else {
-				$bakPanes = array_values($bakWs['panes'] ?? []);
-				$firstCwd = $this->firstCwdFromBakWs($bakWs);
+				$bakPanes    = array_values($bakWs['panes'] ?? []);
+				$firstCwd    = $this->firstCwdFromBakWs($bakWs);
+				$layoutTree  = is_array($bakWs['layout_tree'] ?? null) ? $bakWs['layout_tree'] : null;
+				$useGeometry = $this->layoutTreeFitsBakPanes($layoutTree, $bakPanes);
 
 				// A workspace whose every surface carries agent=null is a husk: nothing to
 				// resume, so recreating it produces an empty shell. One backup held four
@@ -302,47 +346,36 @@ class CmuxBak {
 					$detail  = $byAgent
 						? ': ' . implode(', ', array_map(fn($a, $n) => "{$n} {$a}", array_keys($byAgent), $byAgent))
 						: '';
-					$this->cli->msg("    Would create with {$pc} pane(s), {$sc} surface(s), {$ss} agent session(s){$detail}");
+					$geo     = $useGeometry ? ', from its recorded split geometry' : '';
+					$this->cli->msg("    Would create with {$pc} pane(s), {$sc} surface(s), {$ss} agent session(s){$detail}{$geo}");
 					continue;
 				}
 
-				if ($this->verbose) {
-					$this->cli->msg('    ' . ($firstCwd
-						? "Creating with cwd {$firstCwd}"
-						: 'Creating with no cwd (nothing recorded, or none of it still exists)'));
+				// Preferred path: replay cmux's own captured geometry, so the splits come
+				// back with the orientation, divider ratios and nesting they had. Anything
+				// short of that — no recorded layout, one that no longer describes the
+				// recorded panes, or a replay cmux refuses — falls back to rebuilding the
+				// pane COUNT as right-splits, which is all `cmux tree` data can support.
+				$built = $useGeometry
+					? $this->createWorkspaceFromGeometry($wsTitle, $layoutTree, $bakPanes)
+					: null;
+
+				if (!$useGeometry && $layoutTree !== null) {
+					$this->cli->msg('    ⚠ The recorded split geometry no longer describes the recorded panes — rebuilding as right-splits.', 'yellow');
 				}
 
-				$newWs = $this->cmux->newWorkspaceOrNull($wsTitle, $firstCwd ?: null);
-				if (!$newWs) {
-					$this->cli->err("    Failed to create workspace '{$wsTitle}'");
+				$built = $built ?: $this->createWorkspaceWithPaneSplits($wsTitle, $firstCwd, $bakPanes);
+				if (!$built) {
 					continue;
 				}
 
-				$newWsRef      = $newWs['ref'];
-				$firstPaneRef  = $newWs['firstPaneRef'] ?? null;
-				$firstSurfRef  = $newWs['firstSurfRef'] ?? null;
-				$this->cli->msg("    Created as {$newWsRef}", 'green');
-
-				// Rebuild the recorded pane COUNT, then put each surface back in its own
-				// pane. cmux gives a new workspace exactly one pane, so panes 1..n are
-				// split off; split orientation and divider ratio are NOT recorded, because
-				// `cmux tree` — the backup's only source — reports panes as a flat list
-				// with no geometry. Extra panes therefore come back as right-splits.
-				$paneTargets = [0 => ['pane' => $firstPaneRef, 'surface' => $firstSurfRef]];
-				for ($i = 1, $n = count($bakPanes); $i < $n; $i++) {
-					$made = $this->cmux->newPane($newWsRef, 'right');
-					if (!$made || empty($made['pane_ref'])) {
-						$this->cli->msg("    ⚠ Could not create pane " . ($i + 1) . " — its surfaces go in pane 1.", 'yellow');
-						$paneTargets[$i] = $paneTargets[0];
-						continue;
-					}
-					$this->cli->msg("    → Pane " . ($i + 1) . " split right as {$made['pane_ref']}", 'green');
-					$paneTargets[$i] = ['pane' => $made['pane_ref'], 'surface' => $made['surface_ref'] ?? null];
-				}
+				$newWsRef   = $built['ws_ref'];
+				$paneRefs   = $built['pane_refs'];
+				$surfRefs   = $built['surf_refs'];
+				$createdCwd = $built['cwd'];
 
 				foreach ($bakPanes as $paneIdx => $bakPane) {
-					$paneRef     = $paneTargets[$paneIdx]['pane'] ?? $firstPaneRef;
-					$paneSurfRef = $paneTargets[$paneIdx]['surface'] ?? null;
+					$paneRef = $paneRefs[$paneIdx] ?? $paneRefs[0] ?? null;
 
 					foreach (array_values($bakPane['surfaces'] ?? []) as $surfIdx => $bakSurf) {
 						$bakCwd    = $bakSurf['cwd'] ?? '';
@@ -360,14 +393,13 @@ class CmuxBak {
 						$model     = $norm['model'];
 						$opts      = $norm['opts'];
 
-						// Each pane already owns one surface (pane 0's came with the
-						// workspace, the rest with their split); further tabs are created
-						// INSIDE that pane, never dumped into pane 0.
-						if ($surfIdx === 0 && $paneSurfRef) {
-							$targetRef = $paneSurfRef;
-						} else {
-							$targetRef = $this->cmux->createSurface($newWsRef, $paneRef, $surfType, $surfUrl);
-						}
+						// Surfaces the created workspace already owns are reused in place: a
+						// geometry replay rebuilds the whole tab stack at once, and a
+						// split-rebuilt workspace at least owns one surface per pane.
+						// Anything still missing is created INSIDE its own pane, never
+						// dumped into pane 0.
+						$targetRef   = $surfRefs[$paneIdx][$surfIdx]
+							?? $this->cmux->createSurface($newWsRef, $paneRef, $surfType, $surfUrl);
 						$targetWsRef = $newWsRef;
 
 						if (!$targetRef) {
@@ -375,7 +407,7 @@ class CmuxBak {
 						}
 
 						// Only cd if it wasn't handled via --cwd on workspace creation
-						if (!($paneIdx === 0 && $surfIdx === 0 && $firstCwd === $bakCwd)) {
+						if (!($paneIdx === 0 && $surfIdx === 0 && $createdCwd === $bakCwd)) {
 							$this->cdToRecordedCwd($targetRef, $targetWsRef, $bakCwd);
 						}
 
@@ -678,12 +710,16 @@ class CmuxBak {
 	 * exactly the surface it launched. A terminal with no join row (a plain shell,
 	 * no live Claude) falls back to the debug-terminals cwd map, also by ref.
 	 *
-	 * @param array $windows    tree['windows']
-	 * @param array $joinRows   Cmux::joinSessionsToSurfaces() output
-	 * @param array $cwdBySurf  surface_ref => cwd, for terminals with no live Claude
+	 * Each workspace also carries `layout_tree` — its real split geometry, which the flat
+	 * panes[] cannot express — whenever captureLayoutTrees() got one for it.
+	 *
+	 * @param array $windows        tree['windows']
+	 * @param array $joinRows       Cmux::joinSessionsToSurfaces() output
+	 * @param array $cwdBySurf      surface_ref => cwd, for terminals with no live Claude
+	 * @param array $layoutByWsRef  workspace_ref => sanitized cmux layout tree
 	 * @return array workspaces[]
 	 */
-	protected function buildWorkspacesData(array $windows, array $joinRows, array $cwdBySurf): array {
+	protected function buildWorkspacesData(array $windows, array $joinRows, array $cwdBySurf, array $layoutByWsRef = []): array {
 		$bySurf = [];
 		foreach ($joinRows as $r) {
 			$ref = $r['surface_ref'] ?? '';
@@ -701,6 +737,11 @@ class CmuxBak {
 					'description' => $ws['description'] ?? null,
 					'panes'       => [],
 				];
+
+				$layoutTree = $layoutByWsRef[$ws['ref'] ?? ''] ?? null;
+				if (is_array($layoutTree)) {
+					$wsData['layout_tree'] = $layoutTree;
+				}
 
 				foreach ($ws['panes'] ?? [] as $pane) {
 					$paneData = [
@@ -801,6 +842,156 @@ class CmuxBak {
 		}
 
 		return true;
+	}
+
+	/**
+	 * PURE. Whether a recorded layout tree can be trusted to carry this workspace's
+	 * recorded surfaces.
+	 *
+	 * The layout tree and the flat panes[] are two views of one workspace, joined
+	 * positionally: cmux's depth-first leaf order matches the pane order `cmux tree`
+	 * reports, so pane N of one is pane N of the other. That join only holds while both
+	 * views describe the same shape, and they can disagree — cmux drops surface types it
+	 * cannot express in a layout (agent-session, markdown, …), and a hand-edited or
+	 * part-written bak.json can say anything. So the pane count, every pane's tab count
+	 * and every tab's type have to line up before a session is sent anywhere; on any
+	 * disagreement the caller rebuilds from panes[] instead of resuming a session into
+	 * the wrong tab.
+	 */
+	protected function layoutTreeFitsBakPanes(?array $layoutTree, array $bakPanes): bool {
+		if (!$layoutTree || !$bakPanes) {
+			return false;
+		}
+
+		$layoutPanes = $this->cmux->layoutTreePanes($layoutTree);
+		if (count($layoutPanes) !== count($bakPanes)) {
+			return false;
+		}
+
+		foreach (array_values($bakPanes) as $i => $bakPane) {
+			$bakSurfaces = array_values($bakPane['surfaces'] ?? []);
+			if (count($layoutPanes[$i]) !== count($bakSurfaces)) {
+				return false;
+			}
+
+			foreach ($bakSurfaces as $j => $bakSurf) {
+				$want = $bakSurf['type'] ?? 'terminal';
+				$have = $layoutPanes[$i][$j]['type'] ?? 'terminal';
+				if ($want !== $have) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Create a workspace by replaying its recorded split geometry, returning the handles
+	 * the surface-placement loop needs — or null to fall back to a pane-split rebuild.
+	 *
+	 * No `--cwd`: the stored tree is geometry only, and every recorded cwd is applied
+	 * per-surface afterwards through the is_dir guard, so one base directory for the
+	 * whole workspace would only fight that.
+	 *
+	 * A replay can come back with fewer surfaces than it was asked for. The tabs that DID
+	 * come back keep their positional owner, the rest are created in their own pane by
+	 * the placement loop — better than abandoning a workspace cmux has already opened
+	 * (falling back here would leave that one behind and build a second).
+	 */
+	protected function createWorkspaceFromGeometry(string $wsTitle, array $layoutTree, array $bakPanes): ?array {
+		if ($this->verbose) {
+			$this->cli->msg('    Creating from recorded split geometry (' . count($bakPanes) . ' pane(s))');
+		}
+
+		$node = $this->cmux->newWorkspaceWithLayout($wsTitle, null, $layoutTree);
+		if (!$node || empty($node['ref'])) {
+			$this->cli->msg('    ⚠ cmux could not replay the recorded split geometry — rebuilding as right-splits.', 'yellow');
+
+			return null;
+		}
+
+		$paneRefs = [];
+		$surfRefs = [];
+		foreach (array_values($node['panes'] ?? []) as $paneIdx => $pane) {
+			$paneRefs[$paneIdx] = $pane['ref'] ?? null;
+			foreach (array_values($pane['surfaces'] ?? []) as $surfIdx => $surf) {
+				if (!empty($surf['ref'])) {
+					$surfRefs[$paneIdx][$surfIdx] = $surf['ref'];
+				}
+			}
+		}
+
+		$this->cli->msg("    Created as {$node['ref']} with its recorded splits", 'green');
+
+		$wanted = array_sum(array_map(fn($p) => count($p['surfaces'] ?? []), $bakPanes));
+		$got    = array_sum(array_map('count', $surfRefs));
+		if ($got < $wanted) {
+			$this->cli->msg("    ⚠ The replayed workspace came back with fewer surfaces than recorded ({$got} of {$wanted}) — the rest are opened in their own pane.", 'yellow');
+		}
+
+		return [
+			'ws_ref'    => $node['ref'],
+			'pane_refs' => $paneRefs,
+			'surf_refs' => $surfRefs,
+			'cwd'       => null,
+		];
+	}
+
+	/**
+	 * Create a workspace and rebuild its recorded pane COUNT as right-splits, returning
+	 * the same handles createWorkspaceFromGeometry() does (or null if cmux won't create
+	 * it). The fallback for a backup with no usable geometry: cmux gives a new workspace
+	 * exactly one pane, so panes 1..n are split off, and since `cmux tree` reports panes
+	 * flat — no orientation, no divider ratio — every one of them is a right-split at
+	 * cmux's default ratio.
+	 */
+	protected function createWorkspaceWithPaneSplits(string $wsTitle, ?string $firstCwd, array $bakPanes): ?array {
+		if ($this->verbose) {
+			$this->cli->msg('    ' . ($firstCwd
+				? "Creating with cwd {$firstCwd}"
+				: 'Creating with no cwd (nothing recorded, or none of it still exists)'));
+		}
+
+		$newWs = $this->cmux->newWorkspaceOrNull($wsTitle, $firstCwd ?: null);
+		if (!$newWs) {
+			$this->cli->err("    Failed to create workspace '{$wsTitle}'");
+
+			return null;
+		}
+
+		$newWsRef = $newWs['ref'];
+		$this->cli->msg("    Created as {$newWsRef}", 'green');
+
+		$paneRefs = [0 => $newWs['firstPaneRef'] ?? null];
+		$surfRefs = [];
+		if (!empty($newWs['firstSurfRef'])) {
+			$surfRefs[0][0] = $newWs['firstSurfRef'];
+		}
+
+		for ($i = 1, $n = count($bakPanes); $i < $n; $i++) {
+			$made = $this->cmux->newPane($newWsRef, 'right');
+			if (!$made || empty($made['pane_ref'])) {
+				// Pane 1 takes the orphaned surfaces as TABS. Aiming them at pane 1's own
+				// surface instead would resume two sessions into one terminal.
+				$this->cli->msg('    ⚠ Could not create pane ' . ($i + 1) . ' — its surfaces become tabs in pane 1.', 'yellow');
+				$paneRefs[$i] = $paneRefs[0];
+				continue;
+			}
+
+			$this->cli->msg('    → Pane ' . ($i + 1) . " split right as {$made['pane_ref']}", 'green');
+			$paneRefs[$i] = $made['pane_ref'];
+			if (!empty($made['surface_ref'])) {
+				$surfRefs[$i][0] = $made['surface_ref'];
+			}
+		}
+
+		return [
+			'ws_ref'    => $newWsRef,
+			'pane_refs' => $paneRefs,
+			'surf_refs' => $surfRefs,
+			'cwd'       => $firstCwd,
+		];
 	}
 
 	/** PURE. Whether any surface in a backed-up workspace carries an agent session. */

@@ -5,7 +5,7 @@ namespace JT;
 # Backup and restore cmux workspace/session state
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.4.0
+# Version 0.5.0
 #
 # Saves all cmux workspaces, panes, and surfaces to ~/.config/cmux/bak.json,
 # capturing each terminal's CWD and any active Claude Code OR codex session.
@@ -22,10 +22,14 @@ namespace JT;
 # missing: resumes dead sessions in existing workspaces (`claude --resume <id>`
 # or `codex resume <id>`), and recreates workspaces that are gone entirely.
 #
-# A recreated workspace gets its recorded pane COUNT back, with each surface
-# returned to its own pane. Split orientation and divider ratio are not recorded
-# — `cmux tree`, the backup's only source, reports panes as a flat list with no
-# geometry — so panes beyond the first come back as right-splits.
+# Each workspace's real split geometry — orientation, divider ratios, nesting —
+# is recorded too, as `layout_tree`, via `cmux layout save`/`get`; `cmux tree`
+# cannot express any of it. A recreated workspace is rebuilt from that tree, so
+# its splits come back as they were. Only geometry is stored: the per-surface
+# commands and cwds cmux records are dropped, so nothing auto-runs on restore and
+# every cwd stays behind the stale-directory guard below. A workspace cmux could
+# not capture (or whose recorded tree no longer describes its recorded panes) gets
+# its pane COUNT back as right-splits instead.
 #
 # A missing workspace whose surfaces hold no agent session at all would restore
 # as an empty shell, so restore asks first and skips by default. Recorded cwds
@@ -43,9 +47,10 @@ namespace JT;
 # conversations did not re-open — then offers to resume the missing ones into
 # their existing surfaces.
 #
-# Backup schema v2 records one generic agent per surface (agent,
-# agent_session_id, agent_model, agent_skip_permissions). v1 files, which carried
-# claude_* keys, are still readable.
+# Backup schema v3 adds each workspace's `layout_tree`. v2 records one generic
+# agent per surface (agent, agent_session_id, agent_model,
+# agent_skip_permissions); v1 files, which carried claude_* keys, are still
+# readable. A file without `layout_tree` restores as v2 always did.
 #
 # Usage:
 # cmux-bak [--file=<path>] [--dry-run] [--verbose]

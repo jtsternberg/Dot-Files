@@ -13,6 +13,9 @@ final class CmuxTest extends TestCase
 	/** @var string[] temp paths to clean up */
 	private array $tmpPaths = [];
 
+	/** @var string[] temp directories to clean up */
+	private array $tmpDirs = [];
+
 	protected function tearDown(): void
 	{
 		foreach ($this->tmpPaths as $p) {
@@ -20,7 +23,16 @@ final class CmuxTest extends TestCase
 				@unlink($p);
 			}
 		}
+		foreach ($this->tmpDirs as $dir) {
+			foreach ((array) glob($dir . '/*') as $f) {
+				@unlink($f);
+			}
+			@rmdir($dir);
+		}
 		$this->tmpPaths = [];
+		$this->tmpDirs  = [];
+
+		parent::tearDown();
 	}
 
 	public function testEncodeProjectKey(): void
@@ -548,5 +560,178 @@ final class CmuxTest extends TestCase
 	{
 		$this->stubCmux('{"windows":[{"ref":"w1"}]}');
 		$this->assertSame([['ref' => 'w1']], $this->cmux->tree()['windows']);
+	}
+
+	// ── layout trees: the only faithful source of split geometry ───────────────
+
+	/**
+	 * A nested tree: left column, right column split top/bottom, the top-right pane
+	 * holding two tabs. Both cmux-bak and graveyard join a flat surface list onto
+	 * this by walking it depth-first.
+	 */
+	private function nestedLayoutTree(): array
+	{
+		return [
+			'direction' => 'horizontal',
+			'split'     => 0.4,
+			'children'  => [
+				['pane' => ['surfaces' => [['type' => 'terminal', 'cwd' => '/a', 'command' => 'claude --resume x']]]],
+				[
+					'direction' => 'vertical',
+					'split'     => 0.65,
+					'children'  => [
+						['pane' => ['surfaces' => [
+							['type' => 'terminal', 'cwd' => '/b'],
+							['type' => 'browser', 'url' => 'https://example.test'],
+						]]],
+						['pane' => ['surfaces' => [['type' => 'terminal', 'cwd' => '/c', 'command' => 'npm start']]]],
+					],
+				],
+			],
+		];
+	}
+
+	public function testLayoutTreePanesWalksLeavesDepthFirst(): void
+	{
+		$panes = $this->cmux->layoutTreePanes($this->nestedLayoutTree());
+
+		$this->assertCount(3, $panes);
+		$this->assertSame([1, 2, 1], array_map('count', $panes));
+		$this->assertSame(['/a', '/b', '/c'], [$panes[0][0]['cwd'], $panes[1][0]['cwd'], $panes[2][0]['cwd']]);
+		$this->assertSame('browser', $panes[1][1]['type']);
+	}
+
+	public function testLayoutTreePanesHandlesABarePaneAndAnEmptyTree(): void
+	{
+		$this->assertSame(
+			[[['type' => 'terminal']]],
+			$this->cmux->layoutTreePanes(['pane' => ['surfaces' => [['type' => 'terminal']]]])
+		);
+		$this->assertSame([], $this->cmux->layoutTreePanes([]));
+	}
+
+	public function testLayoutTreeSurfaceCountSumsEveryPanesTabs(): void
+	{
+		$this->assertSame(4, $this->cmux->layoutTreeSurfaceCount($this->nestedLayoutTree()));
+		$this->assertSame(0, $this->cmux->layoutTreeSurfaceCount([]));
+	}
+
+	/** Graveyard reads the same implementation, so its count can never drift from cmux's. */
+	public function testGraveyardCountsLayoutSurfacesThroughTheSameHelper(): void
+	{
+		$this->assertSame(
+			$this->cmux->layoutTreeSurfaceCount($this->nestedLayoutTree()),
+			$this->gy->layoutTreeSurfaceCount($this->nestedLayoutTree())
+		);
+	}
+
+	/**
+	 * `command` is stripped by default: replaying a captured layout would otherwise
+	 * re-run whatever each surface was launched with (double-launching an agent),
+	 * and both callers drive their own launches afterwards.
+	 */
+	public function testSanitizeLayoutTreeStripsCommandsButKeepsGeometry(): void
+	{
+		$clean = $this->cmux->sanitizeLayoutTree($this->nestedLayoutTree());
+
+		$this->assertSame(0.4, $clean['split']);
+		$this->assertSame('vertical', $clean['children'][1]['direction']);
+		foreach ($this->cmux->layoutTreePanes($clean) as $surfaces) {
+			foreach ($surfaces as $surface) {
+				$this->assertArrayNotHasKey('command', $surface);
+			}
+		}
+		// cwd and url survive — only the caller can say whether they should.
+		$this->assertSame('/a', $this->cmux->layoutTreePanes($clean)[0][0]['cwd']);
+		$this->assertSame('https://example.test', $this->cmux->layoutTreePanes($clean)[1][1]['url']);
+	}
+
+	public function testSanitizeLayoutTreeCanDropFurtherSurfaceKeys(): void
+	{
+		$panes = $this->cmux->layoutTreePanes(
+			$this->cmux->sanitizeLayoutTree($this->nestedLayoutTree(), ['command', 'cwd'])
+		);
+
+		foreach ($panes as $surfaces) {
+			foreach ($surfaces as $surface) {
+				$this->assertArrayNotHasKey('command', $surface);
+				$this->assertArrayNotHasKey('cwd', $surface);
+				$this->assertArrayHasKey('type', $surface);
+			}
+		}
+	}
+
+	/**
+	 * A layout replay must return the workspace it CREATED. Resolving by title returns
+	 * the first match, so a pre-existing workspace of the same name (cmux titles are
+	 * not unique — one backup held four identically titled husks) would hand the caller
+	 * a stranger's panes and it would type resume commands into live surfaces.
+	 */
+	public function testNewWorkspaceWithLayoutReturnsTheWorkspaceItCreatedNotASameTitledOne(): void
+	{
+		$existing = [
+			'ref'   => 'workspace:1',
+			'id'    => 'old-uuid',
+			'title' => 'dotfiles',
+			'panes' => [['ref' => 'pane:1', 'surfaces' => [['ref' => 'surface:1']]]],
+		];
+		$created = [
+			'ref'   => 'workspace:2',
+			'id'    => 'new-uuid',
+			'title' => 'dotfiles',
+			'panes' => [
+				['ref' => 'pane:2', 'surfaces' => [['ref' => 'surface:2']]],
+				['ref' => 'pane:3', 'surfaces' => [['ref' => 'surface:3'], ['ref' => 'surface:4']]],
+			],
+		];
+		$log = $this->stubCmuxSequence([
+			['windows' => [['workspaces' => [$existing]]]],
+			['windows' => [['workspaces' => [$existing, $created]]]],
+		]);
+
+		$node = $this->cmux->newWorkspaceWithLayout('dotfiles', null, $this->nestedLayoutTree());
+
+		$this->assertSame('workspace:2', $node['ref'] ?? null);
+		$this->assertSame(
+			['pane:2', 'pane:3'],
+			array_column($node['panes'], 'ref'),
+			'The full node comes back so the caller can join surfaces positionally.'
+		);
+
+		$invocations = (string) file_get_contents($log);
+		$this->assertStringContainsString('--layout', $invocations);
+		$this->assertStringContainsString('"split":0.4', $invocations);
+		$this->assertStringNotContainsString('--cwd', $invocations);
+	}
+
+	/**
+	 * Write a stub cmux whose Nth `tree` call emits the Nth given tree (the last one
+	 * repeating), logging every invocation. Lets a test drive a create-then-diff seam
+	 * without a real cmux. Returns the log path.
+	 */
+	private function stubCmuxSequence(array $trees): string
+	{
+		$dir = sys_get_temp_dir() . '/cmux-seq-' . getmypid() . '-' . uniqid();
+		mkdir($dir, 0777, true);
+		foreach (array_values($trees) as $i => $tree) {
+			file_put_contents($dir . '/tree.' . ($i + 1), json_encode($tree));
+		}
+		file_put_contents($dir . '/tree.last', json_encode(end($trees)));
+
+		$bin = $dir . '/cmux';
+		$body = "#!/bin/sh\n"
+			. "echo \"\$*\" >> '{$dir}/log'\n"
+			. "if [ \"\$1\" = tree ]; then\n"
+			. "	n=\$(cat '{$dir}/count' 2>/dev/null || echo 0)\n"
+			. "	n=\$((n + 1))\n"
+			. "	echo \"\$n\" > '{$dir}/count'\n"
+			. "	cat \"{$dir}/tree.\$n\" 2>/dev/null || cat '{$dir}/tree.last'\n"
+			. "fi\n";
+		file_put_contents($bin, $body);
+		chmod($bin, 0755);
+		putenv('CMUX_BIN=' . $bin);
+		$this->tmpDirs[] = $dir;
+
+		return $dir . '/log';
 	}
 }

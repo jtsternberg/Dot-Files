@@ -2,8 +2,8 @@
 namespace JT\Tests\CmuxBak;
 
 use JT\CmuxBak;
-use JT\CLI\Helpers;
-use JT\Helpers\Cmux;
+use JT\Tests\CmuxBak\Doubles\PromptHelpers;
+use JT\Tests\CmuxBak\Doubles\RestoreCmux;
 use JT\Tests\TestCase;
 
 /**
@@ -11,141 +11,16 @@ use JT\Tests\TestCase;
  * husk workspaces recreated as empty shells, a `cd` into a directory that no
  * longer existed, and a two-pane workspace flattened into one pane of tabs.
  */
-final class CmuxBakPromptHelpers extends Helpers {
-
-	/** @var string[] Answers handed to ask(), in order. */
-	public array $answers = [];
-
-	/** @var string[] Questions ask() was called with. */
-	public array $asked = [];
-
-	public function __construct() {
-		parent::__construct();
-	}
-
-	public function ask( $question = '', $emptyError = '' ) {
-		$this->asked[] = $question;
-
-		return (string) array_shift( $this->answers );
-	}
-}
-
-final class CmuxBakShapeCmux extends Cmux {
-
-	public array $treeData = [ 'windows' => [] ];
-	public array $sent = [];
-	public array $newWorkspaces = [];
-	public array $newPanes = [];
-	public array $createdSurfaces = [];
-
-	/** Ref of the workspace newWorkspaceOrNull() pretends to create. */
-	public string $createdWsRef = 'workspace:new';
-
-	public function __construct( Helpers $cli ) {
-		parent::__construct( $cli, false );
-	}
-
-	public function ping(): bool {
-		return true;
-	}
-
-	public function tree(): array {
-		return $this->treeData;
-	}
-
-	public function debugTerminals(): string {
-		return '';
-	}
-
-	public function parseDebugTerminals( string $raw ): array {
-		return [];
-	}
-
-	public function loadClaudeSessionsByPid(): array {
-		return [];
-	}
-
-	public function psProcTable(): string {
-		return '';
-	}
-
-	public function parseProcTable( string $raw ): array {
-		return [];
-	}
-
-	public function joinSessionsToSurfaces( array $sessions, array $proc, array $debug ): array {
-		return [];
-	}
-
-	public function loadCodexSessionsByPid(): array {
-		return [];
-	}
-
-	public function mapSurfaceUuids( array $tree ): array {
-		return [];
-	}
-
-	public function joinCodexToSurfaces( array $codexSessions, array $surfaceUuids ): array {
-		return [];
-	}
-
-	public function buildAgentResumeCommand(
-		string $agent,
-		string $sessionId,
-		bool $skipPerms = false,
-		?string $model = null,
-		array $opts = []
-	): string {
-		return "resume {$agent} {$sessionId}";
-	}
-
-	public function sendToSurface( string $surfRef, string $wsRef, string $text ): void {
-		$this->sent[] = [ $surfRef, $wsRef, $text ];
-	}
-
-	public function readScreen( string $surfRef, string $wsRef ): string {
-		return '';
-	}
-
-	public function newWorkspaceOrNull( string $title, ?string $cwd, ?string $windowRef = null ): ?array {
-		$this->newWorkspaces[] = [ $title, $cwd ];
-
-		return [
-			'ref'          => $this->createdWsRef,
-			'id'           => 'ws-uuid-new',
-			'firstPaneRef' => 'pane:new:0',
-			'firstSurfRef' => 'surface:new:0:0',
-		];
-	}
-
-	public function newPane( string $wsRef, string $direction = 'right' ): ?array {
-		$this->newPanes[] = [ $wsRef, $direction ];
-		$index            = count( $this->newPanes );
-
-		return [
-			'pane_ref'    => "pane:new:{$index}",
-			'surface_ref' => "surface:new:{$index}:0",
-		];
-	}
-
-	public function createSurface( string $wsRef, ?string $paneRef, string $type, ?string $url ): ?string {
-		$this->createdSurfaces[] = [ $wsRef, $paneRef, $type, $url ];
-		$index                   = count( $this->createdSurfaces );
-
-		return "surface:extra:{$index}";
-	}
-}
-
 final class CmuxBakRestoreShapeTest extends TestCase {
 
 	/** @var string[] */
 	private array $temporaryFiles = [];
 
-	private CmuxBakPromptHelpers $prompts;
+	private PromptHelpers $prompts;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->prompts = new CmuxBakPromptHelpers();
+		$this->prompts = new PromptHelpers();
 		$this->prompts->setArgs( [ 'cmux-bak', 'restore' ] );
 	}
 
@@ -469,12 +344,12 @@ final class CmuxBakRestoreShapeTest extends TestCase {
 
 	// ── Fixtures ──────────────────────────────────────────────────────────────
 
-	private function bak( string $file, Cmux $cmux ): CmuxBak {
+	private function bak( string $file, RestoreCmux $cmux ): CmuxBak {
 		return new CmuxBak( $this->prompts, $file, false, false, $cmux );
 	}
 
-	private function cmuxWithLiveWorkspaces( array $workspaces ): CmuxBakShapeCmux {
-		$cmux = new CmuxBakShapeCmux( $this->prompts );
+	private function cmuxWithLiveWorkspaces( array $workspaces ): RestoreCmux {
+		$cmux = new RestoreCmux( $this->prompts );
 		$cmux->treeData = [ 'windows' => [ [ 'workspaces' => $workspaces ] ] ];
 
 		return $cmux;
