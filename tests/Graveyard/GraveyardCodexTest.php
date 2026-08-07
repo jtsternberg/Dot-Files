@@ -32,8 +32,7 @@ final class GraveyardCodexTest extends TestCase
 		// carried a live pid because codex bury was refused unconditionally, and it
 		// destroyed a real session the moment bury started working. Fixtures below
 		// also use deliberately synthetic ids/pids as a second line of defence.
-		$this->root = sys_get_temp_dir() . '/gy-codex-' . getmypid() . '-' . random_int(1000, 9999);
-		mkdir($this->root, 0777, true);
+		$this->root = $this->graveyardRoot;
 		putenv('GRAVEYARD_ROOT=' . $this->root);
 		$this->gy = new Graveyard($this->cli, $this->cmux);
 	}

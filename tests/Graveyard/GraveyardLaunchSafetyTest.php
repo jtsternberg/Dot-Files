@@ -139,7 +139,7 @@ final class GraveyardLaunchSafetyTest extends TestCase
 	 */
 	public function testLsAndSearchReadTheSameAnnotatedSource(): void
 	{
-		$root = sys_get_temp_dir() . '/gy-parity-' . getmypid() . '-' . random_int(1000, 9999);
+		$root = $this->graveyardRoot;
 		mkdir($root . '/sessions', 0777, true);
 		putenv('GRAVEYARD_ROOT=' . $root);
 

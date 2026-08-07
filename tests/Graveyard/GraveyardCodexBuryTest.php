@@ -29,8 +29,7 @@ final class GraveyardCodexBuryTest extends TestCase
 	protected function setUp(): void
 	{
 		parent::setUp();
-		$this->root = sys_get_temp_dir() . '/gy-codexbury-' . getmypid() . '-' . random_int(1000, 9999);
-		mkdir($this->root, 0777, true);
+		$this->root = $this->graveyardRoot;
 		putenv('GRAVEYARD_ROOT=' . $this->root);
 		$this->gy = new Graveyard($this->cli, $this->cmux);
 	}
