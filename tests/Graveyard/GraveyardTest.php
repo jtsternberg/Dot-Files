@@ -471,6 +471,31 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('/tmp/restored-shell', $layout['layout'][0]['cwd']);
 	}
 
+	public function testClassifyWorkspaceLayoutCarriesUntargetableJoinDiagnostics(): void
+	{
+		$wsNode = ['panes' => [['index' => 0, 'surfaces' => [
+			['ref' => 'surface:7', 'type' => 'terminal', 'title' => 'Claude collision', 'index_in_pane' => 0],
+		]]]];
+		$reason = 'CMUX_SURFACE_ID collision: the claimed surface belongs to another live session';
+
+		$classified = $this->gy->classifyWorkspaceLayout(
+			$wsNode,
+			[],
+			['surface:7' => true],
+			[],
+			[],
+			['surface:7' => ['reason' => $reason, 'no_bridge' => false]]
+		);
+
+		$this->assertSame($reason, $classified['untargetable'][0]['session_reason']);
+		$this->assertFalse($classified['untargetable'][0]['no_bridge']);
+		$this->assertSame($reason, $this->gy->untargetableReasonFor([
+			'type'           => $classified['untargetable'][0]['type'],
+			'session_reason' => $classified['untargetable'][0]['session_reason'],
+			'no_bridge'      => $classified['untargetable'][0]['no_bridge'],
+		]));
+	}
+
 	/**
 	 * dotfiles-5p5: a codex session lives in a plain 'terminal' surface and shows no
 	 * Claude statusline, so it must NOT fall through to 'shell' (which a workspace bury
@@ -615,6 +640,31 @@ final class GraveyardTest extends TestCase
 		$dupFacts = ['type' => 'terminal', 'has_script' => true, 'has_shell' => true, 'has_claude' => true, 'has_session_file' => true, 'session_id' => '93de80a4-x', 'bound_elsewhere' => 'surface:33'];
 		$this->assertStringContainsString('duplicate live view of session 93de80a4', $this->gy->untargetableReasonFor($dupFacts));
 		$this->assertStringContainsString('surface:33', $this->gy->untargetableReasonFor($dupFacts));
+	}
+
+	public function testUntargetableReasonForPrefersSpecificJoinReason(): void
+	{
+		// A non-bridge failure is attributable to the join, even if this surface was
+		// not launched through a resume script. Do not replace a collision with the
+		// legacy fresh-session diagnosis merely because has_script is false.
+		$reason = 'CMUX_SURFACE_ID collision: the claimed surface belongs to another live session';
+		$this->assertSame($reason, $this->gy->untargetableReasonFor([
+			'type'           => 'terminal',
+			'has_script'     => false,
+			'no_bridge'      => false,
+			'session_reason' => $reason,
+		]));
+	}
+
+	public function testUntargetableReasonForKeepsLegacyAdviceForNoBridge(): void
+	{
+		// A genuine no-bridge row remains eligible for the legacy fresh-session advice.
+		$this->assertStringContainsString('fresh/non-resumed Claude', $this->gy->untargetableReasonFor([
+			'type'           => 'terminal',
+			'has_script'     => false,
+			'no_bridge'      => true,
+			'session_reason' => 'no CMUX_SURFACE_ID and no resume-script ancestor',
+		]));
 	}
 
 	public function testGroupTombstones(): void

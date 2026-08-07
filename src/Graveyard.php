@@ -654,6 +654,7 @@ class Graveyard {
 				'idle_seconds'    => $idle,
 				'targetable'      => $j['targetable'],
 				'reason'          => $j['reason'],
+				'no_bridge'       => $j['no_bridge'] ?? false,
 			];
 		}
 
@@ -1773,6 +1774,7 @@ class Graveyard {
 	 *                  looks like a shell and a workspace bury CLOSES it unarchived
 	 *                  (dotfiles-5p5, data loss).
 	 *   $cwdByRef      [surface_ref => cwd] cwd probes for plain terminal surfaces.
+	 *   $unboundByRef  [surface_ref => liveSessions row] for non-targetable join rows.
 	 *
 	 * Returns:
 	 *   'layout'      ordered list of surface entries with position + type + title +
@@ -1783,7 +1785,7 @@ class Graveyard {
 	 *                 (fresh/ambiguous) — presence forces abort unless --force. Each
 	 *                 carries its 'agent' so the abort report can explain it correctly.
 	 */
-	public function classifyWorkspaceLayout(array $wsNode, array $liveByRef, array $isClaudeByRef, array $isCodexByRef = [], array $cwdByRef = []): array {
+	public function classifyWorkspaceLayout(array $wsNode, array $liveByRef, array $isClaudeByRef, array $isCodexByRef = [], array $cwdByRef = [], array $unboundByRef = []): array {
 		$layout = [];
 		$members = [];
 		$untargetable = [];
@@ -1794,6 +1796,7 @@ class Graveyard {
 				$ref  = $surf['ref'] ?? '';
 				$type = $surf['type'] ?? 'terminal';
 				$row  = $liveByRef[$ref] ?? null;
+				$unboundRow = $unboundByRef[$ref] ?? null;
 				$isClaude = $isClaudeByRef[$ref] ?? false;
 
 				$entry = [
@@ -1844,7 +1847,14 @@ class Graveyard {
 					// Like an untargetable Claude: detected, not buryable → forces abort
 					// (unless --force skips it, left alive) rather than closing it as a shell.
 					$entry['kind'] = 'codex-untargetable';
-					$untargetable[] = ['ref' => $ref, 'title' => $surf['title'] ?? '', 'type' => $type, 'agent' => 'codex'];
+					$untargetable[] = [
+						'ref'            => $ref,
+						'title'          => $surf['title'] ?? '',
+						'type'           => $type,
+						'agent'          => 'codex',
+						'session_reason' => $unboundRow['reason'] ?? null,
+						'no_bridge'      => $unboundRow['no_bridge'] ?? null,
+					];
 				} elseif ($claudeSurface && $row && ($row['targetable'] ?? false)) {
 					$entry['kind'] = 'claude';
 					$entry['claude_session_id'] = $row['session_id'];
@@ -1855,7 +1865,14 @@ class Graveyard {
 					// (fresh/non-resumed, ambiguous, or a native agent session). Detected,
 					// not buryable → forces abort (unless --force skips it, alive).
 					$entry['kind'] = 'claude-untargetable';
-					$untargetable[] = ['ref' => $ref, 'title' => $surf['title'] ?? '', 'type' => $type, 'agent' => 'claude'];
+					$untargetable[] = [
+						'ref'            => $ref,
+						'title'          => $surf['title'] ?? '',
+						'type'           => $type,
+						'agent'          => 'claude',
+						'session_reason' => $unboundRow['reason'] ?? null,
+						'no_bridge'      => $unboundRow['no_bridge'] ?? null,
+					];
 				}
 
 				$layout[] = $entry;
@@ -1977,6 +1994,8 @@ class Graveyard {
 	 *   has_shell         that wrapper's shell chain is alive
 	 *   has_claude        a live claude process exists under it
 	 *   has_session_file  that claude has a ~/.claude/sessions/<pid>.json
+	 *   no_bridge         whether the join found neither surface bridge
+	 *   session_reason    the join's concrete untargetable reason
 	 *   cwd               the surface's working dir (for the fresh-session message)
 	 *   cwd_session_count how many live Claude sessions share that cwd (>1 = ambiguous)
 	 */
@@ -1984,6 +2003,9 @@ class Graveyard {
 		$type = $f['type'] ?? 'terminal';
 		if ($type !== 'terminal' && $type !== 'browser') {
 			return 'cmux-native agent session (not a Claude CLI terminal) — unsupported by bury';
+		}
+		if (!empty($f['session_reason']) && ($f['no_bridge'] ?? null) === false) {
+			return (string) $f['session_reason'];
 		}
 		if (empty($f['has_script'])) {
 			$cwd   = trim((string) ($f['cwd'] ?? ''));
@@ -2016,7 +2038,7 @@ class Graveyard {
 	}
 
 	/** Gather untargetable-surface facts (I/O) and delegate to untargetableReasonFor(). */
-	protected function diagnoseUntargetableSurface(string $ref, string $type, array $debug, array $proc): string {
+	protected function diagnoseUntargetableSurface(string $ref, string $type, array $debug, array $proc, ?array $liveSessions = null): string {
 		$script = $debug[$ref]['script'] ?? null;
 		$roots  = [];
 		if ($script !== null) {
@@ -2035,7 +2057,7 @@ class Graveyard {
 		// duplicate view (same session on two surfaces; the join deduped to the other).
 		$boundElsewhere = null; $sessionReason = null;
 		if ($sid !== null) {
-			foreach ($this->liveSessions() as $lr) {
+			foreach ($liveSessions ?? $this->liveSessions() as $lr) {
 				if ($lr['session_id'] !== $sid) { continue; }
 				if (($lr['targetable'] ?? false) && $lr['surface_ref'] !== '' && $lr['surface_ref'] !== $ref) {
 					$boundElsewhere = $lr['surface_ref'];
@@ -2124,6 +2146,7 @@ class Graveyard {
 	}
 
 	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): void {
+		$liveSessions = null;
 		// Group-id symmetry with resurrect (dotfiles-bury-group-target): resurrect
 		// accepts a buried group-id prefix, so bury --workspace does too. If the arg
 		// resolves to a buried group, retarget to the LIVE cmux workspace that group was
@@ -2131,7 +2154,7 @@ class Graveyard {
 		// title-substring guess. resolveGroup returns null for any non-group arg (refs,
 		// titles), so normal resolution below is unchanged.
 		if ($grp = $this->resolveGroup($nameOrRef)) {
-			$target = $this->groupBuryTarget($grp, $this->liveSessions());
+			$target = $this->groupBuryTarget($grp, $liveSessions ??= $this->liveSessions());
 			if ($target === null) {
 				$this->cli->exitErr(sprintf(
 					'Group %s ("%s") has no live sessions or title to target — resurrect it first, or it may already be buried.',
@@ -2152,11 +2175,22 @@ class Graveyard {
 
 		$wsRef   = $wsInfo['ref'];
 		$wsTitle = $wsInfo['title'];
+		$liveSessions ??= $this->liveSessions();
 
-		// Index targetable claude rows by surface_ref, and content-probe every surface.
+		// Index this live-session snapshot by surface_ref. Keep unbound rows too: their
+		// join reason explains collisions and other surface-attributable failures more
+		// accurately than the legacy resume-script diagnostic, and avoids a second
+		// liveSessions() call to recover it.
 		$liveByRef = [];
-		foreach ($this->liveSessions() as $r) {
-			if (($r['targetable'] ?? false) && $r['surface_ref'] !== '') { $liveByRef[$r['surface_ref']] = $r; }
+		$unboundByRef = [];
+		foreach ($liveSessions as $r) {
+			$ref = (string) ($r['surface_ref'] ?? '');
+			if ($ref === '') { continue; }
+			if ($r['targetable'] ?? false) {
+				$liveByRef[$ref] = $r;
+			} else {
+				$unboundByRef[$ref] = $r;
+			}
 		}
 		$isClaudeByRef = [];
 		foreach ($wsInfo['node']['panes'] ?? [] as $pane) {
@@ -2215,7 +2249,7 @@ class Graveyard {
 			}
 		}
 
-		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef);
+		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef, $unboundByRef);
 
 		// Self-guard: never bury a workspace containing the caller's own session.
 		$selfSid = $this->selfSessionId();
@@ -2237,9 +2271,17 @@ class Graveyard {
 				// diagnoseUntargetableSurface() is Claude-shaped (walks to a Claude pid,
 				// reads a Claude statusline). Codex has no such surface, so give it a plain
 				// codex reason instead of running the Claude diagnoser against it.
-				$reason = ($u['agent'] ?? 'claude') === 'codex'
-					? 'live codex session the join could not bind to a unique surface — resolve it (or re-run with --force to skip it, left alive).'
-					: $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc);
+				if (($u['agent'] ?? 'claude') === 'codex') {
+					$reason = 'live codex session the join could not bind to a unique surface — resolve it (or re-run with --force to skip it, left alive).';
+				} elseif (!empty($u['session_reason']) && ($u['no_bridge'] ?? null) === false) {
+					$reason = $this->untargetableReasonFor([
+						'type' => $u['type'] ?? 'terminal',
+						'session_reason' => $u['session_reason'],
+						'no_bridge' => false,
+					]);
+				} else {
+					$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc, $liveSessions);
+				}
 				$this->cli->msg('  ' . $this->ellipsizeText($u['ref'] . '  ' . $this->stripGlyph((string) $u['title']), $w - 2), 'yellow');
 				// Wrap the reason (never ellipsize) so the full explanation + fix is always shown.
 				foreach (explode("\n", wordwrap($reason, max(30, $w - 8))) as $line) {
