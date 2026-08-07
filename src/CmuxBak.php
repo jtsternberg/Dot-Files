@@ -13,6 +13,19 @@ class CmuxBak {
 	protected $dryRun;
 	protected $verbose;
 
+	/**
+	 * Memoized live agent rows — the ONE source every liveness view reads.
+	 *
+	 * Building them shells out to `ps` and cmux several times, and one restore asks
+	 * about liveness per surface, so the rows are built once per run.
+	 *
+	 * @var array|null
+	 */
+	protected $liveRows = null;
+
+	/** Backed-up sessions this run did not resume, for the end-of-run summary. */
+	protected $skipped = [];
+
 	public function __construct(
 		$cli,
 		string $bakFile = self::BAK_DEFAULT,
@@ -205,6 +218,9 @@ class CmuxBak {
 			return 1;
 		}
 
+		$this->liveRows = null;
+		$this->skipped  = [];
+
 		$backup = json_decode(file_get_contents($this->bakFile), true);
 		$this->cli->msg('Backup from: ' . ($backup['timestamp'] ?? 'unknown'), 'yellow');
 		if ($this->dryRun) {
@@ -282,9 +298,10 @@ class CmuxBak {
 								continue;
 							}
 
-							$choice = $this->askSurfaceNotFound($surfTitle, $bakCwd, $sessionId, $agent);
-							if ($choice === 'skip') {
+							$decision = $this->decideSurfaceNotFound($surfTitle, $bakCwd, $sessionId, $agent);
+							if ($decision['choice'] === 'skip') {
 								$this->cli->msg('    Skipped.', 'cyan');
+								$this->recordSkip($wsTitle, $surfTitle, $norm, $bakCwd, $decision['reason']);
 								continue;
 							}
 
@@ -292,6 +309,7 @@ class CmuxBak {
 							$surfRef = $this->openNewSurfaceInWorkspace($currentWsRef, $currentWs);
 							if (!$surfRef) {
 								$this->cli->err('    Failed to create new surface, skipping.');
+								$this->recordSkip($wsTitle, $surfTitle, $norm, $bakCwd, 'cmux would not open a new surface for it');
 								continue;
 							}
 							$this->cli->msg("    → Opened new surface {$surfRef}", 'green');
@@ -424,9 +442,69 @@ class CmuxBak {
 			$this->cli->lineBreak();
 		}
 
+		$this->reportSkipped();
 		$this->cli->successMsg('Restore complete.');
 
 		return 0;
+	}
+
+	/**
+	 * Remember a backed-up session this run left unresumed, with everything needed to
+	 * resume it by hand later.
+	 */
+	protected function recordSkip(string $wsTitle, string $surfTitle, array $norm, ?string $cwd, string $reason): void {
+		$this->skipped[] = [
+			'ws_title'   => $wsTitle,
+			'surf_title' => $surfTitle,
+			'agent'      => $norm['agent'] ?? 'claude',
+			'session_id' => (string) $norm['session_id'],
+			'cwd'        => $cwd,
+			'reason'     => $reason,
+			'command'    => $this->pasteableResumeCommand($norm, $cwd),
+		];
+	}
+
+	/**
+	 * The command a human can paste to resume a session restore didn't: the very
+	 * `cmux-bak restore` sends into a surface, preceded by the `cd` it would have sent
+	 * first. Both come from the same builder as the real resume, so a change to how
+	 * restore resumes a session cannot drift from what the summary tells the user to
+	 * run — and a recorded directory that no longer exists is left off rather than
+	 * handed over as a command that dies on its first half.
+	 */
+	protected function pasteableResumeCommand(array $norm, ?string $cwd): string {
+		$resume = $this->cmux()->buildAgentResumeCommand(
+			$norm['agent'] ?? 'claude',
+			(string) $norm['session_id'],
+			(bool) ($norm['skip_perms'] ?? false),
+			$norm['model'] ?? null,
+			$norm['opts'] ?? []
+		);
+
+		return !empty($cwd) && is_dir($cwd)
+			? "cd {$cwd} && {$resume}"
+			: $resume;
+	}
+
+	/**
+	 * List every session this run left behind, each with its paste-ready resume
+	 * command. A skip is a decision to not restore something that was backed up, and
+	 * an auto-confirmed or non-interactive run makes those decisions with nobody
+	 * watching — printing them is what keeps a skip recoverable instead of lossy.
+	 */
+	protected function reportSkipped(): void {
+		if (!$this->skipped) {
+			return;
+		}
+
+		$this->cli->msg('Skipped ' . count($this->skipped) . ' agent session(s) — resume by hand with:', 'yellow');
+		foreach ($this->skipped as $s) {
+			$label = substr((string) $s['surf_title'], 0, 45);
+			$short = substr($s['session_id'], 0, 8);
+			$this->cli->msg("  [{$s['agent']}] '{$label}' in '{$s['ws_title']}' ({$short}… — {$s['reason']})", 'cyan');
+			$this->cli->msg("    {$s['command']}");
+		}
+		$this->cli->lineBreak();
 	}
 
 	// ── Audit ───────────────────────────────────────────────────────────────
@@ -452,6 +530,8 @@ class CmuxBak {
 			return 1;
 		}
 
+		$this->liveRows = null;
+
 		$backup = json_decode(file_get_contents($this->bakFile), true);
 		$this->cli->msg('Auditing against backup from: ' . ($backup['timestamp'] ?? 'unknown'), 'yellow');
 		if ($this->dryRun) {
@@ -460,12 +540,7 @@ class CmuxBak {
 		$this->cli->lineBreak();
 
 		// Live session_id → current location, via the deterministic joins.
-		$liveById = [];
-		foreach ($this->agentRows($this->cmux->tree(), $this->cmux->parseDebugTerminals($this->cmux->debugTerminals())) as $r) {
-			if (!empty($r['session_id'])) {
-				$liveById[$r['session_id']] = $r;
-			}
-		}
+		$liveById = $this->agentRowsBySessionId();
 
 		$missing = [];
 		$running = 0;
@@ -621,6 +696,22 @@ class CmuxBak {
 	}
 
 	/**
+	 * Every live agent session, memoized — the single source both liveness views
+	 * (by surface, by session id) are indexed from, so a fact one of them can see is
+	 * never invisible to the other.
+	 */
+	protected function liveAgentRows(?array $tree = null): array {
+		if ($this->liveRows === null) {
+			$this->liveRows = $this->agentRows(
+				$tree ?? $this->cmux->tree(),
+				$this->cmux->parseDebugTerminals($this->cmux->debugTerminals())
+			);
+		}
+
+		return $this->liveRows;
+	}
+
+	/**
 	 * Live agent sessions (both agents) indexed by the surface they currently
 	 * occupy: [ surface_ref => join row ]. Built from the deterministic, tty-free
 	 * joins so a surface's liveness is judged by the surface a session actually
@@ -628,18 +719,34 @@ class CmuxBak {
 	 * (dotfiles-e5g).
 	 */
 	protected function agentRowsBySurfaceRef(?array $tree = null): array {
-		$rows = $this->agentRows(
-			$tree ?? $this->cmux->tree(),
-			$this->cmux->parseDebugTerminals($this->cmux->debugTerminals())
-		);
 		$bySurf = [];
-		foreach ($rows as $r) {
+		foreach ($this->liveAgentRows($tree) as $r) {
 			$ref = $r['surface_ref'] ?? '';
 			if ($ref !== '') {
 				$bySurf[$ref] = $r;
 			}
 		}
 		return $bySurf;
+	}
+
+	/**
+	 * The same live agent sessions indexed by session id: [ session_id => join row ].
+	 *
+	 * This is the GLOBAL view — a session found here is running SOMEWHERE in cmux,
+	 * which is a different question from `agentRowsBySurfaceRef()`'s "is anything
+	 * running on this surface". Restore needs both: a backed-up surface that no longer
+	 * exists under its recorded title may well have been retitled or moved, and its
+	 * session is then live in a surface restore is not looking at. Resuming it again
+	 * would run one session twice.
+	 */
+	protected function agentRowsBySessionId(?array $tree = null): array {
+		$byId = [];
+		foreach ($this->liveAgentRows($tree) as $r) {
+			if (!empty($r['session_id'])) {
+				$byId[$r['session_id']] = $r;
+			}
+		}
+		return $byId;
 	}
 
 	/**
@@ -1084,13 +1191,61 @@ class CmuxBak {
 	}
 
 	/**
-	 * Prompt the user when a backed-up surface can't be matched by title.
-	 * Returns 'new' or 'skip'.
+	 * Decide what to do with a backed-up surface that can't be matched by title:
+	 * open a new surface and resume into it, or leave the session alone.
+	 *
+	 * Returns [ choice => 'new'|'skip', reason => string ]; the reason is what the
+	 * end-of-run summary tells the user about a skip.
+	 *
+	 * The three non-interactive answers, in the order they're consulted:
+	 *
+	 * --yes means "do the thing", as it does at the husk prompt — but only after
+	 * asking whether this session is running ANYWHERE in cmux, not merely on the
+	 * surface we were aiming at. An unmatched title is most often a surface that was
+	 * retitled or moved, and its session is then live somewhere restore isn't looking;
+	 * resuming it again runs one session twice, in two terminals, over one transcript.
+	 * A duplicate empty surface is cheap and reversible, that is not.
+	 *
+	 * Silent mode can neither show the prompt nor read an answer, so it takes the
+	 * conservative default and skips.
+	 *
+	 * A prompt with no tty behind stdin blocks until the process is killed — the whole
+	 * of a restore stalled on one unmatched title — so it skips too, and says so on
+	 * stderr, which survives being piped or captured.
 	 */
-	protected function askSurfaceNotFound(string $surfTitle, string $cwd, string $sessionId, string $agent = 'claude') {
+	protected function decideSurfaceNotFound(string $surfTitle, string $cwd, string $sessionId, string $agent = 'claude'): array {
 		$short = substr($sessionId, 0, 8);
 		$label = substr($surfTitle, 0, 50);
 		$this->cli->msg("    '{$label}' | {$agent} {$short}… | cwd: {$cwd}", 'cyan');
+
+		if ($this->cli->isAutoconfirm()) {
+			$live = $this->agentRowsBySessionId()[$sessionId] ?? null;
+			if ($live) {
+				$parts = array_filter([$live['workspace_ref'] ?? '', $live['surface_ref'] ?? '']);
+				$where = $parts ? implode(' / ', $parts) : 'somewhere in cmux (surface unbound)';
+				$this->cli->msg("    Already running in {$where} — skipping (--yes).", 'cyan');
+
+				return ['choice' => 'skip', 'reason' => "already running in {$where}"];
+			}
+
+			$this->cli->msg('    Opening a new surface for it (--yes).', 'cyan');
+
+			return ['choice' => 'new', 'reason' => ''];
+		}
+
+		if ($this->cli->isSilent()) {
+			return ['choice' => 'skip', 'reason' => 'silent run took the default'];
+		}
+
+		if (!$this->cli->isInteractive()) {
+			$this->cli->errStderr(
+				"    ⚠ stdin is not a tty — auto-skipped the new-surface prompt for [{$agent}] {$sessionId}."
+				. ' Re-run interactively, or with --yes to open a new surface for it.'
+			);
+
+			return ['choice' => 'skip', 'reason' => 'prompt auto-skipped (stdin is not a tty)'];
+		}
+
 		$this->cli->msg('    What would you like to do?', 'cyan');
 		$this->cli->msg("      [n] Open a new surface in this workspace and resume the {$agent} session");
 		$this->cli->msg('      [s] Skip');
@@ -1098,44 +1253,31 @@ class CmuxBak {
 		while (true) {
 			$answer = strtolower(trim($this->cli->ask('    Choice [n/s]: ')));
 			if ($answer === 'n' || $answer === 'new') {
-				return 'new';
+				return ['choice' => 'new', 'reason' => ''];
 			}
 			if ($answer === 's' || $answer === 'skip' || $answer === '') {
-				return 'skip';
+				return ['choice' => 'skip', 'reason' => 'skipped at the prompt'];
 			}
 			$this->cli->msg('    Please enter n or s.', 'yellow');
 		}
 	}
 
 	/**
-	 * Create a new terminal surface in an existing workspace and return its ref.
-	 * Adds to the first pane if one exists, otherwise creates a new pane.
+	 * Create a new terminal surface in an existing workspace and return its ref, as a
+	 * tab of its first pane so a multi-pane workspace keeps its shape.
+	 *
+	 * Goes through the Cmux helper rather than shelling out here: that one identifies
+	 * the surface it just made by DIFFING the workspace's surfaces, where this used to
+	 * take the last ref in the tree — and surface order is not creation order once a
+	 * workspace has more than one pane, so the ref handed back could belong to an
+	 * existing surface and the resume would land on top of whatever was in it.
 	 */
 	protected function openNewSurfaceInWorkspace(string $wsRef, array $currentWs) {
-		$firstPaneRef = $currentWs['panes'][0]['ref'] ?? null;
-
-		$cmd = 'cmux new-surface --type terminal --workspace ' . escapeshellarg($wsRef);
-		if ($firstPaneRef) {
-			$cmd .= ' --pane ' . escapeshellarg($firstPaneRef);
-		}
-
-		shell_exec($cmd . ' 2>/dev/null');
-		usleep(500000);
-
-		// Find the newly created surface (last in the workspace)
-		$newTree = $this->cmux->tree();
-		$newWs   = $this->cmux->findWorkspaceByRef($newTree, $wsRef);
-		if (!$newWs) {
-			return null;
-		}
-
-		$allSurfs = [];
-		foreach ($newWs['panes'] ?? [] as $pane) {
-			foreach ($pane['surfaces'] ?? [] as $s) {
-				$allSurfs[] = $s['ref'];
-			}
-		}
-
-		return $allSurfs ? end($allSurfs) : null;
+		return $this->cmux()->createSurface(
+			$wsRef,
+			$currentWs['panes'][0]['ref'] ?? null,
+			'terminal',
+			null
+		);
 	}
 }

@@ -7,12 +7,19 @@ use JT\CLI\Attributes\Program;
 use JT\CLI\Helpers;
 
 /**
- * The `$yes` parameters on the prompting verbs exist to declare `--yes`/`-y` as
- * part of those verbs' interface so the dispatcher accepts them. Their bound
- * values are deliberately not threaded into the service: auto-confirm is a
- * prompt-layer concern which `Helpers::isAutoconfirm()` and `Helpers::confirm()`
- * read straight back off the parsed arguments, the same way `--silent` works.
- * Drop a parameter and the flag it declares stops parsing.
+ * The `$yes` and `$silent` parameters on the prompting verbs exist to declare
+ * `--yes`/`-y` and `--silent`/`-shh` as part of those verbs' interface so the
+ * dispatcher accepts them. Their bound values are deliberately not threaded into
+ * the service: both are prompt-layer concerns which `Helpers::isAutoconfirm()`,
+ * `Helpers::confirm()` and `Helpers::isSilent()` read straight back off the parsed
+ * arguments. Drop a parameter and the flag it declares stops parsing — and an
+ * unregistered `--silent` fails validation with an error message that
+ * `--silent` itself suppresses, so the run ends silently with exit 1.
+ *
+ * Only `restore` declares `--silent`, because it is the only verb whose every
+ * prompt has a default it can take unattended. `audit`'s resume prompt goes
+ * through `confirm()`, which in silent mode prints nothing and still waits for an
+ * answer — declaring the flag there would advertise a hang.
  */
 #[Program(
 	name: 'cmux-bak',
@@ -75,9 +82,15 @@ final class CmuxBakCommand {
 		#[Option(
 			name: 'yes',
 			aliases: [ 'y' ],
-			description: 'Recreate agent-less workspaces without asking.',
+			description: 'Answer restore\'s prompts without asking: recreate agent-less workspaces, and open a new surface for a session whose surface is gone (unless that session is already running somewhere in cmux).',
 		)]
-		bool $yes = false
+		bool $yes = false,
+		#[Option(
+			name: 'silent',
+			aliases: [ 'shh' ],
+			description: 'Suppress progress output and take every prompt\'s default (leave anything it would have asked about alone).',
+		)]
+		bool $silent = false
 	): int {
 		return $this->execute( 'restore', $file, $dryRun, $verbose );
 	}

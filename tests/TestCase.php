@@ -30,7 +30,8 @@ abstract class TestCase extends BaseTestCase
 	{
 		$this->cli  = Helpers::getInstance()->setArgs([]);
 		$this->cli->resetStreams();
-		$this->cli->forceSilent = false;
+		$this->cli->forceSilent      = false;
+		$this->cli->forceInteractive = null;
 		$this->cmux = new Cmux($this->cli);
 
 		// EVERY test gets a throwaway graveyard store, so no test can write into the

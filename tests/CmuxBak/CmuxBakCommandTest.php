@@ -166,6 +166,46 @@ final class CmuxBakCommandTest extends TestCase {
 		];
 	}
 
+	/**
+	 * Restore takes every prompt's default in silent mode, so the flag that puts it
+	 * there has to be dispatchable — an unregistered --silent fails validation, and
+	 * the "Unknown option" error is itself silent-gated, so the run dies with no
+	 * output at all.
+	 */
+	#[DataProvider('silentProvider')]
+	public function testRestoreAcceptsSilentSoItsPromptsCanTakeTheirDefaults( string $flag ): void {
+		$cli  = $this->cli;
+		$seen = [];
+		$handler = new CmuxBakCommand(
+			$cli,
+			static function () use ( $cli, &$seen ): object {
+				$seen[] = $cli->isSilent();
+
+				return new class() {
+
+					public function restore(): int {
+						return 0;
+					}
+				};
+			}
+		);
+		$cli->setArgs( [ 'cmux-bak', 'restore', $flag ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code, "cmux-bak restore {$flag} must dispatch. Output: {$output}" );
+		$this->assertSame( [ true ], $seen, "cmux-bak restore {$flag} must reach the prompt layer as silent." );
+	}
+
+	public static function silentProvider(): array {
+		return [
+			'--silent' => [ '--silent' ],
+			'-shh'     => [ '-shh' ],
+		];
+	}
+
 	/** Backup prompts for nothing, so it must not advertise or accept auto-confirm. */
 	public function testBackupRejectsAutoconfirm(): void {
 		[ $handler, $state ] = $this->handlerWithRecorder();

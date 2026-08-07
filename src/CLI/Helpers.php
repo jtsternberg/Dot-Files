@@ -95,6 +95,18 @@ class Helpers {
 	public $forceSilent = false;
 
 	/**
+	 * Force isInteractive() either way instead of asking the real stdin.
+	 *
+	 * Null (the default) means detect. Tests set true/false to drive both sides of a
+	 * prompt-vs-default branch without a tty.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @var boolean|null
+	 */
+	public $forceInteractive = null;
+
+	/**
 	 * Optional stream handle for result/stdout output.
 	 *
 	 * Null (the default) means write via echo, which preserves output-buffering
@@ -390,6 +402,37 @@ class Helpers {
 	 */
 	public function shouldIgnoreErrors() {
 		return $this->hasFlags( 'ignoreErrors', 'ignore' );
+	}
+
+	/**
+	 * Whether there is a human on the other end of stdin.
+	 *
+	 * A prompt with no tty to read from blocks until the process is killed, so any
+	 * prompt that has a sane default must take it instead of asking. Ask this BEFORE
+	 * ask()/requestAnswer() wherever a default exists.
+	 *
+	 * @since  {{next}}
+	 *
+	 * @return boolean
+	 */
+	public function isInteractive() {
+		if ( null !== $this->forceInteractive ) {
+			return (bool) $this->forceInteractive;
+		}
+
+		$stdin = defined( 'STDIN' ) ? STDIN : fopen( 'php://stdin', 'r' );
+
+		if ( function_exists( 'stream_isatty' ) ) {
+			return (bool) @stream_isatty( $stdin );
+		}
+
+		if ( function_exists( 'posix_isatty' ) ) {
+			return (bool) @posix_isatty( $stdin );
+		}
+
+		// Undetectable (no stream_isatty, no posix ext): assume a human is there, which
+		// is the behaviour every prompt had before this method existed.
+		return true;
 	}
 
 	/**

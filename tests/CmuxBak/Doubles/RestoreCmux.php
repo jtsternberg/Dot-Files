@@ -15,6 +15,15 @@ use JT\Helpers\Cmux;
 class RestoreCmux extends Cmux {
 
 	public array $treeData = [ 'windows' => [] ];
+
+	/**
+	 * Live agent session rows the session↔surface join hands back — the liveness the
+	 * real join derives from `ps`/cmux, injected instead of shelled out. Row shape is
+	 * the join's: session_id, agent, surface_ref, workspace_ref, cwd, model,
+	 * skip_perms, opts.
+	 */
+	public array $joinRows = [];
+
 	public array $sent = [];
 	public array $newWorkspaces = [];
 	public array $newPanes = [];
@@ -71,7 +80,7 @@ class RestoreCmux extends Cmux {
 	}
 
 	public function joinSessionsToSurfaces( array $sessions, array $proc, array $debug ): array {
-		return [];
+		return $this->joinRows;
 	}
 
 	public function loadCodexSessionsByPid(): array {

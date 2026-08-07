@@ -357,7 +357,244 @@ final class CmuxBakRestoreShapeTest extends TestCase {
 		);
 	}
 
+	// ── 4. The surface-not-found decision ─────────────────────────────────────
+
+	public function testAutoconfirmOpensANewSurfaceAndResumesTheSessionWithoutPrompting(): void {
+		$this->prompts->setArgs( [ 'cmux-bak', 'restore', '--yes' ] );
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$bak  = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$code   = $bak->restore();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( [], $this->prompts->asked, '--yes pre-answers the surface prompt.' );
+		$this->assertSame(
+			[ [ 'workspace:1', 'pane:1', 'terminal', null ] ],
+			$cmux->createdSurfaces,
+			'--yes must open a new surface in the workspace.'
+		);
+		$this->assertSame(
+			[
+				[ 'surface:extra:1', 'workspace:1', "cd {$cwd}\n" ],
+				[ 'surface:extra:1', 'workspace:1', "resume claude sess-1\n" ],
+			],
+			$cmux->sent
+		);
+		$this->assertStringContainsString( '--yes', $output );
+	}
+
+	public function testAutoconfirmSkipsASessionAlreadyRunningInAnotherWorkspace(): void {
+		$this->prompts->setArgs( [ 'cmux-bak', 'restore', '--yes' ] );
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$cmux->joinRows = [
+			[
+				'session_id'    => 'sess-1',
+				'agent'         => 'claude',
+				'surface_ref'   => 'surface:99',
+				'workspace_ref' => 'workspace:9',
+				'cwd'           => $cwd,
+				'model'         => null,
+				'skip_perms'    => false,
+				'opts'          => [],
+				'reason'        => '',
+			],
+		];
+		$bak = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$code   = $bak->restore();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( [], $cmux->createdSurfaces, 'A session live elsewhere must not be resumed a second time.' );
+		$this->assertSame( [], $cmux->sent );
+		$this->assertStringContainsString( 'workspace:9', $output );
+		$this->assertStringContainsString( 'surface:99', $output );
+	}
+
+	public function testSilentModeSkipsTheSurfacePromptWithoutAsking(): void {
+		$this->prompts->forceSilent = true;
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$bak  = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$code = $bak->restore();
+		ob_end_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( [], $this->prompts->asked );
+		$this->assertSame( [], $cmux->createdSurfaces );
+		$this->assertSame( [], $cmux->sent );
+	}
+
+	public function testNonTtyStdinSkipsTheSurfacePromptAndWarnsOnStderr(): void {
+		$this->prompts->forceInteractive = false;
+		$stderr = fopen( 'php://memory', 'w+' );
+		$this->prompts->setStreams( null, $stderr );
+
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$bak  = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$code = $bak->restore();
+		ob_end_clean();
+
+		rewind( $stderr );
+		$warned = (string) stream_get_contents( $stderr );
+		fclose( $stderr );
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( [], $this->prompts->asked, 'A non-interactive stdin must never reach the prompt.' );
+		$this->assertSame( [], $cmux->createdSurfaces );
+		$this->assertSame( [], $cmux->sent );
+		$this->assertStringContainsString( 'not a tty', $warned );
+		$this->assertStringContainsString( 'sess-1', $warned );
+	}
+
+	public function testInteractiveStdinStillPromptsAndCanOpenTheNewSurface(): void {
+		$this->prompts->forceInteractive = true;
+		$this->prompts->answers          = [ 'n' ];
+
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$bak  = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$bak->restore();
+		ob_end_clean();
+
+		$this->assertNotEmpty( $this->prompts->asked, 'An interactive run still gets the [n/s] prompt.' );
+		$this->assertSame( [ [ 'workspace:1', 'pane:1', 'terminal', null ] ], $cmux->createdSurfaces );
+		$this->assertSame(
+			[ 'surface:extra:1', 'workspace:1', "resume claude sess-1\n" ],
+			end( $cmux->sent )
+		);
+	}
+
+	public function testSkippedSessionsAreSummarizedWithAPasteableResumeCommand(): void {
+		$this->prompts->forceInteractive = true;
+		$this->prompts->answers          = [ 's' ];
+
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$bak  = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$bak->restore();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( [], $cmux->sent );
+		$this->assertStringContainsString( 'Skipped 1 agent session', $output );
+		$this->assertStringContainsString( "cd {$cwd} && resume claude sess-1", $output );
+	}
+
+	public function testSkippedSessionSummaryIsShownForAutoconfirmedSkipsToo(): void {
+		$this->prompts->setArgs( [ 'cmux-bak', 'restore', '--yes' ] );
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithRetitledSurface();
+		$cmux->joinRows = [
+			[
+				'session_id'    => 'sess-1',
+				'agent'         => 'claude',
+				'surface_ref'   => 'surface:99',
+				'workspace_ref' => 'workspace:9',
+				'cwd'           => $cwd,
+				'model'         => null,
+				'skip_perms'    => false,
+				'opts'          => [],
+				'reason'        => '',
+			],
+		];
+		$bak = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$bak->restore();
+		$output = (string) ob_get_clean();
+
+		$this->assertStringContainsString( 'Skipped 1 agent session', $output );
+		$this->assertStringContainsString( "cd {$cwd} && resume claude sess-1", $output );
+	}
+
+	public function testNoSkipsMeansNoSummary(): void {
+		$cwd  = $this->existingDir();
+		$cmux = $this->cmuxWithLiveWorkspaces( [
+			[
+				'title' => 'dotfiles',
+				'ref'   => 'workspace:1',
+				'panes' => [
+					[
+						'ref'      => 'pane:1',
+						'surfaces' => [
+							[
+								'title' => 'Agent',
+								'ref'   => 'surface:1',
+								'type'  => 'terminal',
+							],
+						],
+					],
+				],
+			],
+		] );
+		$bak = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
+
+		ob_start();
+		$bak->restore();
+		$output = (string) ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Skipped', $output );
+	}
+
 	// ── Fixtures ──────────────────────────────────────────────────────────────
+
+	/** A live workspace whose only surface no longer carries the backed-up title. */
+	private function cmuxWithRetitledSurface(): RestoreCmux {
+		return $this->cmuxWithLiveWorkspaces( [
+			[
+				'title' => 'dotfiles',
+				'ref'   => 'workspace:1',
+				'panes' => [
+					[
+						'ref'      => 'pane:1',
+						'surfaces' => [
+							[
+								'title' => 'Some other title',
+								'ref'   => 'surface:1',
+								'type'  => 'terminal',
+							],
+						],
+					],
+				],
+			],
+		] );
+	}
+
+	/** A backup of workspace 'dotfiles' holding one surface titled 'Agent'. */
+	private function backupWithMissingSurface( string $cwd ): string {
+		return $this->backup( [
+			[
+				'title' => 'dotfiles',
+				'panes' => [
+					[
+						'surfaces' => [
+							[
+								'title'            => 'Agent',
+								'type'             => 'terminal',
+								'cwd'              => $cwd,
+								'agent'            => 'claude',
+								'agent_session_id' => 'sess-1',
+							],
+						],
+					],
+				],
+			],
+		] );
+	}
 
 	private function bak( string $file, RestoreCmux $cmux ): CmuxBak {
 		return new CmuxBak( $this->prompts, $file, false, false, $cmux );
