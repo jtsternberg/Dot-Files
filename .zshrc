@@ -69,6 +69,8 @@ alias vinedaily="cd ~/Code/vine-daily-log && npm run daily && say 'vine daily op
 # Claude Code...
 alias ch='claude --chrome'
 alias yolo='claude --dangerously-skip-permissions'
+alias fable='claude --dangerously-skip-permissions --model fable'
+alias opus5='claude --dangerously-skip-permissions --model claude-opus-5'
 alias yr='claude --dangerously-skip-permissions --resume'
 alias yc='claude --dangerously-skip-permissions --continue'
 alias claudecatchup='claude "/catchup"'
@@ -77,13 +79,6 @@ alias claudecreateissue='claude "/create-github-issue"'
 alias claudecommitstaged='claude --model sonnet "/commit-staged"'
 alias weeklylog='goto monorepo && claude --dangerously-skip-permissions "/weeklylog"'
 alias agyolo='agy --dangerously-skip-permissions'
-# alias claudefix='claude "/fix-github-issue $@"'
-claudefix() {
-	claude "/fix-github-issue $@";
-}
-claudeissue() {
-	claude "/create-github-issue $@";
-}
 
 # For when the sidebar items disappear.
 # https://apple.stackexchange.com/a/210469
@@ -241,7 +236,7 @@ source ~/.dotfiles/zsh-custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlig
 source $ZSH/oh-my-zsh.sh
 
 # Override composer plugin's 'c' alias
-alias c='claude'
+alias c='claude --dangerously-skip-permissions'
 
 # https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
