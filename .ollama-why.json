@@ -35,6 +35,34 @@
             "location": "sd",
             "tested": "2026-07-24: worst prefill (~4min for 33K tokens). Summary accurate but no reason to pick over gemma for summarization."
         },
+        "muse-glimmer:30b-mlx": {
+            "when": "UNTESTED MLX variant, kept alongside :latest. Bench later with clean/available memory (close cmux; num_ctx<",
+            "speed": "UNTESTED on M2 Max. nvfp4/MLX prefill is a coin-flip here (gemma nvfp4 ~314 tok/s vs qwen3.5 nvfp4 collapsed to 3 tok/s) \u2014 MUST measure, do not assume.",
+            "tested": "2026-08-13: NOT yet cleanly benched. Earlier load at num_ctx",
+            "tags": [
+                "mlx",
+                "nvfp4",
+                "30b",
+                "vision",
+                "untested",
+                "needs-bench"
+            ],
+            "location": "sd"
+        },
+        "muse-glimmer:latest": {
+            "when": "Primary local vision model \u2014 the ONLY installed model with image input (CLIP 1.9B projector). Same build Slava runs (M1 Max/64GB). ~18GB, fits normal headroom. Use for multimodal/vision + agentic tasks.",
+            "speed": "Untested here; GGUF Q4_K_M so expect the known-safe prefill path (qwen3-coder GGUF ~110 tok/s analog), NOT the MLX coin-flip. Bench when convenient.",
+            "tested": "2026-08-13: 27.9B Q4_K_M GGUF, vision+tools+thinking, 131072 ctx, temp default 1 (override to 0 for bench). Not yet benched on this Mac.",
+            "tags": [
+                "gguf",
+                "q4km",
+                "30b",
+                "vision",
+                "primary",
+                "clip-projector"
+            ],
+            "location": "sd"
+        },
         "qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
             "speed": "152 tok/s GGUF (best prompt-eval: 276 tok/s)",
@@ -110,21 +138,6 @@
             ],
             "removed_at": "2026-04-24",
             "tested": "Superseded by gemma4:26b-nvfp4 (MLX): 558 tok/s prompt eval (5x this) at similar decode speed. Same underlying 26B-a4b-it model; MLX quant is strictly faster on M2."
-        },
-        "muse-glimmer:30b-mlx": {
-            "when": "Removed \u2014 too big for always-on setup; re-pull ONLY for local vision (unique), bench with headroom (num_ctx<",
-            "speed": "never cleanly benched \u2014 same OOM-prone profile as nemotron",
-            "tested": "2026-08-12: 32.3B nvfp4/MLX (muse_glimmer, Meta MSL), thinking+tools+VISION, 131K ctx. ~22GB weights resident, same OOM-prone profile as nemotron on 64GB M2 Max under always-on cmux. Unique trait ",
-            "tags": [
-                "mlx",
-                "nvfp4",
-                "30b",
-                "vision",
-                "oom",
-                "too-big"
-            ],
-            "location": "sd",
-            "removed_at": "2026-08-13"
         },
         "nemotron-3.5-lightning:30b-mlx": {
             "when": "Removed \u2014 too big for always-on setup; re-pull + bench (num_ctx<",
