@@ -111,6 +111,35 @@
             "removed_at": "2026-04-24",
             "tested": "Superseded by gemma4:26b-nvfp4 (MLX): 558 tok/s prompt eval (5x this) at similar decode speed. Same underlying 26B-a4b-it model; MLX quant is strictly faster on M2."
         },
+        "muse-glimmer:30b-mlx": {
+            "when": "Removed \u2014 too big for always-on setup; re-pull ONLY for local vision (unique), bench with headroom (num_ctx<",
+            "speed": "never cleanly benched \u2014 same OOM-prone profile as nemotron",
+            "tested": "2026-08-12: 32.3B nvfp4/MLX (muse_glimmer, Meta MSL), thinking+tools+VISION, 131K ctx. ~22GB weights resident, same OOM-prone profile as nemotron on 64GB M2 Max under always-on cmux. Unique trait ",
+            "tags": [
+                "mlx",
+                "nvfp4",
+                "30b",
+                "vision",
+                "oom",
+                "too-big"
+            ],
+            "location": "sd",
+            "removed_at": "2026-08-13"
+        },
+        "nemotron-3.5-lightning:30b-mlx": {
+            "when": "Removed \u2014 too big for always-on setup; re-pull + bench (num_ctx<",
+            "speed": "never cleanly benched \u2014 OOM'd before measurement; MLX nvfp4 prefill path unknown",
+            "tested": "2026-08-12: 32.9B nvfp4/MLX (nemotron_h hybrid), thinking+tools, 262K ctx. num_ctx",
+            "tags": [
+                "mlx",
+                "nvfp4",
+                "30b",
+                "oom",
+                "too-big",
+                "agent"
+            ],
+            "removed_at": "2026-08-13"
+        },
         "qwen2.5-coder:1.5b-base": {
             "when": "Base model (not chat-tuned). Pulled by mistake for cron use.",
             "speed": "n/a",
