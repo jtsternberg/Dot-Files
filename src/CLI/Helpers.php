@@ -564,7 +564,7 @@ class Helpers {
 	 */
 	public function isNo( $answer ) {
 		return in_array( strtolower( $answer ), [
-			'n', 'No',
+			'n', 'no',
 		] );
 	}
 

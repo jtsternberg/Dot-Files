@@ -64,4 +64,33 @@ class HelpersTest extends TestCase
 		$this->assertSame('', $cli->getFlag('yes'), 'valueless long flag is empty string');
 		$this->assertTrue($cli->hasShortFlag('v'));
 	}
+
+	/**
+	 * isYes/isNo are a matched pair: both lowercase the answer, so both word
+	 * forms must be listed lowercase. isNo listed 'No' (capital N) — unreachable
+	 * after strtolower — so "no"/"No"/"NO" all read as NOT-no. That is not
+	 * academic: gtag uses isNo() to detect a rejected tag description, and
+	 * requestNoAnswer() is built straight on top of it.
+	 */
+	public function testIsYesMatchesShortAndLongFormsCaseInsensitively(): void
+	{
+		$cli = Helpers::getInstance();
+		foreach (['y', 'Y', 'yes', 'Yes', 'YES'] as $answer) {
+			$this->assertTrue($cli->isYes($answer), "isYes('$answer') should be true");
+		}
+		foreach (['n', 'no', 'maybe', ''] as $answer) {
+			$this->assertFalse($cli->isYes($answer), "isYes('$answer') should be false");
+		}
+	}
+
+	public function testIsNoMatchesShortAndLongFormsCaseInsensitively(): void
+	{
+		$cli = Helpers::getInstance();
+		foreach (['n', 'N', 'no', 'No', 'NO'] as $answer) {
+			$this->assertTrue($cli->isNo($answer), "isNo('$answer') should be true");
+		}
+		foreach (['y', 'yes', 'nope', ''] as $answer) {
+			$this->assertFalse($cli->isNo($answer), "isNo('$answer') should be false");
+		}
+	}
 }
