@@ -333,13 +333,7 @@ final class GraveyardExportBinTest extends TestCase
 	 */
 	public function testGate2PassesAgainstRealExportBin(): void
 	{
-		$bin = $this->realExportBin();
-		if ($bin === '') {
-			$this->markTestSkipped('export-session.mjs not installed on this machine');
-		}
-		if (trim((string) shell_exec('command -v node 2>/dev/null')) === '') {
-			$this->markTestSkipped('node not available');
-		}
+		$bin = $this->requireRealExportBin();
 
 		[$gy, $sid, $cwd] = $this->fixtureSession($bin);
 
@@ -369,10 +363,7 @@ final class GraveyardExportBinTest extends TestCase
 	 */
 	public function testSystemReminderNeedleAloneCannotMatchRealExportOutput(): void
 	{
-		$bin = $this->realExportBin();
-		if ($bin === '' || trim((string) shell_exec('command -v node 2>/dev/null')) === '') {
-			$this->markTestSkipped('export-session.mjs or node not available');
-		}
+		$bin = $this->requireRealExportBin();
 
 		[$gy, $sid, $cwd] = $this->fixtureSession($bin);
 		$gy->exportTranscriptViaBin(['session_id' => $sid, 'cwd' => $cwd, 'pid' => getmypid()], $bin);
@@ -393,10 +384,7 @@ final class GraveyardExportBinTest extends TestCase
 	/** md must not clip turn text: a >2500-char turn survives whole in the archive. */
 	public function testRealExportBinKeepsLongTurnsWhole(): void
 	{
-		$bin = $this->realExportBin();
-		if ($bin === '' || trim((string) shell_exec('command -v node 2>/dev/null')) === '') {
-			$this->markTestSkipped('export-session.mjs or node not available');
-		}
+		$bin = $this->requireRealExportBin();
 
 		[$gy, $sid, $cwd] = $this->fixtureSession($bin);
 		$gy->exportTranscriptViaBin(['session_id' => $sid, 'cwd' => $cwd, 'pid' => getmypid()], $bin);
@@ -441,12 +429,67 @@ final class GraveyardExportBinTest extends TestCase
 		};
 	}
 
-	/** The real export-session.mjs, or '' when it is not installed here. */
+	/** What exportBinPath() resolves to with no override — '' when it finds nothing. */
 	private function realExportBin(): string
 	{
 		putenv('GRAVEYARD_EXPORT_BIN');
 
 		return (new Graveyard($this->cli, $this->cmux))->exportBinPath();
+	}
+
+	/**
+	 * Locate an installed, executable export-session.mjs by scanning the plugin roots
+	 * DIRECTLY — deliberately not through exportBinPath()'s leaf constant, so it acts as
+	 * an independent cross-check of that constant rather than trusting it. Returns ''
+	 * only when the plugin genuinely is not installed on this machine.
+	 */
+	private function installedExportBinOnDisk(): string
+	{
+		$home = getenv('HOME') ?: '';
+		if ($home === '') { return ''; }
+
+		$roots = array_merge(
+			[$home . '/Code/claude-plugins/plugins/session-tools'],
+			glob($home . '/.claude/plugins/cache/*/session-tools') ?: []
+		);
+		foreach ($roots as $root) {
+			if (!is_dir($root)) { continue; }
+			$out = [];
+			exec('find ' . escapeshellarg($root) . ' -type f -name export-session.mjs 2>/dev/null', $out);
+			foreach ($out as $path) {
+				if (is_file($path) && is_executable($path)) { return $path; }
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Gate for the real-renderer tests. When the plugin genuinely is not installed
+	 * (fresh Linux box, CI without the checkout), skip — there is nothing to render.
+	 * But when export-session.mjs IS on disk and exportBinPath() still cannot find it,
+	 * that is the detection regression this file exists to catch (a stale leaf path
+	 * silently reverts bury to typing /export) — FAIL loudly, never skip. The detection
+	 * check runs before the node check so a stale leaf is caught even without node.
+	 */
+	private function requireRealExportBin(): string
+	{
+		$onDisk   = $this->installedExportBinOnDisk();
+		$resolved = $this->realExportBin();
+
+		if ($onDisk === '') {
+			$this->markTestSkipped('session-tools plugin not installed on this machine');
+		}
+		$this->assertNotSame(
+			'',
+			$resolved,
+			"export-session.mjs is installed at {$onDisk} but Graveyard::exportBinPath() did not "
+				. 'find it — its auto-detect leaf path is stale, so bury silently reverts to /export.'
+		);
+		if (trim((string) shell_exec('command -v node 2>/dev/null')) === '') {
+			$this->markTestSkipped('node not available');
+		}
+
+		return $resolved;
 	}
 
 	/**
