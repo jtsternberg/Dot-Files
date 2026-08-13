@@ -195,8 +195,24 @@ class Git {
 	 * @throws Exception If the next tag cannot be parsed.
 	 */
 	public function getNextTag( $type = 'patch' ) {
-		$lasttag = $this->currentTag();
+		return self::incrementTag( $this->currentTag(), $type );
+	}
 
+	/**
+	 * Compute the next tag from a given last tag and requested type. Pure: no
+	 * git shell-out, so it is unit-testable (the shell-out lives in
+	 * getNextTag()/currentTag()).
+	 *
+	 * @since  1.0.1
+	 *
+	 * @param  string  $lasttag The current/last tag (may be empty).
+	 * @param  string  $type    major, minor, patch, or subpatch. Defaults to patch.
+	 *
+	 * @return string
+	 * @throws Exception If the type is unrecognized (code 1) or the last tag is
+	 *                   missing the requested section (code 2).
+	 */
+	public static function incrementTag( $lasttag, $type = 'patch' ) {
 		if ( empty( $lasttag ) ) {
 			$parts = [ 0, 0, 0 ];
 			$index = 0;
