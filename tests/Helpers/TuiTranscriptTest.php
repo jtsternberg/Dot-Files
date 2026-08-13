@@ -49,6 +49,83 @@ final class TuiTranscriptTest extends TestCase
 	}
 
 	// =====================================================================
+	// ANSI escape codes from captured terminal output must not leak
+	//
+	// Tool output pasted from a colored CLI (ollama-why, git, diff) carries raw
+	// CSI escapes. Left in, they render as literal `[0m`/`[36m` junk in the modal
+	// AND count toward the wrap width, so lines break in the wrong place. The
+	// archive FILE keeps them (faithful source); only this preview pass drops them.
+	// =====================================================================
+
+	public function testInvalidUtf8DoesNotDefeatArchiveDetection(): void
+	{
+		// The bug that made the modal show raw markdown. Tool output pasted from a
+		// terminal can carry invalid UTF-8 (a mangled em-dash: bytes 0x80 0x94). Every
+		// regex here uses /u, and PCRE returns FALSE — not 0 — for a /u match against
+		// invalid UTF-8, so looksLikeMarkdownArchive() failed and fromMarkdown() handed
+		// the raw markdown (**Claude:**, backticks and all) straight to the <pre>.
+		$bad = "\x80\x94";
+		$md  = "# sess\n\n- session `abc`\n- cwd `/x` · branch `master`\n\n"
+			. "**You:** hi {$bad} there\n\n**Claude:** done {$bad} — shipped `abc123`\n";
+
+		$out = $this->render($md);
+
+		$this->assertStringContainsString('❯ hi', $out, 'invalid UTF-8 defeated archive detection');
+		$this->assertStringContainsString('⏺ done', $out);
+		$this->assertStringNotContainsString('**Claude:**', $out, 'markers survived — conversion never ran');
+		$this->assertStringNotContainsString('`abc123`', $out, 'backticks survived — conversion never ran');
+	}
+
+	public function testStripsAnsiColorCodesFromToolOutput(): void
+	{
+		$esc = "\x1b";
+		$md  = "**Claude:** here are the models\n\n"
+			. "↳ `Bash: ollama-why`\n\n"
+			. "    {$esc}[97mNAME          SIZE{$esc}[0m\n"
+			. "    gemma4:26b    {$esc}[32mFast-context chat model{$esc}[0m\n";
+
+		$out = $this->render($md);
+
+		$this->assertStringNotContainsString($esc, $out, 'raw ESC byte leaked into the preview');
+		$this->assertStringNotContainsString('[0m', $out, 'ANSI residue rendered as literal text');
+		$this->assertStringNotContainsString('[97m', $out);
+		$this->assertStringNotContainsString('[32m', $out);
+		// The visible content survives the strip.
+		$this->assertStringContainsString('NAME', $out);
+		$this->assertStringContainsString('Fast-context chat model', $out);
+	}
+
+	public function testAnsiCodesDoNotCountTowardWrapWidth(): void
+	{
+		// Visible width ~54 fits the 60-col box; the color codes add ~50 invisible
+		// chars. Counted, the line splits; discounted, it stays whole.
+		$esc = "\x1b";
+		$words = ['alphaalpha', 'bravobravo', 'gammagamma', 'deltadelta', 'epsiloneps'];
+		$colored = implode(' ', array_map(fn($w, $i) => "{$esc}[3" . ($i + 1) . "m{$w}{$esc}[0m", $words, array_keys($words)));
+		$md = "**Claude:** x\n\n↳ `Bash: echo`\n\n    {$colored}\n";
+
+		$out = $this->render($md, 60);
+
+		$resultLines = array_values(array_filter(explode("\n", $out), fn($l) => str_contains($l, 'alphaalpha')));
+		$this->assertCount(1, $resultLines, 'line was split despite fitting once ANSI is discounted');
+		$this->assertStringContainsString('epsiloneps', $resultLines[0], 'tail wrapped away — width still counted the escapes');
+	}
+
+	public function testStripsAnsiFromProseAndFencedCode(): void
+	{
+		$esc = "\x1b";
+		$md  = "**Claude:** the {$esc}[1mbold{$esc}[0m word\n\n"
+			. "```\n{$esc}[32m+ added line{$esc}[0m\n```\n";
+
+		$out = $this->render($md);
+
+		$this->assertStringNotContainsString($esc, $out);
+		$this->assertStringNotContainsString('[0m', $out);
+		$this->assertStringContainsString('bold word', $out);
+		$this->assertStringContainsString('+ added line', $out);
+	}
+
+	// =====================================================================
 	// Turn glyphs + hanging indent
 	// =====================================================================
 

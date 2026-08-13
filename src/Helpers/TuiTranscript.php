@@ -57,6 +57,7 @@ class TuiTranscript {
 	 * it is not one of our markdown archives.
 	 */
 	public function fromMarkdown(string $text, int $width = self::DEFAULT_WIDTH): string {
+		$text = $this->sanitize($text);
 		if (!$this->looksLikeMarkdownArchive($text)) { return $text; }
 
 		$lines = explode("\n", str_replace("\r\n", "\n", $text));
@@ -98,6 +99,36 @@ class TuiTranscript {
 		}
 
 		return rtrim(implode("\n", $out), "\n") . "\n";
+	}
+
+	/**
+	 * Clean captured terminal bytes before anything else runs. Both hazards come from
+	 * tool output pasted verbatim out of a real terminal:
+	 *
+	 *   1. Invalid UTF-8 (a mangled em-dash: bytes 0x80 0x94). EVERY pattern here uses
+	 *      /u, and PCRE returns FALSE — not 0 — for a /u match against invalid UTF-8. So
+	 *      looksLikeMarkdownArchive() failed, fromMarkdown() bailed, and the modal showed
+	 *      the raw markdown (**Claude:**, backticks and all). This is THE bug this scrub
+	 *      exists for; the ANSI strip below is the cosmetic half.
+	 *   2. ANSI/CSI color escapes (colored `ollama-why`/git/diff output). Left in, they
+	 *      render as literal `[0m`/`[36m` junk AND count toward the wrap width, breaking
+	 *      lines in the wrong place.
+	 *
+	 * PRESENTATION ONLY — the archive on disk keeps the original bytes.
+	 */
+	private function sanitize(string $text): string {
+		return $this->stripAnsi(mb_scrub($text, 'UTF-8'));
+	}
+
+	/**
+	 * Drop ANSI/VT control sequences: CSI (colors, cursor moves: ESC [ … final byte),
+	 * OSC (ESC ] … BEL/ST), and lone two-char escapes. Leaves the visible text.
+	 */
+	private function stripAnsi(string $text): string {
+		$text = preg_replace('/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/', '', $text);
+		$text = preg_replace('/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\\\)/', '', $text);
+		$text = preg_replace('/\x1b[@-Z\\\\-_]/', '', $text);
+		return $text;
 	}
 
 	/**
