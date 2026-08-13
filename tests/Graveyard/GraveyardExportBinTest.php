@@ -70,6 +70,30 @@ final class GraveyardExportBinTest extends TestCase
 		return $bin;
 	}
 
+	/**
+	 * Point HOME at a throwaway dir and clear the env override, so exportBinPath()
+	 * exercises its real filesystem auto-detection against a layout we control.
+	 */
+	private function fakeHome(): string
+	{
+		putenv('GRAVEYARD_EXPORT_BIN');
+		$home = $this->tmpName('export-home');
+		@mkdir($home, 0755, true);
+		$this->cleanup[] = $home;
+		$this->oldHome = getenv('HOME') ?: null;
+		putenv('HOME=' . $home);
+
+		return $home;
+	}
+
+	/** Write an executable stub export-session.mjs at $path, creating parent dirs. */
+	private function installStubMjs(string $path): void
+	{
+		@mkdir(dirname($path), 0755, true);
+		file_put_contents($path, "#!/usr/bin/env node\nprocess.stdout.write('stub');\n");
+		chmod($path, 0755);
+	}
+
 	/** A graveyard rooted in a throwaway store dir, so transcriptPath() is disposable. */
 	private function makeGraveyard(): Graveyard
 	{
@@ -129,6 +153,55 @@ final class GraveyardExportBinTest extends TestCase
 		$this->cleanup[] = $bin;
 
 		$this->assertSame('', $this->makeGraveyard()->exportBinPath());
+	}
+
+	// ---------------------------------------------------------------------
+	// Auto-detection of the installed binary (no env override).
+	//
+	// These pin the on-disk LEAF PATH the plugin ships. The real-binary GATE 2
+	// tests below only run when exportBinPath() already resolves — so when the
+	// script moves inside the plugin and the leaf goes stale, those tests
+	// silently SKIP and bury quietly reverts to typing /export into the REPL.
+	// A stale leaf must fail loudly here instead.
+	// ---------------------------------------------------------------------
+
+	public function testExportBinPathFindsTheClaudePluginsWorkingCheckout(): void
+	{
+		$home = $this->fakeHome();
+		$bin  = $home . '/Code/claude-plugins/plugins/session-tools/scripts/export-session.mjs';
+		$this->installStubMjs($bin);
+
+		$this->assertSame($bin, $this->makeGraveyard()->exportBinPath());
+	}
+
+	public function testExportBinPathFindsAMarketplaceCacheInstall(): void
+	{
+		$home = $this->fakeHome();
+		$bin  = $home . '/.claude/plugins/cache/jtsternberg/session-tools/0.1.0/scripts/export-session.mjs';
+		$this->installStubMjs($bin);
+
+		$this->assertSame($bin, $this->makeGraveyard()->exportBinPath());
+	}
+
+	public function testExportBinPathPrefersNewestCacheVersion(): void
+	{
+		$home = $this->fakeHome();
+		$base = $home . '/.claude/plugins/cache/jtsternberg/session-tools';
+		$this->installStubMjs($base . '/0.1.0/scripts/export-session.mjs');
+		$new = $base . '/0.2.0/scripts/export-session.mjs';
+		$this->installStubMjs($new);
+
+		$this->assertSame($new, $this->makeGraveyard()->exportBinPath());
+	}
+
+	public function testExportBinPathPrefersWorkingCheckoutOverCache(): void
+	{
+		$home = $this->fakeHome();
+		$checkout = $home . '/Code/claude-plugins/plugins/session-tools/scripts/export-session.mjs';
+		$this->installStubMjs($checkout);
+		$this->installStubMjs($home . '/.claude/plugins/cache/jtsternberg/session-tools/9.9.9/scripts/export-session.mjs');
+
+		$this->assertSame($checkout, $this->makeGraveyard()->exportBinPath());
 	}
 
 	// =====================================================================

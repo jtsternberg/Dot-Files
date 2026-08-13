@@ -1080,7 +1080,7 @@ class Graveyard {
 		}
 
 		$home  = getenv('HOME') ?: '';
-		$leaf  = '/skills/sessions-catch-up/scripts/export-session.mjs';
+		$leaf  = '/scripts/export-session.mjs';
 		$cands = [$home . '/Code/claude-plugins/plugins/session-tools' . $leaf];
 		$cache = glob($home . '/.claude/plugins/cache/*/session-tools/*' . $leaf) ?: [];
 		rsort($cache);
