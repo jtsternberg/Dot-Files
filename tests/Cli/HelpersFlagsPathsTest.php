@@ -91,16 +91,14 @@ final class HelpersFlagsPathsTest extends TestCase
 		$this->cli->setArgs(['tool']);
 		$this->assertFalse($this->cli->isAutoconfirm());
 
-		// shouldIgnoreErrors is hasFlags('ignoreErrors', 'ignore') — 'ignore' sits
-		// in the SHORT-flag slot, so the wired-up forms are the long --ignoreErrors
-		// and the single-dash short -ignore. The long --ignore is deliberately NOT
-		// pinned as working here — it isn't wired up (reachable code, not a typo).
+		// shouldIgnoreErrors accepts the long --ignoreErrors and --ignore, plus the
+		// single-dash short -ignore.
 		$this->cli->setArgs(['tool', '--ignoreErrors']);
 		$this->assertTrue($this->cli->shouldIgnoreErrors(), '--ignoreErrors (long)');
-		$this->cli->setArgs(['tool', '-ignore']);
-		$this->assertTrue($this->cli->shouldIgnoreErrors(), '-ignore (short slot)');
 		$this->cli->setArgs(['tool', '--ignore']);
-		$this->assertFalse($this->cli->shouldIgnoreErrors(), '--ignore (long) is not wired up');
+		$this->assertTrue($this->cli->shouldIgnoreErrors(), '--ignore (long)');
+		$this->cli->setArgs(['tool', '-ignore']);
+		$this->assertTrue($this->cli->shouldIgnoreErrors(), '-ignore (short)');
 		$this->cli->setArgs(['tool']);
 		$this->assertFalse($this->cli->shouldIgnoreErrors());
 	}

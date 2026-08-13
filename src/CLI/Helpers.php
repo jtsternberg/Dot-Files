@@ -401,7 +401,7 @@ class Helpers {
 	 * @return boolean
 	 */
 	public function shouldIgnoreErrors() {
-		return $this->hasFlags( 'ignoreErrors', 'ignore' );
+		return $this->hasFlags( [ 'ignoreErrors', 'ignore' ], 'ignore' );
 	}
 
 	/**
