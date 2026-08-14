@@ -1,0 +1,38 @@
+# Linux systemd *user* service for the herdr headless server.
+# herdr (https://herdr.dev) is a headless, agent-aware terminal multiplexer;
+# this keeps its server running across logout and reboot so detached agent
+# sessions survive. macOS starts herdr's server on first `herdr` launch and
+# does not use this unit.
+#
+# Prerequisite: herdr installed to ~/.local/bin
+#   curl -fsSL https://herdr.dev/install.sh | sh
+#
+# Setup (Linux only — run once):
+#   1. Symlink this file:
+#        ln -s ~/.dotfiles/herdr/herdr.service ~/.config/systemd/user/
+#   2. Let the user manager run at boot without an active login:
+#        loginctl enable-linger "$USER"
+#   3. Reload, enable, and start:
+#        systemctl --user daemon-reload
+#        systemctl --user enable --now herdr.service
+#   4. Verify:
+#        systemctl --user status herdr.service
+#
+# Driving `systemctl --user` over a non-interactive SSH needs the bus address:
+#        export XDG_RUNTIME_DIR=/run/user/$(id -u)
+
+[Unit]
+Description=herdr headless server (persistent agent multiplexer)
+Documentation=https://herdr.dev
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/herdr server
+ExecStop=%h/.local/bin/herdr server stop
+Restart=on-failure
+RestartSec=2
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=default.target
