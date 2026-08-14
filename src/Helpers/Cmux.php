@@ -615,9 +615,16 @@ class Cmux {
 	 * and isn't.)
 	 *
 	 * Scanned backward — rollouts run to megabytes, so the head is never read.
+	 *
+	 * `has_turn_context` is the honest half of the answer, and callers need it: a
+	 * null sandbox cannot distinguish "recorded as unset" from "never recorded",
+	 * and ~45% of real rollouts are the second — every Codex Desktop
+	 * (source=vscode) session, permanently. That is not a legacy-version quirk
+	 * waiting to age out, so a false here means the session's real sandbox/approval
+	 * are UNKNOWABLE and a resume will silently take config.toml's (dotfiles-f1n).
 	 */
 	public function codexRolloutContext(string $rolloutPath): array {
-		$ctx = ['model' => null, 'sandbox' => null, 'approval' => null, 'effort' => null];
+		$ctx = ['model' => null, 'sandbox' => null, 'approval' => null, 'effort' => null, 'has_turn_context' => false];
 
 		$this->eachLineReverse($rolloutPath, function (string $line) use (&$ctx) {
 			$rec = json_decode(trim($line), true);
@@ -630,6 +637,7 @@ class Cmux {
 				'sandbox'  => $pl['sandbox_policy']['type'] ?? null,
 				'approval' => $pl['approval_policy'] ?? null,
 				'effort'   => $pl['reasoning_effort'] ?? ($pl['settings']['reasoning_effort'] ?? null),
+				'has_turn_context' => true,
 			];
 			return false; // last one wins; stop at the first hit scanning backward
 		});

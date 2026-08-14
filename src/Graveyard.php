@@ -413,6 +413,22 @@ class Graveyard {
 		if ($agent !== 'claude') {
 			$tomb['kind']       = $agent;
 			$tomb['agent_opts'] = is_array($session['opts'] ?? null) ? $session['opts'] : [];
+
+			// AN HONEST ARCHIVE (dotfiles-f1n). sandbox/approval only exist in the
+			// rollout's turn_context records, and ~45% of real rollouts have none — every
+			// Codex Desktop (source=vscode) session, permanently. Such a session used to
+			// get null agent_opts and come back on whatever ~/.codex/config.toml defaults
+			// to, with nothing recorded and nothing said. Stamp it instead, so the
+			// tombstone says "unknown" rather than implying "nothing was set".
+			//
+			// Read from the rollout rather than trusting $session['opts'] to be empty:
+			// what could not be preserved is a fact about the SOURCE, and the opts carry
+			// has been dropped by plumbing before (see the round-trip regression test).
+			// A missing/unreadable rollout counts as absent too — nothing was preserved
+			// from it either way.
+			if ($agent === 'codex' && !$this->cmux->codexRolloutContext((string) $src)['has_turn_context']) {
+				$tomb['agent_opts_unknown'] = true;
+			}
 		}
 
 		// Grouped (workspace) bury: stamp the shared group id + layout position so
@@ -965,6 +981,30 @@ class Graveyard {
 	}
 
 	/**
+	 * PURE. The one line to say out loud when a codex tombstone cannot restore the
+	 * session's sandbox/approval — null when it can, so callers just print what they
+	 * get (dotfiles-f1n).
+	 *
+	 * Two ways in, because the flag is younger than the graveyard: buildTombstone
+	 * stamps `agent_opts_unknown` from now on, and every Codex Desktop session buried
+	 * BEFORE it existed is recognised by the consequence instead — empty
+	 * sandbox+approval, which is exactly what makes `codex resume` fall through to
+	 * config.toml. Claude never qualifies: `--resume` rehydrates its own permission
+	 * mode, and skip_perms is recorded outright.
+	 */
+	public function agentOptsUnknownWarning(array $tomb): ?string {
+		if ($this->tombstoneAgent($tomb) !== 'codex') { return null; }
+
+		$opts     = is_array($tomb['agent_opts'] ?? null) ? $tomb['agent_opts'] : [];
+		$nothing  = ($opts['sandbox'] ?? '') === '' && ($opts['approval'] ?? '') === '';
+		if (empty($tomb['agent_opts_unknown']) && !$nothing) { return null; }
+
+		return '  ⚠ sandbox/approval were NOT preserved for this codex session — its rollout '
+			. 'recorded no turn_context, so it resumes under whatever ~/.codex/config.toml '
+			. 'currently defaults to, not what it was running under.';
+	}
+
+	/**
 	 * Bury a codex session. Mirrors buryOne's shape but with the codex gates, and
 	 * kept as its own method so the Claude path stays byte-identical.
 	 */
@@ -1020,6 +1060,9 @@ class Graveyard {
 			$this->cli->msg('  Could not render the rollout as a transcript — the raw rollout is archived.', 'yellow');
 		}
 		$this->cli->successMsg($this->ellipsizeText('  Buried [codex]: ' . $this->cleanSummaryText($summary, getenv('HOME') ?: ''), $this->termWidth()));
+		// Say it at burial too, not only at resurrect: this is the moment the archive's
+		// limits are decided, and it is the last moment the live session could be asked.
+		if ($warn = $this->agentOptsUnknownWarning($tomb)) { $this->cli->msg($warn, 'yellow'); }
 
 		if (!$autoConfirm && !$this->cli->confirm('  Close the cmux tab and kill this session now?')) {
 			$this->cli->msg('  Left the tab open; rollout is archived.', 'yellow');
@@ -2806,6 +2849,10 @@ class Graveyard {
 			'live'            => (bool) ($t['live'] ?? false),
 		];
 		if (!empty($t['live_agent'])) { $row['live_agent'] = $t['live_agent']; }
+		// What this archive could NOT preserve. Structured output is a VIEW: a fact the
+		// text path warns about and the JSON omits is the same bug in machine-readable
+		// form. Only emitted when true, so every other row keeps its exact shape.
+		if ($this->agentOptsUnknownWarning($t) !== null) { $row['agent_opts_unknown'] = true; }
 		if ($matched !== null) { $row['matched'] = $matched; }
 		return $row;
 	}
@@ -3776,6 +3823,11 @@ class Graveyard {
 	 * re-reads config rather than rehydrating the session's own turn_context — bare,
 	 * a session that ran read-only comes back with full access (measured). Claude's
 	 * command is produced exactly as before.
+	 *
+	 * When there is nothing to replay because the rollout never recorded it, this
+	 * still emits a bare `codex resume <id>` and the session takes config.toml's
+	 * defaults. That case is not silent: launchSessionIntoSurface() warns first (see
+	 * agentOptsUnknownWarning()) and proceeds.
 	 */
 	public function buildTombstoneLaunch(array $t, bool $fresh): string {
 		if ($this->tombstoneAgent($t) === 'codex') {
@@ -3897,6 +3949,17 @@ class Graveyard {
 		// single-member resurrect, where the workspace is already created at $t['cwd'].
 		$cwd    = (string) ($t['cwd'] ?? '');
 		$prefix = $cwd !== '' ? 'cd ' . escapeshellarg($cwd) . ' && ' : '';
+
+		// WARN AND PROCEED (dotfiles-f1n). A codex session whose rollout carried no
+		// turn_context — every Codex Desktop session, ~45% of the corpus — has no
+		// recorded sandbox/approval to replay, so `codex resume` takes config.toml's
+		// instead and a session that ran read-only can come back with full access.
+		// Deliberately NOT a refusal: the restore is still the one the user asked for
+		// and the widening is only a widening relative to an unknown, so the contract is
+		// honesty, not friction. Emitted here rather than in buildTombstoneLaunch() so
+		// single, in-place and workspace-member resurrects cannot drift apart — this is
+		// the one path all three take.
+		if ($warn = $this->agentOptsUnknownWarning($t)) { $this->cli->msg($warn, 'yellow'); }
 
 		if ($useResume) {
 			$launch = $this->buildTombstoneLaunch($t, false);

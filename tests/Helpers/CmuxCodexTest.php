@@ -627,7 +627,30 @@ final class CmuxCodexTest extends TestCase
 	{
 		$ctx = $this->cmux->codexRolloutContext('/no/such/rollout.jsonl');
 
-		$this->assertSame(['model' => null, 'sandbox' => null, 'approval' => null, 'effort' => null], $ctx);
+		$this->assertSame(
+			['model' => null, 'sandbox' => null, 'approval' => null, 'effort' => null, 'has_turn_context' => false],
+			$ctx
+		);
+	}
+
+	public function testCodexRolloutContextReportsWhetherATurnContextExistedAtAll(): void
+	{
+		// Null sandbox alone cannot distinguish "recorded as unset" from "never
+		// recorded", and ~45% of real rollouts (every Codex Desktop session) are the
+		// second. Resurrect has to be able to tell, so the reader says which it saw
+		// (dotfiles-f1n).
+		$with    = sys_get_temp_dir() . '/cmuxbak-tc-with-' . getmypid() . '.jsonl';
+		$without = sys_get_temp_dir() . '/cmuxbak-tc-without-' . getmypid() . '.jsonl';
+		$this->writeRollout($with, [['model' => 'gpt-5.6-terra', 'sandbox_policy' => ['type' => 'read-only']]]);
+		$this->writeRollout($without, []);
+
+		try {
+			$this->assertTrue($this->cmux->codexRolloutContext($with)['has_turn_context']);
+			$this->assertFalse($this->cmux->codexRolloutContext($without)['has_turn_context']);
+		} finally {
+			unlink($with);
+			unlink($without);
+		}
 	}
 
 	public function testBuildAgentResumeCommandDelegatesClaudeToTheExistingBuilder(): void

@@ -43,8 +43,14 @@ final class GraveyardCodexBuryTest extends TestCase
 
 	private const SID = '019fadf9-449a-74c0-aac4-dc767affc6ea';
 
-	/** Write a rollout into a fake CODEX_SESSIONS_DIR and point the helper at it. */
-	private function liveRollout(string $sid, array $extra = []): string
+	/**
+	 * Write a rollout into a fake CODEX_SESSIONS_DIR and point the helper at it.
+	 *
+	 * $withTurnContext=false reproduces a Codex Desktop rollout: ~45% of real
+	 * rollouts carry no turn_context record at all, so sandbox/approval simply are
+	 * not recorded anywhere (dotfiles-f1n).
+	 */
+	private function liveRollout(string $sid, array $extra = [], bool $withTurnContext = true): string
 	{
 		$dir = $this->root . '/codex-sessions/2026/07/29';
 		if (!is_dir($dir)) { mkdir($dir, 0777, true); }
@@ -56,11 +62,13 @@ final class GraveyardCodexBuryTest extends TestCase
 			'cwd'        => '/Users/JT/x',
 			'originator' => 'codex-tui',
 		], $extra)])];
-		$lines[] = json_encode(['timestamp' => '2026-07-29T09:05:00.000Z', 'type' => 'turn_context', 'payload' => [
-			'model'           => 'gpt-5.6-terra',
-			'approval_policy' => 'never',
-			'sandbox_policy'  => ['type' => 'read-only'],
-		]]);
+		if ($withTurnContext) {
+			$lines[] = json_encode(['timestamp' => '2026-07-29T09:05:00.000Z', 'type' => 'turn_context', 'payload' => [
+				'model'           => 'gpt-5.6-terra',
+				'approval_policy' => 'never',
+				'sandbox_policy'  => ['type' => 'read-only'],
+			]]);
+		}
 		$lines[] = json_encode(['timestamp' => '2026-07-29T09:06:00.000Z', 'type' => 'response_item', 'payload' => ['x' => 1]]);
 		file_put_contents($path, implode("\n", $lines) . "\n");
 
@@ -348,9 +356,9 @@ final class GraveyardCodexBuryTest extends TestCase
 	// ── buryOne: codex now allowed, but only through the codex gates ──────────
 
 	/** A Graveyard whose live-codex view and surface I/O are stubbed. */
-	private function buryStub(array $liveBySurf, bool $rolloutExists = true): Graveyard
+	private function buryStub(array $liveBySurf, bool $rolloutExists = true, bool $withTurnContext = true): Graveyard
 	{
-		if ($rolloutExists) { $this->liveRollout(self::SID); }
+		if ($rolloutExists) { $this->liveRollout(self::SID, [], $withTurnContext); }
 
 		return new class($this->cli, $this->cmux, $liveBySurf) extends Graveyard {
 			public array $sent = [];
@@ -477,5 +485,159 @@ final class GraveyardCodexBuryTest extends TestCase
 		], false);
 
 		$this->assertSame($this->cmux->buildResumeCommand('aaaa1111-2222-3333-4444-555555555555', true, 'opus'), $cmd);
+	}
+
+	# =========================================================================
+	# An honest archive when the rollout never recorded sandbox/approval
+	# (dotfiles-f1n)
+	#
+	# sandbox/approval come from turn_context records, and ~45% of real rollouts
+	# have none — every Codex Desktop (source=vscode) session, permanently, not a
+	# version quirk that ages out. Such a session used to resurrect with null
+	# agent_opts and come back on whatever ~/.codex/config.toml defaults to, with
+	# nothing recorded and nothing said. The archive now says so, and resurrect
+	# warns and proceeds.
+	# =========================================================================
+
+	/** A codex row as the live join produces it for a rollout with NO turn_context. */
+	private function codexSessNoContext(): array
+	{
+		$sess         = $this->codexSess();
+		$sess['opts'] = ['sandbox' => null, 'approval' => null, 'effort' => null];
+		return $sess;
+	}
+
+	public function testBuryStampsTheHonestyFlagWhenTheRolloutHasNoTurnContext(): void
+	{
+		$stub = $this->buryStub(['surface:86' => self::SID], true, false);
+
+		$this->assertTrue($stub->buryOne($this->codexSessNoContext(), true, true));
+
+		$tomb = json_decode(file_get_contents($stub->metaPath(self::SID)), true);
+		$this->assertTrue(
+			$tomb['agent_opts_unknown'] ?? false,
+			'a rollout with no turn_context must record that sandbox/approval could not be preserved'
+		);
+	}
+
+	public function testBuryLeavesTheHonestyFlagOffANormalCodexRollout(): void
+	{
+		// No regression: a rollout that DOES carry turn_context keeps exactly the
+		// tombstone shape it had, flag absent rather than false.
+		$stub = $this->buryStub(['surface:86' => self::SID]);
+
+		$this->assertTrue($stub->buryOne($this->codexSess(), true, true));
+
+		$tomb = json_decode(file_get_contents($stub->metaPath(self::SID)), true);
+		$this->assertArrayNotHasKey('agent_opts_unknown', $tomb);
+		$this->assertSame('read-only', $tomb['agent_opts']['sandbox']);
+	}
+
+	public function testBuildTombstoneLeavesClaudeTombstonesUnflagged(): void
+	{
+		$sess               = $this->codexSess();
+		$sess['agent']      = 'claude';
+		$sess['session_id'] = 'aaaaaaaa-1111-2222-3333-444444444444';
+
+		$tomb = $this->gy->buildTombstone($sess, ['workspace_title' => 'ws', 'tab_title' => 't'], 'sum', '2026-07-29T00:00:00Z');
+
+		$this->assertArrayNotHasKey('agent_opts_unknown', $tomb);
+	}
+
+	public function testAgentOptsUnknownWarningFiresForAFlaggedTombstoneAndNotAPreservedOne(): void
+	{
+		$flagged = ['kind' => 'codex', 'session_id' => self::SID, 'agent_opts_unknown' => true, 'agent_opts' => []];
+		$this->assertNotNull($this->gy->agentOptsUnknownWarning($flagged));
+
+		$preserved = ['kind' => 'codex', 'session_id' => self::SID, 'agent_opts' => ['sandbox' => 'read-only', 'approval' => 'never']];
+		$this->assertNull($this->gy->agentOptsUnknownWarning($preserved));
+
+		// Claude has no sandbox/approval to lose; --resume rehydrates its own mode.
+		$this->assertNull($this->gy->agentOptsUnknownWarning(['session_id' => self::SID, 'skip_perms' => true]));
+	}
+
+	public function testAgentOptsUnknownWarningAlsoCoversArchivesBuriedBeforeTheFlagExisted(): void
+	{
+		// The ~45% already in the graveyard carry no flag — they were buried before
+		// it existed — but their empty agent_opts is the same silent widening, so the
+		// warning is driven by the consequence and not only by the stamp.
+		$legacy = ['kind' => 'codex', 'session_id' => self::SID, 'agent_opts' => ['sandbox' => null, 'approval' => null]];
+
+		$this->assertNotNull($this->gy->agentOptsUnknownWarning($legacy));
+	}
+
+	public function testResurrectWarnsAndStillProceedsWhenSandboxWasNotPreserved(): void
+	{
+		$this->liveRollout(self::SID, [], false);
+
+		$cmux = new class($this->cli) extends \JT\Helpers\Cmux {
+			public array $sent = [];
+			public function sendToSurface(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $text; }
+			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {}
+		};
+		$gy = new class($this->cli, $cmux) extends Graveyard {
+			public function launchTargetIsSafe(string $surfRef): bool { return true; }
+			public function ensureTranscript(array $t): string { return '/dev/null/transcript.md'; }
+			public function launch(array $t): string
+			{
+				return $this->launchSessionIntoSurface($t, 'surface:1', 'workspace:1', false);
+			}
+		};
+
+		$tomb = [
+			'kind' => 'codex', 'session_id' => self::SID, 'cwd' => '/Users/JT/x',
+			'model' => 'gpt-5.6-terra', 'agent_opts' => [], 'agent_opts_unknown' => true,
+		];
+
+		ob_start();
+		$mode = $gy->launch($tomb);
+		$out  = (string) ob_get_clean();
+
+		// Warns…
+		$this->assertStringContainsString('sandbox', $out);
+		$this->assertStringContainsString('config.toml', $out);
+		// …and PROCEEDS: the resume still went out, unchanged.
+		$this->assertSame('resume', $mode);
+		$this->assertStringContainsString('codex resume', implode("\n", $cmux->sent));
+	}
+
+	public function testResurrectSaysNothingExtraForAPreservedCodexSession(): void
+	{
+		$this->liveRollout(self::SID);
+
+		$cmux = new class($this->cli) extends \JT\Helpers\Cmux {
+			public array $sent = [];
+			public function sendToSurface(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $text; }
+			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {}
+		};
+		$gy = new class($this->cli, $cmux) extends Graveyard {
+			public function launchTargetIsSafe(string $surfRef): bool { return true; }
+			public function ensureTranscript(array $t): string { return '/dev/null/transcript.md'; }
+			public function launch(array $t): string
+			{
+				return $this->launchSessionIntoSurface($t, 'surface:1', 'workspace:1', false);
+			}
+		};
+
+		ob_start();
+		$mode = $gy->launch([
+			'kind' => 'codex', 'session_id' => self::SID, 'cwd' => '/Users/JT/x',
+			'model' => 'gpt-5.6-terra', 'agent_opts' => ['sandbox' => 'read-only', 'approval' => 'never'],
+		]);
+		$out = (string) ob_get_clean();
+
+		$this->assertSame('resume', $mode);
+		$this->assertStringNotContainsString('config.toml', $out);
+	}
+
+	public function testStructuredOutputCarriesTheHonestyFlag(): void
+	{
+		// A view is a view (AGENTS.md): a fact the text output warns about and the
+		// JSON omits is the same bug in a machine-readable coat.
+		$row = $this->gy->searchRowJson(['kind' => 'codex', 'session_id' => self::SID, 'agent_opts_unknown' => true, 'agent_opts' => []]);
+		$this->assertTrue($row['agent_opts_unknown']);
+
+		$clean = $this->gy->searchRowJson(['kind' => 'codex', 'session_id' => self::SID, 'agent_opts' => ['sandbox' => 'read-only']]);
+		$this->assertArrayNotHasKey('agent_opts_unknown', $clean);
 	}
 }
