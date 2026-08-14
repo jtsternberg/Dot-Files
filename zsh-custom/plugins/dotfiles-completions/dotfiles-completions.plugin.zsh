@@ -182,7 +182,34 @@ _md_atx_lazy() {
 	_md_atx "$@"
 }
 
+# herdr (https://herdr.dev) is a third-party tool, not maintained in this repo,
+# but its completion follows the same generate-on-first-use contract as our own
+# commands, so its lazy loader lives here rather than in a new plugin. It is a
+# no-op in shells where herdr isn't installed: the generator call fails quietly
+# and _message explains on the rare occasion someone tabs `herdr ` without it.
+_herdr_lazy() {
+	local generated
+
+	generated="$(command herdr completion zsh 2>/dev/null)" || {
+		_message 'unable to generate herdr completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load herdr completion'
+		return 1
+	}
+
+	if (( ! $+functions[_herdr] )); then
+		_message 'herdr completion did not define _herdr'
+		return 1
+	fi
+
+	_herdr "$@"
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
 compdef _md_atx_lazy md-atx
+compdef _herdr_lazy herdr
