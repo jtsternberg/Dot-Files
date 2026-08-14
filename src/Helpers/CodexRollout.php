@@ -375,7 +375,7 @@ class CodexRollout {
 					return true;
 
 				case 'compacted':
-					$item = ['kind' => 'compaction', 'at' => $at, 'text' => $this->str($p['message'] ?? '') ?? ''];
+					$item = $this->compactionItem($p, $at);
 					$primary[] = $item;
 					$events[]  = $item;
 					return true;
@@ -394,6 +394,39 @@ class CodexRollout {
 			|| trim((string) $i['text']) !== '' || $i['tools']));
 
 		return $this->cache[$key] = $items;
+	}
+
+	/**
+	 * PURE. One compaction boundary, however it was recorded.
+	 *
+	 * Three record shapes mark a compaction — top-level `compacted`, response_item
+	 * `compaction`/`context_compaction`, and event_msg `context_compacted` — and all
+	 * three build the item here, so a field added to a compaction is added once and
+	 * every dialect gains it. They had drifted apart by copy already.
+	 *
+	 * `replacement_history` is the conversation that REPLACED the pre-compaction
+	 * history: the turns Codex carried forward, the harness-injected developer blocks,
+	 * and a trailing opaque `compaction` blob. Kept RAW and unnormalised, because
+	 * normalising is what threw it away — the developer entries and the encrypted blob
+	 * are not turns and would not survive a turn-shaped filter (dotfiles-tbi).
+	 *
+	 * Worth capturing even though nothing renders it yet: measured over the whole
+	 * corpus, all 48 compaction records carry a replacement_history and NOT ONE has a
+	 * non-empty `message`, so `message` alone preserves nothing about any real
+	 * compaction. Rendering it is a scope choice deferred to dotfiles-n6y.
+	 *
+	 * Always a list, never absent: a rollout written before the field existed reads as
+	 * "nothing kept" rather than making every consumer guard the key.
+	 */
+	protected function compactionItem(array $p, ?string $at): array {
+		$kept = $p['replacement_history'] ?? null;
+
+		return [
+			'kind' => 'compaction',
+			'at'   => $at,
+			'text' => $this->str($p['message'] ?? '') ?? '',
+			'replacement_history' => is_array($kept) ? array_values($kept) : [],
+		];
 	}
 
 	/** Remove the final N user-turn spans, as Codex does when replaying a rollback. */
@@ -498,7 +531,7 @@ class CodexRollout {
 
 			case 'compaction':
 			case 'context_compaction':
-				$lane[] = ['kind' => 'compaction', 'at' => $at, 'text' => $this->str($p['message'] ?? '') ?? ''];
+				$lane[] = $this->compactionItem($p, $at);
 				return;
 
 			// Measured in the corpus and deliberately not rendered: ghost_snapshot is
@@ -546,7 +579,7 @@ class CodexRollout {
 			case 'context_compacted':
 				// Bare in the wild: `{"type":"context_compacted"}` and nothing else. The
 				// boundary still matters even with no summary to show.
-				$item = ['kind' => 'compaction', 'at' => $at, 'text' => $this->str($p['message'] ?? '') ?? ''];
+				$item = $this->compactionItem($p, $at);
 				$primary[] = $item;
 				$events[]  = $item;
 				return;

@@ -59,6 +59,25 @@ final class CodexRolloutTest extends TestCase
 		return new CodexRollout();
 	}
 
+	/** The parsed timeline items. timeline() is protected; nothing public exposes it yet. */
+	private function timelineOf(string $path): array
+	{
+		$reader = new class extends CodexRollout {
+			public function timelineFor(string $path): array { return $this->timeline($path); }
+		};
+
+		return $reader->timelineFor($path);
+	}
+
+	/** The single compaction item in a rollout's timeline. */
+	private function compactionIn(string $path): array
+	{
+		$hits = array_values(array_filter($this->timelineOf($path), fn($i) => $i['kind'] === 'compaction'));
+		$this->assertCount(1, $hits, 'expected exactly one compaction item');
+
+		return $hits[0];
+	}
+
 	// =====================================================================
 	// Session metadata
 	// =====================================================================
@@ -845,6 +864,131 @@ final class CodexRolloutTest extends TestCase
 
 		$this->assertStringContainsString('⟲ Context compacted', $bare);
 		$this->assertStringContainsString('**You:** second', $bare);
+	}
+
+	// =====================================================================
+	// Compaction: replacement_history (dotfiles-tbi)
+	//
+	// A compaction payload carries the history that REPLACED the pre-compaction
+	// conversation — the live context the session went on with. The parse read
+	// `message` and dropped it. Measured over the corpus: all 48 compaction records
+	// carry replacement_history and NOT ONE has a non-empty message, so what was
+	// discarded was the entire informative half of every compaction on disk.
+	//
+	// Captured raw and deliberately unrendered: choosing between full and
+	// live-context scope in the archive is deferred (dotfiles-n6y). This is only the
+	// data-preservation half.
+	// =====================================================================
+
+	/** A `compacted` record whose replacement_history holds $entries. */
+	private function compacted(array $entries, string $message = '', array $extra = []): array
+	{
+		return ['timestamp' => '2026-07-29T09:02:00.000Z', 'type' => 'compacted', 'payload' => array_merge([
+			'message'             => $message,
+			'replacement_history' => $entries,
+		], $extra)];
+	}
+
+	private function historyEntry(string $role, string $text): array
+	{
+		return ['type' => 'message', 'role' => $role, 'content' => [['type' => 'input_text', 'text' => $text]]];
+	}
+
+	public function testCapturesReplacementHistoryOffACompactionRecord(): void
+	{
+		$kept = [
+			$this->historyEntry('user', 'the request that survived compaction'),
+			$this->historyEntry('developer', '<permissions instructions>'),
+			['type' => 'compaction', 'encrypted_content' => 'gAAAAAB-opaque-blob'],
+		];
+
+		$item = $this->compactionIn($this->rollout([
+			$this->meta(),
+			$this->msg('user', 'first'),
+			$this->compacted($kept, 'summary of the earlier work'),
+			$this->msg('user', 'second'),
+		], 'rh-present.jsonl'));
+
+		// Verbatim: normalising here would drop the developer block and the opaque
+		// compaction blob, which is the same discard this exists to stop.
+		$this->assertSame($kept, $item['replacement_history']);
+		// …and the message reading is untouched.
+		$this->assertSame('summary of the earlier work', $item['text']);
+	}
+
+	public function testCapturesReplacementHistoryOffACompactionResponseItem(): void
+	{
+		// The response_item dialect. Absent from the corpus but parsed, so it must
+		// produce the same item shape rather than a second, poorer one.
+		$kept = [$this->historyEntry('user', 'kept by the response-item dialect')];
+
+		$item = $this->compactionIn($this->rollout([
+			$this->meta(),
+			$this->msg('user', 'first'),
+			['timestamp' => '2026-07-29T09:02:00.000Z', 'type' => 'response_item', 'payload' => [
+				'type' => 'context_compaction', 'message' => 'rolled up', 'replacement_history' => $kept,
+			]],
+		], 'rh-response-item.jsonl'));
+
+		$this->assertSame($kept, $item['replacement_history']);
+		$this->assertSame('rolled up', $item['text']);
+	}
+
+	public function testLegacyCompactionWithNoReplacementHistoryCapturesAnEmptyList(): void
+	{
+		// Graceful, not absent: consumers get a list to walk either way, so a rollout
+		// written before the field existed reads as "nothing kept", never as a missing
+		// key to guard against at every call site.
+		$noKey = $this->compactionIn($this->rollout([
+			$this->meta(),
+			$this->msg('user', 'first'),
+			['timestamp' => '2026-07-29T09:02:00.000Z', 'type' => 'compacted', 'payload' => ['message' => 'just a summary']],
+		], 'rh-absent.jsonl'));
+
+		$this->assertSame([], $noKey['replacement_history']);
+		$this->assertSame('just a summary', $noKey['text']);
+
+		// The bare event_msg boundary — `{"type":"context_compacted"}` and nothing else.
+		$bare = $this->compactionIn($this->rollout([
+			$this->meta(),
+			$this->msg('user', 'first'),
+			['timestamp' => '2026-07-29T09:02:00.000Z', 'type' => 'event_msg', 'payload' => ['type' => 'context_compacted']],
+		], 'rh-bare.jsonl'));
+
+		$this->assertSame([], $bare['replacement_history']);
+		$this->assertSame('', $bare['text']);
+	}
+
+	public function testAMalformedReplacementHistoryStillYieldsAList(): void
+	{
+		// The field is upstream's, so its type is not ours to assume. A scalar where a
+		// list belongs must not put a non-iterable on the item.
+		$item = $this->compactionIn($this->rollout([
+			$this->meta(),
+			$this->msg('user', 'first'),
+			['timestamp' => '2026-07-29T09:02:00.000Z', 'type' => 'compacted', 'payload' => [
+				'message' => 'x', 'replacement_history' => 'not a list',
+			]],
+		], 'rh-malformed.jsonl'));
+
+		$this->assertSame([], $item['replacement_history']);
+	}
+
+	public function testCapturingReplacementHistoryDoesNotChangeTheRenderedArchive(): void
+	{
+		// Scope guard: full-vs-live-context rendering is deferred (dotfiles-n6y). The
+		// capture must be inert in every existing view — same bytes with the field as
+		// without it.
+		$records = [$this->meta(), $this->msg('user', 'first'), null, $this->msg('user', 'second')];
+
+		$records[2] = $this->compacted([$this->historyEntry('user', 'kept verbatim')], 'summary');
+		$with       = $this->reader()->toMarkdownArchive($this->rollout($records, 'render-with.jsonl'));
+
+		$records[2] = ['timestamp' => '2026-07-29T09:02:00.000Z', 'type' => 'compacted', 'payload' => ['message' => 'summary']];
+		$without    = $this->reader()->toMarkdownArchive($this->rollout($records, 'render-without.jsonl'));
+
+		$this->assertSame($without, $with);
+		$this->assertStringNotContainsString('kept verbatim', $with);
 	}
 
 	/**
