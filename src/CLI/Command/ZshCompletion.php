@@ -43,6 +43,8 @@ final class ZshCompletion {
 			$provider = $this->firstArgumentProvider( $default, $providers );
 			if ( null !== $provider ) {
 				$lines[] = "\t\tcompadd -- \${{$provider}}";
+			} elseif ( $this->firstArgumentWantsFiles( $default ) ) {
+				$lines[] = "\t\t_files";
 			}
 		}
 		$lines[] = "\t\treturn";
@@ -129,6 +131,16 @@ final class ZshCompletion {
 		return null;
 	}
 
+	private function firstArgumentWantsFiles( CommandDefinition $command ): bool {
+		foreach ( $command->parameters as $parameter ) {
+			if ( $parameter->isArgument() ) {
+				return 'files' === $parameter->completion;
+			}
+		}
+
+		return false;
+	}
+
 	/**
 	 * @return string[]
 	 */
@@ -150,19 +162,19 @@ final class ZshCompletion {
 				continue;
 			}
 
+			// A variadic argument completes at every remaining position, so it
+			// is rendered as Zsh's rest spec ('*') rather than a fixed slot.
+			$slot = $parameter->parameter->isVariadic() ? '*' : (string) $position;
+
 			$provider = null === $parameter->completionCommand
 				? null
 				: ( array_search( $parameter->completionCommand, $providers, true ) ?: null );
-			if ( null === $provider ) {
-				$specs[] = $this->quote( "{$position}:{$parameter->name}:" );
+			if ( null !== $provider ) {
+				$specs[] = '"' . $slot . ':' . $parameter->name . ':($' . $provider . ')"';
+			} elseif ( 'files' === $parameter->completion ) {
+				$specs[] = $this->quote( "{$slot}:{$parameter->name}:_files" );
 			} else {
-				$specs[] = '"'
-					. $position
-					. ':'
-					. $parameter->name
-					. ':($'
-					. $provider
-					. ')"';
+				$specs[] = $this->quote( "{$slot}:{$parameter->name}:" );
 			}
 			$position++;
 		}

@@ -1,0 +1,32 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# xname — rename files to cross-OS-friendly names.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/xname
+#
+# Version 0.1.0
+#
+# Spaces are the headline problem, so they become dashes; the same pass strips
+# the characters Windows forbids in a name (<>:"/\|?*, control chars) and the
+# trailing dots/spaces it silently drops. A leading dot is preserved so
+# dotfiles stay dotfiles, and case is left alone unless --lower is given.
+#
+# Renames apply immediately. Tracked files move with `git mv` so history
+# follows them, and --commit records those moves with a standardized message.
+#
+# Usage:
+# xname <path>... [--dry-run] [--lower] [--commit]
+# xname "My File.txt"                 Rename one file
+# xname *.pdf                         Rename everything the shell expands
+# xname --dry-run "My File.txt"       Preview only
+# xname --commit docs/"Old Name.md"   Rename a tracked file and commit it
+# xname completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new XnameCommand( $cli ) ) )->run() );

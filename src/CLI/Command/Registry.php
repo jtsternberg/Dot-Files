@@ -90,7 +90,8 @@ final class Registry {
 				'argument',
 				$argument->name ?: $parameter->getName(),
 				$argument->description,
-				completionCommand: $argument->completionCommand
+				completionCommand: $argument->completionCommand,
+				completion: $argument->completion
 			);
 		}
 

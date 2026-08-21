@@ -42,7 +42,7 @@ class Git {
 	 *
 	 * @param Helpers $h
 	 */
-	public function setHelpers( Helpers $h ) {
+	public function setHelpers( ?Helpers $h = null ) {
 		$this->helpers = $h;
 	}
 
@@ -440,6 +440,169 @@ class Git {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Whether a directory is inside a git work tree.
+	 *
+	 * Unlike the tag/branch/remote helpers above, the methods from here down are
+	 * directory-scoped (they operate on an arbitrary path via `git -C`, not the
+	 * current working directory) and answer with booleans/exit codes rather than
+	 * command text. They are the low-level primitives shared by commands that
+	 * reason about individual files' git state (e.g. `xname`).
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string $dir Directory to test.
+	 * @return bool
+	 */
+	public function isInGit( string $dir ): bool {
+		[ $code, $out ] = $this->runIn( $dir, [ 'rev-parse', '--is-inside-work-tree' ] );
+
+		return 0 === $code && 'true' === $out;
+	}
+
+	/**
+	 * Absolute repo top level for a directory, or null when it is not in a repo.
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string $dir Directory inside the repo.
+	 * @return string|null
+	 */
+	public function topLevel( string $dir ): ?string {
+		[ $code, $out ] = $this->runIn( $dir, [ 'rev-parse', '--show-toplevel' ] );
+
+		return 0 === $code && '' !== $out ? $out : null;
+	}
+
+	/**
+	 * Whether a file is tracked (present in the index).
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string $path File path.
+	 * @return bool
+	 */
+	public function isTracked( string $path ): bool {
+		[ $code ] = $this->runIn(
+			dirname( $path ),
+			[ 'ls-files', '--error-unmatch', '--', basename( $path ) ]
+		);
+
+		return 0 === $code;
+	}
+
+	/**
+	 * Whether a file exists in the committed HEAD tree.
+	 *
+	 * A staged-but-never-committed file is tracked yet not in HEAD, so this is
+	 * how "already in version control" is distinguished from "merely staged".
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string $path File path.
+	 * @return bool
+	 */
+	public function isInHead( string $path ): bool {
+		$root = $this->topLevel( dirname( $path ) );
+		if ( null === $root ) {
+			return false;
+		}
+
+		$prefix = rtrim( $root, '/' ) . '/';
+		$real   = realpath( $path );
+		$abs    = false !== $real ? $real : $path;
+		if ( 0 !== strpos( $abs, $prefix ) ) {
+			return false;
+		}
+
+		$relative = substr( $abs, strlen( $prefix ) );
+		[ $code ] = $this->runIn( dirname( $path ), [ 'cat-file', '-e', 'HEAD:' . $relative ] );
+
+		return 0 === $code;
+	}
+
+	/**
+	 * Whether a file has no pending changes (nothing in `status --porcelain`).
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string $path File path.
+	 * @return bool
+	 */
+	public function isClean( string $path ): bool {
+		[ $code, $out ] = $this->runIn(
+			dirname( $path ),
+			[ 'status', '--porcelain', '--', basename( $path ) ]
+		);
+
+		return 0 === $code && '' === $out;
+	}
+
+	/**
+	 * Rename a tracked file in place with `git mv`, preserving history.
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string $oldPath Current path.
+	 * @param string $newPath Target path (same directory).
+	 * @return bool Whether the target now exists.
+	 */
+	public function mv( string $oldPath, string $newPath ): bool {
+		[ $code ] = $this->runIn(
+			dirname( $oldPath ),
+			[ 'mv', '--', basename( $oldPath ), basename( $newPath ) ]
+		);
+
+		return 0 === $code && file_exists( $newPath );
+	}
+
+	/**
+	 * Commit only the given pathspecs under a repo, leaving other staged work
+	 * for the user. Returns the resulting short SHA, or null on failure.
+	 *
+	 * @since 1.7.0
+	 *
+	 * @param string   $repoRoot  Repo top level.
+	 * @param string   $message   Full commit message.
+	 * @param string[] $pathspecs Paths (relative to the repo root) to commit.
+	 * @return string|null
+	 */
+	public function commitPaths( string $repoRoot, string $message, array $pathspecs ): ?string {
+		$args = [ 'commit', '-m', $message, '--' ];
+		foreach ( $pathspecs as $spec ) {
+			$args[] = $spec;
+		}
+
+		[ $code ] = $this->runIn( $repoRoot, $args );
+		if ( 0 !== $code ) {
+			return null;
+		}
+
+		[ $revCode, $sha ] = $this->runIn( $repoRoot, [ 'rev-parse', '--short', 'HEAD' ] );
+
+		return 0 === $revCode && '' !== $sha ? $sha : null;
+	}
+
+	/**
+	 * Run git in a directory, returning its exit code and trimmed stdout.
+	 *
+	 * @param string   $dir
+	 * @param string[] $args
+	 * @return array{0: int, 1: string}
+	 */
+	private function runIn( string $dir, array $args ): array {
+		$cmd = 'git -C ' . escapeshellarg( $dir );
+		foreach ( $args as $arg ) {
+			$cmd .= ' ' . escapeshellarg( $arg );
+		}
+
+		$out  = [];
+		$code = 0;
+		exec( $cmd . ' 2>/dev/null', $out, $code );
+
+		return [ $code, trim( implode( "\n", $out ) ) ];
 	}
 
 }

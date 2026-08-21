@@ -182,6 +182,27 @@ _md_atx_lazy() {
 	_md_atx "$@"
 }
 
+_xname_lazy() {
+	local generated
+
+	generated="$(command xname completion zsh 2>/dev/null)" || {
+		_message 'unable to generate xname completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load xname completion'
+		return 1
+	}
+
+	if (( ! $+functions[_xname] )); then
+		_message 'xname completion did not define _xname'
+		return 1
+	fi
+
+	_xname "$@"
+}
+
 # herdr (https://herdr.dev) is a third-party tool, not maintained in this repo,
 # but its completion follows the same generate-on-first-use contract as our own
 # commands, so its lazy loader lives here rather than in a new plugin. It is a
@@ -212,4 +233,5 @@ compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
 compdef _md_atx_lazy md-atx
+compdef _xname_lazy xname
 compdef _herdr_lazy herdr

@@ -58,6 +58,22 @@ final class DemoCommand {
 	}
 
 	#[Command(
+		name: 'edit',
+		description: 'Edit files in place.',
+	)]
+	public function edit(
+		#[Argument(
+			description: 'Files to edit.',
+			completion: 'files',
+		)]
+		string ...$files
+	): int {
+		$this->calls[] = array_merge( [ 'edit' ], $files );
+
+		return 0;
+	}
+
+	#[Command(
 		name: 'internal',
 		description: 'Hidden compatibility helper.',
 		hidden: true,
@@ -195,5 +211,8 @@ final class CommandFrameworkTest extends TestCase {
 		$this->assertStringContainsString( "'--loud[Use a loud greeting.]'", $output );
 		$this->assertStringContainsString( 'demo-targets', $output );
 		$this->assertStringNotContainsString( 'internal:', $output );
+		// A variadic argument with completion 'files' renders as a repeatable
+		// rest spec whose action is Zsh's _files.
+		$this->assertStringContainsString( "'*:files:_files'", $output );
 	}
 }

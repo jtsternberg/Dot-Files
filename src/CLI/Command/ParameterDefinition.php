@@ -17,6 +17,7 @@ final class ParameterDefinition {
 		public readonly array $aliases = [],
 		public readonly ?string $valueName = null,
 		public readonly ?string $completionCommand = null,
+		public readonly ?string $completion = null,
 	) {
 	}
 
