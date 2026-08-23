@@ -3141,6 +3141,16 @@ class Graveyard {
 	}
 
 	/**
+	 * Absolute path to the `php -S` router script. It lives in bin/ (executed by
+	 * the server), while this class lives in src/ — so it is one level up from
+	 * __DIR__, NOT beside it. Resolving it wrong makes `graveyard page`/`serve`
+	 * fail at request time with "Failed opening required .../src/graveyard_router.php".
+	 */
+	public function routerPath(): string {
+		return dirname(__DIR__) . '/bin/graveyard_router.php';
+	}
+
+	/**
 	 * I/O. Ensure a loopback server is running and return its pretty URL. Reuses
 	 * a healthy one recorded in serveStatePath() (so bookmarks survive re-runs on
 	 * the same port); otherwise spawns `php -S` detached (nohup, survives this
@@ -3172,7 +3182,7 @@ class Graveyard {
 
 		$this->cleanStaticArtifacts();
 		$root   = $this->storeRoot();
-		$router = __DIR__ . '/graveyard_router.php';
+		$router = $this->routerPath();
 		$log    = $root . '/.serve.log';
 		$serve  = sprintf('php -S 127.0.0.1:%d -t %s %s', $spawnPort, escapeshellarg($root), escapeshellarg($router));
 		$spawn  = sprintf('nohup %s > %s 2>&1 & echo $!', $serve, escapeshellarg($log));

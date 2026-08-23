@@ -39,6 +39,21 @@ final class GraveyardRouterTest extends TestCase
 		];
 	}
 
+	/**
+	 * Regression: after the src/ PSR-4 migration the class moved to src/ but the
+	 * router stayed in bin/. ensureServer() must point `php -S` at the real file,
+	 * or every page request 500s with "Failed opening required
+	 * .../src/graveyard_router.php".
+	 */
+	public function testRouterPathPointsAtExistingBinRouter(): void
+	{
+		$gy = new Graveyard($this->cli, $this->cmux);
+		$router = $gy->routerPath();
+
+		$this->assertStringEndsWith('/bin/graveyard_router.php', $router);
+		$this->assertFileExists($router);
+	}
+
 	public function testRenderStorePageHtmlReflectsCurrentStore(): void
 	{
 		$this->makeRoot([$this->tomb('first111-full', 'first session')]);
