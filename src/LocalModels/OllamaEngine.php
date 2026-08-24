@@ -62,6 +62,51 @@ final class OllamaEngine extends AbstractStoreEngine {
 	}
 
 	/**
+	 * Unload every loaded model so nothing holds a blob on the drive open.
+	 *
+	 * The eject blocker in practice is not Ollama.app but its grandchild: the app
+	 * spawns `ollama serve`, which spawns a `llama-server` runner per loaded model,
+	 * and that runner keeps a file descriptor on the model blob. `ollama stop`
+	 * unloads the model and tears down the runner, freeing the FD while leaving the
+	 * app running — so nothing needs quitting or reopening.
+	 *
+	 * (Quitting the app was tried and does not work: Ollama's menubar app refuses
+	 * AppleScript quit with -128 "User canceled".)
+	 *
+	 * @return string[] models actually stopped
+	 */
+	public function releaseHolds(): array {
+		$bin = getenv( 'AIMODELS_OLLAMA_BIN' ) ?: 'ollama';
+
+		exec( escapeshellarg( $bin ) . ' ps 2>/dev/null', $lines, $code );
+		if ( 0 !== $code ) {
+			return [];
+		}
+
+		$released = [];
+		foreach ( $lines as $line ) {
+			$line = trim( $line );
+			if ( '' === $line || 0 === strpos( $line, 'NAME' ) ) {
+				continue;
+			}
+
+			$model = (string) ( preg_split( '/\s+/', $line )[0] ?? '' );
+			if ( '' === $model ) {
+				continue;
+			}
+
+			exec( escapeshellarg( $bin ) . ' stop ' . escapeshellarg( $model ) . ' 2>&1', $out, $stopCode );
+			// A refused stop is not a release. Reporting it as one is what let the
+			// previous approach claim success it never achieved.
+			if ( 0 === $stopCode ) {
+				$released[] = $model;
+			}
+		}
+
+		return $released;
+	}
+
+	/**
 	 * Which model tags each store holds, read from the manifests on disk.
 	 *
 	 * Deliberately not /api/tags: the API only ever describes the store Ollama is

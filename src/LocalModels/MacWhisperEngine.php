@@ -20,6 +20,10 @@ namespace JT\LocalModels;
  * MacWhisper writes into the models root at runtime (downloads land there,
  * per-bundle .cache/ dirs), so operating on the local store strands new
  * downloads there until they are reconciled back to the external superset.
+ *
+ * It holds nothing open on the drive between transcriptions — validated live: it
+ * was never the process blocking an eject. So it inherits the no-op
+ * releaseHolds(), which is a measured fact rather than an unimplemented hook.
  */
 final class MacWhisperEngine extends AbstractStoreEngine {
 

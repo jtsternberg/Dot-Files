@@ -62,16 +62,20 @@ flips them back to local *after* the eject event fires, far too late to help.
 `aimodels eject` inverts the order: release every engine to its local store,
 then unmount.
 
-If the volume is still busy after that, the holder in practice is a model app
-with a file open on the drive — observed live as `llama-server`, an Ollama.app
-subprocess holding an FD on a blob. So `eject` asks that app to quit
-(`osascript`, never a kill), retries once, and **reopens whatever it closed —
-whether the eject succeeded or not.** A reopened app comes up pointing at its
-local store, which is the correct ejected working state.
+If the volume is still busy after that, the holder is a loaded **model**, not the
+app. Observed live: `Ollama.app -> ollama serve -> llama-server`, where the
+grandchild runner holds a file descriptor on a model blob. So `eject` asks each
+engine to release its own holds — `ollama stop` for every loaded model, nothing
+for MacWhisper, which holds nothing between transcriptions — and retries once.
+The app keeps running throughout; nothing is closed, so nothing needs reopening.
 
-Any holder it does not recognise as a model app is reported and left alone;
-`--force` exists but can truncate a file mid-write. `--no-quit` restores
-report-and-stop; `--no-restart` leaves a quit app closed.
+**Do not reach for quitting the app.** It was tried: Ollama's menubar app refuses
+AppleScript quit with `-128 "User canceled"`, so the quit silently no-ops. And
+signalling an app mid-write to a model file is how those get truncated. Unloading
+the model is both gentler and the thing that actually works.
+
+A holder no engine claims is reported and left alone; `--force` exists but can
+truncate a file mid-write. `--no-release` skips the unload and just reports.
 
 **fail ⇒ restore** is the principle throughout, and it explains something that
 otherwise looks like a bug: when an eject *fails*, the failed `diskutil` still

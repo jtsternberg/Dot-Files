@@ -153,6 +153,16 @@ abstract class AbstractStoreEngine implements StoreEngine {
 	}
 
 	/**
+	 * Engines hold nothing open by default. Overriding this is what makes an
+	 * engine ejectable while its app stays running.
+	 *
+	 * @return string[]
+	 */
+	public function releaseHolds(): array {
+		return [];
+	}
+
+	/**
 	 * Is a GUI app of this name running? Used only to warn — never to kill.
 	 */
 	protected function appIsRunning( string $processName ): bool {

@@ -157,16 +157,13 @@ final class AiModelsCommand {
 		bool $dryRun = false,
 		#[Option( description: 'Force the unmount if it is still busy. Can truncate a file being written.' )]
 		bool $force = false,
-		#[Option( name: 'no-quit', description: 'Never quit a blocking app; just report the holders.' )]
-		bool $noQuit = false,
-		#[Option( name: 'no-restart', description: 'Leave any app it quit closed instead of reopening it.' )]
-		bool $noRestart = false
+		#[Option( name: 'no-release', description: 'Do not unload loaded models to free the drive; just report holders.' )]
+		bool $noRelease = false
 	): int {
 		$report = ( new Ejector( $this->registry(), $this->volumesRoot ) )->eject( [
 			'dry-run'    => $dryRun,
 			'force'      => $force,
-			'no-quit'    => $noQuit,
-			'no-restart' => $noRestart,
+			'no-release' => $noRelease,
 		] );
 
 		foreach ( $report['engines'] as $name => $result ) {
@@ -175,12 +172,11 @@ final class AiModelsCommand {
 			}
 		}
 
-		foreach ( $report['quit'] as $app ) {
-			$this->cli->msg( '  asked ' . $app . ' to quit (it held the volume)', 'cyan' );
-		}
-
-		foreach ( $report['reopened'] as $app ) {
-			$this->cli->msg( '  reopened ' . $app, 'cyan' );
+		foreach ( $report['released'] as $engine => $items ) {
+			$this->cli->msg(
+				'  ' . $engine . ': unloaded ' . implode( ', ', $items ) . ' to free the drive',
+				'cyan'
+			);
 		}
 
 		if ( ! empty( $report['holders'] ) ) {

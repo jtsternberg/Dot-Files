@@ -10,48 +10,28 @@ namespace JT\LocalModels;
  * them back to local AFTER the eject event fires — by then the eject has already
  * failed. So this releases every engine's reference first, then ejects.
  *
- * When the volume is still busy after that, the holder in practice is a model app
- * with a file open on the drive — observed live as `llama-server`, an Ollama.app
- * subprocess with an FD on a blob. So a blocked eject asks that app to quit and
- * retries once, then reopens it.
+ * When the volume is still busy after that, the holder is a loaded MODEL, not the
+ * app. Observed live: Ollama.app -> `ollama serve` -> `llama-server`, the
+ * grandchild holding a file descriptor on a model blob. So a blocked eject asks
+ * each engine to release its own holds — `ollama stop` for Ollama, nothing for
+ * MacWhisper, which holds nothing between transcriptions — and retries once.
  *
- * Three rules it will not break:
+ * There is deliberately NO app-quit path. Quitting Ollama was tried and its
+ * menubar app refuses AppleScript quit outright (-128 "User canceled"), and
+ * signalling an app that is mid-write to a model file is how those get truncated.
+ * Unloading the model frees the descriptor and leaves the app running, so nothing
+ * needs closing or reopening in the first place.
  *
- *   - It only ever quits an app it recognises as a model app. Any other holder is
- *     reported and left alone.
- *   - It asks politely (`osascript … to quit`), never a signal — a killed app
- *     mid-write truncates model files.
- *   - Whatever it closed, it reopens, on success AND on failure. A failed eject
- *     must never be the reason Ollama is left shut. Same principle as the
- *     watcher restoring the external store when an eject fails: fail => restore.
- *
- * It never forces an unmount unless explicitly asked.
+ * A holder no engine claims is reported, never acted on. It never forces an
+ * unmount unless explicitly asked.
  */
 final class Ejector {
-
-	/**
-	 * Which running application owns a process that lsof might name as a holder.
-	 *
-	 * lsof reports the *process* — Ollama's model server shows up as
-	 * `llama-server`, not `Ollama` — and truncates COMMAND to 9 characters
-	 * (`MacWhispe`). Both are matched by prefix, in either direction.
-	 *
-	 * @var array<string, string[]>
-	 */
-	private const MODEL_APPS = [
-		'Ollama'     => [ 'Ollama', 'ollama', 'llama-server' ],
-		'MacWhisper' => [ 'MacWhisper' ],
-	];
-
-	private AppControl $apps;
 
 	public function __construct(
 		private readonly EngineRegistry $registry,
 		private readonly string $volumesRoot = '/Volumes',
-		private readonly string $volumeName = 'AI-LAB',
-		?AppControl $apps = null
+		private readonly string $volumeName = 'AI-LAB'
 	) {
-		$this->apps = $apps ?: new AppControl();
 	}
 
 	public function volumePath(): string {
@@ -59,15 +39,14 @@ final class Ejector {
 	}
 
 	/**
-	 * @param array<string, mixed> $options force|dry-run|quit-apps
+	 * @param array<string, mixed> $options force|dry-run|no-release
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function eject( array $options = [] ): array {
 		$force     = ! empty( $options['force'] );
 		$dryRun    = ! empty( $options['dry-run'] );
-		$noQuit    = ! empty( $options['no-quit'] );
-		$noRestart = ! empty( $options['no-restart'] );
+		$noRelease = ! empty( $options['no-release'] );
 
 		$report = [
 			'volume'      => $this->volumePath(),
@@ -76,8 +55,7 @@ final class Ejector {
 			'message'     => '',
 			'engines'     => [],
 			'holders'     => [],
-			'quit'        => [],
-			'reopened'    => [],
+			'released'    => [],
 		];
 
 		if ( ! ( new Drive( $this->volumesRoot ) )->isMounted( $this->volumeName ) ) {
@@ -125,7 +103,7 @@ final class Ejector {
 			return $report;
 		}
 
-		// 2. Try a clean eject first. Nothing is quit unless this fails.
+		// 2. Try a clean eject first. Nothing is unloaded unless this fails.
 		[ $out, $code ] = $this->diskutil( $force );
 		if ( 0 === $code ) {
 			$report['ejected'] = true;
@@ -136,20 +114,20 @@ final class Ejector {
 
 		$report['holders'] = $this->holders();
 
-		// 3. Blocked by an app we know? Ask it to quit and try once more. Only
-		// ever a known model app — a random holder is reported, never touched.
-		$blocking = $noQuit ? [] : $this->modelAppsAmong( $report['holders'] );
-		foreach ( $blocking as $app ) {
-			if ( ! $this->apps->isRunning( $app ) ) {
-				continue;
-			}
-			if ( $this->apps->quit( $app ) ) {
-				$report['quit'][] = $app;
-				$this->apps->waitForExit( $app );
+		// 3. Ask each engine to let go of whatever it has open on the drive, then
+		// try once more. Only a release that actually succeeded counts — claiming
+		// one that failed is precisely how the previous app-quit approach reported
+		// success it never achieved.
+		if ( ! $noRelease ) {
+			foreach ( $this->registry->engines() as $engine ) {
+				$released = $engine->releaseHolds();
+				if ( ! empty( $released ) ) {
+					$report['released'][ $engine->name() ] = $released;
+				}
 			}
 		}
 
-		if ( ! empty( $report['quit'] ) ) {
+		if ( ! empty( $report['released'] ) ) {
 			[ $out, $code ]    = $this->diskutil( $force );
 			$report['ejected'] = 0 === $code;
 			if ( ! $report['ejected'] ) {
@@ -157,21 +135,10 @@ final class Ejector {
 			}
 		}
 
-		// 4. Put back whatever we closed — in BOTH outcomes. A failed eject must
-		// never be the reason an app is left shut.
-		if ( ! $noRestart ) {
-			foreach ( $report['quit'] as $app ) {
-				if ( $this->apps->reopen( $app ) ) {
-					$report['reopened'][] = $app;
-				}
-			}
-		}
-
 		if ( $report['ejected'] ) {
 			$report['message'] = trim( $out ) ?: ( $this->volumeName . ' ejected.' );
-			if ( ! empty( $report['quit'] ) ) {
-				$report['message'] .= ' (quit ' . implode( ', ', $report['quit'] ) . ' to free it'
-					. ( empty( $report['reopened'] ) ? '' : ', reopened after' ) . ')';
+			foreach ( $report['released'] as $engine => $items ) {
+				$report['message'] .= ' (unloaded ' . implode( ', ', $items ) . ' from ' . $engine . ')';
 			}
 
 			return $report;
@@ -180,45 +147,10 @@ final class Ejector {
 		$report['message'] = trim( $out ) . '. '
 			. ( empty( $report['holders'] )
 				? 'No holder found via lsof; something outside it has the volume.'
-				: 'Quit the listed processes and retry' )
+				: 'Close the listed processes and retry' )
 			. ', or re-run with --force (a forced eject can truncate a file being written).';
 
 		return $report;
-	}
-
-	/**
-	 * Known model apps among a set of lsof holders, in registry order.
-	 *
-	 * @param array<int, array{command: string, pid: string, path: string}> $holders
-	 *
-	 * @return string[]
-	 */
-	private function modelAppsAmong( array $holders ): array {
-		$apps = [];
-
-		foreach ( $holders as $holder ) {
-			$command = strtolower( $holder['command'] );
-			if ( strlen( $command ) < 3 ) {
-				continue;
-			}
-
-			foreach ( self::MODEL_APPS as $app => $processes ) {
-				if ( isset( $apps[ $app ] ) ) {
-					continue;
-				}
-
-				foreach ( $processes as $process ) {
-					$process = strtolower( $process );
-					// Either side may be the truncated one.
-					if ( str_starts_with( $process, $command ) || str_starts_with( $command, $process ) ) {
-						$apps[ $app ] = true;
-						break;
-					}
-				}
-			}
-		}
-
-		return array_keys( $apps );
 	}
 
 	/**

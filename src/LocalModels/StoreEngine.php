@@ -50,6 +50,16 @@ interface StoreEngine {
 	public function advisories( string $location ): array;
 
 	/**
+	 * Release whatever this engine is holding open on the external drive, so it
+	 * can be ejected. Engine-specific by necessity: Ollama unloads its loaded
+	 * models (`ollama stop`), which frees the llama-server file descriptors while
+	 * leaving Ollama.app running. Returns what it actually released.
+	 *
+	 * @return string[]
+	 */
+	public function releaseHolds(): array;
+
+	/**
 	 * Rows for `aimodels status`.
 	 *
 	 * @return array<int, array<string, mixed>>
