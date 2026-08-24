@@ -22,7 +22,7 @@ namespace JT;
 # local (`ollamodels local && ollama rm <model>`).
 #
 # Usage:
-# ollamodels [local|sd|auto|reconcile|installwatcher|removewatcher]
+# ollamodels [local|sd|auto|reconcile]
 #
 # Examples:
 # ollamodels           # Auto: use SD if mounted, else local
@@ -32,10 +32,9 @@ namespace JT;
 # ollamodels reconcile --dry-run   # Preview local → SD symlink plan
 # ollamodels reconcile -y          # Symlink local models into SD, no prompt
 #
-# A macOS LaunchAgent can watch /Volumes and auto-switch whenever the
-# AI-LAB drive is mounted or ejected:
-# ollamodels installwatcher   # Install and load the LaunchAgent
-# ollamodels removewatcher    # Unload and remove the LaunchAgent
+# The drive watcher now lives in `aimodels`, which follows AI-LAB for every
+# model store (Ollama LLMs and MacWhisper ASR) from one LaunchAgent:
+# aimodels watch install|remove|status
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
@@ -52,8 +51,6 @@ $helpyHelperton
 		'[reconcile]'     => 'Symlink local-primary models into the SD tree (local → SD) so both stores see all models. WARNING: after reconcile, only run `ollama rm` while on local — `ollama rm` on SD may follow symlinks and delete local originals (unverified).',
 		'--dry-run'       => 'reconcile: print what would be symlinked without touching anything',
 		'-y, --yes'       => 'reconcile: skip the confirmation prompt',
-		'[installwatcher]'=> 'Install macOS LaunchAgent to auto-switch on mount/eject',
-		'[removewatcher]' => 'Remove the LaunchAgent',
 	]);
 
 if ($helpyHelperton->batSignal) {
@@ -386,72 +383,17 @@ switch (strtolower($sub)) {
 		}
 		break;
 	case 'installwatcher':
-		$plistLabel = 'com.jt.ollamodels-watcher';
-		$plistDir   = $home . '/Library/LaunchAgents';
-		$plistPath  = $plistDir . '/' . $plistLabel . '.plist';
-		$scriptPath = realpath(__FILE__);
-
-		if (file_exists($plistPath)) {
-			$cli->msg('LaunchAgent already installed at ' . $plistPath, 'yellow');
-			$cli->msg('Run "ollamodels removewatcher" first to reinstall.');
-			exit(0);
-		}
-
-		$phpBin = PHP_BINARY;
-
-		$plistXml = <<<XML
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>{$plistLabel}</string>
-	<key>WatchPaths</key>
-	<array>
-		<string>/Volumes</string>
-	</array>
-	<key>ProgramArguments</key>
-	<array>
-		<string>{$phpBin}</string>
-		<string>{$scriptPath}</string>
-		<string>auto</string>
-		<string>--silent</string>
-	</array>
-</dict>
-</plist>
-XML;
-
-		if (!is_dir($plistDir)) {
-			@mkdir($plistDir, 0755, true);
-		}
-
-		if (!file_put_contents($plistPath, $plistXml)) {
-			$cli->exitErr("Failed to write {$plistPath}");
-		}
-
-		exec('launchctl load ' . escapeshellarg($plistPath) . ' 2>&1', $out, $ret);
-		if ($ret !== 0) {
-			$cli->exitErr('launchctl load failed: ' . implode("\n", $out));
-		}
-
-		$cli->successMsg("LaunchAgent installed and loaded.");
-		$cli->msg("Ollama models will auto-switch when drives are mounted/ejected.");
-		break;
-
 	case 'removewatcher':
-		$plistLabel = 'com.jt.ollamodels-watcher';
-		$plistPath  = $home . '/Library/LaunchAgents/' . $plistLabel . '.plist';
-
-		if (!file_exists($plistPath)) {
-			$cli->msg('LaunchAgent not installed.', 'yellow');
-			exit(0);
-		}
-
-		exec('launchctl unload ' . escapeshellarg($plistPath) . ' 2>&1', $out, $ret);
-		@unlink($plistPath);
-
-		$cli->successMsg("LaunchAgent removed.");
+		// The drive watcher is no longer Ollama's alone. `aimodels` drives every
+		// model store (Ollama LLMs, MacWhisper ASR) from one LaunchAgent,
+		// com.jt.aimodels-watcher. Reinstalling the old Ollama-only agent here
+		// would leave two agents racing to flip the same symlink on every
+		// /Volumes event.
+		$cli->err('Watcher management moved to `aimodels`.');
+		$cli->msg('  aimodels watch install   # one agent for every model store', 'yellow');
+		$cli->msg('  aimodels watch remove', 'yellow');
+		$cli->msg('  aimodels watch status', 'yellow');
+		$ok = false;
 		break;
 
 	default:
