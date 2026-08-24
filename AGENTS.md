@@ -16,6 +16,7 @@ This is a personal dotfiles repository that provides shell configuration, CLI ut
 - `misc/` - PHP helper libraries for CLI scripts
 - `zsh-custom/` - Oh My Zsh custom plugins and themes
 - `private/` - Private configuration (not synced)
+- `agent-skills/` - Agent skills and slash commands, installed into `~/.claude/` by `symdotfiles`
 - `claude/` - Claude Code hooks and configuration
 
 ## CLI Script Development
@@ -264,6 +265,28 @@ fi
 - `.linuxzshrc` - Linux/Ubuntu-specific aliases, paths, and tools
 
 **Rule:** macOS-only tools (e.g. `pbcopy`, `open`, `say`, `osxkeychain`, Homebrew paths) belong in `.macoszshrc`. Linux-only tools belong in `.linuxzshrc`. Shared config goes in `.zshrc`.
+
+## Agent Skills and Slash Commands
+
+**Skills and commands for JT's agents live in `agent-skills/<name>/`.** `php
+symdotfiles` installs them; nothing else in this repo is wired to `~/.claude`, so
+a skill written anywhere else is inert no matter how correct its contents.
+
+- `agent-skills/<name>/SKILL.md` — the whole directory is symlinked to
+  `~/.claude/skills/<name>`, making it a **user-level skill** available in every
+  project. `graveyard`, `system-journal`, `pi-skill-sync` are the reference.
+- `agent-skills/<name>/*.md` with no `SKILL.md` — each markdown file is symlinked
+  into `~/.claude/commands/`, making it a **slash command**. `system-watchdog` is
+  the reference. One directory can hold both kinds.
+
+**Repo-scoped guidance goes in `.claude/skills/<name>/SKILL.md` instead** — Claude
+Code reads that directly, no symlink, and it loads only while working in this
+repository. `author-cli-commands` and `verify` are the reference, and a
+subdirectory may carry its own (`local-llm/.claude/skills/`).
+
+Pick by scope: available everywhere → `agent-skills/`; only meaningful inside this
+repo → `.claude/skills/`. Read the `agent-skills` block in `symdotfiles` before
+inventing a third location.
 
 ## Symlink Management
 
