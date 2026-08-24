@@ -214,7 +214,7 @@ final class AiModelsCommand {
 		description: 'Manage the LaunchAgent that follows the AI-LAB drive for every engine.',
 	)]
 	public function watch(
-		#[Argument( description: 'status (default) | install | remove | apply' )]
+		#[Argument( description: 'status (default) | install | remove | reload | apply' )]
 		string $action = 'status',
 		// The LaunchAgent runs `watch apply --silent`; undeclared, the dispatcher
 		// rejects it as an unknown option AND silent mode swallows the error, so
@@ -247,10 +247,15 @@ final class AiModelsCommand {
 			case 'remove':
 				return $this->report( $watcher->remove() );
 
-			// Machine-facing: this is what the LaunchAgent itself runs.
+			case 'reload':
+				return $this->report( $watcher->reload() );
+
+			// Machine-facing: this is what the LaunchAgent itself runs, on every
+			// /Volumes change, so it goes through the debounce rather than doing
+			// engine work for a firing where nothing moved.
 			case 'apply':
 				$failed = 0;
-				foreach ( $watcher->applyAll() as $name => $result ) {
+				foreach ( $watcher->applyIfChanged() as $name => $result ) {
 					if ( ApplyResult::FAILED === $result->status ) {
 						$failed++;
 					}

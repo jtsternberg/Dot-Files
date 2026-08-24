@@ -46,7 +46,7 @@ aimodels where                 # terse: active store per engine, is AI-LAB mount
 aimodels eject                 # SAFE drive removal — see below
 aimodels ollama  local|sd|auto|reconcile
 aimodels whisper local|external|auto|reconcile
-aimodels watch   status|install|remove
+aimodels watch   status|install|remove|reload
 ```
 
 In `aimodels status`, `L` = present in the local store, `X` = present in the
@@ -92,9 +92,33 @@ tail -f ~/Library/Logs/aimodels-watcher.log
 ```
 
 One line per engine per firing: timestamp, `mounted=yes|no`, `engine=`,
-`status=`, `location=`, and the message or skip reason. A launchd job's stdout
-goes nowhere, so this file is the only record of what any flip decided. Start
-here — "why is my store back on external" is one line, not an experiment.
+`status=`, `location=`, `warn=` for side effects such as an app restart, and the
+message or skip reason. A launchd job's stdout goes nowhere, so this file is the
+only record of what any flip decided. Start here — "why is my store back on
+external" is one line, not an experiment.
+
+### If the watcher fires nonstop
+
+launchd's `WatchPaths` on `/Volumes` can get stuck re-triggering: observed firing
+every ~10s (its throttle floor) for minutes with a completely stable `/Volumes`
+listing and no mount activity in `log show`. It is not real churn and it is not
+the job writing anything — the apply path is pure read. Unloading and reloading
+the agent cleared it immediately and it stayed clear, which places the cause in a
+pending WatchPaths event that a fast-exiting job leaves armed.
+
+Two things make this cheap rather than a problem:
+
+- **The job debounces itself.** It compares a fingerprint — is AI-LAB mounted,
+  plus each engine's current symlink target — against `aimodels-watcher.state`
+  beside the log, and exits before any engine work when nothing moved. The
+  symlink targets are in the fingerprint deliberately, so a store that drifted
+  still gets corrected instead of debounced away. Noise firings are summarised at
+  most once every 15 minutes as `status=unchanged-debounced suppressed=N`.
+- **`aimodels watch reload` clears the stuck event** (unload + load). The log adds
+  that hint itself once the suppressed count looks like a runaway.
+
+Wasteful, never harmful: every noise firing is a no-op, and only a real switch
+ever restarts an app.
 
 ## Invariants — do not break these
 

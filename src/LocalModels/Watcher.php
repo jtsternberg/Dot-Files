@@ -168,6 +168,143 @@ XML;
 		return self::LABEL;
 	}
 
+	/** Next to the log, so the pair is discoverable together. */
+	public function statePath(): string {
+		return dirname( $this->logPath() ) . '/aimodels-watcher.state';
+	}
+
+	/**
+	 * Everything this job actually cares about, in one comparable string.
+	 *
+	 * The drive's presence AND each engine's current symlink target: including the
+	 * targets means a store that drifted — a manual flip, a run that failed — is
+	 * still corrected instead of being debounced away as "nothing changed".
+	 *
+	 * Deliberately does not settle: this must stay cheap enough to run on a firing
+	 * that turns out to be noise.
+	 */
+	public function fingerprint(): string {
+		$parts = [ 'ailab=' . ( ( new Drive( $this->volumesRoot ) )->isMounted( 'AI-LAB' ) ? '1' : '0' ) ];
+
+		foreach ( $this->registry->engines() as $engine ) {
+			$parts[] = $engine->name() . '=' . ( Flip::currentTarget( $engine->symlinkPath() ) ?? 'none' );
+		}
+
+		return implode( ' ', $parts );
+	}
+
+	/**
+	 * The watcher's entry point: do the work only if something moved.
+	 *
+	 * launchd fires this on every /Volumes change, and WatchPaths can get stuck
+	 * re-triggering — observed live at its 10s throttle floor for minutes with a
+	 * stable /Volumes and no mount activity, cleared by reloading the agent. The
+	 * job cannot stop launchd firing, so it makes each firing nearly free instead.
+	 *
+	 * @return array<string, ApplyResult> empty when the firing was noise
+	 */
+	public function applyIfChanged( ?int $now = null ): array {
+		$now         = $now ?? time();
+		$fingerprint = $this->fingerprint();
+		$state       = $this->readState();
+
+		if ( ( $state['fingerprint'] ?? null ) === $fingerprint ) {
+			$this->recordSuppressed( $state, $fingerprint, $now );
+
+			return [];
+		}
+
+		$results = $this->applyAll();
+		$this->writeState( [
+			'fingerprint' => $this->fingerprint(),
+			'suppressed'  => 0,
+			'loggedAt'    => $now,
+		] );
+
+		return $results;
+	}
+
+	/**
+	 * Count a noise firing, and summarise the run of them at most once a window,
+	 * so the log stays the readable thing it exists to be.
+	 *
+	 * @param array<string, mixed> $state
+	 */
+	private function recordSuppressed( array $state, string $fingerprint, int $now, int $window = 900 ): void {
+		$suppressed = (int) ( $state['suppressed'] ?? 0 ) + 1;
+		$loggedAt   = (int) ( $state['loggedAt'] ?? $now );
+
+		if ( $now - $loggedAt < $window ) {
+			$this->writeState( [
+				'fingerprint' => $fingerprint,
+				'suppressed'  => $suppressed,
+				'loggedAt'    => $loggedAt,
+			] );
+
+			return;
+		}
+
+		$fields = [
+			'status'     => 'unchanged-debounced',
+			'suppressed' => (string) $suppressed,
+			'window'     => $window . 's',
+		];
+
+		// Roughly one firing every 10s or faster is the stuck-WatchPaths signature,
+		// not normal volume activity. Name the remedy in the log itself.
+		if ( $suppressed >= 30 ) {
+			$fields['hint'] = 'runaway WatchPaths retrigger — `aimodels watch reload` clears it';
+		}
+
+		$this->log( $fields );
+		$this->writeState( [
+			'fingerprint' => $fingerprint,
+			'suppressed'  => 0,
+			'loggedAt'    => $now,
+		] );
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function readState(): array {
+		$raw = is_file( $this->statePath() ) ? (string) file_get_contents( $this->statePath() ) : '';
+		$data = json_decode( $raw, true );
+
+		return is_array( $data ) ? $data : [];
+	}
+
+	/**
+	 * @param array<string, mixed> $state
+	 */
+	private function writeState( array $state ): void {
+		$parent = dirname( $this->statePath() );
+		if ( ! is_dir( $parent ) && ! @mkdir( $parent, 0755, true ) && ! is_dir( $parent ) ) {
+			return;
+		}
+
+		@file_put_contents( $this->statePath(), (string) json_encode( $state ) );
+	}
+
+	/**
+	 * Unload and load the agent, which is what clears a stuck WatchPaths event.
+	 */
+	public function reload(): ApplyResult {
+		if ( ! is_file( $this->plistPath() ) ) {
+			return new ApplyResult( ApplyResult::FAILED, 'watcher not installed; nothing to reload.' );
+		}
+
+		$this->launchctl( 'unload', $this->plistPath() );
+		[ $out, $code ] = $this->launchctl( 'load', $this->plistPath() );
+		if ( 0 !== $code ) {
+			return new ApplyResult( ApplyResult::FAILED, 'launchctl load failed: ' . $out );
+		}
+
+		$this->log( [ 'event' => 'reload', 'plist' => $this->plistPath() ] );
+
+		return new ApplyResult( ApplyResult::APPLIED, 'watcher reloaded (clears a stuck WatchPaths retrigger).' );
+	}
+
 	/**
 	 * Install (or reinstall) the agent, retire the legacy one, then apply once so
 	 * the stores — and Ollama's launchd OLLAMA_MODELS — are correct immediately.
