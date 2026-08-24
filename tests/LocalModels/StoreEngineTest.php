@@ -216,6 +216,42 @@ final class StoreEngineTest extends TestCase {
 		$this->assertSame( 'external', $engine->currentLocation() );
 	}
 
+	// --- shelling seam --------------------------------------------------------
+
+	/**
+	 * OllamaEngine's post-flip hook runs `launchctl setenv OLLAMA_MODELS <path>`.
+	 * Unstubbed, a test flipping a temp store rewrites the REAL launchd variable
+	 * to a directory that tearDown deletes, and the next Ollama.app launch looks
+	 * for its models somewhere that no longer exists. This happened; the stub in
+	 * TestCase::setUp is the fix and this pins it.
+	 */
+	public function testLaunchctlIsAlwaysStubbedForTests(): void {
+		$stub = getenv( 'AIMODELS_LAUNCHCTL_BIN' );
+
+		$this->assertNotFalse( $stub, 'every test must get a launchctl stub' );
+		$this->assertStringStartsWith( sys_get_temp_dir(), (string) $stub );
+		$this->assertFileExists( (string) $stub );
+	}
+
+	public function testFlippingOllamaDoesNotReachTheRealLaunchctl(): void {
+		mkdir( $this->home . '/.ollama-local-models', 0777, true );
+		$engine = new OllamaEngine( $this->home, $this->volumes );
+
+		$result = $engine->apply( 'local' );
+
+		// The stub exits 0, so no setenv failure is reported. (A running Ollama.app
+		// still warrants its own relaunch warning, which is environment-dependent
+		// and not what this asserts.)
+		$this->assertSame( 'applied', $result->status );
+		$this->assertSame(
+			[],
+			array_filter(
+				$result->warnings,
+				static fn( string $warning ): bool => str_contains( $warning, 'launchctl' )
+			)
+		);
+	}
+
 	// --- registry ------------------------------------------------------------
 
 	public function testRegistryExposesBothEnginesByName(): void {

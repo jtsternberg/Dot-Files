@@ -35,7 +35,9 @@ final class AiModelsCommand {
 	)]
 	public function status(
 		#[Option( description: 'Machine-readable output.' )]
-		bool $json = false
+		bool $json = false,
+		#[Option( description: 'Suppress chatter; results only.' )]
+		bool $silent = false
 	): int {
 		$status = $this->watcher()->status();
 
@@ -129,7 +131,12 @@ final class AiModelsCommand {
 	)]
 	public function watch(
 		#[Argument( description: 'status (default) | install | remove | apply' )]
-		string $action = 'status'
+		string $action = 'status',
+		// The LaunchAgent runs `watch apply --silent`; undeclared, the dispatcher
+		// rejects it as an unknown option AND silent mode swallows the error, so
+		// the agent would fail on every /Volumes event without a word.
+		#[Option( description: 'Suppress chatter; results only. Used by the LaunchAgent.' )]
+		bool $silent = false
 	): int {
 		$watcher = $this->watcher();
 

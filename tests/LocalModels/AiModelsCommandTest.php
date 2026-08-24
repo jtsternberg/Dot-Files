@@ -104,6 +104,26 @@ final class AiModelsCommandTest extends TestCase {
 		$this->assertFalse( is_link( $models ) );
 	}
 
+	/**
+	 * The LaunchAgent runs exactly `aimodels watch apply --silent`. An undeclared
+	 * --silent is rejected by the dispatcher as an unknown option, and in silent
+	 * mode that error message is itself suppressed — so the agent fails on every
+	 * /Volumes event and says nothing. This pins the invocation the plist uses.
+	 */
+	public function testWatcherInvocationFromThePlistSucceeds(): void {
+		mkdir( $this->home . '/.ollama-local-models', 0777, true );
+
+		[ $code ] = $this->dispatch( [ 'aimodels', 'watch', 'apply', '--silent' ] );
+
+		$this->assertSame( 0, $code );
+	}
+
+	public function testStatusAcceptsSilent(): void {
+		[ $code ] = $this->dispatch( [ 'aimodels', 'status', '--silent' ] );
+
+		$this->assertSame( 0, $code );
+	}
+
 	public function testUnknownActionIsAUsageFailure(): void {
 		[ $code ] = $this->dispatch( [ 'aimodels', 'ollama', 'sideways' ] );
 

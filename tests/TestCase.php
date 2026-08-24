@@ -57,6 +57,18 @@ abstract class TestCase extends BaseTestCase
 		chmod($stub, 0755);
 		putenv('CMUX_BIN=' . $stub);
 
+		// Same reasoning for launchctl (dotfiles LocalModels): OllamaEngine's
+		// post-flip hook runs `launchctl setenv OLLAMA_MODELS <path>`. Any test
+		// that flips a store with a temp $home and no stub sets the REAL launchd
+		// variable to a temp directory that is deleted at tearDown — so the next
+		// Ollama.app launch looks for its models in a path that no longer exists.
+		// That is not hypothetical: it happened, and it took a manual
+		// `launchctl setenv` to repair. Stub it for EVERY test, like CMUX_BIN.
+		$launchctlStub = $this->graveyardRoot . '/launchctl-stub';
+		file_put_contents($launchctlStub, "#!/bin/sh\nexit 0\n");
+		chmod($launchctlStub, 0755);
+		putenv('AIMODELS_LAUNCHCTL_BIN=' . $launchctlStub);
+
 		// Router-specific coverage constructs a Graveyard with NullCmux; see
 		// Graveyard/GraveyardPageServerContractTest.php. $this->gy is not that shape.
 		$this->gy = new Graveyard($this->cli, $this->cmux);
@@ -66,6 +78,7 @@ abstract class TestCase extends BaseTestCase
 	{
 		putenv('GRAVEYARD_ROOT');
 		putenv('CMUX_BIN');
+		putenv('AIMODELS_LAUNCHCTL_BIN');
 		if (isset($this->graveyardRoot) && is_dir($this->graveyardRoot)) {
 			$this->rmrf($this->graveyardRoot);
 		}
