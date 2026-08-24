@@ -199,4 +199,4 @@ zsh -fc 'autoload -Uz compinit; compinit -C; source <completion-plugin>; [[ ${_c
 3. Run lazy-loader integration checks, Zsh syntax/registration, focused PHPUnit
    tests, and the full suite.
 4. Update this skill when the command framework gains a durable authoring rule;
-   keep AGENTS.md to the short routing rule and repository-wide invariants.
+   keep CLAUDE.md to the short routing rule and repository-wide invariants.
