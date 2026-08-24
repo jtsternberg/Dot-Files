@@ -27,6 +27,17 @@ namespace JT\LocalModels;
  */
 final class MacWhisperEngine extends AbstractStoreEngine {
 
+	private AppControl $apps;
+
+	public function __construct(
+		?string $home = null,
+		string $volumesRoot = '/Volumes',
+		?AppControl $apps = null
+	) {
+		parent::__construct( $home, $volumesRoot );
+		$this->apps = $apps ?: new AppControl();
+	}
+
 	public function name(): string {
 		return 'macwhisper';
 	}
@@ -46,17 +57,95 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 	}
 
 	/**
+	 * Restart MacWhisper so its UI reflects the store it now points at.
+	 *
+	 * Only ever reached from a flip that actually moved the symlink — apply()
+	 * calls this on the APPLIED path alone, never for a noop or a dry run. That
+	 * matters: the watcher fires on every /Volumes change and one mount produced
+	 * three firings live, all of them already-external noops. Restarting on each
+	 * would be a quit/reopen storm.
+	 *
 	 * @return string[]
 	 */
 	protected function postApply( string $location ): array {
-		if ( $this->appIsRunning( 'MacWhisper' ) ) {
-			return [
-				'MacWhisper is running — it caches its model list at launch, so relaunch it to see'
-					. ' the ' . $location . ' store.',
-			];
+		return $this->restartIfSafe( $location );
+	}
+
+	/**
+	 * @return string[] warnings
+	 */
+	private function restartIfSafe( string $location ): array {
+		$app = 'MacWhisper';
+
+		if ( ! $this->apps->isRunning( $app ) ) {
+			return [];
 		}
 
-		return [];
+		$stale = $app . ' caches its model list at launch, so relaunch it to see the '
+			. $location . ' store.';
+
+		if ( getenv( 'AIMODELS_NO_RESTART' ) ) {
+			return [ 'automatic restart disabled (AIMODELS_NO_RESTART) — ' . $stale ];
+		}
+
+		$busy = $this->busyReason( $app );
+		if ( null !== $busy ) {
+			// Quitting mid-transcription kills the job, so anything short of a
+			// confident idle reading leaves the app alone.
+			return [ $app . ' looks busy (' . $busy . ') — not restarting it; ' . $stale ];
+		}
+
+		if ( ! $this->apps->quit( $app ) ) {
+			return [ 'could not quit ' . $app . ' — ' . $stale ];
+		}
+
+		$this->apps->waitForExit( $app );
+
+		if ( ! $this->reopenWithRetry( $app ) ) {
+			return [ $app . ' was quit but did not reopen — relaunch it to see the ' . $location . ' store.' ];
+		}
+
+		return [ 'restarted MacWhisper so it lists the ' . $location . ' store.' ];
+	}
+
+	/**
+	 * `open -a` can lose a race with the app's own teardown and fail, which left
+	 * MacWhisper closed on two flips in quick succession. Retry before giving up.
+	 */
+	private function reopenWithRetry( string $app, int $tries = 3 ): bool {
+		for ( $attempt = 0; $attempt < max( 1, $tries ); $attempt++ ) {
+			if ( $this->apps->reopen( $app ) ) {
+				return true;
+			}
+
+			if ( $attempt < $tries - 1 ) {
+				usleep( 700000 );
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Why the app might be working, or null when it reads as idle. Every unknown
+	 * counts as busy: a stale model list is cheap, a killed transcription is not.
+	 */
+	private function busyReason( string $app ): ?string {
+		$cpu = $this->apps->cpuPercent( $app );
+		if ( null === $cpu ) {
+			return 'CPU unreadable';
+		}
+
+		if ( $cpu >= AppControl::BUSY_CPU_PERCENT ) {
+			return 'CPU ' . $cpu . '%';
+		}
+
+		$media = $this->apps->openMediaFiles( $app );
+		if ( ! empty( $media ) ) {
+			return 'holding ' . basename( $media[0] ) . ' open';
+		}
+
+		return null;
 	}
 
 	/**
@@ -67,9 +156,12 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 			return [];
 		}
 
+		// Says nothing about the drive's mount state: the local store is also
+		// active after a deliberate flip with AI-LAB still plugged in, and this
+		// used to claim "AI-LAB not mounted" while it plainly was.
 		return [
-			'AI-LAB not mounted — new MacWhisper model downloads will land in the local store'
-				. ' and need `aimodels whisper reconcile` after remount.',
+			'on the local store — new MacWhisper model downloads land there, and need'
+				. ' `aimodels whisper reconcile` to reach the AI-LAB superset.',
 		];
 	}
 

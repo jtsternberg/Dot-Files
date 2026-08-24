@@ -213,6 +213,19 @@ final class MacWhisperStoreTest extends TestCase {
 		$this->fail( "no residency row for {$name}" );
 	}
 
+	/**
+	 * The advisory fires whenever the local store is active — including a
+	 * deliberate flip with the drive still plugged in — so it must not assert
+	 * anything about the drive's mount state. It said "AI-LAB not mounted" while
+	 * AI-LAB was mounted.
+	 */
+	public function testLocalStoreAdvisoryDoesNotClaimTheDriveIsUnmounted(): void {
+		$advisories = implode( ' ', $this->engine()->advisories( 'local' ) );
+
+		$this->assertStringContainsString( 'reconcile', $advisories );
+		$this->assertStringNotContainsString( 'not mounted', $advisories );
+	}
+
 	// --- reconcile ------------------------------------------------------------
 
 	public function testReconcileCopiesEntriesStrandedInTheLocalStore(): void {

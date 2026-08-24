@@ -291,13 +291,19 @@ XML;
 			$result   = $engine->apply( $location, $dryRun );
 
 			$results[ $engine->name() ] = $result;
-			$this->log( [
+			$fields = [
 				'mounted'  => $mounted,
 				'engine'   => $engine->name(),
 				'status'   => $result->status,
 				'location' => $location,
 				'msg'      => $result->message,
-			] );
+			];
+			// Warnings carry the side effects — an automatic app restart, a skipped
+			// one, a launchctl failure. Unlogged, they happen invisibly.
+			if ( ! empty( $result->warnings ) ) {
+				$fields['warn'] = implode( ' | ', $result->warnings );
+			}
+			$this->log( $fields );
 		}
 
 		$this->unlock( $lock );

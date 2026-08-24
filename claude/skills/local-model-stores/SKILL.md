@@ -108,7 +108,9 @@ here — "why is my store back on external" is one line, not an experiment.
 - **`reconcile` is additive and one-way (local → external).** The external store
   is the authoritative superset; nothing it already holds is overwritten and
   nothing is ever deleted.
-- **Never quit or kill an app to win an eject.** Report the holder; let JT decide.
+- **Never quit or kill an app to win an eject.** Release the model instead
+  (`releaseHolds`), or report the holder and let JT decide. The one place an app
+  IS restarted is MacWhisper after a real store switch — see below.
 - **After `ollama rm` while on SD:** don't. Ollama's reconcile leaves symlinks,
   and `ollama rm` may follow them and delete local originals. Switch to local
   first (`aimodels ollama local`), then remove.
@@ -131,8 +133,14 @@ here — "why is my store back on external" is one line, not an experiment.
 4. **`ollama ps` / `/api/tags` only ever describe the store Ollama is pointed at
    now.** They cannot tell you what is on an ejected drive. `aimodels status`
    reads both stores off disk, so it can.
-5. **A running app caches its model list at launch.** Flip the store, relaunch the
-   app. `aimodels` warns; it will not quit anything for you.
+5. **MacWhisper caches its model list at launch**, and `mw` has no reload verb, so
+   a flipped store shows the OLD set until it restarts. `aimodels` restarts it
+   automatically on a real switch — but only on a real switch, never on the
+   watcher's idempotent firings, and never when it looks busy (CPU above 5%, or
+   holding an audio file open, or any signal it cannot read — all of which veto
+   the restart and warn instead, because quitting mid-transcription kills the
+   job). `AIMODELS_NO_RESTART=1` disables it. Ollama needs no equivalent: it
+   resolves new loads through the symlink, and `eject` unloads what is cached.
 
 ## Which model should I use?
 

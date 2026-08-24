@@ -179,7 +179,9 @@ final class AiModelsCommand {
 			);
 		}
 
-		if ( ! empty( $report['holders'] ) ) {
+		// Only when it FAILED: holders from a superseded first attempt that the
+		// release then fixed would read as a problem where there is none.
+		if ( ! $report['ejected'] && ! empty( $report['holders'] ) ) {
 			$this->cli->msg( 'Still holding the volume:', 'yellow' );
 			foreach ( $report['holders'] as $holder ) {
 				$this->cli->output( sprintf(
