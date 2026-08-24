@@ -1,28 +1,32 @@
 # Installing the aimodels skills + cross-refs
 
-The two new skills are authored in this repo (`claude/skills/`). Everything below
-this line touches **other** repos — `~/.claude/skills` is a symlink into
-`~/Library/CloudStorage/Dropbox/Prefs/Claude/skills` (its own git repo and its own
-Claude workspace), and `work-with-media` lives in `~/Code/claude-plugins` (another
-repo). Those are not this workspace's to write, so they are handed over as steps
-and patches.
+Both skills live in this repo at `agent-skills/<name>/SKILL.md`, which is the home
+for user-level agent skills — see the "Agent Skills and Slash Commands" section of
+CLAUDE.md.
 
-## 1. Install the two skills (symlink, matching the existing pattern)
-
-`~/.claude/skills/` already holds 8 symlinks into other repos (e.g.
-`chestertons-fence -> ~/Code/claude-plugins/plugins/thinking-tools/...`), so this
-follows the house style rather than copying files around:
+## 1. Install the two skills
 
 ```bash
-ln -s ~/.dotfiles/claude/skills/local-model-stores ~/.claude/skills/local-model-stores
-ln -s ~/.dotfiles/claude/skills/asr-model-picker  ~/.claude/skills/asr-model-picker
+php symdotfiles
 ```
 
-Caveat: that absolute path is macOS-specific, and the skills description
-directories sync via Dropbox to jtbot (Linux), where the link will dangle. The
-existing `claude-plugins` symlinks already have this property, and both skills are
-macOS-only in substance (MacWhisper, launchd, diskutil), so this is the
-established trade-off rather than a new one — but it is a dangling link on Linux.
+That is the whole install. `symdotfiles` symlinks every `agent-skills/<name>/`
+directory containing a `SKILL.md` into `~/.claude/skills/<name>`, so both skills
+become available in every project:
+
+```
+~/.claude/skills/local-model-stores -> ~/.dotfiles/agent-skills/local-model-stores
+~/.claude/skills/asr-model-picker   -> ~/.dotfiles/agent-skills/asr-model-picker
+```
+
+It is idempotent and scoped: anything already linked reports "exists, skipping",
+so running it creates only what is missing. Use `php symdotfiles testrun` to see
+exactly what it would touch first, and `hard` only when deliberately overwriting.
+
+Everything below this point touches **other** repos — `~/.claude/skills` is a
+symlink into `~/Library/CloudStorage/Dropbox/Prefs/Claude/skills` (its own git
+repo, with its own Claude workspace), and `work-with-media` lives in
+`~/Code/claude-plugins`. Those are hand-offs, not steps to run here.
 
 ## 2. Cross-ref patch: `ollama-model-picker`
 
@@ -86,7 +90,7 @@ flips.
 ## 4. Verify after installing
 
 ```bash
-# skills resolve
+# skills resolve into this repo
 ls -l ~/.claude/skills/local-model-stores ~/.claude/skills/asr-model-picker
 head -3 ~/.claude/skills/asr-model-picker/SKILL.md
 
