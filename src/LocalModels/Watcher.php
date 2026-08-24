@@ -168,6 +168,13 @@ XML;
 				'reason'     => $pre->reason,
 				'location'   => $engine->currentLocation(),
 				'symlink'    => $engine->symlinkPath(),
+				'stores'     => [
+					'local'    => $engine->storePath( AbstractStoreEngine::LOCAL ),
+					'external' => $engine->storePath( AbstractStoreEngine::EXTERNAL ),
+				],
+				// One accessor, so text, --json and any later view show the same
+				// rows; sharing only a renderer is what lets views drift.
+				'models'     => $engine->residency(),
 			];
 		}
 

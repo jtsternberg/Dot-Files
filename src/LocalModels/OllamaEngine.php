@@ -60,4 +60,71 @@ final class OllamaEngine extends AbstractStoreEngine {
 
 		return $warnings;
 	}
+
+	/**
+	 * Which model tags each store holds, read from the manifests on disk.
+	 *
+	 * Deliberately not /api/tags: the API only ever describes the store Ollama is
+	 * pointed at right now, so it cannot answer "what is on the drive I ejected".
+	 * Sizes are left out — they need blob arithmetic, and `ollama-why` already
+	 * carries measured size and speed notes per model.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function residency(): array {
+		$active = $this->currentLocation();
+		$rows   = [];
+
+		foreach ( [ self::LOCAL, self::EXTERNAL ] as $location ) {
+			foreach ( $this->tagsIn( $this->storePath( $location ) ) as $tag ) {
+				$rows[ $tag ] ??= [
+					'engine'    => $this->name(),
+					'name'      => $tag,
+					'framework' => 'ollama',
+					'kind'      => 'llm',
+					'path'      => 'manifests/registry.ollama.ai/library/' . str_replace( ':', '/', $tag ),
+					'sizeMb'    => null,
+					'local'     => false,
+					'external'  => false,
+					'available' => false,
+				];
+
+				$rows[ $tag ][ $location ] = true;
+				if ( $location === $active ) {
+					$rows[ $tag ]['available'] = true;
+				}
+			}
+		}
+
+		return array_values( $rows );
+	}
+
+	/**
+	 * @return string[] model:tag pairs
+	 */
+	private function tagsIn( string $store ): array {
+		$library = $store . '/manifests/registry.ollama.ai/library';
+		if ( ! is_dir( $library ) ) {
+			return [];
+		}
+
+		$tags = [];
+		foreach ( scandir( $library ) ?: [] as $model ) {
+			if ( '.' === $model || '..' === $model || ! is_dir( $library . '/' . $model ) ) {
+				continue;
+			}
+
+			foreach ( scandir( $library . '/' . $model ) ?: [] as $tag ) {
+				if ( '.' === $tag || '..' === $tag || '.DS_Store' === $tag ) {
+					continue;
+				}
+
+				if ( is_file( $library . '/' . $model . '/' . $tag ) ) {
+					$tags[] = $model . ':' . $tag;
+				}
+			}
+		}
+
+		return $tags;
+	}
 }

@@ -18,13 +18,15 @@ final class ApplyResult {
 
 	/**
 	 * @param string[] $warnings
+	 * @param string[] $details  Per-item lines, e.g. one per reconciled entry.
 	 */
 	public function __construct(
 		public readonly string $status,
 		public readonly string $message = '',
 		public readonly ?string $location = null,
 		public readonly ?string $target = null,
-		public readonly array $warnings = []
+		public readonly array $warnings = [],
+		public readonly array $details = []
 	) {
 	}
 
@@ -41,7 +43,8 @@ final class ApplyResult {
 			$this->message,
 			$this->location,
 			$this->target,
-			array_merge( $this->warnings, $warnings )
+			array_merge( $this->warnings, $warnings ),
+			$this->details
 		);
 	}
 }

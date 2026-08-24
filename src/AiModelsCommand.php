@@ -59,9 +59,31 @@ final class AiModelsCommand {
 			if ( ! $engine['manageable'] ) {
 				$this->cli->msg( '             not manageable yet: ' . $engine['reason'], 'yellow' );
 			}
+
+			foreach ( $engine['models'] as $model ) {
+				$this->cli->output( sprintf(
+					'  %-1s%-1s %-34s %-11s %s',
+					$model['local'] ? 'L' : '·',
+					$model['external'] ? 'X' : '·',
+					$model['name'],
+					$model['framework'],
+					$this->size( $model ) . ( 'support' === $model['kind'] ? '  (support)' : '' )
+				) );
+			}
+		}
+
+		if ( ! $this->cli->isSilent() ) {
+			$this->cli->msg( '  L = in local store, X = in AI-LAB store', 'cyan' );
 		}
 
 		return 0;
+	}
+
+	/**
+	 * @param array<string, mixed> $model
+	 */
+	private function size( array $model ): string {
+		return null === $model['sizeMb'] ? '' : $model['sizeMb'] . 'M';
 	}
 
 	#[Command(
