@@ -157,13 +157,16 @@ final class AiModelsCommand {
 		bool $dryRun = false,
 		#[Option( description: 'Force the unmount if it is still busy. Can truncate a file being written.' )]
 		bool $force = false,
-		#[Option( name: 'quit-apps', description: 'Ask MacWhisper and Ollama to quit first (never a kill).' )]
-		bool $quitApps = false
+		#[Option( name: 'no-quit', description: 'Never quit a blocking app; just report the holders.' )]
+		bool $noQuit = false,
+		#[Option( name: 'no-restart', description: 'Leave any app it quit closed instead of reopening it.' )]
+		bool $noRestart = false
 	): int {
 		$report = ( new Ejector( $this->registry(), $this->volumesRoot ) )->eject( [
-			'dry-run'   => $dryRun,
-			'force'     => $force,
-			'quit-apps' => $quitApps,
+			'dry-run'    => $dryRun,
+			'force'      => $force,
+			'no-quit'    => $noQuit,
+			'no-restart' => $noRestart,
 		] );
 
 		foreach ( $report['engines'] as $name => $result ) {
@@ -173,7 +176,11 @@ final class AiModelsCommand {
 		}
 
 		foreach ( $report['quit'] as $app ) {
-			$this->cli->msg( '  asked ' . $app . ' to quit', 'cyan' );
+			$this->cli->msg( '  asked ' . $app . ' to quit (it held the volume)', 'cyan' );
+		}
+
+		foreach ( $report['reopened'] as $app ) {
+			$this->cli->msg( '  reopened ' . $app, 'cyan' );
 		}
 
 		if ( ! empty( $report['holders'] ) ) {
@@ -221,7 +228,20 @@ final class AiModelsCommand {
 
 		switch ( $action ) {
 			case 'status':
-				return $this->status();
+				$this->status();
+
+				// The log is the whole point of `watch status`: it is the only
+				// record of what a launchd-triggered flip actually decided.
+				$state = $watcher->status();
+				$this->cli->msg( 'log: ' . $state['log'], 'cyan' );
+				foreach ( $state['recent'] as $line ) {
+					$this->cli->output( '  ' . $line );
+				}
+				if ( empty( $state['recent'] ) ) {
+					$this->cli->msg( '  (no entries yet — the watcher has not run since logging landed)', 'yellow' );
+				}
+
+				return 0;
 
 			case 'install':
 				return $this->report( $watcher->install() );

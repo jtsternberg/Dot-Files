@@ -10,18 +10,48 @@ namespace JT\LocalModels;
  * them back to local AFTER the eject event fires — by then the eject has already
  * failed. So this releases every engine's reference first, then ejects.
  *
- * Two rules it will not break: it never quits an application on its own (that is
- * opt-in, and even then it asks the app politely), and it never forces an eject
- * unless asked. A forced eject on a volume a running app is mid-write to is how
- * model files get truncated.
+ * When the volume is still busy after that, the holder in practice is a model app
+ * with a file open on the drive — observed live as `llama-server`, an Ollama.app
+ * subprocess with an FD on a blob. So a blocked eject asks that app to quit and
+ * retries once, then reopens it.
+ *
+ * Three rules it will not break:
+ *
+ *   - It only ever quits an app it recognises as a model app. Any other holder is
+ *     reported and left alone.
+ *   - It asks politely (`osascript … to quit`), never a signal — a killed app
+ *     mid-write truncates model files.
+ *   - Whatever it closed, it reopens, on success AND on failure. A failed eject
+ *     must never be the reason Ollama is left shut. Same principle as the
+ *     watcher restoring the external store when an eject fails: fail => restore.
+ *
+ * It never forces an unmount unless explicitly asked.
  */
 final class Ejector {
+
+	/**
+	 * Which running application owns a process that lsof might name as a holder.
+	 *
+	 * lsof reports the *process* — Ollama's model server shows up as
+	 * `llama-server`, not `Ollama` — and truncates COMMAND to 9 characters
+	 * (`MacWhispe`). Both are matched by prefix, in either direction.
+	 *
+	 * @var array<string, string[]>
+	 */
+	private const MODEL_APPS = [
+		'Ollama'     => [ 'Ollama', 'ollama', 'llama-server' ],
+		'MacWhisper' => [ 'MacWhisper' ],
+	];
+
+	private AppControl $apps;
 
 	public function __construct(
 		private readonly EngineRegistry $registry,
 		private readonly string $volumesRoot = '/Volumes',
-		private readonly string $volumeName = 'AI-LAB'
+		private readonly string $volumeName = 'AI-LAB',
+		?AppControl $apps = null
 	) {
+		$this->apps = $apps ?: new AppControl();
 	}
 
 	public function volumePath(): string {
@@ -34,9 +64,10 @@ final class Ejector {
 	 * @return array<string, mixed>
 	 */
 	public function eject( array $options = [] ): array {
-		$force    = ! empty( $options['force'] );
-		$dryRun   = ! empty( $options['dry-run'] );
-		$quitApps = ! empty( $options['quit-apps'] );
+		$force     = ! empty( $options['force'] );
+		$dryRun    = ! empty( $options['dry-run'] );
+		$noQuit    = ! empty( $options['no-quit'] );
+		$noRestart = ! empty( $options['no-restart'] );
 
 		$report = [
 			'volume'      => $this->volumePath(),
@@ -46,6 +77,7 @@ final class Ejector {
 			'engines'     => [],
 			'holders'     => [],
 			'quit'        => [],
+			'reopened'    => [],
 		];
 
 		if ( ! ( new Drive( $this->volumesRoot ) )->isMounted( $this->volumeName ) ) {
@@ -93,12 +125,7 @@ final class Ejector {
 			return $report;
 		}
 
-		// 2. Optionally ask known model apps to quit — only ever on request.
-		if ( $quitApps ) {
-			$report['quit'] = $this->quitModelApps();
-		}
-
-		// 3. Eject.
+		// 2. Try a clean eject first. Nothing is quit unless this fails.
 		[ $out, $code ] = $this->diskutil( $force );
 		if ( 0 === $code ) {
 			$report['ejected'] = true;
@@ -107,8 +134,49 @@ final class Ejector {
 			return $report;
 		}
 
-		// 4. Still busy: name the holders rather than forcing.
 		$report['holders'] = $this->holders();
+
+		// 3. Blocked by an app we know? Ask it to quit and try once more. Only
+		// ever a known model app — a random holder is reported, never touched.
+		$blocking = $noQuit ? [] : $this->modelAppsAmong( $report['holders'] );
+		foreach ( $blocking as $app ) {
+			if ( ! $this->apps->isRunning( $app ) ) {
+				continue;
+			}
+			if ( $this->apps->quit( $app ) ) {
+				$report['quit'][] = $app;
+				$this->apps->waitForExit( $app );
+			}
+		}
+
+		if ( ! empty( $report['quit'] ) ) {
+			[ $out, $code ]    = $this->diskutil( $force );
+			$report['ejected'] = 0 === $code;
+			if ( ! $report['ejected'] ) {
+				$report['holders'] = $this->holders();
+			}
+		}
+
+		// 4. Put back whatever we closed — in BOTH outcomes. A failed eject must
+		// never be the reason an app is left shut.
+		if ( ! $noRestart ) {
+			foreach ( $report['quit'] as $app ) {
+				if ( $this->apps->reopen( $app ) ) {
+					$report['reopened'][] = $app;
+				}
+			}
+		}
+
+		if ( $report['ejected'] ) {
+			$report['message'] = trim( $out ) ?: ( $this->volumeName . ' ejected.' );
+			if ( ! empty( $report['quit'] ) ) {
+				$report['message'] .= ' (quit ' . implode( ', ', $report['quit'] ) . ' to free it'
+					. ( empty( $report['reopened'] ) ? '' : ', reopened after' ) . ')';
+			}
+
+			return $report;
+		}
+
 		$report['message'] = trim( $out ) . '. '
 			. ( empty( $report['holders'] )
 				? 'No holder found via lsof; something outside it has the volume.'
@@ -116,6 +184,41 @@ final class Ejector {
 			. ', or re-run with --force (a forced eject can truncate a file being written).';
 
 		return $report;
+	}
+
+	/**
+	 * Known model apps among a set of lsof holders, in registry order.
+	 *
+	 * @param array<int, array{command: string, pid: string, path: string}> $holders
+	 *
+	 * @return string[]
+	 */
+	private function modelAppsAmong( array $holders ): array {
+		$apps = [];
+
+		foreach ( $holders as $holder ) {
+			$command = strtolower( $holder['command'] );
+			if ( strlen( $command ) < 3 ) {
+				continue;
+			}
+
+			foreach ( self::MODEL_APPS as $app => $processes ) {
+				if ( isset( $apps[ $app ] ) ) {
+					continue;
+				}
+
+				foreach ( $processes as $process ) {
+					$process = strtolower( $process );
+					// Either side may be the truncated one.
+					if ( str_starts_with( $process, $command ) || str_starts_with( $command, $process ) ) {
+						$apps[ $app ] = true;
+						break;
+					}
+				}
+			}
+		}
+
+		return array_keys( $apps );
 	}
 
 	/**
@@ -147,37 +250,6 @@ final class Ejector {
 		}
 
 		return $holders;
-	}
-
-	/**
-	 * Ask the model apps to quit — `osascript` quit, never a kill, so anything
-	 * mid-write gets to finish. Returns the apps asked.
-	 *
-	 * @return string[]
-	 */
-	private function quitModelApps(): array {
-		if ( 'Darwin' !== PHP_OS_FAMILY ) {
-			return [];
-		}
-
-		$asked = [];
-		foreach ( [ 'MacWhisper', 'Ollama' ] as $app ) {
-			exec( 'pgrep -x ' . escapeshellarg( $app ) . ' 2>/dev/null', $found, $code );
-			if ( 0 !== $code || empty( $found ) ) {
-				continue;
-			}
-
-			exec(
-				'osascript -e ' . escapeshellarg( 'tell application "' . $app . '" to quit' ) . ' 2>&1',
-				$out,
-				$quitCode
-			);
-			if ( 0 === $quitCode ) {
-				$asked[] = $app;
-			}
-		}
-
-		return $asked;
 	}
 
 	/**

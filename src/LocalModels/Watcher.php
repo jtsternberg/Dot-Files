@@ -63,6 +63,76 @@ final class Watcher {
 		return $this->binPath ?: dirname( __DIR__, 2 ) . '/bin/aimodels';
 	}
 
+	/**
+	 * Where the audit trail goes.
+	 *
+	 * A launchd job's stdout goes nowhere by default, so without this there is no
+	 * record of what the watcher decided on any given /Volumes event — and the
+	 * decisions look inexplicable after the fact (a failed eject bumps /Volumes,
+	 * the drive is still mounted, so the watcher correctly puts both stores back
+	 * on external, which reads as "my flip didn't stick").
+	 */
+	public function logPath(): string {
+		return 'Darwin' === PHP_OS_FAMILY
+			? $this->home . '/Library/Logs/aimodels-watcher.log'
+			: $this->home . '/.local/state/aimodels-watcher.log';
+	}
+
+	/**
+	 * @param array<string, string|bool> $fields
+	 */
+	private function log( array $fields ): void {
+		$path   = $this->logPath();
+		$parent = dirname( $path );
+		if ( ! is_dir( $parent ) && ! @mkdir( $parent, 0755, true ) && ! is_dir( $parent ) ) {
+			return;
+		}
+
+		$this->trim( $path );
+
+		$line = date( 'c' );
+		foreach ( $fields as $key => $value ) {
+			if ( is_bool( $value ) ) {
+				$value = $value ? 'yes' : 'no';
+			}
+			$value = (string) $value;
+			$line .= ' ' . $key . '=' . ( str_contains( $value, ' ' ) ? '"' . str_replace( '"', "'", $value ) . '"' : $value );
+		}
+
+		@file_put_contents( $path, $line . "\n", FILE_APPEND );
+	}
+
+	/**
+	 * Keep the newest half when the log passes the cap. It appends on every
+	 * /Volumes event for the life of the machine, so it cannot grow unbounded.
+	 */
+	private function trim( string $path, int $maxBytes = 262144 ): void {
+		clearstatcache( true, $path );
+		if ( ! is_file( $path ) || filesize( $path ) <= $maxBytes ) {
+			return;
+		}
+
+		$lines = @file( $path, FILE_IGNORE_NEW_LINES ) ?: [];
+		$keep  = array_slice( $lines, (int) floor( count( $lines ) / 2 ) );
+		@file_put_contents( $path, implode( "\n", $keep ) . "\n" );
+	}
+
+	/**
+	 * The tail of the log, newest last.
+	 *
+	 * @return string[]
+	 */
+	public function recentLog( int $lines = 8 ): array {
+		$path = $this->logPath();
+		if ( ! is_file( $path ) ) {
+			return [];
+		}
+
+		$all = @file( $path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES ) ?: [];
+
+		return array_slice( $all, -max( 1, $lines ) );
+	}
+
 	public function render(): string {
 		$php  = htmlspecialchars( $this->phpBinary(), ENT_XML1 );
 		$bin  = htmlspecialchars( $this->commandPath(), ENT_XML1 );
@@ -119,6 +189,7 @@ XML;
 		}
 
 		$warnings = $this->retireLegacy();
+		$this->log( [ 'event' => 'install', 'plist' => $this->plistPath() ] );
 		$this->applyAll();
 
 		return ( new ApplyResult(
@@ -134,6 +205,7 @@ XML;
 
 		$this->launchctl( 'unload', $this->plistPath() );
 		@unlink( $this->plistPath() );
+		$this->log( [ 'event' => 'remove', 'plist' => $this->plistPath() ] );
 
 		return new ApplyResult( ApplyResult::APPLIED, 'watcher removed.' );
 	}
@@ -185,6 +257,8 @@ XML;
 			'legacy'     => is_file( $this->legacyPlistPath() ),
 			'mounted'    => ( new Drive( $this->volumesRoot ) )->isMounted( 'AI-LAB' ),
 			'engines'    => $engines,
+			'log'        => $this->logPath(),
+			'recent'     => $this->recentLog(),
 		];
 	}
 
@@ -198,18 +272,32 @@ XML;
 	public function applyAll( bool $dryRun = false ): array {
 		$lock    = $this->lock();
 		$results = [];
+		$mounted = ( new Drive( $this->volumesRoot ) )->settle( 'AI-LAB' );
 
 		foreach ( $this->registry->engines() as $engine ) {
 			$pre = $engine->preflight();
 			if ( ! $pre->manageable ) {
 				$results[ $engine->name() ] = new ApplyResult( ApplyResult::SKIPPED, $pre->reason );
+				$this->log( [
+					'mounted' => $mounted,
+					'engine'  => $engine->name(),
+					'status'  => ApplyResult::SKIPPED,
+					'reason'  => $pre->reason,
+				] );
 				continue;
 			}
 
-			$results[ $engine->name() ] = $engine->apply(
-				$engine instanceof AbstractStoreEngine ? $engine->locationForDrive( true ) : AbstractStoreEngine::LOCAL,
-				$dryRun
-			);
+			$location = $mounted ? AbstractStoreEngine::EXTERNAL : AbstractStoreEngine::LOCAL;
+			$result   = $engine->apply( $location, $dryRun );
+
+			$results[ $engine->name() ] = $result;
+			$this->log( [
+				'mounted'  => $mounted,
+				'engine'   => $engine->name(),
+				'status'   => $result->status,
+				'location' => $location,
+				'msg'      => $result->message,
+			] );
 		}
 
 		$this->unlock( $lock );

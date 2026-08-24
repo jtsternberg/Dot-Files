@@ -62,9 +62,35 @@ flips them back to local *after* the eject event fires, far too late to help.
 `aimodels eject` inverts the order: release every engine to its local store,
 then unmount.
 
-On a still-busy volume it names the holding processes (`lsof`) rather than
-forcing. `--force` exists but can truncate a file mid-write. `--quit-apps` asks
-MacWhisper and Ollama to quit (via `osascript`, never a kill) and is opt-in only.
+If the volume is still busy after that, the holder in practice is a model app
+with a file open on the drive — observed live as `llama-server`, an Ollama.app
+subprocess holding an FD on a blob. So `eject` asks that app to quit
+(`osascript`, never a kill), retries once, and **reopens whatever it closed —
+whether the eject succeeded or not.** A reopened app comes up pointing at its
+local store, which is the correct ejected working state.
+
+Any holder it does not recognise as a model app is reported and left alone;
+`--force` exists but can truncate a file mid-write. `--no-quit` restores
+report-and-stop; `--no-restart` leaves a quit app closed.
+
+**fail ⇒ restore** is the principle throughout, and it explains something that
+otherwise looks like a bug: when an eject *fails*, the failed `diskutil` still
+bumps `/Volumes`, the watcher fires, sees AI-LAB still mounted, and puts both
+stores back on external. That is intended — a failed eject leaves everything as
+it was. (A manual `aimodels whisper local` while the drive stays mounted
+persists, because nothing bumps `/Volumes`.)
+
+## The watcher log — read this before diagnosing anything
+
+```bash
+aimodels watch status        # state + the last few log lines
+tail -f ~/Library/Logs/aimodels-watcher.log
+```
+
+One line per engine per firing: timestamp, `mounted=yes|no`, `engine=`,
+`status=`, `location=`, and the message or skip reason. A launchd job's stdout
+goes nowhere, so this file is the only record of what any flip decided. Start
+here — "why is my store back on external" is one line, not an experiment.
 
 ## Invariants — do not break these
 
