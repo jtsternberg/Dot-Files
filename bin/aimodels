@@ -1,0 +1,34 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# aimodels — manage local model stores across local disk and the AI-LAB drive.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/aimodels
+#
+# Version 0.1.0
+#
+# One brain for every local model store: Ollama's LLMs and MacWhisper's ASR
+# bundles. Each engine keeps its app-facing path as a symlink to one of two real
+# stores (local disk, or the AI-LAB external drive), and a single LaunchAgent
+# follows the drive — mounted points every engine at its external superset,
+# ejected falls back to the offline-safe local store.
+#
+# The attribute-driven AiModelsCommand handler is the canonical command
+# contract: reflection dispatches its methods and renders help and completion.
+#
+# Usage:
+# aimodels help
+# aimodels status [--json]
+# aimodels where
+# aimodels ollama [local|sd|auto|reconcile] [--dry-run]
+# aimodels whisper [local|external|auto|reconcile] [--dry-run]
+# aimodels watch [status|install|remove|apply]
+# aimodels completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new AiModelsCommand( $cli ) ) )->run() );

@@ -30,6 +30,27 @@ for a in "$@"; do
   esac
 done
 
+# --- superseded --------------------------------------------------------------
+# MacWhisper will not LIST a model whose bundle is a symlink — it only loads via
+# an explicit `mw transcribe --model <id>`. Per-bundle relocation, which is all
+# this script does, therefore hides every model it moves. The whole-dir store
+# flip in `aimodels whisper` replaces it: bundles inside a flipped store stay
+# real directories, so they stay visible.
+if [ "${MACWHISPER_RELOCATE_ALLOW_LEGACY:-0}" != "1" ]; then
+  cat >&2 <<'MSG'
+macwhisper-relocate is superseded and refuses to run.
+
+Per-bundle symlinking makes the relocated model invisible to MacWhisper's model
+list. Use the whole-dir store flip instead:
+
+  aimodels whisper auto        # follow the AI-LAB drive
+  aimodels whisper --help
+
+Set MACWHISPER_RELOCATE_ALLOW_LEGACY=1 to override (you will hide models).
+MSG
+  exit 2
+fi
+
 # --- preflight ---------------------------------------------------------------
 [ -d "$MODELS_ROOT" ] || { echo "ERROR: MacWhisper models dir not found: $MODELS_ROOT" >&2; exit 2; }
 if ! mount | grep -q "/Volumes/AI-LAB "; then

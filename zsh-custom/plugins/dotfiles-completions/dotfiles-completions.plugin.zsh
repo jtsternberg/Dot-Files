@@ -203,6 +203,27 @@ _xname_lazy() {
 	_xname "$@"
 }
 
+_aimodels_lazy() {
+	local generated
+
+	generated="$(command aimodels completion zsh 2>/dev/null)" || {
+		_message 'unable to generate aimodels completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load aimodels completion'
+		return 1
+	}
+
+	if (( ! $+functions[_aimodels] )); then
+		_message 'aimodels completion did not define _aimodels'
+		return 1
+	fi
+
+	_aimodels "$@"
+}
+
 # herdr (https://herdr.dev) is a third-party tool, not maintained in this repo,
 # but its completion follows the same generate-on-first-use contract as our own
 # commands, so its lazy loader lives here rather than in a new plugin. It is a
@@ -234,4 +255,5 @@ compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
 compdef _md_atx_lazy md-atx
 compdef _xname_lazy xname
+compdef _aimodels_lazy aimodels
 compdef _herdr_lazy herdr
