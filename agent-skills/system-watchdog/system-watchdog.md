@@ -220,6 +220,12 @@ The point of the journal is that findings accumulate — so the *next* run is
 smarter. Append an entry when you learn something worth carrying forward. Do
 **not** journal one-off noise or things already captured.
 
+**Boundary — this journal is live perf telemetry only** (CPU / memory / battery /
+kernel zones / /tmp). If the root cause turns out to be a durable config/infra
+misconfiguration rather than a perf condition — something still true after a
+reboot, e.g. a launchd, network, mount, DNS or auth misconfig — record it via the
+`system-journal` skill instead, which owns that format and its own journal.
+
 Journal when:
 - **You open a line of investigation** — a hypothesis + a test in flight (e.g.
   "JT disabled X to see if hog Y stops"). Record `hypothesis`, `action_taken`,
