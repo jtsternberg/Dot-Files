@@ -171,6 +171,36 @@ Practically:
 - Structured output (`--json`) counts as a view. A field visible in the text output
   and missing from the JSON is the same bug.
 
+### If Two Mechanisms Sync One Tree, They Share One Exclusion List
+
+**When more than one mechanism moves the same directory tree — git and an rsync,
+a watcher's ignore pattern and the copy it triggers, a plugin's ignore list and a
+script's — every one of them reads the SAME exclusion list. Not equivalent lists;
+one list, in one place, that each mechanism loads.**
+
+Divergent lists do not degrade gracefully; they manufacture a permanent
+divergence. A file excluded from git but not from the copy can never be
+reconciled between two machines, yet keeps being presented to the copy as
+"present here, absent there" — so whatever the copy does to resolve that
+difference, it does forever, on every run. The same file. The same wrong
+resolution. Nothing in either mechanism's own logs looks abnormal, because each
+is behaving exactly as configured.
+
+The trap is that the lists start out matching. They are written minutes apart by
+someone holding both in their head, and they drift later — one gains an entry for
+a new tool's cache, the other doesn't. So:
+
+- Keep the patterns in one file that every mechanism reads. A shared constant, a
+  generated `--exclude-from` file, a single ignore file both tools honour.
+- Count the watcher's own ignore pattern as one of the lists. A tree filtered
+  differently for *deciding to act* than for *acting* is the same defect.
+- Pin it with a test that asserts the lists are the same object or derived from
+  it — not one test per mechanism confirming each works alone.
+- A high-churn directory that is never anyone's content (`.beads`, `.git`, a
+  database or index a tool maintains) belongs in the shared list explicitly. Live
+  databases in particular must never be copied by a file-level tool: a store
+  copied mid-write is a corrupt store.
+
 ### Testing
 
 **Follow TDD.** For any behavior change to a class under `src/` — new method,
