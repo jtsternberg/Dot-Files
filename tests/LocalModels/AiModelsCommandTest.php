@@ -124,6 +124,24 @@ final class AiModelsCommandTest extends TestCase {
 		$this->assertSame( 0, $code );
 	}
 
+	public function testStatusPointsAtEjectWhileAStoreIsOnTheDrive(): void {
+		mkdir( $this->home . '/.ollama-local-models', 0777, true );
+		mkdir( $this->volumes . '/AI-LAB/ollama/models', 0777, true );
+		$this->dispatch( [ 'aimodels', 'ollama', 'external' ] );
+
+		[ , $out ] = $this->dispatch( [ 'aimodels', 'where' ] );
+
+		$this->assertStringContainsString( 'aimodels eject', $out );
+	}
+
+	public function testNoEjectHintWhenTheDriveIsAbsent(): void {
+		mkdir( $this->home . '/.ollama-local-models', 0777, true );
+
+		[ , $out ] = $this->dispatch( [ 'aimodels', 'where' ] );
+
+		$this->assertStringNotContainsString( 'aimodels eject', $out );
+	}
+
 	public function testUnknownActionIsAUsageFailure(): void {
 		[ $code ] = $this->dispatch( [ 'aimodels', 'ollama', 'sideways' ] );
 

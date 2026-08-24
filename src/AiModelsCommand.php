@@ -9,6 +9,7 @@ use JT\CLI\Attributes\Program;
 use JT\CLI\Helpers;
 use JT\LocalModels\AbstractStoreEngine;
 use JT\LocalModels\ApplyResult;
+use JT\LocalModels\Ejector;
 use JT\LocalModels\EngineRegistry;
 use JT\LocalModels\StoreEngine;
 use JT\LocalModels\Watcher;
@@ -76,9 +77,30 @@ final class AiModelsCommand {
 
 		if ( ! $this->cli->isSilent() ) {
 			$this->cli->msg( '  L = in local store, X = in AI-LAB store', 'cyan' );
+			$this->ejectHint( $status );
 		}
 
 		return 0;
+	}
+
+	/**
+	 * Unplugging AI-LAB while a store still points into it is what makes Finder
+	 * report "busy", so say so wherever the drive shows as in use.
+	 *
+	 * @param array<string, mixed> $status
+	 */
+	private function ejectHint( array $status ): void {
+		if ( ! $status['mounted'] ) {
+			return;
+		}
+
+		foreach ( $status['engines'] as $engine ) {
+			if ( 'external' === $engine['location'] ) {
+				$this->cli->msg( '  Removing the drive? `aimodels eject` releases the stores first.', 'cyan' );
+
+				return;
+			}
+		}
 	}
 
 	/**
@@ -98,6 +120,7 @@ final class AiModelsCommand {
 		foreach ( $status['engines'] as $name => $engine ) {
 			$this->cli->output( $name . ': ' . ( $engine['location'] ?? 'unlinked' ) );
 		}
+		$this->ejectHint( $status );
 
 		return 0;
 	}
@@ -124,6 +147,62 @@ final class AiModelsCommand {
 		bool $dryRun = false
 	): int {
 		return $this->engineAction( 'macwhisper', $action, $dryRun );
+	}
+
+	#[Command(
+		description: 'Release every model store from AI-LAB, then eject it. The safe way to unplug the drive.',
+	)]
+	public function eject(
+		#[Option( name: 'dry-run', aliases: [ 'n' ], description: 'Show what would be released and ejected.' )]
+		bool $dryRun = false,
+		#[Option( description: 'Force the unmount if it is still busy. Can truncate a file being written.' )]
+		bool $force = false,
+		#[Option( name: 'quit-apps', description: 'Ask MacWhisper and Ollama to quit first (never a kill).' )]
+		bool $quitApps = false
+	): int {
+		$report = ( new Ejector( $this->registry(), $this->volumesRoot ) )->eject( [
+			'dry-run'   => $dryRun,
+			'force'     => $force,
+			'quit-apps' => $quitApps,
+		] );
+
+		foreach ( $report['engines'] as $name => $result ) {
+			if ( ApplyResult::NOOP !== $result->status ) {
+				$this->cli->msg( '  ' . $name . ': ' . $result->message, 'cyan' );
+			}
+		}
+
+		foreach ( $report['quit'] as $app ) {
+			$this->cli->msg( '  asked ' . $app . ' to quit', 'cyan' );
+		}
+
+		if ( ! empty( $report['holders'] ) ) {
+			$this->cli->msg( 'Still holding the volume:', 'yellow' );
+			foreach ( $report['holders'] as $holder ) {
+				$this->cli->output( sprintf(
+					'  %-14s pid %-7s %s',
+					$holder['command'],
+					$holder['pid'],
+					$holder['path']
+				) );
+			}
+		}
+
+		if ( $report['ejected'] ) {
+			$this->cli->successMsg( $report['message'] );
+
+			return 0;
+		}
+
+		if ( $dryRun ) {
+			$this->cli->output( $report['message'] );
+
+			return 0;
+		}
+
+		$this->cli->err( $report['message'] );
+
+		return 1;
 	}
 
 	#[Command(
