@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# macwhisper-relocate — move downloaded MacWhisper model bundles onto the AI-LAB
+# external drive and symlink them back, so the bytes live external but MacWhisper
+# finds them at their original paths. Idempotent: already-relocated (symlinked)
+# models are skipped. Uses copy-verify-then-remove so a mid-copy failure never
+# loses a model.
+#
+# Usage:
+#   macwhisper-relocate            # scan & relocate every eligible model
+#   macwhisper-relocate --dry-run  # show what would move, do nothing
+#   macwhisper-relocate <name>...  # relocate only the named model dir(s)
+#
+# The active "small" WhisperKit model and the small whisper-cpp .en .bin files
+# are kept LOCAL by default (KEEP_LOCAL below) as an offline fallback for when
+# AI-LAB is unmounted.
+
+set -euo pipefail
+
+MODELS_ROOT="/Users/JT/Library/Application Support/MacWhisper/models"
+AILAB="/Volumes/AI-LAB/macwhisper-models"
+MIN_MB=100                                   # only relocate bundles this big
+KEEP_LOCAL=("openai_whisper-small")          # never relocate these (fallback)
+
+DRY=0; NAMES=()
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    *) NAMES+=("$a") ;;
+  esac
+done
+
+# --- preflight ---------------------------------------------------------------
+[ -d "$MODELS_ROOT" ] || { echo "ERROR: MacWhisper models dir not found: $MODELS_ROOT" >&2; exit 2; }
+if ! mount | grep -q "/Volumes/AI-LAB "; then
+  echo "ERROR: AI-LAB is not mounted. Mount it and retry." >&2; exit 2
+fi
+mkdir -p "$AILAB"
+
+in_keep_local() { local n="$1"; for k in "${KEEP_LOCAL[@]}"; do [ "$n" = "$k" ] && return 0; done; return 1; }
+
+relocate() {   # $1 = absolute path to a real (non-symlink) model dir
+  local src="$1" name dest src_mb src_files dest_files
+  name="$(basename "$src")"
+  dest="$AILAB/$name"
+
+  if in_keep_local "$name"; then echo "keep-local: $name (skipped)"; return 0; fi
+  if [ -L "$src" ]; then echo "already-symlinked: $name"; return 0; fi
+  [ -d "$src" ] || return 0
+
+  src_mb=$(( $(du -sk "$src" | cut -f1) / 1024 ))
+  if [ "$src_mb" -lt "$MIN_MB" ]; then echo "too-small (<${MIN_MB}MB): $name (skipped)"; return 0; fi
+
+  if [ -e "$dest" ]; then
+    echo "ERROR: destination already exists, refusing to clobber: $dest" >&2; return 1
+  fi
+
+  if [ "$DRY" = 1 ]; then echo "WOULD relocate: $name (${src_mb}MB) -> $dest"; return 0; fi
+
+  echo "relocating: $name (${src_mb}MB) -> AI-LAB"
+  ditto "$src" "$dest"
+  src_files=$(find "$src" | wc -l | tr -d ' ')
+  dest_files=$(find "$dest" | wc -l | tr -d ' ')
+  if [ "$src_files" != "$dest_files" ]; then
+    echo "ERROR: file-count mismatch ($src_files vs $dest_files) for $name; leaving original intact." >&2
+    rm -rf "$dest"; return 1
+  fi
+  rm -rf "$src"
+  ln -s "$dest" "$src"
+  echo "  ok: $name  ($src_files files, symlinked)"
+}
+
+# --- targets -----------------------------------------------------------------
+# Model bundles are directories containing config.json (WhisperKit/Parakeet
+# CoreML/NeMo bundles). Scan the whole tree for those, unless names were given.
+status=0
+if [ "${#NAMES[@]}" -gt 0 ]; then
+  for n in "${NAMES[@]}"; do
+    hit="$(find "$MODELS_ROOT" -type d -name "$n" -not -path '*/.cache/*' | head -1)"
+    [ -n "$hit" ] || { echo "not-found: $n" >&2; status=1; continue; }
+    relocate "$hit" || status=1
+  done
+else
+  while IFS= read -r cfg; do
+    relocate "$(dirname "$cfg")" || status=1
+  done < <(find "$MODELS_ROOT" -name config.json -not -path '*/.cache/*' 2>/dev/null | sort)
+fi
+exit $status
