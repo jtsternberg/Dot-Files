@@ -86,6 +86,20 @@ verify the lazy loader and generated function in a clean Zsh process by loading
 zsh -fc 'autoload -Uz compinit; compinit -C; source zsh-custom/plugins/godo-completions/godo-completions.plugin.zsh; [[ ${_comps[godo]} == _godo_lazy ]]'
 ```
 
+### Skills And Docs Drift With The Command
+
+**Any change to a command's behavior, flags, subcommands, arguments, or output
+must also update every skill or doc that teaches that command, in the same
+change.** A skill in `agent-skills/` or `.claude/skills/` that documents how to
+drive a command is part of that command's public interface, exactly like its
+`--help` and its Zsh completion — an agent reads the skill to decide how to use
+the command, so a skill describing behavior the command no longer has silently
+sends the next agent down the wrong path. This applies to slash commands and
+any other tool a skill documents, not just PHP CLIs. Before calling the change
+done, grep `agent-skills/` and `.claude/skills/` for the command name and
+reconcile what you find. This is the same invariant as the completion rule
+above: coupled interface surfaces move together or not at all.
+
 ### Available `$cli` Methods
 
 **Arguments/Flags:**
