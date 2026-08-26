@@ -10,6 +10,14 @@ A curated log of **non-obvious infrastructure / config incidents on this
 machine**, plus the standing facts and deliberate changes that make the next
 investigation fast.
 
+**This journal is yours to maintain — the consuming agent's, not JT's.** You
+read it, write entries, curate tags, supersede stale understanding, regenerate
+the index, and commit it. JT is the beneficiary of the compounding record, never
+its keeper: never ask him to add, update, prune, or fix an entry, and never leave
+a finding unwritten on the assumption he'll record it. If the journal or its
+tooling is broken (a bad index, a failing regen command), fixing it is your job
+too — do it or file it, don't hand it back.
+
 **Boundary — two journals, one each:** live perf telemetry (CPU / memory /
 battery / kernel zones / /tmp) → the `/system-watchdog` command's
 `~/.cache/system-watchdog/journal.jsonl`. Durable config / infra findings (NAS,
