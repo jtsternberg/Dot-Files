@@ -242,25 +242,94 @@ if ( ! $dirs_only ) {
 		do_notice( "    : $home_file -> $repo_file", false, false );
 	}
 
-	// Repo-bundled agent skills: any agent-skills/<name>/ dir containing a
-	// SKILL.md is symlinked whole into ~/.claude/skills/<name> so Claude Code
-	// discovers it.
+	// Repo-bundled agent skills use portable SKILL.md instructions. Link every
+	// skill into both harness discovery roots; slash commands remain Claude-only.
+	$skill_destinations = array(
+		'Claude' => '.claude/skills/',
+		'Codex'  => '.agents/skills/',
+	);
 	foreach ( glob( $working_dir . '/agent-skills/*/SKILL.md' ) ?: array() as $skill_md ) {
 		$skill_dir = dirname( $skill_md );
-		$home_file = $destination_dir . '.claude/skills/' . basename( $skill_dir );
-		do_notice( 'Symlinking repo skill (' . basename( $skill_dir ) . ')', true, "\n" );
-		if ( file_exists( $home_file ) || is_link( $home_file ) ) {
-			do_notice( "    : $home_file exists, skipping (use 'hard' to overwrite)", false, false );
+		$portability_errors = repo_skill_portability_errors( $skill_md );
+		if ( $portability_errors ) {
+			do_notice(
+				'Repo skill (' . basename( $skill_dir ) . ') is not dual-harness portable: '
+				. implode( '; ', $portability_errors )
+				. '. Fix it or add an explicit harness-specific install map.',
+				true,
+				"\n"
+			);
 			continue;
 		}
-		if ( ! $testrun ) {
-			if ( ! is_dir( dirname( $home_file ) ) ) {
-				mkdir( dirname( $home_file ), 0777, true );
+		foreach ( $skill_destinations as $harness => $skills_root ) {
+			$home_file = $destination_dir . $skills_root . basename( $skill_dir );
+			do_notice( 'Symlinking repo skill (' . basename( $skill_dir ) . " for $harness)", true, "\n" );
+			if ( file_exists( $home_file ) || is_link( $home_file ) ) {
+				do_notice( "    : $home_file exists, skipping (use 'hard' to overwrite)", false, false );
+				continue;
 			}
-			symlink( $skill_dir, $home_file );
+			if ( ! $testrun ) {
+				if ( ! is_dir( dirname( $home_file ) ) ) {
+					mkdir( dirname( $home_file ), 0777, true );
+				}
+				symlink( $skill_dir, $home_file );
+			}
+			do_notice( "    : $home_file -> $skill_dir", false, false );
 		}
-		do_notice( "    : $home_file -> $skill_dir", false, false );
 	}
+}
+
+/**
+ * Return the binary portability failures that make one source unsafe to expose
+ * through both Claude Code and Codex discovery roots.
+ */
+function repo_skill_portability_errors( $skill_md ) {
+	$skill_dir = dirname( $skill_md );
+	$contents = file_get_contents( $skill_md );
+	$errors = array();
+
+	if ( false === $contents || ! preg_match( '/\A---\R(.*?)\R---\R/s', $contents, $matches ) ) {
+		return array( 'missing or malformed SKILL.md frontmatter' );
+	}
+
+	$frontmatter = $matches[1];
+	if ( ! preg_match( '/^name:\s*(.+)$/m', $frontmatter, $name_match ) ) {
+		$errors[] = 'missing name';
+	} else {
+		$name = trim( trim( $name_match[1] ), "\"'" );
+		if ( $name !== basename( $skill_dir ) ) {
+			$errors[] = "name '$name' does not match directory '" . basename( $skill_dir ) . "'";
+		}
+	}
+
+	if ( ! preg_match( '/^description:\s*(.*)$/m', $frontmatter, $description_match ) ) {
+		$errors[] = 'missing description';
+	} else {
+		$description = trim( $description_match[1] );
+		if ( in_array( $description, array( '|', '|-', '|+', '>', '>-', '>+' ), true ) ) {
+			$after_description = substr( $frontmatter, strpos( $frontmatter, $description_match[0] ) + strlen( $description_match[0] ) );
+			if ( ! preg_match( '/\R[ \t]+\S/', $after_description ) ) {
+				$errors[] = 'empty description';
+			}
+		} elseif ( '' === $description ) {
+			$errors[] = 'empty description';
+		}
+	}
+
+	$markdown_files = new RecursiveIteratorIterator(
+		new RecursiveDirectoryIterator( $skill_dir, FilesystemIterator::SKIP_DOTS )
+	);
+	foreach ( $markdown_files as $markdown_file ) {
+		if ( 'md' !== $markdown_file->getExtension() ) {
+			continue;
+		}
+		$markdown = file_get_contents( $markdown_file->getPathname() );
+		if ( false !== $markdown && false !== strpos( $markdown, '${CLAUDE_PLUGIN_ROOT}' ) ) {
+			$errors[] = basename( $markdown_file->getPathname() ) . ' depends on ${CLAUDE_PLUGIN_ROOT}';
+		}
+	}
+
+	return array_values( array_unique( $errors ) );
 }
 
 function do_notice( $text, $before = true, $after = true ) {

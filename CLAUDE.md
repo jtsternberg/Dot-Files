@@ -313,15 +313,27 @@ fi
 ## Agent Skills and Slash Commands
 
 **Skills and commands for JT's agents live in `agent-skills/<name>/`.** `php
-symdotfiles` installs them; nothing else in this repo is wired to `~/.claude`, so
-a skill written anywhere else is inert no matter how correct its contents.
+symdotfiles` installs skills for both Claude Code and Codex. Nothing else in this
+repo is wired to their user-level discovery roots, so a skill written anywhere
+else is inert no matter how correct its contents.
 
-- `agent-skills/<name>/SKILL.md` — the whole directory is symlinked to
-  `~/.claude/skills/<name>`, making it a **user-level skill** available in every
-  project. `graveyard`, `system-journal`, `pi-skill-sync` are the reference.
-- `agent-skills/<name>/*.md` with no `SKILL.md` — each markdown file is symlinked
-  into `~/.claude/commands/`, making it a **slash command**. `system-watchdog` is
-  the reference. One directory can hold both kinds.
+- `agent-skills/<name>/SKILL.md` — the whole directory is symlinked to both
+  `~/.claude/skills/<name>` and `~/.agents/skills/<name>`, making it a
+  **user-level skill** available in every Claude Code and Codex project.
+  Skills here must use portable frontmatter and keep every script and reference
+  self-contained below that directory; `${CLAUDE_PLUGIN_ROOT}` and sibling-skill
+  resource dependencies are not portable. A bare `${CLAUDE_SKILL_DIR}` may be
+  used only with adjacent prose telling Codex to substitute the skill directory,
+  and it must be assigned independently in every executable block. Claude-only
+  `$ARGUMENTS`, inline `!` context, and tool names require a Codex fallback.
+  `graveyard`,
+  `system-journal`, `system-watchdog`, `pi-skill-sync`, and `local-models` are
+  the reference. A genuinely harness-specific future skill needs an explicit
+  install map rather than a silent compatibility assumption.
+- `agent-skills/<name>/*.md` other than `SKILL.md` — each markdown file is
+  symlinked into `~/.claude/commands/`, making it a **slash command**. A directory
+  can technically hold both forms, but prefer a shared skill when the workflow
+  is useful in both harnesses. `system-watchdog` is a skill, not a command.
 
 **Repo-scoped guidance goes in `.claude/skills/<name>/SKILL.md` instead** — Claude
 Code reads that directly, no symlink, and it loads only while working in this
