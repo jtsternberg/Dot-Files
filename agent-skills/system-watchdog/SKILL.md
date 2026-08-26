@@ -206,10 +206,10 @@ name the 1–2 things worth closing to extend runtime.
 
 ## 4. Execute on confirmation
 
-This session runs with permissions skipped, so after JT says yes (e.g. "kill
-it", "renice it", "free the memory", "stop the backup"), **run the command** and
-confirm the result by re-sampling (`ps -p <PID>` — gone? `%cpu`/`rss` dropped?
-pressure level back to 1?). Report what changed.
+After JT says yes (e.g. "kill it", "renice it", "free the memory", "stop the
+backup"), **run the command** when the current harness's permissions allow it,
+then confirm the result by re-sampling (`ps -p <PID>` — gone? `%cpu`/`rss`
+dropped? pressure level back to 1?). Report what changed.
 
 Never act without an explicit go-ahead. If JT only asked "what's going on?",
 stop after the verdict + options.
