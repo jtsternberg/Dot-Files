@@ -13,9 +13,10 @@ namespace JT;
 # Usage:
 # graveyard bury  (no args: interactive picker — fzf if available, else numbered REPL)
 # graveyard bury <identifier> [--force] [-y]
-#   identifier: cmux surface ref (surface:N), surface UUID, session-id (or
-#   prefix), or a workspace/tab title substring. Ambiguous matches are
-#   rejected (no auto-pick) — narrow it or pass a full session-id.
+#   identifier: cmux surface ref (surface:N), surface UUID (bare or the
+#   "surface_id=<uuid>" form cmux's ⌘P copies), session-id (or prefix), or a
+#   workspace/tab title substring. Ambiguous matches are rejected (no
+#   auto-pick) — narrow it or pass a full session-id.
 # graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard bury --workspace|-ws <name|ref|group-id> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace. A buried group-id re-buries the workspace it was resurrected into — symmetric with resurrect.)
@@ -39,7 +40,7 @@ $helpyHelperton
 	->setSampleUsage('<bury|ls|search|show|rename|delete|resurrect|page> [args]')
 	->buildDocs([
 		'bury' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection',
-		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID, session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
+		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID (bare, or the "surface_id=<uuid>" form cmux\'s ⌘P copies), session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id.',
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'bury --workspace|-ws <name|ref|group-id>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force. Accepts a cmux workspace ref, a title substring, OR a buried group-id prefix — a group-id re-buries the workspace that group was resurrected into (symmetric with `resurrect`), matching live members by session id and falling back to the group title. (-ws is a short alias for --workspace.)',

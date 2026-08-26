@@ -4164,6 +4164,10 @@ class Graveyard {
 	 * substring matching, mirroring Cmux::resolveWorkspaceNode.
 	 */
 	public function matchIdentifier(array $rows, string $id): array {
+		// cmux's "copy surface id" (⌘P) yields "surface_id=<uuid>"; accept that
+		// pasted form directly by stripping the key= prefix before resolving.
+		if (str_starts_with($id, 'surface_id=')) { $id = substr($id, strlen('surface_id=')); }
+
 		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));
 		if ($exact) { return $exact; }
 

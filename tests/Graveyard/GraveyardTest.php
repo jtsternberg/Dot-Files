@@ -235,6 +235,12 @@ final class GraveyardTest extends TestCase
 
 		$this->assertCount(2, $this->gy->matchIdentifier($mrows, 'backend'));
 		$this->assertSame([], $this->gy->matchIdentifier($mrows, 'nope'));
+
+		// cmux's "copy surface id" yields "surface_id=<uuid>"; the pasted string
+		// resolves the same as the bare uuid (the prefix is stripped, once).
+		$m5 = $this->gy->matchIdentifier($mrows, 'surface_id=UUID-7');
+		$this->assertCount(1, $m5);
+		$this->assertSame('bbb333', $m5[0]['session_id']);
 	}
 
 	/**
