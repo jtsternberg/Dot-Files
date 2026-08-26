@@ -251,8 +251,9 @@ final class GraveyardTest extends TestCase
 
 		$this->assertSame(['kind' => 'single', 'field' => 'surface_id', 'value' => 'F16C'], $c('surface_id=F16C'));
 		$this->assertSame(['kind' => 'single', 'field' => 'surface_ref', 'value' => 'surface:114'], $c('surface_ref=surface:114'));
-		$this->assertSame(['kind' => 'single', 'field' => 'home_pane_id', 'value' => '45AC'], $c('pane_id=45AC'));
-		$this->assertSame(['kind' => 'single', 'field' => 'pane_ref', 'value' => 'pane:54'], $c('pane_ref=pane:54'));
+		// Pane ids are their own kind: a multi-session pane buries as a group.
+		$this->assertSame(['kind' => 'pane', 'field' => 'home_pane_id', 'value' => '45AC'], $c('pane_id=45AC'));
+		$this->assertSame(['kind' => 'pane', 'field' => 'pane_ref', 'value' => 'pane:54'], $c('pane_ref=pane:54'));
 		$this->assertSame(['kind' => 'workspace', 'field' => null, 'value' => 'workspace:29'], $c('workspace_ref=workspace:29'));
 		$this->assertSame(['kind' => 'workspace', 'field' => null, 'value' => '78A6'], $c('workspace_id=78A6'));
 
@@ -276,35 +277,102 @@ final class GraveyardTest extends TestCase
 	}
 
 	/**
-	 * bury <identifier> with a pane paste resolves the one session in that pane by the
-	 * pane's stable id; a workspace paste is routed to the whole-workspace group bury.
+	 * findPaneNode locates a pane by ref OR by its stable UUID and returns the pane's
+	 * parent workspace ref/title and window ref, so a pane bury can build a one-pane
+	 * node and target the right workspace.
+	 */
+	public function testFindPaneNode(): void
+	{
+		$tree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:29', 'id' => 'WS-UUID', 'title' => 'boss', 'panes' => [
+				['ref' => 'pane:54', 'id' => '45AC', 'surfaces' => [['ref' => 'surface:114']]],
+				['ref' => 'pane:55', 'id' => 'BEEF', 'surfaces' => [['ref' => 'surface:200']]],
+			]],
+		]]]];
+
+		$byRef = $this->gy->findPaneNode($tree, 'pane:55');
+		$this->assertSame('workspace:29', $byRef['ws_ref']);
+		$this->assertSame('boss', $byRef['ws_title']);
+		$this->assertSame('window:1', $byRef['window_ref']);
+		$this->assertSame('pane:55', $byRef['node']['ref']);
+
+		$byUuid = $this->gy->findPaneNode($tree, '45AC');
+		$this->assertSame('pane:54', $byUuid['node']['ref']);
+		$this->assertSame('workspace:29', $byUuid['ws_ref']);
+
+		$this->assertNull($this->gy->findPaneNode($tree, 'nope'));
+	}
+
+	/**
+	 * paneBuryDecision (pure) branches on AGENT-session count: none → error, exactly
+	 * one targetable member and no untargetable agent → a plain single bury, otherwise
+	 * (≥2, or a member alongside an untargetable agent) → the pane group bury.
+	 */
+	public function testPaneBuryDecision(): void
+	{
+		$none = $this->gy->paneBuryDecision(['members' => [], 'untargetable' => []]);
+		$this->assertSame('none', $none['action']);
+
+		$one = $this->gy->paneBuryDecision(['members' => [['session_id' => 'aaa']], 'untargetable' => []]);
+		$this->assertSame('single', $one['action']);
+		$this->assertSame('aaa', $one['single_sid']);
+
+		$two = $this->gy->paneBuryDecision(['members' => [['session_id' => 'aaa'], ['session_id' => 'bbb']], 'untargetable' => []]);
+		$this->assertSame('group', $two['action']);
+
+		// One bound member + one untargetable agent → group (so the guard protects the
+		// untargetable one), NOT a single bury that would silently ignore it.
+		$mixed = $this->gy->paneBuryDecision(['members' => [['session_id' => 'aaa']], 'untargetable' => [['ref' => 'surface:9']]]);
+		$this->assertSame('group', $mixed['action']);
+	}
+
+	/**
+	 * bury routes each paste form to the right bury: a workspace paste → the whole-
+	 * workspace group bury (verbatim id); a single-session pane → a plain single bury;
+	 * a multi-session pane → the pane group bury with a derived title under -y.
 	 */
 	public function testBuryByRefRoutesPasteForms(): void
 	{
-		$rows = [
-			['session_id' => 'sess-in-pane', 'surface_ref' => 'surface:114', 'surface_id' => 'F16C',
-			 'pane_ref' => 'pane:54', 'home_pane_id' => '45AC', 'workspace_ref' => 'workspace:29',
-			 'targetable' => true, 'idle_seconds' => 10, 'tab_title' => 't', 'workspace_title' => 'w', 'cwd' => '/x'],
-		];
-		$gy = new class($this->cli, $this->cmux, $rows) extends Graveyard {
-			public array $liveRows;
-			public array $buried = [];
-			public array $workspaceBuries = [];
-			public function __construct($cli, $cmux, array $rows) { parent::__construct($cli, $cmux); $this->liveRows = $rows; }
-			public function liveSessions(): array { return $this->liveRows; }
-			public function selfSurfaceId(): ?string { return null; }
-			public function selfSessionId(): ?string { return null; }
-			public function buryIds(array $ids, bool $auto, bool $force = false): void { $this->buried = $ids; }
-			public function buryWorkspace(string $nameOrRef, bool $force, bool $auto): void { $this->workspaceBuries[] = $nameOrRef; }
+		$mk = function (array $cls) {
+			return new class($this->cli, $this->cmux, $cls) extends Graveyard {
+				public array $clsToReturn;
+				public array $buried = [];
+				public array $workspaceBuries = [];
+				public array $groupBuries = [];
+				public function __construct($cli, $cmux, array $cls) { parent::__construct($cli, $cmux); $this->clsToReturn = $cls; }
+				public function findPaneNode(array $tree, string $id): ?array {
+					return ['node' => ['ref' => 'pane:54', 'surfaces' => []], 'ws_ref' => 'workspace:29', 'ws_title' => 'boss', 'window_ref' => 'window:1'];
+				}
+				public function buildBuryClassification(array $node, string $wsRef, string $wsTitle): array { return $this->clsToReturn; }
+				public function selfSessionId(): ?string { return null; }
+				public function buryIds(array $ids, bool $auto, bool $force = false): void { $this->buried = $ids; }
+				public function buryWorkspace(string $nameOrRef, bool $force, bool $auto): void { $this->workspaceBuries[] = $nameOrRef; }
+				public function buryClassifiedAsGroup(array $cls, string $wsRef, string $title, string $windowRef, bool $force, bool $autoConfirm, array $opts): void {
+					$this->groupBuries[] = ['title' => $title, 'ws_ref' => $wsRef, 'opts' => $opts];
+				}
+			};
 		};
 
-		// pane_id paste → the single session in that pane, via buryIds.
-		$gy->buryByRef('pane_id=45AC', false, true);
-		$this->assertSame(['sess-in-pane'], $gy->buried);
+		// workspace paste → group bury with the pasted id verbatim.
+		$ws = $mk(['members' => [], 'untargetable' => []]);
+		$ws->buryByRef('workspace_ref=workspace:29', false, true);
+		$this->assertSame(['workspace:29'], $ws->workspaceBuries);
 
-		// workspace paste → routed to the group bury with the pasted id verbatim.
-		$gy->buryByRef('workspace_ref=workspace:29', false, true);
-		$this->assertSame(['workspace:29'], $gy->workspaceBuries);
+		// single-session pane → plain single bury of that session.
+		$one = $mk(['members' => [['session_id' => 'solo']], 'untargetable' => [], 'layout' => []]);
+		$one->buryByRef('pane_id=45AC', false, true);
+		$this->assertSame(['solo'], $one->buried);
+		$this->assertSame([], $one->groupBuries);
+
+		// multi-session pane → pane group bury; under -y the title defaults to "<parent> (pane)",
+		// no full-workspace layout capture, and the close is scoped to the pane's surfaces.
+		$many = $mk(['members' => [['session_id' => 'a'], ['session_id' => 'b']], 'untargetable' => [], 'layout' => []]);
+		$many->buryByRef('pane_id=45AC', false, true);
+		$this->assertSame([], $many->buried);
+		$this->assertCount(1, $many->groupBuries);
+		$this->assertSame('boss (pane)', $many->groupBuries[0]['title']);
+		$this->assertFalse($many->groupBuries[0]['opts']['captureLayoutTree']);
+		$this->assertSame('surfaces', $many->groupBuries[0]['opts']['close']);
 	}
 
 	/**

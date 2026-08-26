@@ -2190,6 +2190,97 @@ class Graveyard {
 		return $title !== '' ? $title : null;
 	}
 
+	/**
+	 * PURE. Locate a pane in a cmux tree by its ref (pane:N) or stable UUID, and return
+	 * the pane node plus where it lives:
+	 *   ['node' => <pane>, 'ws_ref' => .., 'ws_title' => .., 'window_ref' => ..]
+	 * or null if no pane matches. Backs a pane bury: the node becomes a one-pane node
+	 * fed to the same classification the whole-workspace bury uses, and the ws/window
+	 * refs target the manifest at the right workspace.
+	 */
+	public function findPaneNode(array $tree, string $paneRefOrId): ?array {
+		foreach ($tree['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				foreach ($ws['panes'] ?? [] as $pane) {
+					if (($pane['ref'] ?? null) === $paneRefOrId
+						|| (($pane['id'] ?? '') !== '' && $pane['id'] === $paneRefOrId)) {
+						return [
+							'node'        => $pane,
+							'ws_ref'      => $ws['ref'] ?? '',
+							'ws_title'    => $ws['title'] ?? '',
+							'window_ref'  => $window['ref'] ?? '',
+						];
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * PURE. Decide how a pane bury proceeds, from an already-built classification
+	 * ($cls with 'members' = targetable agent sessions, 'untargetable' = detected agent
+	 * surfaces bury can't safely bind). Branches on AGENT-session count (JT's call):
+	 *   - none          → error (nothing to bury).
+	 *   - exactly one member, no untargetable agent → a plain single bury of it.
+	 *   - otherwise (≥2, or a member alongside an untargetable) → the pane group bury.
+	 * Counting a member alongside an untargetable as a group is deliberate: it keeps the
+	 * pair together AND routes through the group path's untargetable-abort guard, rather
+	 * than a single bury that would silently leave the untargetable one behind.
+	 */
+	public function paneBuryDecision(array $cls): array {
+		$members      = $cls['members'] ?? [];
+		$untargetable = $cls['untargetable'] ?? [];
+		if (!$members && !$untargetable) { return ['action' => 'none']; }
+		if (count($members) === 1 && !$untargetable) {
+			return ['action' => 'single', 'single_sid' => $members[0]['session_id']];
+		}
+		return ['action' => 'group'];
+	}
+
+	/**
+	 * Bury a cmux PANE (from a `pane_ref=`/`pane_id=` paste). Resolves the pane, runs the
+	 * same surface classification a whole-workspace bury runs (scoped to the one pane),
+	 * then per paneBuryDecision either buries a lone session directly or buries the pane's
+	 * sessions as a GROUP that resurrects into a new workspace named at bury time (a
+	 * "<parent-workspace> (pane)" default under -y). Only the pane's surfaces are closed;
+	 * the rest of the parent workspace stays alive.
+	 */
+	public function buryPane(string $paneRefOrId, bool $force, bool $autoConfirm): void {
+		$loc = $this->findPaneNode($this->cmux->tree(), $paneRefOrId);
+		if (!$loc) { $this->cli->exitErr("No live pane matches '{$paneRefOrId}'."); return; }
+
+		$cls = $this->buildBuryClassification($loc['node'], $loc['ws_ref'], $loc['ws_title']);
+		$decision = $this->paneBuryDecision($cls);
+
+		if ($decision['action'] === 'none') {
+			$this->cli->exitErr("No agent sessions in that pane to bury (nothing bury could bind — try the surface id, or bury the whole workspace).");
+			return;
+		}
+
+		if ($decision['action'] === 'single') {
+			// One agent in the pane → today's plain single-session bury; sibling non-agent
+			// surfaces in the pane are left untouched, exactly like `bury <session>`.
+			$this->buryIds([$decision['single_sid']], $autoConfirm, $force);
+			return;
+		}
+
+		// ≥2 agents (or a member + an untargetable) → group the pane into a new workspace.
+		$default = trim($loc['ws_title']) !== '' ? trim($loc['ws_title']) . ' (pane)' : 'buried pane';
+		$title = $default;
+		if (!$autoConfirm) {
+			$answer = trim((string) $this->cli->ask("Name for the resurrected workspace [{$default}]:"));
+			if ($answer !== '') { $title = $answer; }
+		}
+
+		$this->buryClassifiedAsGroup($cls, $loc['ws_ref'], $title, $loc['window_ref'], $force, $autoConfirm, [
+			'label'             => 'pane group',
+			'captureLayoutTree' => false,
+			'close'             => 'surfaces',
+			'rerun'             => 'graveyard bury ' . escapeshellarg($paneRefOrId),
+		]);
+	}
+
 	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): void {
 		$liveSessions = null;
 		// Group-id symmetry with resurrect (dotfiles-bury-group-target): resurrect
@@ -2220,7 +2311,27 @@ class Graveyard {
 
 		$wsRef   = $wsInfo['ref'];
 		$wsTitle = $wsInfo['title'];
-		$liveSessions ??= $this->liveSessions();
+
+		$cls = $this->buildBuryClassification($wsInfo['node'], $wsRef, $wsTitle);
+
+		$this->buryClassifiedAsGroup($cls, $wsRef, $wsTitle, (string) ($wsInfo['window_ref'] ?? ''), $force, $autoConfirm, [
+			'label'             => 'workspace',
+			'captureLayoutTree' => true,
+			'close'             => 'workspace',
+			'rerun'             => 'graveyard bury -ws ' . escapeshellarg($wsTitle),
+		]);
+	}
+
+	/**
+	 * I/O. Probe every surface in a node (a whole workspace, or a single pane) and
+	 * classify it into burial members + untargetable agents + a layout, via
+	 * classifyWorkspaceLayout. Self-guards against burying the caller's own session.
+	 * Shared by buryWorkspace and buryPane so both get the SAME detection — including
+	 * the codex OS-bind and the /status last-resort probe that keep an agent from
+	 * being misread as a shell and closed unarchived (dotfiles-5p5).
+	 */
+	public function buildBuryClassification(array $node, string $wsRef, string $wsTitle): array {
+		$liveSessions = $this->liveSessions();
 
 		// Index this live-session snapshot by surface_ref. Keep unbound rows too: their
 		// join reason explains collisions and other surface-attributable failures more
@@ -2238,7 +2349,7 @@ class Graveyard {
 			}
 		}
 		$isClaudeByRef = [];
-		foreach ($wsInfo['node']['panes'] ?? [] as $pane) {
+		foreach ($node['panes'] ?? [] as $pane) {
 			foreach ($pane['surfaces'] ?? [] as $surf) {
 				$ref = $surf['ref'] ?? '';
 				if ($ref === '' || ($surf['type'] ?? '') === 'browser') { $isClaudeByRef[$ref] = false; continue; }
@@ -2263,7 +2374,7 @@ class Graveyard {
 		// the restored shell back to where it was buried.
 		$cwdByRef = [];
 		$debugByRef = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
-		foreach ($wsInfo['node']['panes'] ?? [] as $pane) {
+		foreach ($node['panes'] ?? [] as $pane) {
 			foreach ($pane['surfaces'] ?? [] as $surf) {
 				$ref = $surf['ref'] ?? '';
 				if (($surf['type'] ?? '') !== 'terminal' || $ref === '' || isset($liveByRef[$ref]) || ($isClaudeByRef[$ref] ?? false) || ($isCodexByRef[$ref] ?? false)) { continue; }
@@ -2294,24 +2405,39 @@ class Graveyard {
 			}
 		}
 
-		$cls = $this->classifyWorkspaceLayout($wsInfo['node'], $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef, $unboundByRef);
+		$cls = $this->classifyWorkspaceLayout($node, $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef, $unboundByRef);
 
-		// Self-guard: never bury a workspace containing the caller's own session.
+		// Self-guard: never bury a group (workspace or pane) containing the caller's own
+		// session. exitErr() exits; the return keeps the : array contract satisfied.
 		$selfSid = $this->selfSessionId();
 		foreach ($cls['members'] as $m) {
 			if ($selfSid && $m['session_id'] === $selfSid) {
-				$this->cli->exitErr('Refusing to bury a workspace containing the caller\'s own session.');
-				return;
+				$this->cli->exitErr('Refusing to bury a group containing the caller\'s own session.');
+				return $cls;
 			}
 		}
+		return $cls;
+	}
 
+	/**
+	 * Stamp a shared group + layout manifest for an already-classified node, bury each
+	 * member behind its gates, then close. Shared by buryWorkspace and buryPane; $opts
+	 * carries the two differences: 'captureLayoutTree' (whole-workspace split geometry,
+	 * off for a single pane), 'close' ('workspace' closes the whole workspace when clean,
+	 * 'surfaces' closes only this node's surfaces), 'label' (noun for messages), and
+	 * 'rerun' (the exact re-run command on total gate failure). Keeps the untargetable
+	 * abort guard for both callers.
+	 */
+	public function buryClassifiedAsGroup(array $cls, string $wsRef, string $title, string $windowRef, bool $force, bool $autoConfirm, array $opts): void {
+		$wsTitle = $title;
+		$label   = $opts['label'] ?? 'workspace';
 		// Abort on any detected-but-unbindable agent surface, unless --force skips them.
 		// Each line carries the SPECIFIC reason so JT knows whether to fix, wait, or --force.
 		if ($cls['untargetable']) {
 			$w     = $this->termWidth();
 			$proc  = $this->cmux->parseProcTable($this->cmux->psProcTable());
 			$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
-			$this->cli->msg('Workspace "' . $wsTitle . '" has ' . count($cls['untargetable']) . ' agent surface(s) not safely targetable:', 'yellow');
+			$this->cli->msg(ucfirst($label) . ' "' . $wsTitle . '" has ' . count($cls['untargetable']) . ' agent surface(s) not safely targetable:', 'yellow');
 			foreach ($cls['untargetable'] as $u) {
 				// diagnoseUntargetableSurface() is Claude-shaped (walks to a Claude pid,
 				// reads a Claude statusline). Codex has no such surface, so give it a plain
@@ -2325,7 +2451,7 @@ class Graveyard {
 						'no_bridge' => false,
 					]);
 				} else {
-					$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc, $liveSessions);
+					$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc);
 				}
 				$this->cli->msg('  ' . $this->ellipsizeText($u['ref'] . '  ' . $this->stripGlyph((string) $u['title']), $w - 2), 'yellow');
 				// Wrap the reason (never ellipsize) so the full explanation + fix is always shown.
@@ -2334,20 +2460,20 @@ class Graveyard {
 				}
 			}
 			if (!$force) {
-				$this->cli->exitErr('Refusing to partially destroy a workspace. Resolve these (or re-run with --force to skip them and leave them alive).');
+				$this->cli->exitErr('Refusing to partially destroy a ' . $label . '. Resolve these (or re-run with --force to skip them and leave them alive).');
 				return;
 			}
-			$this->cli->msg('  --force: skipping the above (left ALIVE); the workspace will not be fully closed.', 'yellow');
+			$this->cli->msg('  --force: skipping the above (left ALIVE); the ' . $label . ' will not be fully closed.', 'yellow');
 		}
 
-		if (!$cls['members']) { $this->cli->exitErr('No targetable Claude sessions in that workspace to bury.'); return; }
+		if (!$cls['members']) { $this->cli->exitErr('No targetable agent sessions in that ' . $label . ' to bury.'); return; }
 
-		$this->cli->msg(sprintf('Workspace "%s" (%s): %d agent session(s), %d other surface(s).',
-			$wsTitle, $wsRef, count($cls['members']), count($cls['layout']) - count($cls['members'])), 'yellow');
+		$this->cli->msg(sprintf('%s "%s" (%s): %d agent session(s), %d other surface(s).',
+			ucfirst($label), $wsTitle, $wsRef, count($cls['members']), count($cls['layout']) - count($cls['members'])), 'yellow');
 		foreach ($cls['members'] as $m) {
 			$this->cli->msg(sprintf('  %s  %-20.20s  %s', substr($m['session_id'], 0, 8), $m['tab_title'] ?? '', $m['cwd'] ?? ''));
 		}
-		if (!$autoConfirm && !$this->cli->confirm('Bury this workspace (' . count($cls['members']) . ' session(s)) as a group?')) {
+		if (!$autoConfirm && !$this->cli->confirm('Bury this ' . $label . ' (' . count($cls['members']) . ' session(s)) as a group?')) {
 			$this->cli->msg('Aborted.', 'yellow');
 			return;
 		}
@@ -2372,12 +2498,12 @@ class Graveyard {
 		// Capture cmux's true split geometry (orientation, divider, nesting) while the
 		// workspace is still alive — resurrect replays it exactly. Null when cmux has no
 		// layout API; resurrect then rebuilds panes manually.
-		$layoutTree = $this->cmux->captureLayoutTree($wsRef);
+		$layoutTree = !empty($opts['captureLayoutTree']) ? $this->cmux->captureLayoutTree($wsRef) : null;
 
 		$manifest = [
 			'group_id'    => $group,
 			'group_title' => $wsTitle,
-			'window_ref'  => $wsInfo['window_ref'],
+			'window_ref'  => $windowRef,
 			'buried_at'   => $buriedAt,
 			'layout'      => $cls['layout'],
 		];
@@ -2408,15 +2534,18 @@ class Graveyard {
 		// No group survives, so point back at re-running the whole-workspace bury.
 		if ($buried === 0) {
 			$this->removeGroupArtifact($group);
-			$this->cli->err("Buried 0 of " . count($cls['members']) . " session(s) in \"{$wsTitle}\" — every member was refused by a gate; workspace left intact. No group created.");
+			$this->cli->err("Buried 0 of " . count($cls['members']) . " session(s) in \"{$wsTitle}\" — every member was refused by a gate; {$label} left intact. No group created.");
 			$this->cli->msg('  Resolve the cause, then re-run:', 'yellow');
-			$this->cli->msg('      graveyard bury -ws ' . escapeshellarg($wsTitle), 'cyan');
+			$this->cli->msg('      ' . ($opts['rerun'] ?? ('graveyard bury -ws ' . escapeshellarg($wsTitle))), 'cyan');
 			exit(1);
 		}
 
-		// Close the workspace only if everything was clean; otherwise close just the
-		// buried members' surfaces + non-agent surfaces, leaving anything still alive.
-		if ($failed === 0 && !$cls['untargetable']) {
+		// Close cleanly: a whole-workspace bury closes the workspace when nothing was left
+		// alive; a pane bury ('surfaces') always closes only this node's own surfaces, never
+		// the workspace. Otherwise (a survivor or an untargetable) close just the buried +
+		// non-agent surfaces, leaving anything still alive.
+		$clean = $failed === 0 && !$cls['untargetable'];
+		if (($opts['close'] ?? 'workspace') === 'workspace' && $clean) {
 			$this->closeWorkspace($wsRef);
 		} else {
 			foreach ($cls['layout'] as $e) {
@@ -2427,7 +2556,9 @@ class Graveyard {
 				if (in_array($e['kind'], ['claude', 'codex'], true)) { continue; }
 				$this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' close-surface --surface ' . escapeshellarg($e['ref']));
 			}
-			$this->cli->msg('  Workspace left open (some surfaces preserved).', 'yellow');
+			if (!$clean) {
+				$this->cli->msg('  ' . ucfirst($label) . ' left open (some surfaces preserved).', 'yellow');
+			}
 		}
 
 		// The group + layout manifest persist (buried > 0), with a slot still reserved for
@@ -2445,7 +2576,7 @@ class Graveyard {
 			$this->cli->msg('  Pruned ' . count($pruned) . ' stale workspace manifest(s) from earlier buries.', 'cyan');
 		}
 
-		$this->cli->successMsg("Buried workspace \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
+		$this->cli->successMsg("Buried {$label} \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
 	}
 
 	/**
@@ -4169,10 +4300,11 @@ class Graveyard {
 	 * PURE. Classify a bury identifier that may be one of cmux's ⌘P "key=value" ids.
 	 * cmux copies either a single "surface_id=<uuid>" line or the six-line "Copy Ids"
 	 * blob (workspace_ref/_id, pane_ref/_id, surface_ref/_id). Returns:
-	 *   ['kind' => 'single'|'workspace'|'raw', 'field' => <row field>|null, 'value' => <string>]
+	 *   ['kind' => 'single'|'pane'|'workspace'|'raw', 'field' => <row field>|null, 'value' => <string>]
 	 *
-	 * - surface_/pane_ ids → 'single', matched against ONE row field (the pane forms
-	 *   may still hit several sessions, which buryByRef reports as ambiguous).
+	 * - surface_ ids → 'single', matched against ONE row field (the one session).
+	 * - pane_ ids → 'pane', matched against ONE row field to find the pane's sessions;
+	 *   buryByRef then buries a lone session directly, or a multi-session pane as a group.
 	 * - workspace_ ids → 'workspace', routed to the whole-workspace group bury.
 	 * - the full blob → the surface line wins: it names the one session, and the
 	 *   pane/workspace lines are just where that surface lives.
@@ -4188,8 +4320,8 @@ class Graveyard {
 		static $route = [
 			'surface_id'    => ['single', 'surface_id'],
 			'surface_ref'   => ['single', 'surface_ref'],
-			'pane_id'       => ['single', 'home_pane_id'],
-			'pane_ref'      => ['single', 'pane_ref'],
+			'pane_id'       => ['pane', 'home_pane_id'],
+			'pane_ref'      => ['pane', 'pane_ref'],
 			'workspace_ref' => ['workspace', null],
 			'workspace_id'  => ['workspace', null],
 		];
@@ -4274,8 +4406,15 @@ class Graveyard {
 			return;
 		}
 
-		// A labelled surface/pane id matches ONE field; a bare identifier uses the
-		// generic cascade (surface ref/id, session-id prefix, title substring).
+		// A labelled pane id buries the pane: one agent session → a plain single bury;
+		// several → a group into a new workspace (see buryPane).
+		if ($class['kind'] === 'pane') {
+			$this->buryPane($class['value'], $force, $autoConfirm);
+			return;
+		}
+
+		// A labelled surface id matches ONE field; a bare identifier uses the generic
+		// cascade (surface ref/id, session-id prefix, title substring).
 		$matches = $class['kind'] === 'single'
 			? $this->matchByField($this->liveSessions(), $class['field'], $class['value'])
 			: $this->resolveLiveByIdentifier($id);
