@@ -235,12 +235,76 @@ final class GraveyardTest extends TestCase
 
 		$this->assertCount(2, $this->gy->matchIdentifier($mrows, 'backend'));
 		$this->assertSame([], $this->gy->matchIdentifier($mrows, 'nope'));
+	}
 
-		// cmux's "copy surface id" yields "surface_id=<uuid>"; the pasted string
-		// resolves the same as the bare uuid (the prefix is stripped, once).
-		$m5 = $this->gy->matchIdentifier($mrows, 'surface_id=UUID-7');
-		$this->assertCount(1, $m5);
-		$this->assertSame('bbb333', $m5[0]['session_id']);
+	/**
+	 * cmux's ⌘P copies ids as "key=value" — a single "Copy Surface Id" line, or the
+	 * six-line "Copy Ids" blob. classifyBuryIdentifier maps each labelled form to how
+	 * bury should treat it: surface/pane → a single-session match on a specific field,
+	 * workspace → the group-bury path. The blob describes ONE surface, so it collapses
+	 * to that session. Anything unlabelled (bare ref, uuid, session-id, title) stays
+	 * 'raw' and flows through the existing generic resolver unchanged.
+	 */
+	public function testClassifyBuryIdentifier(): void
+	{
+		$c = fn(string $s) => $this->gy->classifyBuryIdentifier($s);
+
+		$this->assertSame(['kind' => 'single', 'field' => 'surface_id', 'value' => 'F16C'], $c('surface_id=F16C'));
+		$this->assertSame(['kind' => 'single', 'field' => 'surface_ref', 'value' => 'surface:114'], $c('surface_ref=surface:114'));
+		$this->assertSame(['kind' => 'single', 'field' => 'home_pane_id', 'value' => '45AC'], $c('pane_id=45AC'));
+		$this->assertSame(['kind' => 'single', 'field' => 'pane_ref', 'value' => 'pane:54'], $c('pane_ref=pane:54'));
+		$this->assertSame(['kind' => 'workspace', 'field' => null, 'value' => 'workspace:29'], $c('workspace_ref=workspace:29'));
+		$this->assertSame(['kind' => 'workspace', 'field' => null, 'value' => '78A6'], $c('workspace_id=78A6'));
+
+		// Bare / unlabelled → untouched, resolved the old way.
+		$this->assertSame(['kind' => 'raw', 'field' => null, 'value' => 'surface:114'], $c('surface:114'));
+		$this->assertSame(['kind' => 'raw', 'field' => null, 'value' => 'abc123'], $c('abc123'));
+		$this->assertSame(['kind' => 'raw', 'field' => null, 'value' => 'workspace:29'], $c('workspace:29'));
+		// An unknown key= is not a cmux id label; treat the whole thing as raw (a title may contain '=').
+		$this->assertSame(['kind' => 'raw', 'field' => null, 'value' => 'foo=bar'], $c('foo=bar'));
+
+		// Full "Copy Ids" blob → the surface line wins (most specific = the one session).
+		$blob = "workspace_ref=workspace:29\nworkspace_id=78A69B9E-D624-466F-8D32-A66B0A999184\n"
+			. "pane_ref=pane:54\npane_id=45AC086E-A39C-4251-87D1-FFD31C09783C\n"
+			. "surface_ref=surface:114\nsurface_id=F16CF0F4-A41A-49A8-B9A5-B6E5FB955631";
+		$this->assertSame(
+			['kind' => 'single', 'field' => 'surface_id', 'value' => 'F16CF0F4-A41A-49A8-B9A5-B6E5FB955631'],
+			$c($blob)
+		);
+		// Trailing whitespace / CRLF tolerated.
+		$this->assertSame(['kind' => 'single', 'field' => 'surface_id', 'value' => 'F16C'], $c("surface_id=F16C\r\n"));
+	}
+
+	/**
+	 * bury <identifier> with a pane paste resolves the one session in that pane by the
+	 * pane's stable id; a workspace paste is routed to the whole-workspace group bury.
+	 */
+	public function testBuryByRefRoutesPasteForms(): void
+	{
+		$rows = [
+			['session_id' => 'sess-in-pane', 'surface_ref' => 'surface:114', 'surface_id' => 'F16C',
+			 'pane_ref' => 'pane:54', 'home_pane_id' => '45AC', 'workspace_ref' => 'workspace:29',
+			 'targetable' => true, 'idle_seconds' => 10, 'tab_title' => 't', 'workspace_title' => 'w', 'cwd' => '/x'],
+		];
+		$gy = new class($this->cli, $this->cmux, $rows) extends Graveyard {
+			public array $liveRows;
+			public array $buried = [];
+			public array $workspaceBuries = [];
+			public function __construct($cli, $cmux, array $rows) { parent::__construct($cli, $cmux); $this->liveRows = $rows; }
+			public function liveSessions(): array { return $this->liveRows; }
+			public function selfSurfaceId(): ?string { return null; }
+			public function selfSessionId(): ?string { return null; }
+			public function buryIds(array $ids, bool $auto, bool $force = false): void { $this->buried = $ids; }
+			public function buryWorkspace(string $nameOrRef, bool $force, bool $auto): void { $this->workspaceBuries[] = $nameOrRef; }
+		};
+
+		// pane_id paste → the single session in that pane, via buryIds.
+		$gy->buryByRef('pane_id=45AC', false, true);
+		$this->assertSame(['sess-in-pane'], $gy->buried);
+
+		// workspace paste → routed to the group bury with the pasted id verbatim.
+		$gy->buryByRef('workspace_ref=workspace:29', false, true);
+		$this->assertSame(['workspace:29'], $gy->workspaceBuries);
 	}
 
 	/**

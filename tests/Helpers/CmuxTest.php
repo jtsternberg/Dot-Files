@@ -585,6 +585,21 @@ final class CmuxTest extends TestCase
 	}
 
 	/**
+	 * cmux's "Copy Ids" hands over workspace_id=<uuid>; resolve a workspace by that
+	 * stable UUID the same as by its positional ref, ahead of any title matching.
+	 */
+	public function testResolveWorkspaceNodeByUuid(): void
+	{
+		$wtree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
+			['ref' => 'workspace:9', 'id' => '78A69B9E-D624-466F-8D32-A66B0A999184', 'title' => 'asana', 'panes' => []],
+			['ref' => 'workspace:12', 'id' => 'AAAAAAAA-0000-0000-0000-000000000000', 'title' => 'boss backend', 'panes' => []],
+		]]]];
+		$hit = $this->cmux->resolveWorkspaceNode($wtree, '78A69B9E-D624-466F-8D32-A66B0A999184');
+		$this->assertSame('workspace:9', $hit['ref']);
+		$this->assertSame('asana', $hit['title']);
+	}
+
+	/**
 	 * Reported bug: cmux auto-titles the workspace a bury command runs in after the
 	 * literal command line, so the query becomes a substring of that title and the
 	 * command makes itself ambiguous. An exact normalized-title match must win.

@@ -662,6 +662,7 @@ class Graveyard {
 				// Where it currently lives, so bury can record a home to resurrect into.
 				'home_workspace_id'  => $treeIx['surface'][$ref]['workspace_id'] ?? null,
 				'home_pane_id'       => $treeIx['surface'][$ref]['pane_id'] ?? null,
+				'pane_ref'           => $treeIx['surface'][$ref]['pane_ref'] ?? null,
 				'home_index_in_pane' => $treeIx['surface'][$ref]['index_in_pane'] ?? null,
 				'workspace_ref'   => $j['workspace_ref'],
 				'window_ref'      => $treeIx['workspace_window'][$j['workspace_ref']] ?? null,
@@ -706,6 +707,7 @@ class Graveyard {
 							// useless for something read back minutes or days later.
 							'workspace_id'  => $ws['id'] ?? null,
 							'pane_id'       => $pane['id'] ?? null,
+							'pane_ref'      => $pane['ref'] ?? null,
 							'index_in_pane' => $surf['index_in_pane'] ?? 0,
 						];
 					}
@@ -4163,11 +4165,67 @@ class Graveyard {
 	 * the query as a substring. An exact normalized-title match wins before we fall back to
 	 * substring matching, mirroring Cmux::resolveWorkspaceNode.
 	 */
-	public function matchIdentifier(array $rows, string $id): array {
-		// cmux's "copy surface id" (⌘P) yields "surface_id=<uuid>"; accept that
-		// pasted form directly by stripping the key= prefix before resolving.
-		if (str_starts_with($id, 'surface_id=')) { $id = substr($id, strlen('surface_id=')); }
+	/**
+	 * PURE. Classify a bury identifier that may be one of cmux's ⌘P "key=value" ids.
+	 * cmux copies either a single "surface_id=<uuid>" line or the six-line "Copy Ids"
+	 * blob (workspace_ref/_id, pane_ref/_id, surface_ref/_id). Returns:
+	 *   ['kind' => 'single'|'workspace'|'raw', 'field' => <row field>|null, 'value' => <string>]
+	 *
+	 * - surface_/pane_ ids → 'single', matched against ONE row field (the pane forms
+	 *   may still hit several sessions, which buryByRef reports as ambiguous).
+	 * - workspace_ ids → 'workspace', routed to the whole-workspace group bury.
+	 * - the full blob → the surface line wins: it names the one session, and the
+	 *   pane/workspace lines are just where that surface lives.
+	 * - anything unlabelled (bare ref, uuid, session-id, title) → 'raw', left to the
+	 *   generic matchIdentifier() cascade exactly as before.
+	 *
+	 * Only the labelled form opts into pane/workspace behaviour; a bare `workspace:29`
+	 * never silently escalates to a destructive group bury.
+	 */
+	public function classifyBuryIdentifier(string $raw): array {
+		// UUIDs are kind-blind (a pane_id and a surface_id are both bare UUIDs), so the
+		// key must be retained to know which field to match — hence key=>field routing.
+		static $route = [
+			'surface_id'    => ['single', 'surface_id'],
+			'surface_ref'   => ['single', 'surface_ref'],
+			'pane_id'       => ['single', 'home_pane_id'],
+			'pane_ref'      => ['single', 'pane_ref'],
+			'workspace_ref' => ['workspace', null],
+			'workspace_id'  => ['workspace', null],
+		];
+		// Most-specific-first: a blob is reduced to whichever of these it carries.
+		static $precedence = ['surface_id', 'surface_ref', 'pane_id', 'pane_ref', 'workspace_id', 'workspace_ref'];
 
+		$id = trim($raw);
+
+		if (str_contains($id, "\n")) {
+			$pairs = [];
+			foreach (preg_split('/\R/', $id) as $line) {
+				if (preg_match('/^\s*([a-z_]+)\s*=\s*(.+?)\s*$/', $line, $m) && isset($route[$m[1]])) {
+					$pairs[$m[1]] = $m[2];
+				}
+			}
+			foreach ($precedence as $key) {
+				if (isset($pairs[$key])) {
+					return ['kind' => $route[$key][0], 'field' => $route[$key][1], 'value' => $pairs[$key]];
+				}
+			}
+			return ['kind' => 'raw', 'field' => null, 'value' => $id];
+		}
+
+		if (preg_match('/^([a-z_]+)=(.+)$/', $id, $m) && isset($route[$m[1]])) {
+			return ['kind' => $route[$m[1]][0], 'field' => $route[$m[1]][1], 'value' => $m[2]];
+		}
+
+		return ['kind' => 'raw', 'field' => null, 'value' => $id];
+	}
+
+	/** PURE. Rows whose $field exactly equals $value. */
+	public function matchByField(array $rows, string $field, string $value): array {
+		return array_values(array_filter($rows, fn($r) => ($r[$field] ?? null) === $value));
+	}
+
+	public function matchIdentifier(array $rows, string $id): array {
 		$exact = array_values(array_filter($rows, fn($r) => ($r['surface_ref'] ?? null) === $id));
 		if ($exact) { return $exact; }
 
@@ -4207,7 +4265,20 @@ class Graveyard {
 	}
 
 	public function buryByRef(string $id, bool $force, bool $autoConfirm): void {
-		$matches = $this->resolveLiveByIdentifier($id);
+		$class = $this->classifyBuryIdentifier($id);
+
+		// A labelled workspace id (workspace_ref=/workspace_id=) is the whole-workspace
+		// group bury — hand it to that path with the pasted value verbatim.
+		if ($class['kind'] === 'workspace') {
+			$this->buryWorkspace($class['value'], $force, $autoConfirm);
+			return;
+		}
+
+		// A labelled surface/pane id matches ONE field; a bare identifier uses the
+		// generic cascade (surface ref/id, session-id prefix, title substring).
+		$matches = $class['kind'] === 'single'
+			? $this->matchByField($this->liveSessions(), $class['field'], $class['value'])
+			: $this->resolveLiveByIdentifier($id);
 
 		if (!$matches) {
 			$this->cli->exitErr("No live session matches '{$id}'.");

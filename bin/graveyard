@@ -13,10 +13,13 @@ namespace JT;
 # Usage:
 # graveyard bury  (no args: interactive picker — fzf if available, else numbered REPL)
 # graveyard bury <identifier> [--force] [-y]
-#   identifier: cmux surface ref (surface:N), surface UUID (bare or the
-#   "surface_id=<uuid>" form cmux's ⌘P copies), session-id (or prefix), or a
-#   workspace/tab title substring. Ambiguous matches are rejected (no
-#   auto-pick) — narrow it or pass a full session-id.
+#   identifier: cmux surface ref (surface:N), surface UUID, session-id (or
+#   prefix), or a workspace/tab title substring. Also accepts cmux's ⌘P ids
+#   verbatim — a single "surface_id=/surface_ref=/pane_id=/pane_ref=" line, or
+#   the whole multi-line "Copy Ids" blob (its surface line names the session).
+#   A "workspace_id=/workspace_ref=" paste routes to the whole-workspace group
+#   bury (same as --workspace). Ambiguous matches are rejected (no auto-pick)
+#   — narrow it or pass a full session-id.
 # graveyard bury <session-id> <session-id> [<session-id>...] [-y]
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard bury --workspace|-ws <name|ref|group-id> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace. A buried group-id re-buries the workspace it was resurrected into — symmetric with resurrect.)

@@ -920,7 +920,9 @@ class Cmux {
 			foreach ($window['workspaces'] ?? [] as $ws) {
 				$ref   = $ws['ref'] ?? '';
 				$title = $ws['title'] ?? '';
-				if ($ref === $nameOrRef) {
+				// Exact ref OR stable UUID — cmux's "Copy Ids" hands over workspace_id=<uuid>,
+				// so a labelled paste resolves the same as the positional ref.
+				if ($ref === $nameOrRef || (($ws['id'] ?? '') !== '' && $ws['id'] === $nameOrRef)) {
 					return ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
 				}
 				$hit = ['ref' => $ref, 'title' => $title, 'node' => $ws, 'window_ref' => $window['ref'] ?? ''];
