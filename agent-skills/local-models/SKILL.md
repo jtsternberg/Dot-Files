@@ -10,8 +10,8 @@ description: |
   whether AI-LAB is required, why a model is missing, how to reconcile stores,
   or why AI-LAB will not eject. Includes "run this locally", "can I transcribe
   offline", "Parakeet vs Whisper", Ollama fit/speed/context, aimodels watcher,
-  and safe eject questions. Not for cloud-only model IDs or pricing; route those
-  to claude-api after deciding that local is the wrong path.
+  and safe eject questions. Not for cloud-only model IDs or pricing; after
+  deciding local is the wrong path, use an available cloud-model skill.
 allowed-tools:
   - Bash
   - Read
@@ -50,8 +50,9 @@ request crosses domains.
   the safety invariants for both engines.
 - **Local versus cloud:** first check local availability and task constraints in
   the relevant reference. Recommend cloud when no installed local model fits the
-  context, language, correctness, or latency requirement. Use `claude-api` only
-  for the cloud-model choice itself; do not duplicate its IDs or pricing here.
+  context, language, correctness, or latency requirement. If `claude-api` is
+  available, use it only for the cloud-model choice itself; otherwise use the
+  current harness's cloud-model guidance. Do not duplicate IDs or pricing here.
 
 If the user supplied a concrete task or file, make the grounded choice and carry
 out the local operation when authorized. Do not stop at a generic comparison.

@@ -190,5 +190,5 @@ multilingual model that survives an AI-LAB eject — 464 MB, offline-verified.">
 <if relevant: the better-but-drive-bound alternative, with its trade-off.>
 ```
 
-If JT gave a concrete file, run it with the pick — don't just advise. Hand the
-actual invocation details to the `macwhisper-cli` skill if you need its flags.
+If JT gave a concrete file, run it with the pick — don't just advise. Use an
+installed MacWhisper CLI skill for invocation details when one is available.

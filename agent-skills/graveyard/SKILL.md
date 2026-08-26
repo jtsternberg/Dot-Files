@@ -1,12 +1,19 @@
 ---
 name: graveyard
-description: Find, browse, bury, and resurrect Claude Code sessions/workspaces via the `graveyard` CLI. Use when JT asks to look in the graveyard for a session/workspace on a topic, find good bury candidates, resurrect/bury/list a session — including fuzzy names ("resurrect the tailscale workspace") — or asks a content question about a buried plot ("check the Break Free plot — did we discuss adding lyrics?"), which is really resurrection triage: answer from the transcripts, then point at the member session to resume.
+description: |
+  Find, browse, bury, and resurrect Claude Code and Codex sessions/workspaces
+  via the `graveyard` CLI. Use when JT asks to look in the graveyard for a
+  session/workspace on a topic, find good bury candidates, resurrect, bury, or
+  list a session, including fuzzy names such as "resurrect the tailscale
+  workspace". Also use for content questions about a buried plot, such as
+  "check the Break Free plot — did we discuss adding lyrics?"; answer from the
+  transcripts, then point at the member session to resume.
 allowed-tools: [Bash, Read]
 ---
 
 # graveyard
 
-`graveyard` (`bin/graveyard` here) buries idle Claude Code sessions to
+`graveyard` (`bin/graveyard` here) buries idle Claude Code and Codex sessions to
 `~/.claude-graveyard/` — freeing RAM while keeping a rendered transcript +
 metadata — then lists, searches, and resurrects them. cmux must be running for
 the live-session verbs (`bury`, `candidates`, `peek`); browsing/resurrecting
@@ -15,9 +22,8 @@ buried sessions works regardless.
 JT asks for this conversationally — *"any good candidates worth burying?"*,
 *"look in the graveyard for the ollama session,"* *"resurrect the tailscale
 workspace."* The CLI does the heavy lifting; the current help is the source of
-truth (don't mirror the command list here — it bitrots):
-
-!`graveyard --help 2>&1`
+truth (don't mirror the command list here — it bitrots). Run
+`graveyard --help 2>&1` before operating it.
 
 Every verb has a machine-readable mode (`--json` on `ls`, `candidates`,
 `search`), so prefer flags over scraping human output when you need to filter
@@ -76,5 +82,5 @@ workspace/tab title substring; a unique match resumes in place. If it's
 ambiguous the CLI lists the candidates — pick with him (or narrow the phrase),
 never guess. `graveyard resurrect --workspace <group>` for a whole buried
 workspace; `graveyard ls` prints each group's exact `resurrect --workspace`
-line. Resurrecting rebuilds a cmux workspace and relaunches Claude, so confirm
-before running it.
+line. Resurrecting rebuilds a cmux workspace and resumes the recorded agent, so
+confirm before running it.

@@ -1,6 +1,20 @@
 ---
 name: system-journal
-description: Machine-specific journal of past infrastructure and config incidents on THIS Mac (jt-mbp14) — NAS/QNAP, SSH, network, DNS, tailnet/VPN, auth, firmware, mounts, shares, printers, launchd. READ IT FIRST when something infrastructural is broken, and RECORD an entry after resolving one. Triggers on symptoms as first stated — "can't ssh", "Permission denied (publickey)", "too many authentication failures", "git push to the NAS fails", "can't mount", "can't reach the NAS", "share isn't showing up", DNS/tailnet weirdness, auth failing for no reason — and especially on temporal tells — "this worked yesterday", "broke after a reboot", "stopped working after an update", "it just suddenly stopped". Also fires when a hard-won infra fix, a standing fact about this machine's setup, or a deliberate config change is worth writing down so the next investigation is fast. NOT for live performance alerts (CPU/memory/battery/kernel/tmp) — that is the /system-watchdog command.
+description: |
+  Machine-specific journal of past infrastructure and config incidents on THIS
+  Mac (jt-mbp14): NAS/QNAP, SSH, network, DNS, tailnet/VPN, auth, firmware,
+  mounts, shares, printers, and launchd. READ IT FIRST when something
+  infrastructural is broken, and RECORD an entry after resolving one. Triggers
+  on symptoms as first stated, including "can't ssh", "Permission denied
+  (publickey)", "too many authentication failures", "git push to the NAS
+  fails", "can't mount", "can't reach the NAS", "share isn't showing up",
+  DNS/tailnet weirdness, or auth failing for no reason, especially with temporal
+  tells such as "this worked yesterday", "broke after a reboot", "stopped
+  working after an update", or "it just suddenly stopped". Also fires when a
+  hard-won infra fix, a standing fact about this machine's setup, or a deliberate
+  config change is worth recording. NOT for live performance alerts such as
+  CPU, memory, battery, kernel, or tmp issues; use `/system-watchdog` when the
+  current harness provides it, otherwise diagnose directly.
 allowed-tools: [Bash, Read, Write, Edit, ScheduleWakeup]
 ---
 
@@ -19,10 +33,10 @@ tooling is broken (a bad index, a failing regen command), fixing it is your job
 too — do it or file it, don't hand it back.
 
 **Boundary — two journals, one each:** live perf telemetry (CPU / memory /
-battery / kernel zones / /tmp) → the `/system-watchdog` command's
-`~/.cache/system-watchdog/journal.jsonl`. Durable config / infra findings (NAS,
-SSH, network, auth, firmware) → **here**. If you're holding a finding and can't
-tell which it is: would it still be true after a reboot? Yes → here.
+battery / kernel zones / /tmp) → `~/.cache/system-watchdog/journal.jsonl` (via
+`/system-watchdog` where available). Durable config / infra findings (NAS, SSH,
+network, auth, firmware) → **here**. If you're holding a finding and can't tell
+which it is: would it still be true after a reboot? Yes → here.
 
 ```
 ~/.dotfiles/private/system-journal/
