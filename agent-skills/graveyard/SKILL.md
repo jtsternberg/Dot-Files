@@ -29,6 +29,17 @@ or rank.
 time). Present the most-idle ones (idle duration, workspace/tab, cwd) and let
 him pick. Don't bury without a nod.
 
+**Bury the thing JT points at** — he can copy an id from cmux's ⌘P menu ("Copy
+Surface Id" or "Copy Ids") and paste it; `graveyard bury <pasted>` takes it
+verbatim. A `surface_id=`/`surface_ref=` line — or the whole multi-line "Copy
+Ids" blob, whose surface line names the session — buries that one session. A
+`pane_id=`/`pane_ref=` line buries the pane: one agent session is a plain bury,
+several bury as a group that resurrects into a *new* workspace named at bury
+time (a `<parent> (pane)` default under `-y`). A `workspace_id=`/`workspace_ref=`
+line buries the whole workspace as a group, same as `--workspace`. A *bare*
+`workspace:N` or bare UUID is left alone — only the labelled paste opts into a
+pane/workspace group bury. Still get his nod first.
+
 **Search buried sessions for a topic** — `graveyard search <term>` matches
 workspace/tab/cwd/summary (case-insensitive, newest-first). Widen/split the
 term if dry; add `--full-text` to also grep transcript bodies before concluding
