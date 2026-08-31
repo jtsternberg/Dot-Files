@@ -239,10 +239,6 @@ source $ZSH/oh-my-zsh.sh
 # Override composer plugin's 'c' alias
 alias c='claude --dangerously-skip-permissions'
 
-# Free up `gc` for the Gas City binary (the git plugin aliases it to
-# `git commit --verbose`, which we don't use).
-unalias gc 2>/dev/null
-
 # https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black'
