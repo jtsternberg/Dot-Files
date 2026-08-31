@@ -129,6 +129,37 @@ These are loaded automatically by `.zshrc` based on `$OSTYPE`. Edit them to add 
 
 ---
 
+## Background Services (macOS LaunchAgents)
+
+macOS-only background jobs live as git-tracked scripts + plists in the repo and
+are installed as user LaunchAgents (not symlinked by `symdotfiles`).
+
+### mempalace-watchdog
+
+`bin/mempalace-watchdog.sh` (+ `bin/com.jt.mempalace-watchdog.plist`) is a daily
+health watchdog for the local [mempalace](https://github.com/MemPalace/mempalace)
+palace. It exists because on 2026-07-08 mempalace's destructive HNSW-quarantine
+bug ([MemPalace/mempalace#1710](https://github.com/MemPalace/mempalace/issues/1710),
+still open) silently deleted ~47k vectors. Each morning at 9:23 it checks
+drawers/HNSW divergence, watches for quarantine events (`.drift-*` dirs + new
+`hook.log` quarantine lines), verifies the hand-applied CLI search patch (#2373)
+survived any upgrade, keeps a weekly `rsync` backup of the palace on
+`/Volumes/Secondary`, and reports new releases / issue movement. A healthy day
+logs only; anything wrong posts a macOS notification. When #1710 is closed **and**
+the installed build postdates that fix, it self-retires: writes a persistent
+`retired` marker (checked first on every run), removes its LaunchAgent symlink,
+and boots out — it never deletes the tracked script/plist. Log:
+`~/.local/state/mempalace-watchdog/watchdog.log`.
+
+```bash
+mempalace-watchdog.sh install     # symlink plist into ~/Library/LaunchAgents + bootstrap
+mempalace-watchdog.sh status      # launchd + plist + retirement + log tail
+mempalace-watchdog.sh uninstall   # bootout + remove symlink (log/state kept)
+mempalace-watchdog.sh             # run once now (for testing)
+```
+
+---
+
 ## Notes
 
 - `bin/` scripts are PHP — ensure `php` is in PATH
