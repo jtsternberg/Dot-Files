@@ -203,11 +203,15 @@ final class GraveyardCodexBuryTest extends TestCase
 	 */
 	private function gateThreeStub(string $lsofRaw): Graveyard
 	{
-		$cmux = new class($this->cli, $lsofRaw) extends \JT\Helpers\Cmux {
+		// Double Proc, not Cmux: the pid -> codex-session lookup reads the rollout the
+		// process holds open, so it lives in AgentArtifacts and calls Proc for the lsof
+		// dump. Overriding Cmux::lsofForPid only reaches a forwarder nothing calls.
+		$proc = new class($this->cli, $lsofRaw) extends \JT\Helpers\Proc {
 			private string $raw;
 			public function __construct($cli, string $raw) { parent::__construct($cli); $this->raw = $raw; }
 			public function lsofForPid(int $pid): string { return $this->raw; }
 		};
+		$cmux = new \JT\Helpers\Cmux($this->cli, false, $proc);
 
 		return new class($this->cli, $cmux) extends Graveyard {
 			public array $killedPids = [];
