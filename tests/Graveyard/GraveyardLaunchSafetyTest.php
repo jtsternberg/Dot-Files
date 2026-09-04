@@ -75,7 +75,7 @@ final class GraveyardLaunchSafetyTest extends TestCase
 
 	public function testLaunchIsRefusedWhenTheTargetSurfaceHostsALiveAgent(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public array $sent = [];
 			public function liveAgentSurfaceRefs(): array { return ['surface:155' => 'claude']; }
 			public function sendLaunch(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $surfRef; }
@@ -88,7 +88,7 @@ final class GraveyardLaunchSafetyTest extends TestCase
 	public function testLaunchIsRefusedForTheCallersOwnSurface(): void
 	{
 		// Typing into the agent doing the resurrecting is the exact incident.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveAgentSurfaceRefs(): array { return ['surface:155' => 'claude']; }
 		};
 
@@ -97,7 +97,7 @@ final class GraveyardLaunchSafetyTest extends TestCase
 
 	public function testLaunchAllowedOnAPlainShell(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveAgentSurfaceRefs(): array { return []; }
 		};
 
@@ -148,7 +148,7 @@ final class GraveyardLaunchSafetyTest extends TestCase
 		]]));
 
 		// Stub the live map so no cmux/lsof/ps is touched, and claim this session is live.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveSessionIdsByAgent(): array
 			{
 				return ['aaaa1111-2222-3333-4444-555555555555' => 'codex'];

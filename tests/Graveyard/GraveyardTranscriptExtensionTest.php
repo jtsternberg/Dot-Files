@@ -52,7 +52,7 @@ final class GraveyardTranscriptExtensionTest extends TestCase
 		putenv('GRAVEYARD_ROOT=' . $root);
 		$this->cleanup[] = $root;
 
-		return new Graveyard($this->cli, $this->cmux);
+		return new Graveyard($this->cli, $this->transport);
 	}
 
 	/** Stub export-session.mjs emitting $stdout. */
@@ -286,7 +286,7 @@ final class GraveyardTranscriptExtensionTest extends TestCase
 		putenv('GRAVEYARD_ROOT=' . $root);
 		$this->cleanup[] = $root;
 
-		return new class ($this->cli, $this->cmux) extends Graveyard {
+		return new class ($this->cli, $this->transport) extends Graveyard {
 			public function sendExportCommand(array $sess, string $tmp): void {
 				file_put_contents($tmp, "typed into the repl\n");
 			}

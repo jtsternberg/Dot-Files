@@ -101,7 +101,7 @@ final class GraveyardExportBinTest extends TestCase
 		putenv('GRAVEYARD_ROOT=' . $root);
 		$this->cleanup[] = $root;
 
-		return new Graveyard($this->cli, $this->cmux);
+		return new Graveyard($this->cli, $this->transport);
 	}
 
 	// =====================================================================
@@ -420,7 +420,7 @@ final class GraveyardExportBinTest extends TestCase
 		putenv('GRAVEYARD_ROOT=' . $root);
 		$this->cleanup[] = $root;
 
-		return new class ($this->cli, $this->cmux) extends Graveyard {
+		return new class ($this->cli, $this->transport) extends Graveyard {
 			public int $replCalls = 0;
 			public function sendExportCommand(array $sess, string $tmp): void {
 				$this->replCalls++;
@@ -434,7 +434,7 @@ final class GraveyardExportBinTest extends TestCase
 	{
 		putenv('GRAVEYARD_EXPORT_BIN');
 
-		return (new Graveyard($this->cli, $this->cmux))->exportBinPath();
+		return (new Graveyard($this->cli, $this->transport))->exportBinPath();
 	}
 
 	/**

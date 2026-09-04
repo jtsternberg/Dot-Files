@@ -29,7 +29,7 @@ final class GraveyardSearchTest extends TestCase
 		$root = sys_get_temp_dir() . '/gy-search-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		foreach ($tombs as $t) { $gy->upsertIndex($t); }
 		return $root;
 	}
@@ -40,7 +40,7 @@ final class GraveyardSearchTest extends TestCase
 			['session_id' => 'aaa111', 'workspace_title' => 'Tailscale Setup', 'tab_title' => 'net', 'cwd' => '/x', 'summary' => 'configure the mesh', 'buried_at' => '2026-07-10'],
 			['session_id' => 'bbb222', 'workspace_title' => 'Blog', 'tab_title' => 'post', 'cwd' => '/y', 'summary' => 'write about routers', 'buried_at' => '2026-07-11'],
 		]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$hits = $gy->searchTombstones('tailscale');
 		$this->assertCount(1, $hits);
@@ -57,7 +57,7 @@ final class GraveyardSearchTest extends TestCase
 			['session_id' => 'old111', 'workspace_title' => 'ollama older', 'buried_at' => '2026-07-01'],
 			['session_id' => 'new222', 'workspace_title' => 'ollama newer', 'buried_at' => '2026-07-09'],
 		]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$hits = $gy->searchTombstones('ollama');
 		$this->assertSame(['new222', 'old111'], array_column($hits, 'session_id'));
 	}
@@ -72,7 +72,7 @@ final class GraveyardSearchTest extends TestCase
 		@mkdir($sdir, 0755, true);
 		file_put_contents($sdir . '/transcript.txt', "…conversation about ollama local models…");
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$this->assertCount(0, $gy->searchTombstones('ollama'));            // metadata only: miss
 		$this->assertCount(1, $gy->searchTombstones('ollama', true));      // full-text: hit
 		$this->assertSame('meta111', $gy->searchTombstones('ollama', true)[0]['session_id']);
@@ -86,7 +86,7 @@ final class GraveyardSearchTest extends TestCase
 		@mkdir($root . '/sessions/split111', 0755, true);
 		file_put_contents($root . '/sessions/split111/transcript.txt', "the hidden\nneedle is here");
 
-		$this->assertCount(1, (new Graveyard($this->cli, $this->cmux))->searchTombstones("hidden\nneedle", true));
+		$this->assertCount(1, (new Graveyard($this->cli, $this->transport))->searchTombstones("hidden\nneedle", true));
 	}
 
 	public function testSearchNoHitsReturnsEmpty(): void
@@ -94,7 +94,7 @@ final class GraveyardSearchTest extends TestCase
 		$this->makeRoot([
 			['session_id' => 'x1', 'workspace_title' => 'tailscale', 'buried_at' => '2026-07-10'],
 		]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$this->assertSame([], $gy->searchTombstones('nonexistent-thing'));
 	}
 
@@ -103,7 +103,7 @@ final class GraveyardSearchTest extends TestCase
 		$this->makeRoot([
 			['session_id' => 'aaa111', 'workspace_title' => 'Tailscale Setup', 'tab_title' => 'net', 'cwd' => '/x', 'summary' => 's', 'buried_at' => '2026-07-10'],
 		]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$rows = $gy->searchTombstones('tailscale');
 		// `live` was added because resurrect deliberately keeps a tombstone, so a row
 		// can describe a session that is running right now — ls/search previously
@@ -128,7 +128,7 @@ final class GraveyardSearchTest extends TestCase
 		$this->makeRoot([
 			['session_id' => 'g1', 'group_id' => 'grp-1', 'group_pos' => 0, 'group_title' => 'graveyard original spec', 'workspace_title' => 'graveyard', 'tab_title' => 'gy', 'summary' => 'nothing', 'buried_at' => '2026-07-10'],
 		]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$hits = $gy->searchTombstones('original');
 		$this->assertSame(['g1'], array_column($hits, 'session_id'));
 	}
@@ -142,7 +142,7 @@ final class GraveyardSearchTest extends TestCase
 			['session_id' => 'loose1', 'workspace_title' => 'baremetal notes', 'summary' => 'x', 'buried_at' => '2026-07-20'],
 			['session_id' => 'nomatch', 'workspace_title' => 'something else', 'summary' => 'y', 'buried_at' => '2026-07-27'],
 		]);
-		$gy  = new Graveyard($this->cli, $this->cmux);
+		$gy  = new Graveyard($this->cli, $this->transport);
 		$all = $gy->readIndex()['tombstones'];
 		$out = $gy->expandSearchHits($gy->searchTombstones('baremetal'), $all);
 
@@ -164,7 +164,7 @@ final class GraveyardSearchTest extends TestCase
 			['session_id' => 'a0', 'group_id' => 'old', 'group_pos' => 0, 'group_title' => 'ollama old plot', 'buried_at' => '2026-07-01'],
 			['session_id' => 'b0', 'group_id' => 'new', 'group_pos' => 0, 'group_title' => 'ollama new plot', 'buried_at' => '2026-07-09'],
 		]);
-		$gy  = new Graveyard($this->cli, $this->cmux);
+		$gy  = new Graveyard($this->cli, $this->transport);
 		$all = $gy->readIndex()['tombstones'];
 		$out = $gy->expandSearchHits($gy->searchTombstones('ollama'), $all);
 		$this->assertSame(['new', 'old'], array_column($out['workspaces'], 'group_id'));
@@ -177,7 +177,7 @@ final class GraveyardSearchTest extends TestCase
 			['session_id' => 'm1', 'group_id' => 'grp-1', 'group_pos' => 1, 'group_title' => 'audit baremetal PR', 'workspace_title' => 'audit baremetal PR', 'summary' => 'the baremetal audit', 'buried_at' => '2026-07-28'],
 			['session_id' => 'm0', 'group_id' => 'grp-1', 'group_pos' => 0, 'group_title' => 'audit baremetal PR', 'workspace_title' => 'audit baremetal PR', 'summary' => 'unrelated', 'buried_at' => '2026-07-28'],
 		]);
-		$gy   = new Graveyard($this->cli, $this->cmux);
+		$gy   = new Graveyard($this->cli, $this->transport);
 		$json = $gy->searchJson($gy->searchTombstones('baremetal'), $gy->readIndex()['tombstones']);
 
 		$this->assertSame(['workspaces', 'sessions'], array_keys($json));
@@ -190,7 +190,7 @@ final class GraveyardSearchTest extends TestCase
 	/** The match marker only shifts the title when one is asked for — ls stays byte-identical. */
 	public function testLsEntryLinesMarkerIsOptOut(): void
 	{
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$t  = ['session_id' => 'abcdef12', 'summary' => 'a title', 'cwd' => '/x', 'buried_at' => '2026-07-28'];
 		$plain    = $gy->lsEntryLines($t, 120, '/home/x', 4);
 		$flagged  = $gy->lsEntryLines($t, 120, '/home/x', 4, '✱');

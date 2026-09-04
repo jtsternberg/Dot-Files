@@ -4,6 +4,7 @@ namespace JT\Tests;
 use PHPUnit\Framework\TestCase as BaseTestCase;
 use JT\CLI\Helpers;
 use JT\Helpers\Cmux;
+use JT\Transport\CmuxTransport;
 use JT\Graveyard;
 
 /**
@@ -16,13 +17,15 @@ use JT\Graveyard;
  * output writing into a dead stream, silently voiding any ob_start()-based
  * output assertion. Reset here, so tests that inject do it after parent::setUp().
  *
- * Cmux + Graveyard are the same objects the bin/ scripts build. helpers.php is
- * loaded once in tests/bootstrap.php.
+ * Cmux, its CmuxTransport, and Graveyard are the same objects bin/graveyard builds.
+ * Graveyard takes the TRANSPORT, not the Cmux — pass $this->transport (or wrap your own
+ * Cmux double in a CmuxTransport). helpers.php is loaded once in tests/bootstrap.php.
  */
 abstract class TestCase extends BaseTestCase
 {
 	protected $cli;
 	protected Cmux $cmux;
+	protected CmuxTransport $transport;
 	protected Graveyard $gy;
 	protected string $graveyardRoot;
 
@@ -33,6 +36,7 @@ abstract class TestCase extends BaseTestCase
 		$this->cli->forceSilent      = false;
 		$this->cli->forceInteractive = null;
 		$this->cmux = new Cmux($this->cli);
+		$this->transport = new CmuxTransport($this->cli, $this->cmux);
 
 		// EVERY test gets a throwaway graveyard store, so no test can write into the
 		// real ~/.claude-graveyard — or, far worse, tear down a real session that a
@@ -69,9 +73,9 @@ abstract class TestCase extends BaseTestCase
 		chmod($launchctlStub, 0755);
 		putenv('AIMODELS_LAUNCHCTL_BIN=' . $launchctlStub);
 
-		// Router-specific coverage constructs a Graveyard with NullCmux; see
+		// Router-specific coverage constructs a Graveyard with NullTransport; see
 		// Graveyard/GraveyardPageServerContractTest.php. $this->gy is not that shape.
-		$this->gy = new Graveyard($this->cli, $this->cmux);
+		$this->gy = new Graveyard($this->cli, $this->transport);
 	}
 
 	protected function tearDown(): void

@@ -4,8 +4,11 @@ namespace JT;
 class Graveyard {
 
 	// stripGlyph(): shared with Helpers\Cmux via the trait, NOT borrowed off
-	// $this->cmux — the served page renders with a null cmux (graveyard_router.php).
+	// $this->transport — the served page renders with a transport that has no cmux
+	// behind it at all (graveyard_router.php). Same reasoning for the statusline
+	// probe, which CmuxTransport also needs for liveSessions()'s second-pass bind.
 	use \JT\Helpers\TitleGlyphTrait;
+	use \JT\Helpers\StatuslineProbeTrait;
 
 	// Active-turn markers Claude Code prints while a turn is running. Absence-based
 	// detection (NOT prompt matching, which is fragile with custom/powerline prompts).
@@ -24,7 +27,19 @@ class Graveyard {
 	const MATCH_MARK = '✱';
 
 	protected $cli;
-	protected $cmux;
+
+	/** The multiplexer graveyard discovers, drives and restores sessions through. */
+	protected Transport\SessionTransport $transport;
+
+	/** Claude/Codex on-disk artifacts + argv semantics. Transport-free by design. */
+	protected Helpers\AgentArtifacts $artifacts;
+
+	/**
+	 * OS process/tty primitives, for the pid gates and teardown. Reached THROUGH
+	 * $artifacts rather than newed here, so a test that hands artifacts a stubbed
+	 * Proc gets that stub for the pid gates too.
+	 */
+	protected Helpers\Proc $proc;
 
 	/** Memoised [session_id => agent] for liveness annotation; null until first resolved. */
 	protected ?array $liveIdCache = null;
@@ -36,9 +51,35 @@ class Graveyard {
 	 */
 	protected ?Helpers\CodexRollout $codexRollout = null;
 
-	public function __construct($cli, Helpers\Cmux $cmux) {
-		$this->cli  = $cli;
-		$this->cmux = $cmux;
+	public function __construct($cli, Transport\SessionTransport $transport, ?Helpers\AgentArtifacts $artifacts = null) {
+		$this->cli       = $cli;
+		$this->transport = $transport;
+		$this->artifacts = $artifacts ?: new Helpers\AgentArtifacts($cli);
+		$this->proc      = $this->artifacts->proc();
+	}
+
+	/**
+	 * The cmux client, for the code below that still reasons in cmux shapes.
+	 *
+	 * @deprecated Task 3c. Bury classification and resurrect still walk a cmux tree and
+	 * debug-terminals dump directly instead of the transport's own surface list, so they
+	 * cannot run on a non-cmux transport at all — and say so rather than quietly acting on
+	 * an empty tree. Every remaining caller is one Task 3b/3c re-seats onto the seam;
+	 * when the last one goes, so does this.
+	 */
+	private function cmuxTransport(): Transport\CmuxTransport {
+		if (!$this->transport instanceof Transport\CmuxTransport) {
+			throw new \LogicException(sprintf(
+				'This operation is not yet available for the %s transport.', $this->transport->name()
+			));
+		}
+
+		return $this->transport;
+	}
+
+	/** @deprecated Task 3c, with cmuxTransport(). */
+	private function cmux(): Helpers\Cmux {
+		return $this->cmuxTransport()->cmux();
 	}
 
 	public function storeRoot(): string {
@@ -378,8 +419,8 @@ class Graveyard {
 		$agent      = $session['agent'] ?? 'claude';
 		$lastActive = null;
 		$src = $agent === 'codex'
-			? $this->cmux->codexRolloutPathFor($sessionId)
-			: $this->cmux->jsonlPathFor($sessionId, $cwd);
+			? $this->artifacts->codexRolloutPathFor($sessionId)
+			: $this->artifacts->jsonlPathFor($sessionId, $cwd);
 		if ($src !== null && is_file($src)) {
 			$lastActive = gmdate('Y-m-d\TH:i:s\Z', filemtime($src));
 		}
@@ -426,7 +467,7 @@ class Graveyard {
 			// has been dropped by plumbing before (see the round-trip regression test).
 			// A missing/unreadable rollout counts as absent too — nothing was preserved
 			// from it either way.
-			if ($agent === 'codex' && !$this->cmux->codexRolloutContext((string) $src)['has_turn_context']) {
+			if ($agent === 'codex' && !$this->artifacts->codexRolloutContext((string) $src)['has_turn_context']) {
 				$tomb['agent_opts_unknown'] = true;
 			}
 		}
@@ -481,12 +522,12 @@ class Graveyard {
 		foreach ($rows as $i => $t) {
 			$sid = $t['session_id'] ?? null;
 			if (!$sid) { continue; }
-			$jsonl = $this->cmux->jsonlPathFor($sid, $t['cwd'] ?? '');
+			$jsonl = $this->artifacts->jsonlPathFor($sid, $t['cwd'] ?? '');
 			if (!is_file($jsonl)) {
 				$report[] = ['session_id' => $sid, 'status' => 'no-jsonl', 'changes' => []];
 				continue;
 			}
-			$meta = $this->cmux->readSessionJsonl($sid, $t['cwd'] ?? '');
+			$meta = $this->artifacts->readSessionJsonl($sid, $t['cwd'] ?? '');
 			[$updated, $changes] = $this->reconcileTombstoneConfig($t, $meta);
 			if ($changes) {
 				$rows[$i] = $updated;
@@ -579,216 +620,34 @@ class Graveyard {
 	}
 
 	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string {
-		$cmd = escapeshellcmd($this->cmux->cmuxBin()) . ' read-screen --surface ' . escapeshellarg($surfaceRef)
-			 . ' --workspace ' . escapeshellarg($workspaceRef)
-			 . ' --lines ' . (int) $lines . ' 2>/dev/null';
-		return (string) shell_exec($cmd);
+		return $this->transport->readScreen($surfaceRef, $workspaceRef, $lines);
 	}
 
-	/**
-	 * Idle clock for a codex session: the timestamp of the last complete record in
-	 * its rollout. Scanned backward, because rollouts run to megabytes.
-	 *
-	 * An unparseable tail line is skipped rather than treated as "no activity" — a
-	 * rollout being appended to can end mid-write, and reporting no activity would
-	 * read as infinitely idle, i.e. make a live session look buryable.
-	 */
+	/** @see Helpers\AgentArtifacts::codexLastActivity() — a rollout read, not a transport concern. */
 	public function codexLastActivity(string $rolloutPath): ?int {
-		$ts = null;
-		$this->cmux->eachLineReverse($rolloutPath, function (string $line) use (&$ts) {
-			$rec = json_decode(trim($line), true);
-			if (!is_array($rec) || empty($rec['timestamp'])) {
-				return true; // partial/blank tail line — keep walking back
-			}
-			$parsed = strtotime((string) $rec['timestamp']);
-			if ($parsed === false) { return true; }
-			$ts = $parsed;
-			return false;
-		});
-		return $ts;
-	}
-
-	public function liveSessions(): array {
-		// Deterministic session<->surface joins. Both agents bind on CMUX_SURFACE_ID
-		// against the tree's per-surface id (dotfiles-zcm, dotfiles-dr9); Claude also
-		// bridges through a resume script when it was resurrected behind one
-		// (dotfiles-yt2). Never by tty — tty numbers are recycled across live
-		// surfaces, so a tty join mis-pairs. BOTH joins need the surface-UUID map:
-		// starve the Claude join of it and every cmux-launched session goes unbound.
-		$sessions     = $this->cmux->loadClaudeSessionsByPid();
-		$proc         = $this->cmux->parseProcTable($this->cmux->psProcTable());
-		$debug        = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
-		$tree         = $this->cmux->tree();
-		$surfaceUuids = $this->cmux->mapSurfaceUuids($tree);
-		$joined       = array_merge(
-			$this->cmux->joinSessionsToSurfaces($sessions, $proc, $debug, $surfaceUuids),
-			$this->cmux->joinCodexToSurfaces(
-				$this->cmux->loadCodexSessionsByPid(),
-				$surfaceUuids
-			)
-		);
-
-		// Tree supplies stable surface UUID + workspace/surface titles, keyed by ref.
-		$treeIx = $this->treeIndex($tree);
-		$now    = time();
-		$out    = [];
-
-		foreach ($joined as $j) {
-			if (!$j['session_id']) { continue; }
-			$agent = $j['agent'] ?? 'claude';
-			if ($agent === 'codex') {
-				$rollout = $this->cmux->codexRolloutPathFor($j['session_id']);
-				$ts      = $rollout !== null ? $this->codexLastActivity($rollout) : null;
-			} else {
-				$ts = $this->cmux->lastRealActivity($j['session_id'], $j['cwd']);
-			}
-			$idle = $ts !== null ? ($now - $ts) : PHP_INT_MAX;
-			$ref  = $j['surface_ref'];
-			$out[] = [
-				'session_id'      => $j['session_id'],
-				'agent'           => $agent,
-				'cwd'             => $j['cwd'],
-				'model'           => $j['model'],
-				'skip_perms'      => $j['skip_perms'],
-				// Agent-specific knobs (codex sandbox/approval/effort). MUST be carried:
-				// buildTombstone() stores them as agent_opts and resurrect replays them,
-				// and `codex resume` re-reads config rather than rehydrating turn_context —
-				// so dropping them here silently widens a restored session's sandbox.
-				'opts'            => $j['opts'] ?? [],
-				'pid'             => $j['pid'],
-				'tty'             => $j['tty'],
-				'surface_ref'     => $ref,
-				'surface_id'      => $treeIx['surface'][$ref]['id'] ?? $ref,
-				// Where it currently lives, so bury can record a home to resurrect into.
-				'home_workspace_id'  => $treeIx['surface'][$ref]['workspace_id'] ?? null,
-				'home_pane_id'       => $treeIx['surface'][$ref]['pane_id'] ?? null,
-				'pane_ref'           => $treeIx['surface'][$ref]['pane_ref'] ?? null,
-				'home_index_in_pane' => $treeIx['surface'][$ref]['index_in_pane'] ?? null,
-				'workspace_ref'   => $j['workspace_ref'],
-				'window_ref'      => $treeIx['workspace_window'][$j['workspace_ref']] ?? null,
-				'workspace_title' => $treeIx['workspace'][$j['workspace_ref']] ?? '',
-				'tab_title'       => $treeIx['surface'][$ref]['title'] ?? $j['title'],
-				'idle_seconds'    => $idle,
-				'targetable'      => $j['targetable'],
-				'reason'          => $j['reason'],
-				'no_bridge'       => $j['no_bridge'] ?? false,
-			];
-		}
-
-		// Second pass (dotfiles-c15): content-probe fallback for Claude sessions the
-		// ancestry join left unbound (fresh / non-cmux-resumed). Bind each to a still-
-		// unbound terminal surface by matching its on-screen statusline cwd, uniquely.
-		$out = $this->bindUnresolvedByContentProbe($out, $debug, $treeIx);
-
-		return $this->dedupBySessionId($out);
+		return $this->artifacts->codexLastActivity($rolloutPath);
 	}
 
 	/**
-	 * PURE. Index a cmux tree for ref-keyed lookups:
-	 *   ['surface' => [surface_ref => ['id','title']], 'workspace' => [workspace_ref => title]].
-	 */
-	public function treeIndex(array $tree): array {
-		$ix = ['surface' => [], 'workspace' => [], 'workspace_window' => []];
-		foreach ($tree['windows'] ?? [] as $window) {
-			$windowRef = $window['ref'] ?? null;
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				$wref = $ws['ref'] ?? '';
-				if ($wref) { $ix['workspace'][$wref] = $ws['title'] ?? ''; }
-				if ($wref && $windowRef) { $ix['workspace_window'][$wref] = $windowRef; }
-				foreach ($ws['panes'] ?? [] as $pane) {
-					foreach ($pane['surfaces'] ?? [] as $surf) {
-						$ref = $surf['ref'] ?? '';
-						if (!$ref) { continue; }
-						$ix['surface'][$ref] = [
-							'id'    => $surf['id'] ?? $ref,
-							'title' => $surf['title'] ?? '',
-							// Where this tab lives, by UUID, so a tombstone can be resurrected
-							// back into it. Refs are positional and get reassigned, so they are
-							// useless for something read back minutes or days later.
-							'workspace_id'  => $ws['id'] ?? null,
-							'pane_id'       => $pane['id'] ?? null,
-							'pane_ref'      => $pane['ref'] ?? null,
-							'index_in_pane' => $surf['index_in_pane'] ?? 0,
-						];
-					}
-				}
-			}
-		}
-		return $ix;
-	}
-
-	/**
-	 * I/O wrapper for the content-probe fallback (dotfiles-c15). Finds Claude sessions
-	 * for which the join had NO bridge at all (no_bridge — neither a resume-script
-	 * ancestor nor a CMUX_SURFACE_ID), reads each still-unbound terminal surface's
-	 * screen, and upgrades a row to targetable when contentProbeBind() finds it a
-	 * unique cwd match.
+	 * Every live agent session, from the transport, already normalized.
 	 *
-	 * Now a genuine last resort: CMUX_SURFACE_ID binds cmux-launched sessions exactly
-	 * (dotfiles-dr9), so this fires only for a session cmux never labelled — or one
-	 * whose env we could not read. A row that names a closed surface is deliberately
-	 * NOT a candidate: it is somewhere else, so a cwd guess would mis-bind it.
+	 * The join that produces these rows (ps ancestry, CMUX_SURFACE_ID, the
+	 * debug-terminals dump, the content probe) is transport-specific and lives in the
+	 * implementation. Liveness is annotated in exactly ONE place — tombstones(), off
+	 * this method — never at a call site.
 	 */
-	protected function bindUnresolvedByContentProbe(array $rows, array $debug, array $treeIx): array {
-		$bound = [];
-		$fresh = [];
-		foreach ($rows as $i => $r) {
-			if ($r['targetable']) { if ($r['surface_ref'] !== '') { $bound[$r['surface_ref']] = true; } continue; }
-			if (!empty($r['no_bridge'])) {
-				$r['_i'] = $i;
-				$r['tty'] = $this->cmux->getTtyForPid((int) $r['pid']) ?: ($r['tty'] ?? '');
-				$fresh[] = $r;
-			}
-		}
-		if (!$fresh) { return $rows; }
-
-		// Candidate surfaces: terminal surfaces (debug-terminals lists only these) not
-		// already claimed by a deterministic bind.
-		$unbound = [];
-		$screenByRef = [];
-		foreach ($debug as $ref => $d) {
-			if (isset($bound[$ref])) { continue; }
-			$unbound[$ref] = ['tty' => $d['tty'] ?? '', 'workspace_ref' => $d['workspace_ref'] ?? ''];
-			$screenByRef[$ref] = $this->readLastScreen($ref, $d['workspace_ref'] ?? '', 8);
-		}
-
-		$binds = $this->contentProbeBind($fresh, $unbound, $screenByRef);
-		foreach ($fresh as $r) {
-			$ref = $binds[$r['session_id']] ?? null;
-			if (!$ref) { continue; }
-			$wref = $unbound[$ref]['workspace_ref'] ?? '';
-			$i = $r['_i'];
-			$rows[$i]['surface_ref']     = $ref;
-			$rows[$i]['surface_id']      = $treeIx['surface'][$ref]['id'] ?? $ref;
-			$rows[$i]['workspace_ref']   = $wref;
-			$rows[$i]['workspace_title'] = $treeIx['workspace'][$wref] ?? '';
-			$rows[$i]['tab_title']       = $treeIx['surface'][$ref]['title'] ?? '';
-			$rows[$i]['tty']             = $unbound[$ref]['tty'] ?? '';
-			$rows[$i]['targetable']      = true;
-			$rows[$i]['reason']          = 'bound via content-probe (fresh session)';
-		}
-		return $rows;
+	public function liveSessions(): array {
+		return $this->transport->liveSessions();
 	}
 
-	/**
-	 * Keep the first row for each session_id, preserving order. A single Claude
-	 * session can surface under multiple cmux panes/surfaces; liveSessions()
-	 * builds one row per surface, so this collapses those back to one per session.
-	 */
+	/** @see Transport\CmuxTransport::treeIndex() — a cmux tree walk, below the seam. */
+	public function treeIndex(array $tree): array {
+		return $this->cmuxTransport()->treeIndex($tree);
+	}
+
+	/** @see Helpers\AgentArtifacts::dedupBySessionId() — a row-shape helper every transport needs. */
 	public function dedupBySessionId(array $rows): array {
-		$seen = [];
-		$out  = [];
-		foreach ($rows as $row) {
-			$id = $row['session_id'] ?? null;
-			if ($id !== null && isset($seen[$id])) {
-				continue;
-			}
-			if ($id !== null) {
-				$seen[$id] = true;
-			}
-			$out[] = $row;
-		}
-		return $out;
+		return $this->artifacts->dedupBySessionId($rows);
 	}
 
 	/**
@@ -866,7 +725,7 @@ class Graveyard {
 	public function transcriptUpToDate(string $sessionId, string $cwd): bool {
 		$tp = $this->transcriptPath($sessionId);
 		if (!is_file($tp)) { return false; }
-		$lastReal = $this->cmux->lastRealActivity($sessionId, $cwd);
+		$lastReal = $this->artifacts->lastRealActivity($sessionId, $cwd);
 		if ($lastReal === null) { return true; } // transcript exists, nothing genuine to capture
 		clearstatcache(true, $tp);
 		return $lastReal < filemtime($tp);
@@ -888,7 +747,7 @@ class Graveyard {
 	/** Archive a codex session by copying its rollout. False (never an empty archive) if unavailable. */
 	public function archiveCodexRollout(array $sess): bool {
 		$sid  = (string) $sess['session_id'];
-		$live = $this->cmux->codexRolloutPathFor($sid);
+		$live = $this->artifacts->codexRolloutPathFor($sid);
 		if ($live === null || !is_file($live) || filesize($live) === 0) {
 			return false;
 		}
@@ -931,7 +790,7 @@ class Graveyard {
 	public function codexArchiveUpToDate(string $sessionId): bool {
 		$archived = $this->codexRolloutArchivePath($sessionId);
 		if (!is_file($archived)) { return false; }
-		$live = $this->cmux->codexRolloutPathFor($sessionId);
+		$live = $this->artifacts->codexRolloutPathFor($sessionId);
 		if ($live === null || !is_file($live)) { return true; } // nothing left to capture
 		clearstatcache(true, $archived);
 		clearstatcache(true, $live);
@@ -943,9 +802,9 @@ class Graveyard {
 	 * Public so tests can substitute it without shelling out to cmux/lsof.
 	 */
 	public function liveCodexBySurfaceRef(): array {
-		$out = $this->cmux->joinCodexToSurfaces(
-			$this->cmux->loadCodexSessionsByPid(),
-			$this->cmux->mapSurfaceUuids($this->cmux->tree())
+		$out = $this->cmux()->joinCodexToSurfaces(
+			$this->cmux()->loadCodexSessionsByPid(),
+			$this->cmux()->mapSurfaceUuids($this->cmux()->tree())
 		);
 		$bySurf = [];
 		foreach ($out as $r) {
@@ -958,9 +817,9 @@ class Graveyard {
 
 	/** Surface refs hosting any Codex TUI, including zero-turn sessions with no rollout. */
 	public function liveCodexSurfaceRefs(): array {
-		$surfaces = $this->cmux->mapSurfaceUuids($this->cmux->tree());
+		$surfaces = $this->cmux()->mapSurfaceUuids($this->cmux()->tree());
 		$out = [];
-		foreach ($this->cmux->codexSurfaceIdsByPid() as $surfaceId) {
+		foreach ($this->cmux()->codexSurfaceIdsByPid() as $surfaceId) {
 			$ref = $surfaces[$surfaceId]['surface_ref'] ?? '';
 			if ($ref !== '') { $out[$ref] = true; }
 		}
@@ -1253,9 +1112,9 @@ class Graveyard {
 	 * a real key event to submit it.
 	 */
 	public function sendExportCommand(array $sess, string $tmp): void {
-		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], self::CLEAR_PROMPT);
-		$this->cmux->sendToSurface($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp);
-		$this->cmux->sendKeyToSurface($sess['surface_ref'], $sess['workspace_ref'], 'Return');
+		$this->transport->sendText($sess['surface_ref'], $sess['workspace_ref'], self::CLEAR_PROMPT);
+		$this->transport->sendText($sess['surface_ref'], $sess['workspace_ref'], '/export ' . $tmp);
+		$this->transport->sendKey($sess['surface_ref'], $sess['workspace_ref'], 'Return');
 	}
 
 	/**
@@ -1275,9 +1134,9 @@ class Graveyard {
 	 * liveSessions()/ls hot path.
 	 */
 	public function probeSurfaceIdentity(string $surfaceRef, string $wsRef, int $timeoutSeconds = 6): ?array {
-		$this->cmux->sendToSurface($surfaceRef, $wsRef, self::CLEAR_PROMPT);
-		$this->cmux->sendToSurface($surfaceRef, $wsRef, '/status');
-		$this->cmux->sendKeyToSurface($surfaceRef, $wsRef, 'Return');
+		$this->transport->sendText($surfaceRef, $wsRef, self::CLEAR_PROMPT);
+		$this->transport->sendText($surfaceRef, $wsRef, '/status');
+		$this->transport->sendKey($surfaceRef, $wsRef, 'Return');
 
 		$found    = null;
 		$deadline = time() + max(1, $timeoutSeconds);
@@ -1287,7 +1146,7 @@ class Graveyard {
 			if ($probe) { $found = $probe; break; }
 		}
 
-		$this->cmux->sendKeyToSurface($surfaceRef, $wsRef, 'Escape'); // dismiss modal (always)
+		$this->transport->sendKey($surfaceRef, $wsRef, 'Escape'); // dismiss modal (always)
 		return $found;
 	}
 
@@ -1358,9 +1217,11 @@ class Graveyard {
 	 * working after the session is gone — which is the whole point of archiving it.
 	 */
 	public function codexRolloutReadPath(string $sessionId): string {
-		// NullCmux answers null here, so the page server skips the live lookup and reads
-		// the archived copy without a special-case null guard.
-		$live = $this->cmux->codexRolloutPathFor($sessionId);
+		// Live-first is transport-free: the rollout lookup is an on-disk artifact read, so
+		// the page server takes the same path the CLI does and falls through to the archive
+		// when the session's rollout is gone. (Before the transport seam, NullCmux stubbed
+		// this to null and the page server never looked at the live file at all.)
+		$live = $this->artifacts->codexRolloutPathFor($sessionId);
 		if ($live !== null && is_file($live)) { return $live; }
 		$archived = $this->codexRolloutArchivePath($sessionId);
 		return is_file($archived) ? $archived : '';
@@ -1384,7 +1245,7 @@ class Graveyard {
 			return $this->summaryFallback($sess);
 		}
 
-		$jsonl = $this->cmux->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
+		$jsonl = $this->artifacts->jsonlPathFor($sess['session_id'], $sess['cwd'] ?? '');
 		if (is_file($jsonl)) {
 			$fh = fopen($jsonl, 'r');
 			while (($line = fgets($fh)) !== false) {
@@ -1417,18 +1278,6 @@ class Graveyard {
 		return trim(preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title)) ?: '(no summary)';
 	}
 
-	/**
-	 * PURE. The cwd token from a Claude REPL statusline ("📁 /foo"), or null if none.
-	 * The cwd MAY CONTAIN SPACES ("/Southport UDO"), so capture the whole field after
-	 * the 📁 glyph up to the next status separator (| or │) or end of line — never
-	 * stop at the first space (that was the phase-1-family bug: '/Southport UDO' →
-	 * '/Southport', making every spaced-path session fail gate 1).
-	 */
-	public function extractStatuslineCwd(string $screen): ?string {
-		if (!preg_match('/📁\s*([^|│\x{2502}\n]+)/u', $screen, $m)) { return null; }
-		$tok = trim($m[1]);
-		return $tok === '' ? null : $tok;
-	}
 
 	/**
 	 * PURE. Parse the identity block a Claude REPL prints in response to /status
@@ -1499,38 +1348,7 @@ class Graveyard {
 		];
 	}
 
-	/**
-	 * PURE. Split a path into its non-empty components, dropping a leading ~ and any
-	 * elision markers (…), so an abbreviated statusline path can be compared by its
-	 * trailing components. "~/Documents/Southport UDO" → [Documents, Southport UDO];
-	 * "…/Southport UDO" → [Southport UDO]; "/a/b" → [a, b].
-	 */
-	public function pathTailComponents(string $path): array {
-		$out = [];
-		foreach (preg_split('#/+#', trim($path)) as $p) {
-			$p = trim($p);
-			if ($p === '' || $p === '~' || $p === '…' || $p === '...') { continue; }
-			$out[] = $p;
-		}
-		return $out;
-	}
 
-	/**
-	 * PURE. GATE 1 predicate: does the on-screen Claude statusline's cwd correspond to
-	 * $sessionCwd? The statusline abbreviates (leading-component elision, ~-home, or
-	 * just a trailing slice), so we match the statusline token's components as a
-	 * TRAILING slice of the session cwd's components — robust to spaces, ~, and elision.
-	 * Returns false when no statusline is found (surface is not a Claude REPL) — blocks.
-	 */
-	public function statuslineMatchesSession(string $screen, string $sessionCwd): bool {
-		$tok = $this->extractStatuslineCwd($screen);
-		if ($tok === null || $sessionCwd === '') { return false; }
-		$tokComps  = $this->pathTailComponents($tok);
-		$sessComps = $this->pathTailComponents($sessionCwd);
-		$n = count($tokComps);
-		if ($n === 0 || $n > count($sessComps)) { return false; }
-		return array_slice($sessComps, -$n) === $tokComps;
-	}
 
 	/**
 	 * PURE. GATE 1 decision for buryOne: may we type /export into this surface? For a
@@ -1557,40 +1375,6 @@ class Graveyard {
 		return !empty($member['_probed']) ? $member : $resolved;
 	}
 
-	/**
-	 * PURE. Content-probe fallback binding (dotfiles-c15). For Claude sessions the
-	 * ancestry join could not bind (fresh / non-cmux-resumed), match each to a still-
-	 * unbound terminal surface by reading its on-screen statusline cwd. A session binds
-	 * only when EXACTLY ONE unclaimed surface matches its cwd (ties broken by OS tty);
-	 * anything ambiguous stays unbound — never a guess.
-	 *
-	 * @param array $freshRows        rows to try to bind: [session_id, cwd, tty]
-	 * @param array $unboundSurfaces  [surface_ref => ['tty'=>debug_tty,'workspace_ref'=>..]]
-	 * @param array $screenByRef      [surface_ref => last-screen text]
-	 * @return array [session_id => surface_ref] for unambiguous binds
-	 */
-	public function contentProbeBind(array $freshRows, array $unboundSurfaces, array $screenByRef): array {
-		$binds = [];
-		$claimed = [];
-		foreach ($freshRows as $r) {
-			$cands = [];
-			foreach (array_keys($unboundSurfaces) as $ref) {
-				if (isset($claimed[$ref])) { continue; }
-				if ($this->statuslineMatchesSession($screenByRef[$ref] ?? '', (string) ($r['cwd'] ?? ''))) {
-					$cands[] = $ref;
-				}
-			}
-			if (count($cands) > 1 && !empty($r['tty'])) {
-				$tied = array_values(array_filter($cands, fn($ref) => ($unboundSurfaces[$ref]['tty'] ?? '') === $r['tty']));
-				if (count($tied) === 1) { $cands = $tied; }
-			}
-			if (count($cands) === 1) {
-				$binds[$r['session_id']] = $cands[0];
-				$claimed[$cands[0]] = true;
-			}
-		}
-		return $binds;
-	}
 
 	/**
 	 * PURE. GATE 2 predicate: does an exported transcript belong to the target? Assert
@@ -1636,8 +1420,8 @@ class Graveyard {
 		// "the first open rollout" aborted teardown of healthy sessions with
 		// "pid N maps to session <a subagent>".
 		$pidSid = ($sess['agent'] ?? 'claude') === 'codex'
-			? $this->cmux->codexSessionIdForPid($pid)
-			: $this->cmux->sessionIdForPid($pid);
+			? $this->artifacts->codexSessionIdForPid($pid)
+			: $this->cmux()->sessionIdForPid($pid);
 		if ($pidSid !== $target) {
 			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
 			return false;
@@ -1648,12 +1432,10 @@ class Graveyard {
 	/** Close a single member's surface, or the workspace if it's the last surface. */
 	protected function closeSurfaceOrWorkspace(array $sess): void {
 		$wsRef = $sess['workspace_ref'] ?? '';
-		$count = $wsRef ? $this->cmux->workspaceSurfaceCount($wsRef) : 0;
-		$bin = escapeshellcmd($this->cmux->cmuxBin());
-		$cmd = ($count <= 1)
-			? $bin . ' workspace close ' . escapeshellarg($wsRef)
-			: $bin . ' close-surface --surface ' . escapeshellarg($sess['surface_ref']);
-		$res = $this->cli->getCommandOutputAndExitCode($cmd);
+		$count = $wsRef ? $this->transport->workspaceSurfaceCount($wsRef) : 0;
+		$res = ($count <= 1)
+			? $this->transport->closeWorkspace($wsRef)
+			: $this->transport->closeSurface((string) $sess['surface_ref']);
 		if (($res['exitCode'] ?? 1) !== 0) {
 			$this->cli->msg('  (Process terminated, but the now-empty cmux tab lingered — close it manually.)', 'yellow');
 		}
@@ -1662,23 +1444,23 @@ class Graveyard {
 	/** Close an entire workspace (and every remaining surface in it). */
 	protected function closeWorkspace(string $wsRef): bool {
 		if ($wsRef === '') { return false; }
-		$res = $this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' workspace close ' . escapeshellarg($wsRef));
+		$res = $this->transport->closeWorkspace($wsRef);
 		return ($res['exitCode'] ?? 1) === 0;
 	}
 
 	/** Kill $pid and its descendants (SIGTERM, then SIGKILL survivors). True if $pid is dead after. */
 	protected function killPidTree(int $pid): bool {
 		if ($pid <= 0) { return false; }
-		$proc = $this->cmux->parseProcTable($this->cmux->psProcTable());
-		$pids = $this->cmux->descendantPids($proc, $pid); // $pid + subagents
+		$proc = $this->proc->parseProcTable($this->proc->psProcTable());
+		$pids = $this->proc->descendantPids($proc, $pid); // $pid + subagents
 		$this->signalPids($pids, defined('SIGTERM') ? SIGTERM : 15);
 		$deadline = time() + 3;
-		while (time() < $deadline && $this->cmux->pidIsAlive($pid)) { usleep(200000); }
-		if ($this->cmux->pidIsAlive($pid)) {
-			$proc = $this->cmux->parseProcTable($this->cmux->psProcTable());
-			$this->signalPids($this->cmux->descendantPids($proc, $pid), 9);
+		while (time() < $deadline && $this->proc->pidIsAlive($pid)) { usleep(200000); }
+		if ($this->proc->pidIsAlive($pid)) {
+			$proc = $this->proc->parseProcTable($this->proc->psProcTable());
+			$this->signalPids($this->proc->descendantPids($proc, $pid), 9);
 		}
-		return !$this->cmux->pidIsAlive($pid);
+		return !$this->proc->pidIsAlive($pid);
 	}
 
 	protected function signalPids(array $pids, int $signal): void {
@@ -1950,7 +1732,7 @@ class Graveyard {
 	private function applyPaneSelections(array $layout, array $refByPos, string $wsRef): void {
 		foreach ($this->paneSelections($layout) as $pos) {
 			$ref = $refByPos[$pos] ?? null;
-			if ($ref) { $this->cmux->selectSurface($wsRef, (string) $ref); }
+			if ($ref) { $this->transport->selectSurface($wsRef, (string) $ref); }
 		}
 	}
 
@@ -2000,7 +1782,7 @@ class Graveyard {
 	 * pane rebuild.
 	 */
 	public function layoutTreeSurfaceCount(array $node): int {
-		return $this->cmux->layoutTreeSurfaceCount($node);
+		return $this->transport->layoutTreeSurfaceCount($node);
 	}
 
 	/**
@@ -2011,7 +1793,7 @@ class Graveyard {
 	 * cwd are preserved.
 	 */
 	public function sanitizeLayoutTree(array $node): array {
-		return $this->cmux->sanitizeLayoutTree($node);
+		return $this->transport->sanitizeLayoutTree($node);
 	}
 
 	/** Launch one restored surface: resume Claude, open browser, or cd a shell. */
@@ -2027,7 +1809,7 @@ class Graveyard {
 		} elseif ($e['kind'] === 'browser') {
 			// url already applied at surface creation
 		} elseif (!empty($e['cwd'])) {
-			$this->cmux->sendToSurface($surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
+			$this->transport->sendText($surfRef, $wsRef, 'cd ' . escapeshellarg($e['cwd']) . "\n");
 		}
 	}
 
@@ -2093,10 +1875,10 @@ class Graveyard {
 		}
 		$claude = null;
 		foreach ($roots as $r) {
-			$c = $this->cmux->descendantClaudePid($proc, (int) $r);
+			$c = $this->artifacts->descendantClaudePid($proc, (int) $r);
 			if ($c) { $claude = $c; break; }
 		}
-		$sid = $claude !== null ? $this->cmux->sessionIdForPid((int) $claude) : null;
+		$sid = $claude !== null ? $this->cmux()->sessionIdForPid((int) $claude) : null;
 
 		// If this surface's session is live but bound to a DIFFERENT surface, it's a
 		// duplicate view (same session on two surfaces; the join deduped to the other).
@@ -2121,7 +1903,7 @@ class Graveyard {
 		$cwd       = (string) ($this->extractStatuslineCwd($screen) ?? '');
 		$cwdSessionCount = 0;
 		if ($cwd !== '') {
-			foreach ($this->cmux->loadClaudeSessionsByPid() as $s) {
+			foreach ($this->cmux()->loadClaudeSessionsByPid() as $s) {
 				if ($this->statuslineMatchesSession($screen, (string) ($s['cwd'] ?? ''))) { $cwdSessionCount++; }
 			}
 		}
@@ -2247,7 +2029,7 @@ class Graveyard {
 	 * the rest of the parent workspace stays alive.
 	 */
 	public function buryPane(string $paneRefOrId, bool $force, bool $autoConfirm): void {
-		$loc = $this->findPaneNode($this->cmux->tree(), $paneRefOrId);
+		$loc = $this->findPaneNode($this->cmux()->tree(), $paneRefOrId);
 		if (!$loc) { $this->cli->exitErr("No live pane matches '{$paneRefOrId}'."); return; }
 
 		$cls = $this->buildBuryClassification($loc['node'], $loc['ws_ref'], $loc['ws_title']);
@@ -2302,7 +2084,7 @@ class Graveyard {
 		}
 
 		try {
-			$wsInfo = $this->cmux->resolveWorkspaceNode($this->cmux->tree(), $nameOrRef);
+			$wsInfo = $this->transport->resolveWorkspace($nameOrRef);
 		} catch (\RuntimeException $e) {
 			$this->cli->exitErr($e->getMessage());
 			return;
@@ -2373,13 +2155,13 @@ class Graveyard {
 		// foreground process cwd while the workspace still exists so resurrect can cd
 		// the restored shell back to where it was buried.
 		$cwdByRef = [];
-		$debugByRef = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+		$debugByRef = $this->cmux()->parseDebugTerminals($this->cmux()->debugTerminals());
 		foreach ($node['panes'] ?? [] as $pane) {
 			foreach ($pane['surfaces'] ?? [] as $surf) {
 				$ref = $surf['ref'] ?? '';
 				if (($surf['type'] ?? '') !== 'terminal' || $ref === '' || isset($liveByRef[$ref]) || ($isClaudeByRef[$ref] ?? false) || ($isCodexByRef[$ref] ?? false)) { continue; }
 				$tty = $debugByRef[$ref]['tty'] ?? '';
-				if ($tty !== '') { $cwdByRef[$ref] = $this->cmux->getCwdForTty($tty); }
+				if ($tty !== '') { $cwdByRef[$ref] = $this->proc->getCwdForTty($tty); }
 			}
 		}
 
@@ -2391,8 +2173,8 @@ class Graveyard {
 		// it lives ONLY here in the bury path — never the liveSessions()/ls hot path. Never
 		// probe the caller's own surface (that would type /status into our own REPL).
 		$selfSurf = $this->selfSurfaceId();
-		$treeIx   = $this->treeIndex($this->cmux->tree());
-		$byPid    = $this->cmux->loadClaudeSessionsByPid();
+		$treeIx   = $this->treeIndex($this->cmux()->tree());
+		$byPid    = $this->cmux()->loadClaudeSessionsByPid();
 		foreach ($isClaudeByRef as $ref => $isClaude) {
 			if (!$isClaude || $ref === '' || isset($liveByRef[$ref])) { continue; }
 			if ($selfSurf && ($ref === $selfSurf || ($treeIx['surface'][$ref]['id'] ?? null) === $selfSurf)) { continue; }
@@ -2435,8 +2217,8 @@ class Graveyard {
 		// Each line carries the SPECIFIC reason so JT knows whether to fix, wait, or --force.
 		if ($cls['untargetable']) {
 			$w     = $this->termWidth();
-			$proc  = $this->cmux->parseProcTable($this->cmux->psProcTable());
-			$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+			$proc  = $this->proc->parseProcTable($this->proc->psProcTable());
+			$debug = $this->cmux()->parseDebugTerminals($this->cmux()->debugTerminals());
 			$this->cli->msg(ucfirst($label) . ' "' . $wsTitle . '" has ' . count($cls['untargetable']) . ' agent surface(s) not safely targetable:', 'yellow');
 			foreach ($cls['untargetable'] as $u) {
 				// diagnoseUntargetableSurface() is Claude-shaped (walks to a Claude pid,
@@ -2489,7 +2271,7 @@ class Graveyard {
 		$group = $this->stableGroupId(
 			array_map(fn($m) => (string) $m['session_id'], $cls['members']),
 			$sidToGroup,
-			fn() => $this->cmux->uuidv4()
+			fn() => $this->artifacts->uuidv4()
 		);
 		$buriedAt = gmdate('Y-m-d\TH:i:s\Z');
 		$dir = $this->workspaceGroupDir($group);
@@ -2498,7 +2280,7 @@ class Graveyard {
 		// Capture cmux's true split geometry (orientation, divider, nesting) while the
 		// workspace is still alive — resurrect replays it exactly. Null when cmux has no
 		// layout API; resurrect then rebuilds panes manually.
-		$layoutTree = !empty($opts['captureLayoutTree']) ? $this->cmux->captureLayoutTree($wsRef) : null;
+		$layoutTree = !empty($opts['captureLayoutTree']) ? $this->transport->captureLayoutTree($wsRef) : null;
 
 		$manifest = [
 			'group_id'    => $group,
@@ -2554,7 +2336,7 @@ class Graveyard {
 				// Buried members (claude/codex) were already killed; their surface closes
 				// when the shell exits. Only genuine shells/browsers get an explicit close.
 				if (in_array($e['kind'], ['claude', 'codex'], true)) { continue; }
-				$this->cli->getCommandOutputAndExitCode(escapeshellcmd($this->cmux->cmuxBin()) . ' close-surface --surface ' . escapeshellarg($e['ref']));
+				$this->transport->closeSurface((string) $e['ref']);
 			}
 			if (!$clean) {
 				$this->cli->msg('  ' . ucfirst($label) . ' left open (some surfaces preserved).', 'yellow');
@@ -3930,12 +3712,12 @@ class Graveyard {
 		// Put it back where it came from when that workspace is still open. Burying a
 		// tab out of the workspace you're sitting in and getting it back as a brand-new
 		// one just leaves you dragging it home by hand.
-		$target = $this->resolveResurrectTarget($this->cmux->tree(), $t);
+		$target = $this->resolveResurrectTarget($this->cmux()->tree(), $t);
 		if ($target['mode'] === 'in_place') {
-			$surfRef = $this->cmux->createSurface($target['workspace_id'], $target['pane_id'], 'terminal', null);
+			$surfRef = $this->transport->newSurface($target['workspace_id'], $target['pane_id'], 'terminal', null);
 			if ($surfRef) {
 				$mode  = $this->launchSessionIntoSurface($t, $surfRef, $target['workspace_id'], $fromTranscript);
-				$where = $this->cmux->describeWorkspace($target['workspace_id'], $title);
+				$where = $this->transport->describeWorkspace($target['workspace_id'], $title);
 				$note  = $this->resurrectNote($t, $mode);
 				$this->cli->successMsg("Resurrected in place into {$where} — {$note}.");
 				return;
@@ -3943,13 +3725,16 @@ class Graveyard {
 			$this->cli->msg('  Could not add a tab to the original workspace — falling back to a new one.', 'yellow');
 		}
 
-		$ws = $this->cmux->newWorkspace($title, $cwd ?: null, $this->resolveTargetWindow($t['window_ref'] ?? null));
+		// The transport reports a failed create as null rather than exiting inside its own
+		// shelling seam, so the exit lives here at the caller (CLAUDE.md's seam rule).
+		$ws = $this->transport->newWorkspace($title, $cwd ?: null, $this->resolveTargetWindow($t['window_ref'] ?? null));
+		if (!$ws) { $this->cli->exitErr("Could not create the workspace '{$title}'."); return; }
 
 		$mode = $this->launchSessionIntoSurface($t, $ws['firstSurfRef'], $ws['ref'], $fromTranscript);
 		$note = $this->resurrectNote($t, $mode);
 		// Name + sidebar slot, not a bare workspace ref — the ref is an internal handle
 		// and tells you nothing about which workspace to go look at.
-		$where = $this->cmux->describeWorkspace($ws['ref'], $title);
+		$where = $this->transport->describeWorkspace($ws['ref'], $title);
 		$this->cli->successMsg("Resurrected into {$where} — {$note}.");
 	}
 
@@ -3977,11 +3762,11 @@ class Graveyard {
 			$opts = is_array($t['agent_opts'] ?? null) ? $t['agent_opts'] : [];
 			return $fresh
 				? 'codex'
-				: $this->cmux->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts);
+				: $this->artifacts->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts);
 		}
 
 		if (!$fresh) {
-			return $this->cmux->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
+			return $this->artifacts->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
 		}
 		$launch = 'claude';
 		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
@@ -3992,9 +3777,9 @@ class Graveyard {
 	/** The still-resumable native session file for a tombstone, or null. */
 	public function tombstoneSessionFile(array $t): ?string {
 		if ($this->tombstoneAgent($t) === 'codex') {
-			return $this->cmux->codexRolloutPathFor((string) $t['session_id']);
+			return $this->artifacts->codexRolloutPathFor((string) $t['session_id']);
 		}
-		return $this->cmux->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
+		return $this->artifacts->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');
 	}
 
 	/** [ surface_ref => agent ] for every live agent session bound to a surface. */
@@ -4106,17 +3891,17 @@ class Graveyard {
 
 		if ($useResume) {
 			$launch = $this->buildTombstoneLaunch($t, false);
-			$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
-			$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
+			$this->transport->sendText($surfRef, $wsRef, $prefix . $launch . "\n");
+			$this->transport->sendKey($surfRef, $wsRef, 'enter');
 			return 'resume';
 		}
 
 		$launch = $this->buildTombstoneLaunch($t, true);
-		$this->cmux->sendToSurface($surfRef, $wsRef, $prefix . $launch . "\n");
+		$this->transport->sendText($surfRef, $wsRef, $prefix . $launch . "\n");
 		$this->waitForReplReady($surfRef, $wsRef);
-		$this->cmux->sendToSurface($surfRef, $wsRef,
+		$this->transport->sendText($surfRef, $wsRef,
 			'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.');
-		$this->cmux->sendKeyToSurface($surfRef, $wsRef, 'enter');
+		$this->transport->sendKey($surfRef, $wsRef, 'enter');
 		return 'transcript';
 	}
 
@@ -4129,7 +3914,7 @@ class Graveyard {
 	protected function waitForReplReady(string $surfRef, string $wsRef): void {
 		$deadline = microtime(true) + 30;
 		do {
-			if ($this->replReady($this->cmux->readScreen($surfRef, $wsRef))) { return; }
+			if ($this->replReady($this->transport->readScreen($surfRef, $wsRef))) { return; }
 			usleep(200000);
 		} while (microtime(true) < $deadline);
 		$this->cli->msg('  REPL prompt was not observed before timeout; sending the restore preamble.', 'yellow');
@@ -4178,7 +3963,7 @@ class Graveyard {
 		// manual pane rebuild (correct panes/tabs, approximated split direction).
 		$tree = $m['layout_tree'] ?? null;
 		if (is_array($tree) && $this->layoutTreeSurfaceCount($tree) === count($layout)) {
-			$node = $this->cmux->newWorkspaceWithLayout($title, $firstCwd, $tree, $targetWin);
+			$node = $this->transport->newWorkspaceWithLayout($title, $firstCwd, $tree, $targetWin);
 			if ($node) {
 				$refs = [];
 				foreach ($node['panes'] ?? [] as $p) {
@@ -4197,7 +3982,7 @@ class Graveyard {
 					}
 					$this->applyPaneSelections($layout, $refByPos, $wsRef);
 					$this->cli->successMsg(sprintf('Resurrected workspace %s — layout restored, %d agent session(s) restored.',
-						$this->cmux->describeWorkspace($wsRef, $title), $restored));
+						$this->transport->describeWorkspace($wsRef, $title), $restored));
 					return;
 				}
 				$this->cli->msg('  Restored surface count did not match the manifest — falling back to manual rebuild.', 'yellow');
@@ -4218,7 +4003,7 @@ class Graveyard {
 	 */
 	private function resolveTargetWindow(?string $stored): ?string {
 		if (empty($stored)) { return null; }
-		if ($this->cmux->windowRefExists($this->cmux->tree(), $stored)) { return $stored; }
+		if ($this->cmux()->windowRefExists($this->cmux()->tree(), $stored)) { return $stored; }
 		$this->cli->msg("  Original window ({$stored}) is gone — restoring into the current window.", 'yellow');
 		return null;
 	}
@@ -4232,7 +4017,9 @@ class Graveyard {
 	 */
 	private function resurrectWorkspaceManual(array $m, array $layout, array $tombBySid, bool $fromTranscript, ?string $targetWin = null): void {
 		$firstCwd = $layout[0]['cwd'] ?? null;
-		$ws = $this->cmux->newWorkspace($m['group_title'] ?: 'resurrected', $firstCwd, $targetWin);
+		$title = $m['group_title'] ?: 'resurrected';
+		$ws = $this->transport->newWorkspace($title, $firstCwd, $targetWin);
+		if (!$ws) { $this->cli->exitErr("Could not create the workspace '{$title}'."); return; }
 		$wsRef = $ws['ref'];
 
 		$steps         = $this->planLayoutRestore($layout);
@@ -4247,18 +4034,18 @@ class Graveyard {
 
 			if ($step['op'] === 'first') {
 				$surfRef = $ws['firstSurfRef'];
-				$paneRefByIdx[$pIdx] = $ws['firstPaneRef'] ?? $this->cmux->paneRefForSurface($wsRef, (string) $surfRef);
+				$paneRefByIdx[$pIdx] = $ws['firstPaneRef'] ?? $this->transport->paneRefForSurface($wsRef, (string) $surfRef);
 			} elseif ($step['op'] === 'split') {
-				$surfRef = $this->cmux->newSplit($wsRef, (string) $anchorSurf, $step['dir']);
+				$surfRef = $this->transport->newSplit($wsRef, (string) $anchorSurf, $step['dir']);
 				if (!$surfRef) { $this->cli->msg("  Could not split for pane {$pIdx} — placing as a tab instead.", 'yellow'); }
 				if (!$surfRef) {
-					$surfRef = $this->cmux->createSurface($wsRef, $paneRefByIdx[array_key_first($paneRefByIdx)] ?? null, 'terminal', null);
+					$surfRef = $this->transport->newSurface($wsRef, $paneRefByIdx[array_key_first($paneRefByIdx)] ?? null, 'terminal', null);
 				}
 				if (!$surfRef) { $this->cli->msg("  Could not create surface for pane {$pIdx} — skipping.", 'yellow'); continue; }
-				$paneRefByIdx[$pIdx] = $this->cmux->paneRefForSurface($wsRef, (string) $surfRef);
+				$paneRefByIdx[$pIdx] = $this->transport->paneRefForSurface($wsRef, (string) $surfRef);
 			} else { // 'tab'
 				$paneRef = $paneRefByIdx[$pIdx] ?? null;
-				$surfRef = $this->cmux->createSurface($wsRef, $paneRef, $e['type'] === 'browser' ? 'browser' : 'terminal', $e['url'] ?? null);
+				$surfRef = $this->transport->newSurface($wsRef, $paneRef, $e['type'] === 'browser' ? 'browser' : 'terminal', $e['url'] ?? null);
 				if (!$surfRef) { $this->cli->msg("  Could not create tab in pane {$pIdx} — skipping.", 'yellow'); continue; }
 			}
 
@@ -4267,7 +4054,7 @@ class Graveyard {
 			// browser surface in this pane so its URL is preserved; the starter terminal
 			// stays as an extra tab.
 			if ($e['kind'] === 'browser' && $step['op'] !== 'tab' && !empty($e['url'])) {
-				$b = $this->cmux->createSurface($wsRef, $paneRefByIdx[$pIdx] ?? null, 'browser', $e['url']);
+				$b = $this->transport->newSurface($wsRef, $paneRefByIdx[$pIdx] ?? null, 'browser', $e['url']);
 				if ($b) { $surfRef = $b; }
 			}
 
@@ -4277,7 +4064,7 @@ class Graveyard {
 		$this->applyPaneSelections($layout, $refByPos, $wsRef);
 
 		$this->cli->successMsg(sprintf('Resurrected workspace %s — %d agent session(s) restored.',
-			$this->cmux->describeWorkspace($wsRef, (string) $m['group_title']), $restored));
+			$this->transport->describeWorkspace($wsRef, (string) $m['group_title']), $restored));
 	}
 
 	/**
@@ -4369,11 +4156,11 @@ class Graveyard {
 		$prefix = array_values(array_filter($rows, fn($r) => str_starts_with((string) ($r['session_id'] ?? ''), $id)));
 		if ($prefix) { return $prefix; }
 
-		$normNeedle = $this->cmux->normalizeTitle($id);
+		$normNeedle = $this->artifacts->normalizeTitle($id);
 		$titleExact = array_values(array_filter($rows, function ($r) use ($normNeedle) {
 			if ($normNeedle === '') { return false; }
 			foreach (['workspace_title', 'tab_title', 'name'] as $k) {
-				if ($this->cmux->normalizeTitle((string) ($r[$k] ?? '')) === $normNeedle) { return true; }
+				if ($this->artifacts->normalizeTitle((string) ($r[$k] ?? '')) === $normNeedle) { return true; }
 			}
 			return false;
 		}));
@@ -4856,7 +4643,7 @@ class Graveyard {
 			return;
 		}
 
-		$jsonl = $this->cmux->jsonlPathFor($s['session_id'], $s['cwd']);
+		$jsonl = $this->artifacts->jsonlPathFor($s['session_id'], $s['cwd']);
 		$entries = [];
 		if (is_file($jsonl)) {
 			$fh = fopen($jsonl, 'r');
@@ -4887,7 +4674,7 @@ class Graveyard {
 		foreach ($entries as $e) {
 			$type = $e['type'] ?? '';
 			if ($type !== 'user' && $type !== 'assistant') { continue; }
-			if ($this->cmux->isSyntheticEntry($e)) { continue; }
+			if ($this->artifacts->isSyntheticEntry($e)) { continue; }
 
 			$content = $e['message']['content'] ?? '';
 			$text = '';
@@ -4939,7 +4726,7 @@ class Graveyard {
 	 * recent turns are always present.
 	 */
 	public function recentTurnNeedles(string $sessionId, string $cwd, int $count = 6): array {
-		$jsonl = $this->cmux->jsonlPathFor($sessionId, $cwd);
+		$jsonl = $this->artifacts->jsonlPathFor($sessionId, $cwd);
 		if (!is_file($jsonl)) { return []; }
 		$entries = [];
 		foreach (file($jsonl) as $line) { $e = json_decode($line, true); if ($e) { $entries[] = $e; } }

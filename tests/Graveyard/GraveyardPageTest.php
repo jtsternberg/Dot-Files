@@ -34,7 +34,7 @@ final class GraveyardPageTest extends TestCase
 		$root = sys_get_temp_dir() . '/gy-page-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		foreach ($tombs as $t) { $gy->upsertIndex($t); }
 		return $root;
 	}
@@ -74,7 +74,7 @@ final class GraveyardPageTest extends TestCase
 	 */
 	public function testPageRenderWorksWithoutCmux(): void
 	{
-		$gy = new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
+		$gy = new Graveyard($this->cli, new \JT\Transport\NullTransport($this->cli));
 		$this->assertSame('Review domain config', $gy->stripGlyph('✳ Review domain config'));
 
 		$html = $gy->pageHtml([$this->tomb('abc12345-full', '✳ Review domain config')], '2026-07-17');
@@ -374,7 +374,7 @@ final class GraveyardPageTest extends TestCase
 		@mkdir($root . '/sessions/old11111-aaaa', 0755, true);
 		file_put_contents($root . '/sessions/old11111-aaaa/transcript.txt', 'old transcript body');
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$html = $gy->renderStorePageHtml();
 
 		$this->assertStringNotContainsString('old transcript body', $html); // JIT, not embedded
@@ -560,7 +560,7 @@ final class GraveyardPageTest extends TestCase
 			],
 		]));
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$html = $gy->renderStorePageHtml();
 
 		$this->assertStringContainsString('class="plot"', $html);

@@ -81,12 +81,12 @@ $sub = $cli->getArg(1);
 // Store-only verbs never touch a live cmux session — don't gate them on it.
 $storeOnlyVerbs = ['page', 'serve'];
 
-$cmux = new Helpers\Cmux($cli);
-if (!in_array($sub, $storeOnlyVerbs, true) && !$cmux->ping()) {
+$transport = new Transport\CmuxTransport($cli, new Helpers\Cmux($cli));
+if (!in_array($sub, $storeOnlyVerbs, true) && !$transport->available()) {
 	$cli->exitErr('cmux is not reachable. Is cmux running?');
 }
 
-$gy  = new Graveyard($cli, $cmux);
+$gy  = new Graveyard($cli, $transport);
 
 // Cmux::tree() throws (not exit()s) when cmux is unreachable/unparseable — process-exit
 // plumbing belongs here at the entry seam, not inside the shelling seam (dotfiles-3qa).

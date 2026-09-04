@@ -34,7 +34,7 @@ final class GraveyardCodexTest extends TestCase
 		// also use deliberately synthetic ids/pids as a second line of defence.
 		$this->root = $this->graveyardRoot;
 		putenv('GRAVEYARD_ROOT=' . $this->root);
-		$this->gy = new Graveyard($this->cli, $this->cmux);
+		$this->gy = new Graveyard($this->cli, $this->transport);
 	}
 
 	protected function tearDown(): void
@@ -124,7 +124,7 @@ final class GraveyardCodexTest extends TestCase
 	{
 		// GATE 1 (codex): nothing is running there, so there is nothing to bury and
 		// certainly nothing to kill.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveCodexBySurfaceRef(): array { return []; }
 			public function readLastScreen(string $s, string $w, int $lines = 6): string { return ''; }
 		};
@@ -135,7 +135,7 @@ final class GraveyardCodexTest extends TestCase
 
 	public function testBuryCodexRefusesWhenAnotherSessionOccupiesTheSurface(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveCodexBySurfaceRef(): array { return ['surface:99999' => 'someone-else']; }
 			public function readLastScreen(string $s, string $w, int $lines = 6): string { return ''; }
 		};
@@ -154,7 +154,7 @@ final class GraveyardCodexTest extends TestCase
 	public function testCodexGate1RunsBeforeAnySurfaceIsRead(): void
 	{
 		// A refusal must cost no screen read and, above all, never type into a surface.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public array $screenReads = [];
 			public function liveCodexBySurfaceRef(): array { return []; }
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
@@ -171,7 +171,7 @@ final class GraveyardCodexTest extends TestCase
 	public function testClaudeSessionsAreStillSubjectToTheNormalGates(): void
 	{
 		// Regression guard: the agent split must not divert claude rows.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public array $screenReads = [];
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
 			{
@@ -190,7 +190,7 @@ final class GraveyardCodexTest extends TestCase
 
 	public function testAMissingAgentIsTreatedAsClaude(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public array $screenReads = [];
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
 			{

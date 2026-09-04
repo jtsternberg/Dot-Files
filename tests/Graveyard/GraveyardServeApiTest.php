@@ -24,7 +24,7 @@ final class GraveyardServeApiTest extends TestCase
 		$root = sys_get_temp_dir() . '/gy-serve-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		foreach ($tombs as $t) { $gy->upsertIndex($t); }
 		return $root;
 	}
@@ -43,7 +43,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testRenameSessionViaApi(): void
 	{
 		$this->makeRoot([$this->tomb('sess1234-full', 'original summary')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$res = $gy->handleApi('POST', '/api/rename', ['scope' => 'session', 'id' => 'sess1234-full', 'name' => 'New Name']);
 		$this->assertSame(200, $res['status']);
@@ -56,7 +56,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testRenameUnknownSessionReturns404(): void
 	{
 		$this->makeRoot([$this->tomb('sess1234-full', 'original summary')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$res = $gy->handleApi('POST', '/api/rename', ['scope' => 'session', 'id' => 'ghost', 'name' => 'x']);
 		$this->assertSame(404, $res['status']);
@@ -66,7 +66,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testRenameEmptyNameRejected(): void
 	{
 		$this->makeRoot([$this->tomb('sess1234-full', 'original summary')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$res = $gy->handleApi('POST', '/api/rename', ['scope' => 'session', 'id' => 'sess1234-full', 'name' => '   ']);
 		$this->assertSame(400, $res['status']);
@@ -82,7 +82,7 @@ final class GraveyardServeApiTest extends TestCase
 		@mkdir($root . '/sessions/doomed11-full', 0755, true);
 		file_put_contents($root . '/sessions/doomed11-full/transcript.txt', 'body');
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->handleApi('POST', '/api/delete', ['scope' => 'session', 'id' => 'doomed11-full']);
 		$this->assertSame(200, $res['status']);
 		$this->assertTrue($res['body']['ok']);
@@ -104,7 +104,7 @@ final class GraveyardServeApiTest extends TestCase
 			'group_id' => $gid, 'group_title' => 'Old Name', 'layout' => [],
 		]));
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->handleApi('POST', '/api/rename', ['scope' => 'group', 'id' => $gid, 'name' => 'Fresh Name']);
 		$this->assertSame(200, $res['status']);
 		$this->assertTrue($res['body']['ok']);
@@ -127,7 +127,7 @@ final class GraveyardServeApiTest extends TestCase
 			'group_id' => $gid, 'group_title' => 'Doomed', 'layout' => [],
 		]));
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->handleApi('POST', '/api/delete', ['scope' => 'group', 'id' => $gid]);
 		$this->assertSame(200, $res['status']);
 		$this->assertTrue($res['body']['ok']);
@@ -140,7 +140,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testInvalidScopeRejected(): void
 	{
 		$this->makeRoot([]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->handleApi('POST', '/api/delete', ['scope' => 'bogus', 'id' => 'x']);
 		$this->assertSame(400, $res['status']);
 		$this->assertFalse($res['body']['ok']);
@@ -149,7 +149,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testGetMethodNotAllowed(): void
 	{
 		$this->makeRoot([]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->handleApi('GET', '/api/rename', []);
 		$this->assertSame(405, $res['status']);
 	}
@@ -157,7 +157,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testUnknownPathReturns404(): void
 	{
 		$this->makeRoot([]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->handleApi('POST', '/api/nope', []);
 		$this->assertSame(404, $res['status']);
 	}
@@ -170,7 +170,7 @@ final class GraveyardServeApiTest extends TestCase
 	public function testMutationsDoNotLeakOutputIntoTheResponse(): void
 	{
 		$this->makeRoot([$this->tomb('sess1234-full', 'original summary')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		ob_start();
 		$gy->handleApi('POST', '/api/rename', ['scope' => 'session', 'id' => 'sess1234-full', 'name' => 'New Name']);

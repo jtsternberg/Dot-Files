@@ -25,7 +25,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 		$root = sys_get_temp_dir() . '/gy-rd-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		foreach ($tombs as $t) { $gy->upsertIndex($t); }
 		return $root;
 	}
@@ -44,7 +44,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 	public function testSetSessionNameStampsCustomName(): void
 	{
 		$this->makeRoot([$this->tomb('sess1234-full', 'original summary')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$this->assertTrue($gy->setSessionName('sess1234-full', 'My Renamed Session'));
 		$this->assertFalse($gy->setSessionName('nope-nope-nope', 'x')); // unknown id
@@ -55,7 +55,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 
 	public function testTitleizePrefersCustomName(): void
 	{
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$t = $this->tomb('t', 'the summary');
 		$this->assertSame('the summary', $gy->titleizeSummary($t)); // baseline
 		$t['name'] = 'Chosen Name';
@@ -65,7 +65,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 	public function testResurrectMatchesByCustomName(): void
 	{
 		$this->makeRoot([$this->tomb('abcd1234-full', 'boring summary')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$gy->setSessionName('abcd1234-full', 'Zephyr Project');
 
 		// resurrect resolves by the new name via the fuzzy resolver
@@ -87,7 +87,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 			'group_id' => $gid, 'group_title' => 'Old Name', 'layout' => [],
 		]));
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$this->assertSame(2, $gy->setGroupName($gid, 'Fresh Name')); // 2 members retitled
 
 		$tombs = $gy->readIndex()['tombstones'];
@@ -110,7 +110,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 		@mkdir($root . '/page-data', 0755, true);
 		file_put_contents($root . '/page-data/doomed11-full.js', 'window.GYT={};');
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->purgeSession('doomed11-full');
 
 		$this->assertTrue($res['index']);
@@ -142,7 +142,7 @@ final class GraveyardRenameDeleteTest extends TestCase
 		@mkdir($root . '/workspaces/' . $gid, 0755, true);
 		file_put_contents($root . '/workspaces/' . $gid . '/manifest.json', '{}');
 
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$res = $gy->purgeGroup($gid);
 
 		$this->assertSame(2, $res['removed']);

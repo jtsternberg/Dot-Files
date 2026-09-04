@@ -6,8 +6,9 @@ namespace JT\Helpers;
  *
  * Shared by JT\Helpers\Cmux and JT\Graveyard rather than living in either: the
  * graveyard's served page is rendered by bin/graveyard_router.php with
- * `new Graveyard($cli, new NullCmux($cli))` on the page-server path, so
- * Graveyard cannot call the method off Cmux, and every stone title needs it.
+ * `new Graveyard($cli, new Transport\NullTransport($cli))`, which has no cmux
+ * behind it at all, so Graveyard cannot call the method off Cmux — and every
+ * stone title needs it.
  */
 trait TitleGlyphTrait {
 

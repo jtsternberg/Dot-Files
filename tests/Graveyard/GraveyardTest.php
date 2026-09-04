@@ -33,7 +33,7 @@ final class GraveyardTest extends TestCase
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
 
-		$gy2 = new Graveyard($this->cli, $this->cmux);
+		$gy2 = new Graveyard($this->cli, $this->transport);
 		$gy2->upsertIndex(['session_id' => 'x', 'summary' => 'first']);
 		$gy2->upsertIndex(['session_id' => 'x', 'summary' => 'second']);
 		$gy2->upsertIndex(['session_id' => 'y', 'summary' => 'other']);
@@ -100,7 +100,7 @@ final class GraveyardTest extends TestCase
 	{
 		$root = sys_get_temp_dir() . '/gy-tud-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
-		$gy  = new Graveyard($this->cli, $this->cmux);
+		$gy  = new Graveyard($this->cli, $this->transport);
 		$cwd = sys_get_temp_dir() . '/gy-tud-cwd-' . getmypid();
 		$sid = 'sess-tud-' . getmypid() . '-' . uniqid();
 
@@ -135,7 +135,7 @@ final class GraveyardTest extends TestCase
 	{
 		$root = sys_get_temp_dir() . '/gy-orph-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		// Two group manifests; only "live" is referenced by a tombstone.
 		foreach (['live', 'orphan'] as $gid) {
@@ -334,7 +334,7 @@ final class GraveyardTest extends TestCase
 	public function testBuryByRefRoutesPasteForms(): void
 	{
 		$mk = function (array $cls) {
-			return new class($this->cli, $this->cmux, $cls) extends Graveyard {
+			return new class($this->cli, $this->transport, $cls) extends Graveyard {
 				public array $clsToReturn;
 				public array $buried = [];
 				public array $workspaceBuries = [];
@@ -457,7 +457,7 @@ final class GraveyardTest extends TestCase
 
 	public function testForceDoesNotBypassGate1(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string
 			{
 				return '[Opus] | 📁 /totally-different-dir | 🌿 main';
@@ -860,25 +860,28 @@ final class GraveyardTest extends TestCase
 	 */
 	public function testContentProbeCandidatesComeFromTheNoBridgeFlag(): void
 	{
-		$gy = new class ($this->cli, $this->cmux) extends Graveyard {
+		// Doubles the TRANSPORT, not the Graveyard: the second-pass bind moved into
+		// CmuxTransport with liveSessions(), so a contentProbeBind() override on a
+		// Graveyard subclass would sit on a method nothing in this path calls.
+		$transport = new class ($this->cli, $this->cmux) extends \JT\Transport\CmuxTransport {
 			public array $probedFor = [];
 			public function contentProbeBind(array $fresh, array $unbound, array $screens): array {
 				foreach ($fresh as $f) { $this->probedFor[] = $f['session_id']; }
 				return [];
 			}
-			public function readLastScreen(string $ref, string $wsRef, int $lines = 8): string { return ''; }
+			public function readScreen(string $ref, string $wsRef, int $lines = 0): string { return ''; }
 			public function probe(array $rows, array $debug): array {
 				return $this->bindUnresolvedByContentProbe($rows, $debug, ['surface' => [], 'workspace' => []]);
 			}
 		};
 
-		$gy->probe([
+		$transport->probe([
 			['session_id' => 'no-bridge', 'pid' => 1, 'cwd' => '/x', 'tty' => '', 'surface_ref' => '', 'targetable' => false, 'reason' => 'no CMUX_SURFACE_ID and no resume-script ancestor (not running in a cmux surface)', 'no_bridge' => true],
 			['session_id' => 'gone',      'pid' => 2, 'cwd' => '/x', 'tty' => '', 'surface_ref' => '', 'targetable' => false, 'reason' => 'CMUX_SURFACE_ID not found among cmux surfaces (surface closed)', 'no_bridge' => false],
 			['session_id' => 'bound',     'pid' => 3, 'cwd' => '/x', 'tty' => '', 'surface_ref' => 'surface:9', 'targetable' => true, 'reason' => '', 'no_bridge' => false],
 		], ['surface:5' => ['tty' => 'ttys005', 'workspace_ref' => 'workspace:1']]);
 
-		$this->assertSame(['no-bridge'], $gy->probedFor);
+		$this->assertSame(['no-bridge'], $transport->probedFor);
 	}
 
 	public function testParseStatusProbe(): void
@@ -1097,7 +1100,7 @@ final class GraveyardTest extends TestCase
 			}
 		};
 
-		$gy = new Graveyard($this->cli, $recorder);
+		$gy = new Graveyard($this->cli, new \JT\Transport\CmuxTransport($this->cli, $recorder));
 		$sess = ['surface_ref' => 'surface:1', 'workspace_ref' => 'workspace:2'];
 		$gy->sendExportCommand($sess, '/tmp/foo.tmp');
 
@@ -1164,7 +1167,7 @@ final class GraveyardTest extends TestCase
 			],
 		]));
 
-		$gy = new class($this->cli, $this->cmux) extends Graveyard {
+		$gy = new class($this->cli, $this->transport) extends Graveyard {
 			public array $buriedWith = [];
 			public function resolveLiveByIdentifier(string $ref): array
 			{

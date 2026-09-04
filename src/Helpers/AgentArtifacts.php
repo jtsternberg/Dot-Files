@@ -42,6 +42,14 @@ class AgentArtifacts {
 		$this->proc = $proc ?: new Proc($cli);
 	}
 
+	/**
+	 * The Proc these artifact reads go through. Exposed so a holder that also needs
+	 * raw process primitives shares this instance rather than newing a second one —
+	 * a test that injects a stubbed Proc here then has it honoured everywhere,
+	 * instead of half the pid lookups quietly reaching the real `ps`.
+	 */
+	public function proc(): Proc { return $this->proc; }
+
 	public function encodeProjectKey(string $cwd): string {
 		return preg_replace('/[^a-zA-Z0-9]/', '-', $cwd);
 	}
@@ -333,6 +341,51 @@ class AgentArtifacts {
 		});
 
 		return $lastTs;
+	}
+
+	/**
+	 * Idle clock for a codex session: the timestamp of the last complete record in
+	 * its rollout. Scanned backward, because rollouts run to megabytes.
+	 *
+	 * An unparseable tail line is skipped rather than treated as "no activity" — a
+	 * rollout being appended to can end mid-write, and reporting no activity would
+	 * read as infinitely idle, i.e. make a live session look buryable.
+	 */
+	public function codexLastActivity(string $rolloutPath): ?int {
+		$ts = null;
+		$this->eachLineReverse($rolloutPath, function (string $line) use (&$ts) {
+			$rec = json_decode(trim($line), true);
+			if (!is_array($rec) || empty($rec['timestamp'])) {
+				return true; // partial/blank tail line — keep walking back
+			}
+			$parsed = strtotime((string) $rec['timestamp']);
+			if ($parsed === false) { return true; }
+			$ts = $parsed;
+			return false;
+		});
+		return $ts;
+	}
+
+	/**
+	 * Keep the first row for each session_id, preserving order. A single Claude
+	 * session can surface under multiple multiplexer panes/surfaces; a transport's
+	 * liveSessions() builds one row per surface, so this collapses those back to one
+	 * per session.
+	 */
+	public function dedupBySessionId(array $rows): array {
+		$seen = [];
+		$out  = [];
+		foreach ($rows as $row) {
+			$id = $row['session_id'] ?? null;
+			if ($id !== null && isset($seen[$id])) {
+				continue;
+			}
+			if ($id !== null) {
+				$seen[$id] = true;
+			}
+			$out[] = $row;
+		}
+		return $out;
 	}
 
 	/**

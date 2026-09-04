@@ -72,7 +72,7 @@ final class GraveyardServeStopTest extends TestCase
 	public function testNoStateNothingListeningIsNoOpSuccess(): void
 	{
 		$this->makeRoot();
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->listening = false;
 		$code = $this->quiet(fn() => $gy->stopServer());
 		$this->assertSame(0, $code);
@@ -81,7 +81,7 @@ final class GraveyardServeStopTest extends TestCase
 	public function testNoStateButForeignListenerIsLeftAlone(): void
 	{
 		$this->makeRoot();
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->listening = true; // something holds the port, but we have no record of it
 		$code = $this->quiet(fn() => $gy->stopServer());
 		$this->assertSame(0, $code);
@@ -92,7 +92,7 @@ final class GraveyardServeStopTest extends TestCase
 	{
 		$root = $this->makeRoot();
 		$this->writeState($root, ['port' => 8787, 'pid' => 999999]);
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->ours      = false; // recorded pid is stale / not our server
 		$gy->listening = false; // and nothing is on the port
 		$code = $this->quiet(fn() => $gy->stopServer());
@@ -105,7 +105,7 @@ final class GraveyardServeStopTest extends TestCase
 	{
 		$root = $this->makeRoot();
 		$this->writeState($root, ['port' => 8787, 'pid' => 999999]);
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->ours      = false; // recorded pid recycled — belongs to someone else
 		$gy->listening = true;  // and a different process holds the port
 		$code = $this->quiet(fn() => $gy->stopServer());
@@ -118,7 +118,7 @@ final class GraveyardServeStopTest extends TestCase
 	{
 		$root = $this->makeRoot();
 		$this->writeState($root, ['port' => 8787, 'pid' => 4242]);
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->ours      = true;  // recorded pid really is our server
 		$gy->listening = true;  // ...and it goes quiet after the signal
 		$gy->quietAfterSignal = true;
@@ -132,7 +132,7 @@ final class GraveyardServeStopTest extends TestCase
 	{
 		$root = $this->makeRoot();
 		$this->writeState($root, ['port' => 8787, 'pid' => 4242]);
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->ours      = true;
 		$gy->listening = true;
 		$gy->quietAfterSignal = false; // won't die
@@ -145,7 +145,7 @@ final class GraveyardServeStopTest extends TestCase
 	{
 		$root = $this->makeRoot();
 		$this->writeState($root, ['port' => 8787, 'pid' => 0]); // reused a listener we didn't spawn
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->listening = true;
 		$gy->foundPid  = 5555; // findServerPid identifies it as ours
 		$gy->quietAfterSignal = true;
@@ -158,7 +158,7 @@ final class GraveyardServeStopTest extends TestCase
 	{
 		$root = $this->makeRoot();
 		$this->writeState($root, ['port' => 8787, 'pid' => 0]);
-		$gy = new StopDouble($this->cli, $this->cmux);
+		$gy = new StopDouble($this->cli, $this->transport);
 		$gy->listening = true;
 		$gy->foundPid  = null; // can't confirm it's ours
 		$code = $this->quiet(fn() => $gy->stopServer());

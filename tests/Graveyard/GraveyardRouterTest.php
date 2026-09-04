@@ -25,7 +25,7 @@ final class GraveyardRouterTest extends TestCase
 		$root = sys_get_temp_dir() . '/gy-router-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		foreach ($tombs as $t) { $gy->upsertIndex($t); }
 		return $root;
 	}
@@ -47,7 +47,7 @@ final class GraveyardRouterTest extends TestCase
 	 */
 	public function testRouterPathPointsAtExistingBinRouter(): void
 	{
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		$router = $gy->routerPath();
 
 		$this->assertStringEndsWith('/bin/graveyard_router.php', $router);
@@ -57,7 +57,7 @@ final class GraveyardRouterTest extends TestCase
 	public function testRenderStorePageHtmlReflectsCurrentStore(): void
 	{
 		$this->makeRoot([$this->tomb('first111-full', 'first session')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$html = $gy->renderStorePageHtml();
 		$this->assertStringContainsString('first session', $html);
@@ -72,7 +72,7 @@ final class GraveyardRouterTest extends TestCase
 	public function testFreshRenderShowsSessionsBuriedAfterFirstRender(): void
 	{
 		$this->makeRoot([$this->tomb('old00000-full', 'old session')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$before = $gy->renderStorePageHtml();
 		$this->assertStringContainsString('old session', $before);
@@ -90,7 +90,7 @@ final class GraveyardRouterTest extends TestCase
 	public function testRenderTranscriptJsReadsFreshFromDisk(): void
 	{
 		$root = $this->makeRoot([$this->tomb('trans111-full', 'has transcript')]);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$this->assertNull($gy->renderTranscriptJs('trans111-full')); // none archived yet
 		$this->assertNull($gy->renderTranscriptJs('nope'));           // unknown id

@@ -25,14 +25,14 @@ final class GraveyardFuzzyResurrectTest extends TestCase
 		$root = sys_get_temp_dir() . '/gy-fuzzy-' . getmypid() . '-' . uniqid();
 		putenv('GRAVEYARD_ROOT=' . $root);
 		@mkdir($root, 0755, true);
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 		foreach ($tombs as $t) { $gy->upsertIndex($t); }
 		return $root;
 	}
 
 	protected function makeGy(): Graveyard
 	{
-		return new Graveyard($this->cli, $this->cmux);
+		return new Graveyard($this->cli, $this->transport);
 	}
 
 	public function testResolvesExactSessionIdUnchanged(): void

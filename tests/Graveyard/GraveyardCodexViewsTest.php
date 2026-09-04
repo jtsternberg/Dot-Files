@@ -41,7 +41,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// resolve a real codex session on the machine running the suite).
 		putenv('CODEX_SESSIONS_DIR=' . $this->root . '/codex-sessions');
 		mkdir($this->root . '/codex-sessions', 0777, true);
-		$this->gy = new Graveyard($this->cli, $this->cmux);
+		$this->gy = new Graveyard($this->cli, $this->transport);
 	}
 
 	protected function tearDown(): void
@@ -193,7 +193,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// The transcript endpoint resolves the session from the store, so it needs a record
 		// to resolve — without one, null is the right answer and says nothing about cmux.
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
+		$gy = new Graveyard($this->cli, new \JT\Transport\NullTransport($this->cli));
 
 		$this->assertSame($this->gy->codexRolloutArchivePath(self::SID), $gy->codexRolloutReadPath(self::SID));
 		$this->assertSame('/system-watchdog', $gy->deriveSummary($this->codexTomb()));
@@ -308,7 +308,7 @@ final class GraveyardCodexViewsTest extends TestCase
 	{
 		$this->archiveRollout();
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		// "kernelbrigand" appears only in the rollout's tool output — nowhere in the
 		// tombstone metadata — so this can only match through a rendered transcript.
@@ -322,7 +322,7 @@ final class GraveyardCodexViewsTest extends TestCase
 	{
 		$this->archiveRollout();
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		// Returned null before this landed, so the page modal said
 		// "(no transcript lies here)" for every codex headstone.
@@ -342,7 +342,7 @@ final class GraveyardCodexViewsTest extends TestCase
 	{
 		$this->archiveRollout();
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$this->assertStringContainsString(
 			$gy->transcriptMdPath(self::SID),
@@ -357,7 +357,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// transcript endpoint both go through tombstones() now. Nothing to ask about
 		// liveness means nothing to annotate — not a fatal.
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, new \JT\Helpers\NullCmux($this->cli));
+		$gy = new Graveyard($this->cli, new \JT\Transport\NullTransport($this->cli));
 
 		$tombs = $gy->tombstones();
 		$this->assertCount(1, $tombs);
@@ -373,7 +373,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// A fresh codex bury must be greppable at once, without waiting for a later
 		// read to heal it.
 		$this->liveRollout(self::SID, '/system-watchdog');
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public array $killed = [];
 			public function liveCodexBySurfaceRef(): array
 			{
@@ -397,7 +397,7 @@ final class GraveyardCodexViewsTest extends TestCase
 		// The lossless rollout is already safe; a failed RENDER must never cost the
 		// session its bury.
 		$this->liveRollout(self::SID, '/system-watchdog');
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveCodexBySurfaceRef(): array
 			{
 				return ['surface:86' => '019fa586-a9b7-7df0-a430-49907c5193f6'];
@@ -423,7 +423,7 @@ final class GraveyardCodexViewsTest extends TestCase
 			public function sendToSurface(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $text; }
 			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {}
 		};
-		$gy = new class($this->cli, $cmux) extends Graveyard {
+		$gy = new class($this->cli, new \JT\Transport\CmuxTransport($this->cli, $cmux)) extends Graveyard {
 			public function launchTargetIsSafe(string $surfRef): bool { return true; }
 			public function launch(array $t): string
 			{
@@ -478,7 +478,7 @@ final class GraveyardCodexViewsTest extends TestCase
 	public function testPeekRendersALiveCodexSessionsTurns(): void
 	{
 		$this->liveRollout(self::SID, '/system-watchdog');
-		$gy = new class($this->cli, $this->cmux) extends Graveyard {
+		$gy = new class($this->cli, $this->transport) extends Graveyard {
 			public function resolveLiveByIdentifier(string $id): array
 			{
 				return [[
@@ -516,7 +516,7 @@ final class GraveyardCodexViewsTest extends TestCase
 	public function testLsAndSearchJsonAgreeOnTheAgent(): void
 	{
 		$this->gy->upsertIndex($this->codexTomb());
-		$gy = new Graveyard($this->cli, $this->cmux);
+		$gy = new Graveyard($this->cli, $this->transport);
 
 		$fromLs     = $gy->lsJson($gy->tombstones())['sessions'][0];
 		$fromSearch = $gy->searchRowJson($gy->searchTombstones('system-watchdog')[0]);

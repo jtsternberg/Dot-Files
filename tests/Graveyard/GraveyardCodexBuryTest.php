@@ -31,7 +31,7 @@ final class GraveyardCodexBuryTest extends TestCase
 		parent::setUp();
 		$this->root = $this->graveyardRoot;
 		putenv('GRAVEYARD_ROOT=' . $this->root);
-		$this->gy = new Graveyard($this->cli, $this->cmux);
+		$this->gy = new Graveyard($this->cli, $this->transport);
 	}
 
 	protected function tearDown(): void
@@ -211,9 +211,15 @@ final class GraveyardCodexBuryTest extends TestCase
 			public function __construct($cli, string $raw) { parent::__construct($cli); $this->raw = $raw; }
 			public function lsofForPid(int $pid): string { return $this->raw; }
 		};
-		$cmux = new \JT\Helpers\Cmux($this->cli, false, $proc);
+		// And inject the artifacts reader built on that Proc into Graveyard itself: gate 3
+		// now asks $this->artifacts directly, so a stub reachable only through the Cmux
+		// behind the transport would be bypassed entirely — silently, with the gate
+		// consulting the real lsof.
+		$artifacts = new \JT\Helpers\AgentArtifacts($this->cli, $proc);
+		$cmux      = new \JT\Helpers\Cmux($this->cli, false, $proc, $artifacts);
+		$transport = new \JT\Transport\CmuxTransport($this->cli, $cmux, $artifacts);
 
-		return new class($this->cli, $cmux) extends Graveyard {
+		return new class($this->cli, $transport, $artifacts) extends Graveyard {
 			public array $killedPids = [];
 			public function kill(array $sess): bool { return $this->killMember($sess); }
 			protected function killPidTree(int $pid): bool { $this->killedPids[] = $pid; return true; }
@@ -322,7 +328,7 @@ final class GraveyardCodexBuryTest extends TestCase
 
 	public function testCodexSurfaceIdentityGateAcceptsTheMatchingSession(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public array $seen = [];
 			public function liveCodexBySurfaceRef(): array
 			{
@@ -338,7 +344,7 @@ final class GraveyardCodexBuryTest extends TestCase
 	{
 		// The join pointed at the wrong tab: something else is running there. Never
 		// kill it.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveCodexBySurfaceRef(): array
 			{
 				return ['surface:86' => '99999999-9999-9999-9999-999999999999'];
@@ -350,7 +356,7 @@ final class GraveyardCodexBuryTest extends TestCase
 
 	public function testCodexSurfaceIdentityGateRejectsAnEmptySurface(): void
 	{
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function liveCodexBySurfaceRef(): array { return []; }
 		};
 
@@ -364,7 +370,7 @@ final class GraveyardCodexBuryTest extends TestCase
 	{
 		if ($rolloutExists) { $this->liveRollout(self::SID, [], $withTurnContext); }
 
-		return new class($this->cli, $this->cmux, $liveBySurf) extends Graveyard {
+		return new class($this->cli, $this->transport, $liveBySurf) extends Graveyard {
 			public array $sent = [];
 			public array $killed = [];
 			private array $live;
@@ -448,7 +454,7 @@ final class GraveyardCodexBuryTest extends TestCase
 	{
 		// The join row's opts must reach the candidate/liveSessions row shape, since
 		// that is what bury reads.
-		$stub = new class($this->cli, $this->cmux) extends Graveyard {
+		$stub = new class($this->cli, $this->transport) extends Graveyard {
 			public function candidatePassthrough(array $joinRow): array
 			{
 				return $this->candidateRowFor($joinRow + ['idle_seconds' => 1, 'workspace_title' => '', 'tab_title' => ''], false);
@@ -579,7 +585,7 @@ final class GraveyardCodexBuryTest extends TestCase
 			public function sendToSurface(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $text; }
 			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {}
 		};
-		$gy = new class($this->cli, $cmux) extends Graveyard {
+		$gy = new class($this->cli, new \JT\Transport\CmuxTransport($this->cli, $cmux)) extends Graveyard {
 			public function launchTargetIsSafe(string $surfRef): bool { return true; }
 			public function ensureTranscript(array $t): string { return '/dev/null/transcript.md'; }
 			public function launch(array $t): string
@@ -614,7 +620,7 @@ final class GraveyardCodexBuryTest extends TestCase
 			public function sendToSurface(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $text; }
 			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {}
 		};
-		$gy = new class($this->cli, $cmux) extends Graveyard {
+		$gy = new class($this->cli, new \JT\Transport\CmuxTransport($this->cli, $cmux)) extends Graveyard {
 			public function launchTargetIsSafe(string $surfRef): bool { return true; }
 			public function ensureTranscript(array $t): string { return '/dev/null/transcript.md'; }
 			public function launch(array $t): string
