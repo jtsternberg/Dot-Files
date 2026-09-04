@@ -253,6 +253,64 @@ Claude-Session: https://claude.ai/code/session_011a4MeZhQZGv4kapaPDfJVj"
 
 ### Task 3: Define `Transport\SessionTransport` and move the cmux join into `CmuxTransport`
 
+> **REVISED 2026-09-04, after Tasks 1–2 landed.** The original sizing assumed the
+> cmux join was confined to `liveSessions()`. It is not. Measured: **681 lines
+> across 12 `Graveyard` methods** reason directly in cmux shapes — `liveSessions`
+> (78), `treeIndex` (41), `bindUnresolvedByContentProbe` (45),
+> `liveCodexBySurfaceRef` (14), `liveCodexSurfaceRefs` (15),
+> `diagnoseUntargetableSurface` (66), `buryPane` (34), `buryWorkspace` (48),
+> `buildBuryClassification` (97), `buryClassifiedAsGroup` (161), `resurrect` (69),
+> `resolveTargetWindow` (13). `tree()` alone is called from eight of them.
+>
+> That kills the "just wrap `Cmux`" version of this task. Exposing `tree()`,
+> `debugTerminals()` and the `join*` primitives on the interface would force
+> `HerdrTransport` to fake a cmux debug-terminals dump — the seam would leak the
+> incumbent's data model into the abstraction and herdr would implement cmux, not
+> the contract.
+>
+> **The interface rises an altitude instead.** Out: `tree`, `debugTerminals`,
+> `parseDebugTerminals`, `mapSurfaceUuids`, `joinSessionsToSurfaces`,
+> `joinCodexToSurfaces`, `sessionIdForPid`, `codexSurfaceIdsByPid`. In: one method
+> that answers the question all 12 call sites are actually asking —
+>
+> ```php
+> /**
+>  * Every surface in a workspace, ordered, with whatever agent session is bound
+>  * to each. The raw material for bury classification and layout capture.
+>  *
+>  * @return list<array{position:int, surface_ref:string, surface_id:string,
+>  *   type:string, title:string, session_id:?string, agent:?string,
+>  *   cwd:?string, pid:?int, targetable:bool, reason:?string}>
+>  */
+> public function workspaceSurfaces(string $workspaceRef): array;
+> ```
+>
+> cmux answers it from `tree` + `debug-terminals` + the ancestry/env joins; herdr
+> answers it from one `api snapshot` (`panes[]` filtered by `workspace_id`, with
+> `agents[]` supplying the binding). The *policy* — which surfaces are members,
+> which are untargetable, what a group manifest records — stays in `Graveyard`,
+> transport-free. `type` is where F5 shows up: cmux emits `terminal`/`browser`/
+> `markdown`, herdr only ever `terminal`.
+>
+> **Split into three commits**, each green on its own:
+>
+> - **3a** — interface + `CmuxTransport` + `NullTransport`, with `liveSessions`,
+>   `treeIndex` and `bindUnresolvedByContentProbe` moved in and the drive/create
+>   verbs repointed. Leaves `workspaceSurfaces()` unimplemented and the bury
+>   classification untouched, still reaching cmux through a temporary
+>   `CmuxTransport::cmux()` escape hatch.
+> - **3b** — define and implement `workspaceSurfaces()` on `CmuxTransport`, then
+>   re-seat `buildBuryClassification`, `buryClassifiedAsGroup`, `buryWorkspace`,
+>   `buryPane` and `diagnoseUntargetableSurface` onto it. Pin with the existing
+>   `GraveyardBuryGroupTargetTest` / `GraveyardLaunchSafetyTest` fixtures.
+> - **3c** — re-seat `resurrect` + `resolveTargetWindow`, delete the escape hatch,
+>   and assert in a test that `SessionTransport` has no cmux-shaped method left
+>   (no `tree`, no `debugTerminals`, no `join*`) so the leak cannot come back.
+>
+> Task 4 (`Helpers\Herdr`) has no dependency on any of 3a–3c and can be built in
+> parallel or first; Task 5 needs 3c.
+
+
 The seam. `liveSessions()` already returns a normalized row shape — that row shape *is* the interface contract, and the entire ps/lsof/debug-terminals/content-probe join that produces it is cmux-specific, so it moves out of `Graveyard` and into the cmux implementation.
 
 **Files:**
