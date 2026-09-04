@@ -29,12 +29,20 @@ class Cmux {
 	protected $cli;
 	protected $dryRun;
 
+	/**
+	 * OS process/tty/lsof primitives. The methods below that forward here used to
+	 * have their bodies in this class; cmux-bak still calls them off Cmux, so the
+	 * forwarders stay until it moves onto Proc directly.
+	 */
+	protected Proc $proc;
+
 	/** pid => CMUX_SURFACE_ID|null, memoised (see surfaceIdForPid). */
 	protected array $surfaceIdByPid = [];
 
-	public function __construct($cli, bool $dryRun = false) {
+	public function __construct($cli, bool $dryRun = false, ?Proc $proc = null) {
 		$this->cli    = $cli;
 		$this->dryRun = $dryRun;
+		$this->proc   = $proc ?: new Proc($cli);
 	}
 
 	/**
@@ -137,16 +145,11 @@ class Cmux {
 	}
 
 	public function pidIsAlive(int $pid) {
-		if (function_exists('posix_kill')) {
-			return posix_kill($pid, 0);
-		}
-		exec("kill -0 {$pid} 2>/dev/null", $out, $code);
-		return $code === 0;
+		return $this->proc->pidIsAlive($pid);
 	}
 
 	public function getTtyForPid(int $pid) {
-		$tty = trim((string) shell_exec("ps -p {$pid} -o tty= 2>/dev/null"));
-		return ($tty && $tty !== '??') ? $tty : null;
+		return $this->proc->getTtyForPid($pid);
 	}
 
 	# =========================================================================
@@ -190,29 +193,19 @@ class Cmux {
 
 	/** Raw `ps -Ao pid,ppid,command` output. */
 	public function psProcTable(): string {
-		return (string) shell_exec('ps -Ao pid,ppid,command 2>/dev/null');
+		return $this->proc->psProcTable();
 	}
 
 	/**
 	 * PURE. Parse `ps -Ao pid,ppid,command` into [ pid => ['ppid'=>int,'cmd'=>string] ].
 	 */
 	public function parseProcTable(string $raw): array {
-		$proc = [];
-		$lines = preg_split('/\n/', trim($raw)) ?: [];
-		foreach ($lines as $i => $line) {
-			if ($i === 0 && stripos($line, 'PID') !== false) { continue; } // header
-			$p = preg_split('/\s+/', trim($line), 3);
-			if (count($p) < 3 || !ctype_digit($p[0]) || !ctype_digit($p[1])) { continue; }
-			$proc[(int) $p[0]] = ['ppid' => (int) $p[1], 'cmd' => $p[2]];
-		}
-		return $proc;
+		return $this->proc->parseProcTable($raw);
 	}
 
 	/** PURE. Children index: [ ppid => [pid,...] ]. */
 	public function childIndex(array $proc): array {
-		$kids = [];
-		foreach ($proc as $pid => $info) { $kids[$info['ppid']][] = $pid; }
-		return $kids;
+		return $this->proc->childIndex($proc);
 	}
 
 	/** PURE. Is this command the claude binary (not a claude-*.zsh wrapper arg)? */
@@ -239,16 +232,7 @@ class Cmux {
 
 	/** PURE. All descendant pids of $root (inclusive) — used to kill a claude + its subagents. */
 	public function descendantPids(array $proc, int $root): array {
-		$kids = $this->childIndex($proc);
-		$acc = [$root]; $stack = [$root]; $seen = [$root => true];
-		while ($stack) {
-			$cur = array_pop($stack);
-			foreach ($kids[$cur] ?? [] as $c) {
-				if (isset($seen[$c])) { continue; }
-				$seen[$c] = true; $acc[] = $c; $stack[] = $c;
-			}
-		}
-		return $acc;
+		return $this->proc->descendantPids($proc, $root);
 	}
 
 	/** PURE. Walk up from $pid; return the resume-script basename found in an ancestor's args, or null. */
@@ -280,7 +264,7 @@ class Cmux {
 
 	/** The live process argv for a pid (empty string if the pid is gone). */
 	public function pidCommand(int $pid): string {
-		return trim((string) shell_exec('ps -p ' . $pid . ' -o command= 2>/dev/null'));
+		return $this->proc->pidCommand($pid);
 	}
 
 	/**
@@ -451,7 +435,7 @@ class Cmux {
 
 	/** Raw `lsof -p <pid>` output — yields the open rollout AND the cwd in one call. */
 	public function lsofForPid(int $pid): string {
-		return (string) shell_exec('lsof -p ' . (int) $pid . ' 2>/dev/null');
+		return $this->proc->lsofForPid($pid);
 	}
 
 	/**
@@ -461,7 +445,7 @@ class Cmux {
 	 * straight to parseSurfaceIdFromEnv() and never log or persist it.
 	 */
 	public function pidEnv(int $pid): string {
-		return (string) shell_exec('ps -wwEp ' . (int) $pid . ' 2>/dev/null');
+		return $this->proc->pidEnv($pid);
 	}
 
 	/** PURE. Path of the FIRST rollout jsonl an lsof dump shows open, or null. */
@@ -555,10 +539,7 @@ class Cmux {
 
 	/** PURE. The process working directory from an lsof dump (the FD=cwd row), or null. */
 	public function parseLsofCwd(string $raw): ?string {
-		// NAME is the last column and may contain spaces, so it's "rest of line".
-		return preg_match('/^\S+\s+\d+\s+\S+\s+cwd\s+\S+\s+\S+\s+\S+\s+\S+\s+(.+)$/m', $raw, $m)
-			? rtrim($m[1])
-			: null;
+		return $this->proc->parseLsofCwd($raw);
 	}
 
 	/** PURE. CMUX_SURFACE_ID out of a `ps -wwEp` dump (and nothing else from it), or null. */
@@ -1111,39 +1092,7 @@ class Cmux {
 	}
 
 	public function getCwdForTty(string $tty) {
-		$psOut = shell_exec("ps -t {$tty} -o pid=,stat= 2>/dev/null");
-		$pid   = null;
-
-		// Prefer foreground process (stat contains +)
-		foreach (explode("\n", trim((string) $psOut)) as $line) {
-			$parts = preg_split('/\s+/', trim($line));
-			if (count($parts) >= 2 && strpos($parts[1], '+') !== false) {
-				$pid = $parts[0];
-				break;
-			}
-		}
-
-		if (!$pid) {
-			$lines = array_filter(explode("\n", trim((string) $psOut)));
-			if ($lines) {
-				$pid = preg_split('/\s+/', trim(reset($lines)))[0];
-			}
-		}
-
-		if (!$pid) {
-			return null;
-		}
-
-		$lsofOut = shell_exec("lsof -p {$pid} 2>/dev/null");
-		foreach (explode("\n", (string) $lsofOut) as $line) {
-			// Fields: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-			$parts = preg_split('/\s+/', $line, 9);
-			if (isset($parts[3]) && $parts[3] === 'cwd') {
-				return $parts[8] ?? null;
-			}
-		}
-
-		return null;
+		return $this->proc->getCwdForTty($tty);
 	}
 
 	public function sendToSurface(string $surfRef, string $wsRef, string $text): void {

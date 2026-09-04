@@ -33,8 +33,12 @@ Nothing in these methods knows what cmux is. They are `ps`, `lsof`, tty and pid 
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: `JT\Helpers\Proc`, constructed as `new Proc($cli)`, with these public methods moved verbatim from `Cmux` (same signatures, same behavior):
-  `pidIsAlive(int $pid)`, `getTtyForPid(int $pid)`, `getCwdForTty(string $tty)`, `psProcTable(): string`, `parseProcTable(string $raw): array`, `childIndex(array $proc): array`, `descendantPids(array $proc, int $root): array`, `descendantClaudePid(array $proc, int $root): ?int`, `pidCommand(int $pid): string`, `pidEnv(int $pid): string`, `lsofForPid(int $pid): string`, `parseLsofRolloutPath(string $raw): ?string`, `parseLsofRolloutPaths(string $raw): array`, `parseLsofRollout(string $raw): ?string`, `parseLsofCwd(string $raw): ?string`, `ownRolloutPathFromLsof(string $raw): ?string`, `ownSessionIdFromLsof(string $raw): ?string`, `parseSurfaceIdFromEnv(string $raw): ?string`.
+- Produces: `JT\Helpers\Proc`, constructed as `new Proc($cli)`, with these 11 public methods moved verbatim from `Cmux` (same signatures, same behavior):
+  `pidIsAlive(int $pid)`, `getTtyForPid(int $pid)`, `getCwdForTty(string $tty)`, `psProcTable(): string`, `parseProcTable(string $raw): array`, `childIndex(array $proc): array`, `descendantPids(array $proc, int $root): array`, `pidCommand(int $pid): string`, `pidEnv(int $pid): string`, `lsofForPid(int $pid): string`, `parseLsofCwd(string $raw): ?string`.
+
+**The dividing rule:** no method in `Proc` may mention cmux, claude or codex. That puts three would-be candidates elsewhere — `descendantClaudePid`, `isClaudeCommand` and `ancestorResumeScript` recognise an agent, so they go to `AgentArtifacts` in Task 2 (calling `Proc::childIndex`); the lsof *rollout* parsers know codex, same destination; and `parseSurfaceIdFromEnv` reads `CMUX_SURFACE_ID`, so it stays in `Cmux`.
+
+`parseProcTable` returns rows keyed `['ppid' => int, 'cmd' => string]` — `cmd`, not `command`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -60,7 +64,7 @@ final class ProcTest extends TestCase
 
 		$this->assertArrayHasKey(200, $out);
 		$this->assertSame(100, $out[200]['ppid']);
-		$this->assertStringContainsString('--session-id abc', $out[200]['command']);
+		$this->assertSame('claude --session-id abc --model opus', $out[200]['cmd']);
 	}
 
 	public function test_descendantPids_walks_the_tree_including_root(): void
