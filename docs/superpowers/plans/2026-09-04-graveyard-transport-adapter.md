@@ -679,7 +679,15 @@ class Herdr
 }
 ```
 
-Confirm `getCommandOutputAndExitCode`'s exact return shape against `src/CLI/` before relying on `$res['stdout']`.
+**Corrected against the real code and the live binary while Task 4 was built — take these as given:**
+
+- `$cli->getCommandOutputAndExitCode()` returns `['exitCode' => int, 'error' => string, 'output' => string]` (`src/CLI/Helpers.php:1064`). There is **no `stdout` key**; the sample above originally read one and would have seen `''` on every call. `output`/`error` arrive already `trim()`ed.
+- **Keep stderr.** herdr writes `{"error":{"code":…,"message":…}}` to stderr with exit 1, and the CLI helper separates the streams, so `2>/dev/null` would discard the only diagnostic. `Cmux` discards stderr only because `shell_exec` cannot separate it.
+- **`herdr api schema --json` is the authority on result-key names** — use it instead of parsing `--help`. It gives `api snapshot`→`snapshot`, `pane process-info`→`process_info`, `pane split`→`pane`, `workspace focus`→`workspace`, and `workspace create`→`workspace`/`tab`/`root_pane` as **siblings** under `result`.
+- `pane read` takes a **positional** pane id (not `--pane`), emits **plain text, not JSON**, and its sources are `visible|recent|recent-unwrapped` — `detection` is `agent read` only.
+- `pane split --direction` accepts only `right|down`.
+- `pane send-text`, `send-keys` and `run` print **nothing** on success — check the exit code, do not require JSON.
+- `Herdr` takes **no `Proc`**: every method is a herdr shell-out and nothing in it touches ps/lsof/tty. Constructor is `new Herdr($cli)`.
 
 - [ ] **Step 5: Run tests**
 
