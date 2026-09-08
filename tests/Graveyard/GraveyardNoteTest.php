@@ -247,4 +247,26 @@ final class GraveyardNoteTest extends TestCase
 		$this->gy->purgeGroup($gid);
 		$this->assertFileDoesNotExist($path); // carried out with workspaces/<gid>/
 	}
+
+	// --- Test 8: `note` is store-only — runs with cmux down ----------------
+
+	public function testNoteVerbCoreLogicRunsWithNoTransport(): void
+	{
+		// `note` reads the index/manifest and writes a file; it never drives a live
+		// surface, so `graveyard note` is store-only and must work when cmux is down
+		// (that's why bin/graveyard lists it in $storeOnlyVerbs). Prove it against
+		// NullTransport, whose available()===false and whose surface ops THROW — if
+		// ensure* ever reached the transport, this would blow up instead of pass.
+		$transport = new \JT\Transport\NullTransport($this->cli);
+		$this->assertFalse($transport->available(), 'NullTransport models cmux being down');
+		$gy = new Graveyard($this->cli, $transport);
+
+		$gy->upsertIndex($this->tomb('offline0-full', 'buried while cmux down'));
+		$sp = $gy->ensureSessionNote('offline0');
+		$this->assertSame("# buried while cmux down\n\n", file_get_contents($sp));
+
+		$this->seedGroup('offgrp-uuid', 'Offline Plot');
+		$gp = $gy->ensureGroupNote('offgrp');
+		$this->assertSame("# Offline Plot\n\n", file_get_contents($gp));
+	}
 }
