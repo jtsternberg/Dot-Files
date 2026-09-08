@@ -309,6 +309,34 @@ Claude-Session: https://claude.ai/code/session_011a4MeZhQZGv4kapaPDfJVj"
 >
 > Task 4 (`Helpers\Herdr`) has no dependency on any of 3a–3c and can be built in
 > parallel or first; Task 5 needs 3c.
+>
+> **PROGRESS 2026-09-08.** Tasks 1, 2, 4, 3a and 3b are committed and green at 991
+> tests (`921785a`, `ca8811b`, `8eaa09c`, `eba9503`, `2ca17b5`). The primitive shipped
+> as **`surfaces(?string $workspaceRef = null)`**, not `workspaceSurfaces()` — the
+> unscoped form is required because `liveCodexSurfaceRefs` spans all workspaces — and
+> its row carries seven keys beyond the sketch above (`pane_index`, `pane_id`,
+> `selected_in_pane`, `url`, `workspace_title`, `window_ref`, `script`). Hatch count is
+> down to **2 real sites**: `resurrect` (:3705) and `resolveTargetWindow` (:3996).
+>
+> **3c also carries a correction to a call this plan got wrong.** 3b added
+> `sessionIdForPid(int $pid, string $agent = 'claude')` to `SessionTransport` on my
+> instruction, and my stated rationale — that cmux answers it "by reading
+> `CMUX_SURFACE_ID` archaeology" — is false. `Cmux::sessionIdForPid` reads
+> `~/.claude/sessions/<pid>.json`, which Claude Code writes regardless of multiplexer,
+> and whose codex sibling already lives in `AgentArtifacts`. Consequences of leaving it:
+> `HerdrTransport` must reimplement or re-delegate it for no reason, and
+> `NullTransport`'s `null` fails bury gate 3 closed on the page-server path.
+> **3c moves it to `AgentArtifacts::claudeSessionIdForPid(int $pid): ?string`**, drops it
+> from the interface and from both implementations, repoints `killMember` and
+> `diagnoseUntargetableSurface`, and adds `sessionIdForPid` to the leakage test's list.
+>
+> Two docs still name methods that no longer exist and should be fixed in 3c:
+> `docs/superpowers/specs/2026-08-26-graveyard-pane-group-bury-design.md:97,110`
+> (`findPaneNode`, now `findPaneSurfaces`) and this plan's own `workspaceSurfaces()`
+> references at lines ~285/299/302.
+>
+> Also note for whoever writes the verification steps: **`graveyard live` is not a
+> verb.** The live view is `graveyard candidates`.
 
 
 The seam. `liveSessions()` already returns a normalized row shape — that row shape *is* the interface contract, and the entire ps/lsof/debug-terminals/content-probe join that produces it is cmux-specific, so it moves out of `Graveyard` and into the cmux implementation.
