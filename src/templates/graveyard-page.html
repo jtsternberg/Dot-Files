@@ -241,6 +241,11 @@ fieldset.plot legend {
 	text-transform: uppercase; color: hsl(var(--plot-hue, 95) 42% 72%);
 }
 fieldset.plot legend::before { content: "🥀"; filter: grayscale(.45); font-size: 1.5rem; vertical-align: -.35em; margin-right: .3rem; }
+/* 📝 note marker in the overview — keyed off the same data-has-note the modal reads
+   (design §4), so the two can't drift. Subtle: a small glyph after the title/legend, no
+   layout shift. Stones only carry it when a session NOTES.md exists; plots when a group one does. */
+.stone[data-has-note="1"] .stone-title::after { content: " 📝"; font-size: .78em; opacity: .8; }
+.plot[data-has-note="1"] > legend::after { content: " 📝"; font-size: .85rem; opacity: .8; margin-left: .25rem; filter: grayscale(.25); }
 .plot-stones { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 1.1rem; padding-top: .35rem; }
 .plot-stones .stone { width: auto; min-width: 0; }
 body:has(dialog#plot[open]), body:has(dialog#plotmodal[open]) { overflow: hidden; }

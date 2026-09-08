@@ -205,6 +205,25 @@ final class GraveyardNoteTest extends TestCase
 		);
 	}
 
+	// --- Test 6: the overview note marker (📝) CSS -------------------------
+
+	public function testOverviewRendersNoteMarkerCss(): void
+	{
+		// design §4: data-has-note drives BOTH the modal note pane AND a 📝 marker on
+		// the headstone/plot in the overview. The marker is CSS-only, keyed off the
+		// same attribute the stone/plot already carry, so pin the rules here — the
+		// glyph must not silently vanish if the stylesheet is edited.
+		$html = $this->gy->pageHtml([$this->tomb('anystone-full', 'x')], '2026-09-08');
+		$this->assertMatchesRegularExpression(
+			'/\.stone\[data-has-note="1"\]\s+\.stone-title::after\s*\{[^}]*content:\s*" 📝"/u',
+			$html
+		);
+		$this->assertMatchesRegularExpression(
+			'/\.plot\[data-has-note="1"\]\s*>\s*legend::after\s*\{[^}]*content:\s*" 📝"/u',
+			$html
+		);
+	}
+
 	// --- Test 7: deletion removes NOTES.md with the dir --------------------
 
 	public function testPurgeSessionRemovesTheNote(): void
