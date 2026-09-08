@@ -62,17 +62,28 @@ interface SessionTransport
 	 * directly). `cwd` is the surface's own recorded cwd — not the foreground
 	 * process's, which bury re-probes through `tty` while the workspace is alive.
 	 *
+	 * `workspace_id`/`pane_id` are the transport's STABLE ids for a surface's home,
+	 * as opposed to `workspace_ref`/`pane_ref`, which are positional handles the
+	 * transport reassigns as things open and close. Resurrect matches a tombstone's
+	 * recorded home against the ids, never the refs.
+	 *
 	 * @return list<array{position:int, pane_index:int, pane_ref:?string,
 	 *   pane_id:?string, selected_in_pane:bool, surface_ref:string,
-	 *   surface_id:string, workspace_ref:string, workspace_title:string,
+	 *   surface_id:string, workspace_ref:string, workspace_id:?string,
+	 *   workspace_title:string,
 	 *   window_ref:?string, type:string, title:string, url:?string, tty:?string,
 	 *   cwd:?string, script:?string, session_id:?string, agent:?string, pid:?int,
 	 *   targetable:bool, reason:?string}>
 	 */
 	public function surfaces(?string $workspaceRef = null): array;
 
-	/** The agent session id the transport believes is running on this pid, or null. */
-	public function sessionIdForPid(int $pid, string $agent = 'claude'): ?string;
+	/**
+	 * Does this window/tab handle still exist? cmux: a window ref. herdr: a tab id.
+	 *
+	 * Opaque either way — the caller only ever holds a handle it was handed earlier,
+	 * and asks this because such handles go stale when the transport restarts.
+	 */
+	public function windowExists(string $windowRef): bool;
 
 	// --- drive an existing surface (bury: /export, /status, screen probes) ---
 

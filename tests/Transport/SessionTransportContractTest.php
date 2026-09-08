@@ -110,8 +110,7 @@ final class SessionTransportContractTest extends TestCase
 		$this->assertSame('', $t->readScreen('s1', 'w1'));
 		$this->assertSame([], $t->surfaces());
 		$this->assertSame([], $t->surfaces('w1'));
-		$this->assertNull($t->sessionIdForPid(1234));
-		$this->assertNull($t->sessionIdForPid(1234, 'codex'));
+		$this->assertFalse($t->windowExists('window:1'));
 		$this->assertNull($t->resolveWorkspace('anything'));
 		$this->assertSame(0, $t->workspaceSurfaceCount('w1'));
 		$this->assertNull($t->paneRefForSurface('w1', 's1'));
@@ -137,10 +136,63 @@ final class SessionTransportContractTest extends TestCase
 			'treeIndex', 'joinSessionsToSurfaces', 'joinCodexToSurfaces',
 			'loadClaudeSessionsByPid', 'loadCodexSessionsByPid', 'codexSurfaceIdsByPid',
 			'windowRefExists',
+			// Not cmux-shaped, but not the transport's business either: Claude Code
+			// writes ~/.claude/sessions/<pid>.json whatever multiplexer it runs under,
+			// so this is an artifact read (AgentArtifacts::claudeSessionIdForPid). On
+			// the seam, every transport reimplements it — and one answering null fails
+			// bury's GATE 3 closed.
+			'sessionIdForPid',
 		];
 		foreach ($leaks as $leak) {
 			$this->assertNotContains($leak, $methods);
 		}
+	}
+
+	/**
+	 * And the seam must not be routed AROUND. Graveyard held a private cmux()/
+	 * cmuxTransport() pair through 3a/3b so the un-re-seated verbs could keep walking a
+	 * cmux tree; with resurrect moved onto surfaces() nothing above the seam needs a cmux
+	 * client, and a re-added hatch would re-couple graveyard to cmux without changing the
+	 * interface the test above guards — so the leak would go unnoticed.
+	 */
+	public function test_graveyard_holds_no_escape_hatch_to_the_concrete_transport(): void
+	{
+		$methods = array_map(
+			fn(\ReflectionMethod $m) => $m->getName(),
+			(new \ReflectionClass(\JT\Graveyard::class))->getMethods()
+		);
+		$this->assertNotContains('cmux', $methods);
+		$this->assertNotContains('cmuxTransport', $methods);
+
+		// Reflection only sees a NAMED hatch; an inline instanceof or a new CmuxTransport
+		// would slip past it. Comments are stripped first — prose about the transport is
+		// not a dependency on it.
+		$code = '';
+		foreach (token_get_all(file_get_contents(dirname(__DIR__, 2) . '/src/Graveyard.php')) as $tok) {
+			if (is_array($tok) && in_array($tok[0], [T_COMMENT, T_DOC_COMMENT], true)) { continue; }
+			$code .= is_array($tok) ? $tok[1] : $tok;
+		}
+		$this->assertStringNotContainsString('CmuxTransport', $code);
+		$this->assertStringNotContainsString('Helpers\\Cmux', $code);
+	}
+
+	/**
+	 * A stale window handle must read as gone rather than be handed to a create call:
+	 * cmux refs are only stable within one running cmux, so a ref recorded before a
+	 * restart names whatever occupies that slot now.
+	 */
+	public function test_windowExists_answers_off_the_transports_own_world(): void
+	{
+		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
+			public function tree(): array {
+				return ['windows' => [['ref' => 'window:2', 'workspaces' => []]]];
+			}
+		};
+		$t = new CmuxTransport($this->cli, $cmux);
+
+		$this->assertTrue($t->windowExists('window:2'));
+		$this->assertFalse($t->windowExists('window:9'));
+		$this->assertFalse($t->windowExists(''));
 	}
 
 	/**
@@ -153,7 +205,8 @@ final class SessionTransportContractTest extends TestCase
 	{
 		$expected = [
 			'position', 'pane_index', 'pane_ref', 'pane_id', 'selected_in_pane',
-			'surface_ref', 'surface_id', 'workspace_ref', 'workspace_title', 'window_ref',
+			'surface_ref', 'surface_id', 'workspace_ref', 'workspace_id', 'workspace_title',
+			'window_ref',
 			'type', 'title', 'url', 'tty', 'cwd', 'script',
 			'session_id', 'agent', 'pid', 'targetable', 'reason',
 		];
@@ -163,7 +216,7 @@ final class SessionTransportContractTest extends TestCase
 		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
 			public function tree(): array {
 				return ['windows' => [['ref' => 'window:1', 'workspaces' => [
-					['ref' => 'workspace:2', 'title' => 'boss', 'panes' => [
+					['ref' => 'workspace:2', 'id' => 'WS-UUID', 'title' => 'boss', 'panes' => [
 						['ref' => 'pane:3', 'id' => 'PANE-UUID', 'index' => 0, 'surfaces' => [
 							['ref' => 'surface:4', 'id' => 'SURF-UUID', 'type' => 'terminal', 'title' => 'zsh'],
 						]],
@@ -182,6 +235,9 @@ final class SessionTransportContractTest extends TestCase
 		$this->assertSame($expected, array_keys($rows[0]));
 		$this->assertSame('surface:4', $rows[0]['surface_ref']);
 		$this->assertSame('workspace:2', $rows[0]['workspace_ref']);
+		// The stable id, not just the positional ref: resurrect matches a tombstone's
+		// recorded home against this, because refs get reassigned.
+		$this->assertSame('WS-UUID', $rows[0]['workspace_id']);
 		$this->assertNull($rows[0]['agent'], 'a plain shell is bound to no agent');
 
 		// Scoping is by workspace ref, and an unknown one yields nothing at all.

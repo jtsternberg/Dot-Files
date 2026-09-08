@@ -111,6 +111,58 @@ final class AgentArtifactsTest extends TestCase {
 		$this->assertFalse($this->art($proc)->resolveSkipPerms('default', 4242));
 	}
 
+	# --- the pid -> session lookups, for bury's GATE 3 -----------------------
+
+	/**
+	 * Claude publishes its session id in ~/.claude/sessions/<pid>.json. Nothing about
+	 * that file is multiplexer-specific — Claude Code writes it wherever it runs — so
+	 * the lookup belongs beside its codex sibling and NOT on the transport seam, where
+	 * every other transport would have to reimplement it (or answer null and fail gate
+	 * 3 closed).
+	 */
+	public function test_claudeSessionIdForPid_reads_the_per_pid_session_file(): void {
+		$dir = $this->graveyardRoot . '/claude-sessions';
+		mkdir($dir, 0777, true);
+		file_put_contents($dir . '/4242.json', json_encode(['pid' => 4242, 'sessionId' => 'abc-123']));
+		putenv('CLAUDE_SESSIONS_DIR=' . $dir);
+
+		$proc = new class($this->cli) extends Proc {
+			public function pidIsAlive(int $pid): bool { return true; }
+		};
+
+		try {
+			$art = $this->art($proc);
+			$this->assertSame('abc-123', $art->claudeSessionIdForPid(4242));
+			$this->assertNull($art->claudeSessionIdForPid(9999), 'no file for that pid');
+			$this->assertNull($art->claudeSessionIdForPid(0), 'a non-pid is never alive');
+		} finally {
+			putenv('CLAUDE_SESSIONS_DIR');
+		}
+	}
+
+	public function test_claudeSessionIdForPid_refuses_a_dead_pid(): void {
+		$dir = $this->graveyardRoot . '/claude-sessions';
+		mkdir($dir, 0777, true);
+		// This process's own pid, so the liveness answer is the ONLY thing that can make
+		// the lookup return null — a fixture pid nobody is running would answer null on
+		// its own and the assertion would pass without testing anything.
+		$pid = getmypid();
+		file_put_contents($dir . "/{$pid}.json", json_encode(['sessionId' => 'abc-123']));
+		putenv('CLAUDE_SESSIONS_DIR=' . $dir);
+
+		$proc = new class($this->cli) extends Proc {
+			public function pidIsAlive(int $pid): bool { return false; }
+		};
+
+		try {
+			// A stale sessions file outliving its process must not vouch for the pid:
+			// gate 3 kills on this answer, and pids get reused.
+			$this->assertNull($this->art($proc)->claudeSessionIdForPid($pid));
+		} finally {
+			putenv('CLAUDE_SESSIONS_DIR');
+		}
+	}
+
 	# --- Cmux still answers for cmux-bak -------------------------------------
 
 	public function test_cmux_forwards_moved_methods_so_cmux_bak_is_unaffected(): void {
@@ -119,6 +171,9 @@ final class AgentArtifactsTest extends TestCase {
 			$this->cmux->buildAgentResumeCommand('claude', 'abc-123', true, 'opus')
 		);
 		$this->assertSame(AgentArtifacts::SESSIONS_DIR, Cmux::SESSIONS_DIR);
+		// sessionIdForPid left the transport seam but must keep answering off Cmux,
+		// whose public API cmux-bak still depends on.
+		$this->assertTrue(method_exists(Cmux::class, 'sessionIdForPid'));
 		$this->assertSame(AgentArtifacts::CODEX_NON_TUI_SUBCOMMANDS, Cmux::CODEX_NON_TUI_SUBCOMMANDS);
 	}
 }

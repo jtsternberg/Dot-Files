@@ -58,29 +58,6 @@ class Graveyard {
 		$this->proc      = $this->artifacts->proc();
 	}
 
-	/**
-	 * The cmux client, for the code below that still reasons in cmux shapes.
-	 *
-	 * @deprecated Task 3c. Only resurrect() and resolveTargetWindow() are left on it: they
-	 * still walk a cmux tree directly instead of the transport's own surface list, so they
-	 * cannot run on a non-cmux transport at all — and say so rather than quietly acting on
-	 * an empty tree. Re-seat those two and this goes with them.
-	 */
-	private function cmuxTransport(): Transport\CmuxTransport {
-		if (!$this->transport instanceof Transport\CmuxTransport) {
-			throw new \LogicException(sprintf(
-				'This operation is not yet available for the %s transport.', $this->transport->name()
-			));
-		}
-
-		return $this->transport;
-	}
-
-	/** @deprecated Task 3c, with cmuxTransport(). */
-	private function cmux(): Helpers\Cmux {
-		return $this->cmuxTransport()->cmux();
-	}
-
 	public function storeRoot(): string {
 		$env = getenv('GRAVEYARD_ROOT');
 		return $env ?: $this->cli->convertPathToAbsolute('~/.claude-graveyard');
@@ -1304,8 +1281,8 @@ class Graveyard {
 	 * by the launch cwd; the drifted current cwd points at the wrong project dir. The
 	 * mismatch the probe defeats (statusline shows current cwd) is instead handled by
 	 * passesPreExportGate(), which bypasses gate 1 for _probed rows. The pid comes from the
-	 * session file that records this session id, so killMember's gate 3 (sessionIdForPid
-	 * === target) still holds. Marked _probed so buryWorkspace's member loop uses this row
+	 * session file that records this session id, so killMember's gate 3
+	 * (claudeSessionIdForPid === target) still holds. Marked _probed so buryWorkspace's member loop uses this row
 	 * directly instead of re-resolving via liveSessions() (which cannot bind a fresh/drifted
 	 * session — the whole reason we probed).
 	 */
@@ -1411,7 +1388,9 @@ class Graveyard {
 		// so the pid's OWN thread has to be picked out (codexSessionIdForPid). Reading
 		// "the first open rollout" aborted teardown of healthy sessions with
 		// "pid N maps to session <a subagent>".
-		$pidSid = $this->transport->sessionIdForPid($pid, $sess['agent'] ?? 'claude');
+		$pidSid = ($sess['agent'] ?? 'claude') === 'codex'
+			? $this->artifacts->codexSessionIdForPid($pid)
+			: $this->artifacts->claudeSessionIdForPid($pid);
 		if ($pidSid !== $target) {
 			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
 			return false;
@@ -1870,7 +1849,7 @@ class Graveyard {
 			$c = $this->artifacts->descendantClaudePid($proc, (int) $r);
 			if ($c) { $claude = $c; break; }
 		}
-		$sid = $claude !== null ? $this->transport->sessionIdForPid((int) $claude) : null;
+		$sid = $claude !== null ? $this->artifacts->claudeSessionIdForPid((int) $claude) : null;
 		$live = $liveSessions ?? $this->liveSessions();
 
 		// If this surface's session is live but bound to a DIFFERENT surface, it's a
@@ -3644,29 +3623,36 @@ class Graveyard {
 	 * the same hazard that keeps tty out of the session joins.
 	 *
 	 * A missing PANE is not a reason to build a whole new workspace; the tab still
-	 * belongs in that workspace, so we return it with pane_id null and let cmux place it.
+	 * belongs in that workspace, so we return it with pane_id null and let the
+	 * transport place it.
+	 *
+	 * $surfaces is the transport's surfaces() rows — the workspace's live shape,
+	 * transport-neutral. A workspace is "still open" iff it still hosts a surface,
+	 * which is what a multiplexer means by an open workspace anyway.
 	 */
-	public function resolveResurrectTarget(array $tree, array $tomb): array {
+	public function resolveResurrectTarget(array $surfaces, array $tomb): array {
 		$wantWs = (string) ($tomb['home_workspace_id'] ?? '');
 		if ($wantWs === '' || !$this->looksLikeUuid($wantWs)) {
 			return ['mode' => 'new_workspace'];
 		}
 
 		$wantPane = (string) ($tomb['home_pane_id'] ?? '');
-		foreach ($tree['windows'] ?? [] as $window) {
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				if (($ws['id'] ?? null) !== $wantWs) { continue; }
+		$wantPane = ($wantPane !== '' && $this->looksLikeUuid($wantPane)) ? $wantPane : '';
 
-				$pane = null;
-				if ($wantPane !== '' && $this->looksLikeUuid($wantPane)) {
-					foreach ($ws['panes'] ?? [] as $p) {
-						if (($p['id'] ?? null) === $wantPane) { $pane = $wantPane; break; }
-					}
-				}
-				return ['mode' => 'in_place', 'workspace_id' => $wantWs, 'pane_id' => $pane];
+		$found = false;
+		foreach ($surfaces as $row) {
+			if (($row['workspace_id'] ?? null) !== $wantWs) { continue; }
+			$found = true;
+			// Keep scanning: the pane may be hosted by a later surface of the same
+			// workspace, and a surviving pane beats an early exit on the first row.
+			if ($wantPane !== '' && ($row['pane_id'] ?? null) === $wantPane) {
+				return ['mode' => 'in_place', 'workspace_id' => $wantWs, 'pane_id' => $wantPane];
 			}
 		}
-		return ['mode' => 'new_workspace'];
+
+		return $found
+			? ['mode' => 'in_place', 'workspace_id' => $wantWs, 'pane_id' => null]
+			: ['mode' => 'new_workspace'];
 	}
 
 	/** PURE. A cmux UUID, as opposed to a positional ref like "workspace:32". */
@@ -3702,7 +3688,7 @@ class Graveyard {
 		// Put it back where it came from when that workspace is still open. Burying a
 		// tab out of the workspace you're sitting in and getting it back as a brand-new
 		// one just leaves you dragging it home by hand.
-		$target = $this->resolveResurrectTarget($this->cmux()->tree(), $t);
+		$target = $this->resolveResurrectTarget($this->transport->surfaces(), $t);
 		if ($target['mode'] === 'in_place') {
 			$surfRef = $this->transport->newSurface($target['workspace_id'], $target['pane_id'], 'terminal', null);
 			if ($surfRef) {
@@ -3993,7 +3979,7 @@ class Graveyard {
 	 */
 	private function resolveTargetWindow(?string $stored): ?string {
 		if (empty($stored)) { return null; }
-		if ($this->cmux()->windowRefExists($this->cmux()->tree(), $stored)) { return $stored; }
+		if ($this->transport->windowExists($stored)) { return $stored; }
 		$this->cli->msg("  Original window ({$stored}) is gone — restoring into the current window.", 'yellow');
 		return null;
 	}

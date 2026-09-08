@@ -35,15 +35,6 @@ class CmuxTransport implements SessionTransport
 
 	public function supportsNonTerminalSurfaces(): bool { return true; }
 
-	/**
-	 * The raw cmux client, for Graveyard code that still reasons in cmux shapes.
-	 *
-	 * @deprecated Removed in Task 3c. Resurrect is the last thing above the seam still
-	 * walking the cmux tree directly; once it moves onto surfaces() nothing above the
-	 * seam needs a cmux client.
-	 */
-	public function cmux(): Cmux { return $this->cmux; }
-
 	# =========================================================================
 	# liveSessions() — the contract, and the cmux join that produces it.
 	# Moved verbatim out of Graveyard; the only change is the added `transport`
@@ -170,6 +161,7 @@ class CmuxTransport implements SessionTransport
 							'surface_ref'      => $ref,
 							'surface_id'       => (string) ($surf['id'] ?? $ref),
 							'workspace_ref'    => $wref,
+							'workspace_id'     => $ws['id'] ?? null,
 							'workspace_title'  => (string) ($ws['title'] ?? ''),
 							'window_ref'       => $windowRef,
 							'type'             => (string) ($surf['type'] ?? 'terminal'),
@@ -244,15 +236,8 @@ class CmuxTransport implements SessionTransport
 		return $out;
 	}
 
-	/**
-	 * Claude publishes its session id in ~/.claude/sessions/<pid>.json; a codex process
-	 * instead holds its own rollout open, whose filename carries the id. Both are read
-	 * off the OS, which is what makes them usable as bury's last-line kill gate.
-	 */
-	public function sessionIdForPid(int $pid, string $agent = 'claude'): ?string {
-		return $agent === 'codex'
-			? $this->artifacts->codexSessionIdForPid($pid)
-			: $this->cmux->sessionIdForPid($pid);
+	public function windowExists(string $windowRef): bool {
+		return $this->cmux->windowRefExists($this->cmux->tree(), $windowRef);
 	}
 
 	/**

@@ -40,6 +40,24 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 		]]];
 	}
 
+	/**
+	 * The same world as tree(), as the transport's surfaces() rows — which is what
+	 * resurrect actually reads now, so that a non-cmux transport can answer it.
+	 */
+	private function surfaces(): array
+	{
+		return (new \JT\Transport\CmuxTransport($this->cli, new class ($this->cli, $this->tree()) extends \JT\Helpers\Cmux {
+			private array $t;
+			public function __construct($cli, array $t) { parent::__construct($cli); $this->t = $t; }
+			public function tree(): array { return $this->t; }
+			public function debugTerminals(): string { return ''; }
+			public function psProcTable(): string { return ''; }
+			public function loadClaudeSessionsByPid(): array { return []; }
+			public function loadCodexSessionsByPid(): array { return []; }
+			public function codexSurfaceIdsByPid(): array { return []; }
+		}))->surfaces();
+	}
+
 	// ── treeIndex now exposes the ids a tombstone needs ───────────────────────
 
 	public function testTreeIndexExposesWorkspaceAndPaneIdsPerSurface(): void
@@ -95,7 +113,7 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 
 	public function testResurrectTargetsTheOriginalWorkspaceWhenItStillExists(): void
 	{
-		$t = $this->gy->resolveResurrectTarget($this->tree(), [
+		$t = $this->gy->resolveResurrectTarget($this->surfaces(), [
 			'home_workspace_id' => 'F62E7243-D094-42CD-A9C5-F23CBFC52CD7',
 			'home_pane_id'      => 'BBBBBBBB-0000-4000-8000-000000000060',
 			'home_index_in_pane'=> 1,
@@ -108,7 +126,7 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 
 	public function testResurrectFallsBackToANewWorkspaceWhenTheOriginalIsGone(): void
 	{
-		$t = $this->gy->resolveResurrectTarget($this->tree(), [
+		$t = $this->gy->resolveResurrectTarget($this->surfaces(), [
 			'home_workspace_id' => '99999999-0000-4000-8000-999999999999',
 			'home_pane_id'      => '88888888-0000-4000-8000-888888888888',
 		]);
@@ -119,14 +137,14 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 	public function testResurrectFallsBackForATombstoneWithNoHome(): void
 	{
 		// Every archive buried before this feature existed.
-		$this->assertSame('new_workspace', $this->gy->resolveResurrectTarget($this->tree(), [])['mode']);
+		$this->assertSame('new_workspace', $this->gy->resolveResurrectTarget($this->surfaces(), [])['mode']);
 	}
 
 	public function testResurrectStillTargetsTheWorkspaceWhenOnlyThePaneIsGone(): void
 	{
 		// A closed pane is not a reason to build a whole new workspace — put the tab
 		// back in the workspace it belongs to and let cmux pick the pane.
-		$t = $this->gy->resolveResurrectTarget($this->tree(), [
+		$t = $this->gy->resolveResurrectTarget($this->surfaces(), [
 			'home_workspace_id' => 'F62E7243-D094-42CD-A9C5-F23CBFC52CD7',
 			'home_pane_id'      => '77777777-0000-4000-8000-777777777777',
 		]);
@@ -140,7 +158,7 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 	{
 		// Defensive: a positional ref must never be accepted as a home id, since it can
 		// point at a different workspace by resurrect time.
-		$t = $this->gy->resolveResurrectTarget($this->tree(), [
+		$t = $this->gy->resolveResurrectTarget($this->surfaces(), [
 			'home_workspace_id' => 'workspace:32',
 			'home_pane_id'      => 'pane:60',
 		]);

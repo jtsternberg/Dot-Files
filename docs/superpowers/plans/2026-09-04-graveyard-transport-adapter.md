@@ -282,7 +282,7 @@ Claude-Session: https://claude.ai/code/session_011a4MeZhQZGv4kapaPDfJVj"
 >  *   type:string, title:string, session_id:?string, agent:?string,
 >  *   cwd:?string, pid:?int, targetable:bool, reason:?string}>
 >  */
-> public function workspaceSurfaces(string $workspaceRef): array;
+> public function surfaces(?string $workspaceRef = null): array;
 > ```
 >
 > cmux answers it from `tree` + `debug-terminals` + the ancestry/env joins; herdr
@@ -296,10 +296,10 @@ Claude-Session: https://claude.ai/code/session_011a4MeZhQZGv4kapaPDfJVj"
 >
 > - **3a** — interface + `CmuxTransport` + `NullTransport`, with `liveSessions`,
 >   `treeIndex` and `bindUnresolvedByContentProbe` moved in and the drive/create
->   verbs repointed. Leaves `workspaceSurfaces()` unimplemented and the bury
+>   verbs repointed. Leaves `surfaces()` unimplemented and the bury
 >   classification untouched, still reaching cmux through a temporary
 >   `CmuxTransport::cmux()` escape hatch.
-> - **3b** — define and implement `workspaceSurfaces()` on `CmuxTransport`, then
+> - **3b** — define and implement `surfaces()` on `CmuxTransport`, then
 >   re-seat `buildBuryClassification`, `buryClassifiedAsGroup`, `buryWorkspace`,
 >   `buryPane` and `diagnoseUntargetableSurface` onto it. Pin with the existing
 >   `GraveyardBuryGroupTargetTest` / `GraveyardLaunchSafetyTest` fixtures.
@@ -312,7 +312,7 @@ Claude-Session: https://claude.ai/code/session_011a4MeZhQZGv4kapaPDfJVj"
 >
 > **PROGRESS 2026-09-08.** Tasks 1, 2, 4, 3a and 3b are committed and green at 991
 > tests (`921785a`, `ca8811b`, `8eaa09c`, `eba9503`, `2ca17b5`). The primitive shipped
-> as **`surfaces(?string $workspaceRef = null)`**, not `workspaceSurfaces()` — the
+> as **`surfaces(?string $workspaceRef = null)`** — the
 > unscoped form is required because `liveCodexSurfaceRefs` spans all workspaces — and
 > its row carries seven keys beyond the sketch above (`pane_index`, `pane_id`,
 > `selected_in_pane`, `url`, `workspace_title`, `window_ref`, `script`). Hatch count is
@@ -330,10 +330,10 @@ Claude-Session: https://claude.ai/code/session_011a4MeZhQZGv4kapaPDfJVj"
 > from the interface and from both implementations, repoints `killMember` and
 > `diagnoseUntargetableSurface`, and adds `sessionIdForPid` to the leakage test's list.
 >
-> Two docs still name methods that no longer exist and should be fixed in 3c:
-> `docs/superpowers/specs/2026-08-26-graveyard-pane-group-bury-design.md:97,110`
-> (`findPaneNode`, now `findPaneSurfaces`) and this plan's own `workspaceSurfaces()`
-> references at lines ~285/299/302.
+> Two docs named methods that no longer exist and were corrected in 3c:
+> `docs/superpowers/specs/2026-08-26-graveyard-pane-group-bury-design.md`
+> (`findPaneNode` → `findPaneSurfaces`, now reading surface rows rather than a tree)
+> and this plan's own `workspaceSurfaces()` sketch above.
 >
 > Also note for whoever writes the verification steps: **`graveyard live` is not a
 > verb.** The live view is `graveyard candidates`.

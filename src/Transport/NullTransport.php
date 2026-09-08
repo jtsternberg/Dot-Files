@@ -31,7 +31,8 @@ final class NullTransport implements SessionTransport
 
 	public function surfaces(?string $workspaceRef = null): array { return []; }
 
-	public function sessionIdForPid(int $pid, string $agent = 'claude'): ?string { return null; }
+	/** Nothing is hosted here, so no handle can still exist. */
+	public function windowExists(string $windowRef): bool { return false; }
 
 	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string { return ''; }
 

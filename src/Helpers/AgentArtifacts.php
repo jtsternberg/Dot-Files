@@ -606,9 +606,22 @@ class AgentArtifacts {
 	}
 
 	/**
-	 * The codex session a pid is running — the counterpart of sessionIdForPid() for Claude,
-	 * which reads ~/.claude/sessions/<pid>.json. Codex publishes nothing, so this is derived
-	 * from the rollouts the process holds open. Used by bury's GATE 3.
+	 * The Claude session a live pid is running, from ~/.claude/sessions/<pid>.json.
+	 * Null for a dead pid even when the file survives it: bury's GATE 3 kills on this
+	 * answer, and pids are reused, so a stale file must never vouch for one.
+	 */
+	public function claudeSessionIdForPid(int $pid): ?string {
+		if ($pid <= 0 || !$this->proc->pidIsAlive($pid)) { return null; }
+		$file = $this->claudeSessionsDir() . "/{$pid}.json";
+		if (!is_file($file)) { return null; }
+		$data = json_decode((string) @file_get_contents($file), true);
+		return $data['sessionId'] ?? null;
+	}
+
+	/**
+	 * The codex session a pid is running — the counterpart of claudeSessionIdForPid().
+	 * Codex publishes nothing, so this is derived from the rollouts the process holds
+	 * open. Used by bury's GATE 3.
 	 */
 	public function codexSessionIdForPid(int $pid): ?string {
 		return $this->ownSessionIdFromLsof($this->proc->lsofForPid($pid));

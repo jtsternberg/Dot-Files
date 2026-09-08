@@ -94,9 +94,9 @@ resolves the pane, builds a one-pane node, counts agents to branch, prompts for
 the title, and calls `buryLayoutAsGroup` with pane `$opts`. One bury pipeline,
 no duplication.
 
-A small tree helper — `findPaneNode($tree, $paneRefOrId)` returning the pane
-node plus its parent workspace ref/title and window ref — backs the pane
-resolution.
+A small helper — `findPaneSurfaces($surfaces, $paneRefOrId)` returning the pane's
+surface rows plus its parent workspace ref/title and window ref — backs the pane
+resolution. It reads the transport's `surfaces()` rows, not a cmux tree.
 
 ## Testing
 
@@ -107,8 +107,8 @@ anonymous-subclass pattern already in `tests/Graveyard/GraveyardTest.php`):
   existing assertion that currently expects `single`).
 - `buryByRef` branch on agent count: 0 → error; 1 → single bury of that session;
   ≥2 → pane group bury.
-- `findPaneNode` resolves a pane by ref and by UUID, and returns the right parent
-  workspace/window.
+- `findPaneSurfaces` resolves a pane by ref and by UUID, and returns the right
+  parent workspace/window.
 - Pane group manifest: `group_title` comes from the prompt (and from the
   `"<parent> (pane)"` default under `-y`); `layout_tree` is absent; the close
   step targets only the pane's surfaces, never `closeWorkspace`.

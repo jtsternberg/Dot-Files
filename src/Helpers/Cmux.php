@@ -645,12 +645,7 @@ class Cmux {
 
 	/** sessionId recorded in ~/.claude/sessions/<pid>.json for a live pid, or null. */
 	public function sessionIdForPid(int $pid): ?string {
-		if ($pid <= 0 || !$this->pidIsAlive($pid)) { return null; }
-		$dir  = $this->cli->convertPathToAbsolute(self::SESSIONS_DIR);
-		$file = "{$dir}/{$pid}.json";
-		if (!is_file($file)) { return null; }
-		$data = json_decode((string) @file_get_contents($file), true);
-		return $data['sessionId'] ?? null;
+		return $this->artifacts->claudeSessionIdForPid($pid);
 	}
 
 	/**
