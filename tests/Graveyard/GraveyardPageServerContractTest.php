@@ -235,4 +235,39 @@ final class GraveyardPageServerContractTest extends TestCase
 		$this->assertNotNull($js);
 		$this->assertStringContainsString('some context', $js);
 	}
+
+	/**
+	 * Route ORDERING is load-bearing, not cosmetic: the transcript route's regex
+	 * `#^/page-data/([^/]+)\.js$#` greedily matches `<key>.note.js` too (capture →
+	 * `<key>.note`), so a `.note.js` request only reaches renderNoteJs() because the
+	 * note route is placed BEFORE it. Drive the router's real first-match-wins cascade
+	 * — the actual patterns, in the actual file order — so a reorder fails here instead
+	 * of silently routing notes into the transcript handler.
+	 */
+	public function testNoteRouteWinsTheDispatchCascadeOverTranscriptRoute(): void
+	{
+		$router = dirname(__DIR__, 2) . '/bin/graveyard_router.php';
+		$this->assertFileExists($router);
+		$src = (string) file_get_contents($router);
+
+		// The router's page-data routes, captured verbatim (delimiters and all) in file order.
+		preg_match_all("/preg_match\\('([^']*)',\\s*\\\$path/", $src, $mm);
+		$patterns = $mm[1];
+		$this->assertGreaterThanOrEqual(2, count($patterns), 'expected both page-data routes');
+
+		$url = '/page-data/abc123.note.js';
+
+		// The hazard is real: the transcript route would swallow a .note.js URL if reached first.
+		$transcript = array_values(array_filter($patterns, fn($p) => strpos($p, '\\.note\\.js') === false && strpos($p, '\\.js$') !== false));
+		$this->assertNotEmpty($transcript, 'transcript route not found');
+		$this->assertSame(1, preg_match($transcript[0], $url), 'transcript regex should also match .note.js (why order matters)');
+
+		// So the FIRST route that matches must be the note route, not the transcript route.
+		$firstMatch = null;
+		foreach ($patterns as $p) {
+			if (preg_match($p, $url)) { $firstMatch = $p; break; }
+		}
+		$this->assertNotNull($firstMatch, 'no route matched a .note.js URL');
+		$this->assertStringContainsString('\\.note\\.js', $firstMatch, 'a .note.js request must dispatch to the note route, not the transcript route — check route ordering in graveyard_router.php');
+	}
 }
