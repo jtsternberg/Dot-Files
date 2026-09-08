@@ -114,3 +114,22 @@ workspace; `graveyard ls` prints each group's exact `resurrect --workspace`
 line. Resurrecting rebuilds a workspace in the target multiplexer and resumes
 the recorded agent, so confirm before running it — and if the target is herdr,
 read out the losses it prints before accepting them.
+
+## Adding human context — `graveyard note`
+
+A buried session/plot carries only its transcript and machine metadata.
+`graveyard note <id>` attaches a free-form markdown `NOTES.md` to a buried
+**session**, and `graveyard note -ws <group>` (or `--workspace`) to a whole
+**plot** — the place for out-of-band context the transcript can't hold: the
+Slack thread where follow-up landed, issues spun out of the session, a "resume
+here next" pointer. The note is rendered as HTML in that target's modal on the
+`graveyard page` overview (a 📝-style note pane above the transcript), strictly
+1:1 — a session's modal shows only its own note, a plot's only the plot note.
+
+`note` **opens an editor** (`code -r`, else `$EDITOR`) exactly like `show`, so
+like `show` it will hang an agent — it is a *human* action. Don't run it to
+author a note yourself. Point JT at the command instead: *"run `graveyard note
+<id>`"*. You can, however, read a note straight off disk the same way you read a
+transcript: `$GRAVEYARD_ROOT/sessions/<session_id>/NOTES.md` (session) or
+`$GRAVEYARD_ROOT/workspaces/<group_id>/NOTES.md` (plot), default root
+`~/.claude-graveyard`. Deleting the session/plot removes its note with it.

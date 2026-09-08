@@ -34,6 +34,7 @@ _graveyard() {
 		'page:Open or manage the graveyard overview server'
 		'serve:Start or manage the overview server without opening it'
 		'show:Open a buried transcript in the editor'
+		'note:Attach a human NOTES.md to a buried session or workspace'
 		'rename:Rename a buried session or workspace'
 		'delete:Permanently delete a buried session or workspace'
 		'resurrect:Resume a buried session or workspace'
@@ -108,6 +109,12 @@ _graveyard() {
 					_arguments \
 						'(-h --help)'{-h,--help}'[display help]' \
 						'1:buried session id or name:'
+					;;
+				note)
+					_arguments \
+						'(-h --help)'{-h,--help}'[display help]' \
+						'(-ws --workspace)'{-ws,--workspace}'[attach a note to a buried workspace]:workspace group:' \
+						'1:buried session id or workspace group:'
 					;;
 				rename)
 					_arguments \

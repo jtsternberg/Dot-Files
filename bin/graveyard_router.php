@@ -38,6 +38,23 @@ if (strpos($path, '/api/') === 0) {
 	return true;
 }
 
+// Freshly-rendered human NOTES.md payload for the modal's note pane. Matched BEFORE
+// the transcript route below, whose broader `([^/]+)\.js$` would otherwise capture the
+// whole `<key>.note` as an id.
+if (preg_match('#^/page-data/([^/]+)\.note\.js$#', $path, $m)) {
+	$key = rawurldecode($m[1]);
+	$js  = $gy->renderNoteJs($key);
+	if ($js === null) {
+		http_response_code(404);
+		header('Content-Type: text/plain');
+		echo '// no note here';
+		return true;
+	}
+	header('Content-Type: application/javascript');
+	echo $js;
+	return true;
+}
+
 // Freshly-rendered transcript payload for the modal's JIT loader.
 if (preg_match('#^/page-data/([^/]+)\.js$#', $path, $m)) {
 	$id = rawurldecode($m[1]);

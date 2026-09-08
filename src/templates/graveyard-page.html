@@ -303,6 +303,21 @@ dialog#plotmodal .card { overflow: auto; }
 	animation: exhume .25s ease-out;
 }
 @keyframes exhume { from { opacity: 0; transform: translateY(-4px); } }
+/* Human NOTES.md, rendered above the transcript. Rendered HTML (the modal's one
+   innerHTML sink — see loadNote), so unlike the transcript <pre> it gets real
+   block/inline flow. Pinned paper look to read as a hand-left note, not machine output. */
+.note-pane {
+	margin: .5rem 0 0; padding: .75rem 1rem; overflow: auto; max-height: 30vh; overscroll-behavior: contain;
+	background: color-mix(in srgb, var(--moss) 9%, var(--crypt)); border: 1px solid #2a331f;
+	border-left: 3px solid var(--moss); border-radius: 8px;
+	font: .82rem/1.55 var(--body, var(--mono)); color: #cdd4bf; animation: exhume .25s ease-out;
+}
+.note-pane :first-child { margin-top: 0; }
+.note-pane :last-child { margin-bottom: 0; }
+.note-pane h1, .note-pane h2, .note-pane h3 { font-size: .95rem; margin: .7rem 0 .3rem; color: var(--inscription); }
+.note-pane a { color: var(--moss); }
+.note-pane pre { padding: .5rem .7rem; background: var(--crypt); border-radius: 6px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-pane code { font: .78rem var(--mono); }
 /* Live delete: the stone/plot sinks into the earth before it's removed. */
 .burying { animation: sink .78s ease-in forwards; pointer-events: none; }
 @keyframes sink {
@@ -508,6 +523,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
     <p class="meta" id="m-where" x-text="item.where"></p>
     <p class="meta" id="m-dates" x-text="item.dates"></p>
     <button type="button" class="plot-backlink" x-cloak x-show="item.plotTitle" @click="backToPlot()">⤴ part of the “<span x-text="item.plotTitle"></span>” plot</button>
+    <div id="m-note" class="note-pane" x-ref="note" x-cloak x-show="item.hasNote"></div>
     <div id="m-body" x-ref="body"></div>
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
     <div class="actions">
@@ -527,6 +543,7 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
       <span class="plot-count" x-text="(plot.members ? plot.members.length : 0) + (plot.members && plot.members.length === 1 ? ' session' : ' sessions')"></span>
     </header>
     <p class="crypt-cap"><span class="cap-glyph">🥀</span> family plot</p>
+    <div id="pm-note" class="note-pane" x-ref="plotnote" x-cloak x-show="plot.hasNote"></div>
     <ul class="member-list">
       <template x-for="m in plot.members" :key="m.sid8">
         <li @click="openMember(m.sid8)" title="open this session">🪦 <span class="member-id" x-text="m.sid8"></span><span class="member-title" x-text="m.title"></span></li>
@@ -852,6 +869,7 @@ document.addEventListener("alpine:init", function () {
 				this.item = {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort,
+					hasNote: d.hasNote === "1",
 					plotTitle: plotEl ? plotEl.dataset.title : "",
 					crownShape: (function () {
 						// Reuse the clicked headstone's top corner-shape on the modal, but at
@@ -865,6 +883,7 @@ document.addEventListener("alpine:init", function () {
 				this.copied = {};
 				this.$refs.dlg.showModal();
 				this.setModalParam("stone", d.sid8);
+				this.loadNote(d.id, "note", d.hasNote === "1");
 				this.exhume(d.id);
 			},
 			showPlot: function (el) {
@@ -873,6 +892,7 @@ document.addEventListener("alpine:init", function () {
 					title: el.dataset.title,
 					gid: el.dataset.gid,
 					gid8: el.dataset.gid8,
+					hasNote: el.dataset.hasNote === "1",
 					hue: el.style.getPropertyValue("--plot-hue") || 95,
 					resurrect: "graveyard resurrect --workspace " + el.dataset.gid8,
 					members: stones.map(function (s) { return { sid8: s.dataset.sid8, el: s }; }).map(function (o) { return { sid8: o.sid8, title: o.el.dataset.title }; })
@@ -882,6 +902,7 @@ document.addEventListener("alpine:init", function () {
 				this.copied = {};
 				this.$refs.plotdlg.showModal();
 				this.setModalParam("plot", el.dataset.gid8);
+				this.loadNote(el.dataset.gid, "plotnote", el.dataset.hasNote === "1");
 			},
 			// Clicking a member row in the plot modal jumps to that session's
 			// tombstone modal (close plot modal, open the stone).
@@ -910,6 +931,31 @@ document.addEventListener("alpine:init", function () {
 				if (this.$refs.dlg && this.$refs.dlg.open) { this.setModalParam("stone", this.item.sid8); }
 				else if (this.$refs.plotdlg && this.$refs.plotdlg.open) { this.setModalParam("plot", this.plot.gid8); }
 				else { this.setModalParam(null, null); }
+			},
+			// JIT-load a human NOTES.md into the modal's note pane. The key is a
+			// session_id (stone) or group_id (plot); the router serves it fresh from
+			// page-data/<key>.note.js as window.GYN[key]. No note → clear + hide.
+			loadNote: function (key, ref, hasNote) {
+				var pane = this.$refs[ref];
+				if (!pane) { return; }
+				pane.innerHTML = ""; // reset stale content from a previous open
+				if (!hasNote) { return; }
+				var apply = function (html) {
+					// THE ONE innerHTML SINK IN THIS MODAL. Everything else fills via
+					// textContent on purpose (see TuiTranscript.php:5-21 — a markdown→HTML
+					// pass was rejected for the transcript to keep an injection sink out of
+					// here). It is safe HERE and ONLY here because renderNoteHtml() runs
+					// league/commonmark with html_input=>strip server-side, so the string is
+					// only the tags CommonMark itself emits; the note is authored by the human,
+					// and the page is localhost-only. Do NOT copy this sink anywhere else.
+					pane.innerHTML = html || "";
+				};
+				if (window.GYN && Object.prototype.hasOwnProperty.call(window.GYN, key)) { apply(window.GYN[key]); return; }
+				var s = document.createElement("script");
+				s.src = "page-data/" + encodeURIComponent(key) + ".note.js";
+				s.onload = function () { apply(window.GYN[key]); };
+				s.onerror = function () { pane.innerHTML = ""; };
+				document.head.appendChild(s);
 			},
 			exhume: function (id) {
 				var body = this.$refs.body;
