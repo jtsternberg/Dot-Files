@@ -1,7 +1,9 @@
 <?php
 namespace JT\Tests\Transport;
 
+use JT\Helpers\Herdr;
 use JT\Transport\CmuxTransport;
+use JT\Transport\HerdrTransport;
 use JT\Transport\NullTransport;
 use JT\Transport\SessionTransport;
 use JT\Tests\TestCase;
@@ -13,14 +15,75 @@ use JT\Tests\TestCase;
  */
 final class SessionTransportContractTest extends TestCase
 {
+	/**
+	 * liveSessions()' row keys, in order. Stated ONCE and asserted against every
+	 * implementation, because the whole point of pinning a shape is that two
+	 * transports cannot drift apart — a list per transport would let each stay
+	 * self-consistently wrong.
+	 */
+	private const LIVE_SESSION_KEYS = [
+		'transport', 'session_id', 'agent', 'cwd', 'model', 'skip_perms', 'opts',
+		'pid', 'tty', 'surface_ref', 'surface_id', 'home_workspace_id', 'home_pane_id',
+		'pane_ref', 'home_index_in_pane', 'workspace_ref', 'window_ref',
+		'workspace_title', 'tab_title', 'idle_seconds', 'targetable', 'reason',
+		'no_bridge',
+	];
+
+	/** surfaces()' row keys, in order. Same reasoning. */
+	private const SURFACE_KEYS = [
+		'position', 'pane_index', 'pane_ref', 'pane_id', 'selected_in_pane',
+		'surface_ref', 'surface_id', 'workspace_ref', 'workspace_id', 'workspace_title',
+		'window_ref',
+		'type', 'title', 'url', 'tty', 'cwd', 'script',
+		'session_id', 'agent', 'pid', 'targetable', 'reason',
+	];
+
+	protected function tearDown(): void
+	{
+		putenv('HERDR_BIN');
+		parent::tearDown();
+	}
+
+	/**
+	 * A HerdrTransport over the committed snapshot fixture, via a HERDR_BIN stub, so
+	 * the herdr half of every shared pin runs without reaching a real herdr server
+	 * (CLAUDE.md's shelling-seam rule). The stub answers `api snapshot` and nothing
+	 * else: a pane's process-info failing is a case the transport already degrades
+	 * from (null pid), and none of the shapes pinned here depend on it.
+	 */
+	private function herdrTransport(): HerdrTransport
+	{
+		$fixture = dirname(__DIR__) . '/fixtures/herdr/snapshot-two-claude-one-codex.json';
+		$stub    = $this->graveyardRoot . '/herdr-stub';
+		file_put_contents($stub, "#!/bin/sh\ncase \"$1 $2\" in\n  \"api snapshot\") cat " . escapeshellarg($fixture) . " ;;\n  *) exit 1 ;;\nesac\n");
+		chmod($stub, 0755);
+		putenv('HERDR_BIN=' . $stub);
+
+		return new HerdrTransport($this->cli, new Herdr($this->cli));
+	}
+
 	public function test_cmux_transport_reports_its_name(): void
 	{
 		$this->assertSame('cmux', $this->transport->name());
 	}
 
+	public function test_herdr_transport_reports_its_name(): void
+	{
+		$this->assertSame('herdr', $this->herdrTransport()->name());
+	}
+
 	public function test_cmux_transport_supports_non_terminal_surfaces(): void
 	{
 		$this->assertTrue($this->transport->supportsNonTerminalSurfaces());
+	}
+
+	/**
+	 * And herdr does not — a herdr pane hosts a terminal and nothing else. This is the
+	 * asymmetry a grouped restore has to confirm before dropping a browser member.
+	 */
+	public function test_herdr_transport_does_not_support_non_terminal_surfaces(): void
+	{
+		$this->assertFalse($this->herdrTransport()->supportsNonTerminalSurfaces());
 	}
 
 	/**
@@ -44,25 +107,33 @@ final class SessionTransportContractTest extends TestCase
 	 */
 	public function test_the_documented_row_keys_are_the_ones_the_join_emits(): void
 	{
-		$expected = [
-			'transport', 'session_id', 'agent', 'cwd', 'model', 'skip_perms', 'opts',
-			'pid', 'tty', 'surface_ref', 'surface_id', 'home_workspace_id', 'home_pane_id',
-			'pane_ref', 'home_index_in_pane', 'workspace_ref', 'window_ref',
-			'workspace_title', 'tab_title', 'idle_seconds', 'targetable', 'reason',
-			'no_bridge',
-		];
-
 		$transport = new class ($this->cli, $this->cmux) extends CmuxTransport {
 			public function rowFor(array $join): array {
 				return $this->liveSessionRow($join, $this->treeIndex([]), time());
 			}
 		};
 
-		$this->assertSame($expected, array_keys($transport->rowFor([
+		$this->assertSame(self::LIVE_SESSION_KEYS, array_keys($transport->rowFor([
 			'session_id' => 'a', 'agent' => 'claude', 'cwd' => '/x', 'model' => null,
 			'skip_perms' => false, 'pid' => null, 'tty' => null, 'surface_ref' => '',
 			'workspace_ref' => '', 'title' => '', 'targetable' => false, 'reason' => null,
 		])));
+	}
+
+	/**
+	 * The same pin, run against herdr over its snapshot fixture. Two transports now
+	 * feed the same buildTombstone(), so a key added to one and not the other is a
+	 * tombstone whose contents depend on which multiplexer happened to be running.
+	 */
+	public function test_herdr_emits_the_same_documented_row_keys(): void
+	{
+		$rows = $this->herdrTransport()->liveSessions();
+
+		$this->assertNotSame([], $rows, 'the fixture holds three bound agents');
+		foreach ($rows as $row) {
+			$this->assertSame(self::LIVE_SESSION_KEYS, array_keys($row));
+			$this->assertSame('herdr', $row['transport']);
+		}
 	}
 
 	public function test_null_transport_reports_nothing_live_and_refuses_to_drive(): void
@@ -203,14 +274,6 @@ final class SessionTransportContractTest extends TestCase
 	 */
 	public function test_the_documented_surface_row_keys_are_the_ones_the_walk_emits(): void
 	{
-		$expected = [
-			'position', 'pane_index', 'pane_ref', 'pane_id', 'selected_in_pane',
-			'surface_ref', 'surface_id', 'workspace_ref', 'workspace_id', 'workspace_title',
-			'window_ref',
-			'type', 'title', 'url', 'tty', 'cwd', 'script',
-			'session_id', 'agent', 'pid', 'targetable', 'reason',
-		];
-
 		// A cmux whose whole world is one workspace holding one terminal, so the walk
 		// runs for real without shelling out anywhere.
 		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
@@ -232,7 +295,7 @@ final class SessionTransportContractTest extends TestCase
 
 		$rows = (new CmuxTransport($this->cli, $cmux))->surfaces();
 		$this->assertCount(1, $rows);
-		$this->assertSame($expected, array_keys($rows[0]));
+		$this->assertSame(self::SURFACE_KEYS, array_keys($rows[0]));
 		$this->assertSame('surface:4', $rows[0]['surface_ref']);
 		$this->assertSame('workspace:2', $rows[0]['workspace_ref']);
 		// The stable id, not just the positional ref: resurrect matches a tombstone's
@@ -243,6 +306,27 @@ final class SessionTransportContractTest extends TestCase
 		// Scoping is by workspace ref, and an unknown one yields nothing at all.
 		$this->assertCount(1, (new CmuxTransport($this->cli, $cmux))->surfaces('workspace:2'));
 		$this->assertSame([], (new CmuxTransport($this->cli, $cmux))->surfaces('workspace:99'));
+	}
+
+	/**
+	 * The same pin against herdr. bury classifies a workspace off these rows, and a
+	 * missing key reads as "not an agent surface" or "no tty" — which closes a live
+	 * session as a shell instead of archiving it (dotfiles-5p5, data loss). The
+	 * fixture's bare shell pane is included on purpose: an unbound row must be as
+	 * complete as a bound one.
+	 */
+	public function test_herdr_emits_the_same_documented_surface_row_keys(): void
+	{
+		$rows = $this->herdrTransport()->surfaces();
+
+		$this->assertCount(4, $rows, 'three agent panes plus the fixture bare shell');
+		foreach ($rows as $row) {
+			$this->assertSame(self::SURFACE_KEYS, array_keys($row));
+		}
+
+		// Scoping is by workspace ref, and an unknown one yields nothing at all.
+		$this->assertCount(1, $this->herdrTransport()->surfaces('wA'));
+		$this->assertSame([], $this->herdrTransport()->surfaces('workspace:99'));
 	}
 
 	/**
