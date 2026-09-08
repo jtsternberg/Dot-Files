@@ -38,9 +38,9 @@ class CmuxTransport implements SessionTransport
 	/**
 	 * The raw cmux client, for Graveyard code that still reasons in cmux shapes.
 	 *
-	 * @deprecated Removed in Task 3c. Bury classification and resurrect still walk
-	 * the cmux tree and debug-terminals dump directly; once they move onto
-	 * workspaceSurfaces() nothing above the seam needs a cmux client.
+	 * @deprecated Removed in Task 3c. Resurrect is the last thing above the seam still
+	 * walking the cmux tree directly; once it moves onto surfaces() nothing above the
+	 * seam needs a cmux client.
 	 */
 	public function cmux(): Cmux { return $this->cmux; }
 
@@ -137,6 +137,122 @@ class CmuxTransport implements SessionTransport
 			'reason'          => $j['reason'],
 			'no_bridge'       => $j['no_bridge'] ?? false,
 		];
+	}
+
+	# =========================================================================
+	# surfaces() — the workspace's shape, with whatever agent sits on each surface.
+	# Built from tree + debug-terminals + the deterministic joins, so bury
+	# classification never has to see any of those three shapes.
+	# =========================================================================
+
+	public function surfaces(?string $workspaceRef = null): array {
+		$tree  = $this->cmux->tree();
+		$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
+		$uuids = $this->cmux->mapSurfaceUuids($tree);
+		$bound = $this->surfaceBindings($debug, $uuids);
+
+		$out = [];
+		foreach ($tree['windows'] ?? [] as $window) {
+			$windowRef = $window['ref'] ?? null;
+			foreach ($window['workspaces'] ?? [] as $ws) {
+				$wref = (string) ($ws['ref'] ?? '');
+				if ($workspaceRef !== null && $wref !== $workspaceRef) { continue; }
+				foreach ($ws['panes'] ?? [] as $paneIdx => $pane) {
+					foreach ($pane['surfaces'] ?? [] as $surf) {
+						$ref = (string) ($surf['ref'] ?? '');
+						$b   = $bound[$ref] ?? [];
+						$out[] = [
+							'position'         => (int) ($surf['index_in_pane'] ?? 0),
+							'pane_index'       => (int) ($pane['index'] ?? $paneIdx),
+							'pane_ref'         => $pane['ref'] ?? null,
+							'pane_id'          => $pane['id'] ?? null,
+							'selected_in_pane' => (bool) ($surf['selected_in_pane'] ?? false),
+							'surface_ref'      => $ref,
+							'surface_id'       => (string) ($surf['id'] ?? $ref),
+							'workspace_ref'    => $wref,
+							'workspace_title'  => (string) ($ws['title'] ?? ''),
+							'window_ref'       => $windowRef,
+							'type'             => (string) ($surf['type'] ?? 'terminal'),
+							'title'            => (string) ($surf['title'] ?? ''),
+							'url'              => $surf['url'] ?? null,
+							// debug-terminals is the tty bury's cwd probe has always used;
+							// the tree's own tty is the fallback for a surface it omits.
+							'tty'              => ($debug[$ref]['tty'] ?? null) ?: ($surf['tty'] ?? null),
+							'cwd'              => $debug[$ref]['cwd'] ?? null,
+							'script'           => $debug[$ref]['script'] ?? null,
+							'session_id'       => $b['session_id'] ?? null,
+							'agent'            => $b['agent'] ?? null,
+							'pid'              => $b['pid'] ?? null,
+							'targetable'       => (bool) ($b['targetable'] ?? false),
+							'reason'           => $b['reason'] ?? null,
+						];
+					}
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * [ surface_ref => ['session_id','agent','pid','targetable','reason'] ] for every
+	 * surface an agent is deterministically bound to.
+	 *
+	 * Reads the SAME two joins liveSessions() does, so there is one answer to "what is
+	 * on this surface" rather than a second, quietly different one. It deliberately
+	 * stops short of liveSessions()' content-probe second pass: that reads a screen per
+	 * unbound surface, and a caller asking for the workspace's shape is not asking for
+	 * a screen scrape of all of it.
+	 *
+	 * Codex wins any contest for a surface, and a codex TUI with no rollout yet still
+	 * claims one with a null session_id. Both because a codex bind is OS-exact
+	 * (CMUX_SURFACE_ID out of the process's own environment) while Claude's may be a
+	 * name match — and because a codex surface misread as anything else gets closed
+	 * unarchived (dotfiles-5p5, data loss).
+	 */
+	protected function surfaceBindings(array $debug, array $surfaceUuids): array {
+		$proc = $this->cmux->parseProcTable($this->cmux->psProcTable());
+		$rows = array_merge(
+			$this->cmux->joinSessionsToSurfaces($this->cmux->loadClaudeSessionsByPid(), $proc, $debug, $surfaceUuids),
+			$this->cmux->joinCodexToSurfaces($this->cmux->loadCodexSessionsByPid(), $surfaceUuids)
+		);
+
+		$out = [];
+		foreach ($rows as $r) {
+			$ref = (string) ($r['surface_ref'] ?? '');
+			if ($ref === '' || empty($r['session_id'])) { continue; }
+			$out[$ref] = [
+				'session_id' => $r['session_id'],
+				'agent'      => $r['agent'] ?? 'claude',
+				'pid'        => $r['pid'] ?? null,
+				'targetable' => (bool) ($r['targetable'] ?? false),
+				'reason'     => ($r['reason'] ?? '') !== '' ? $r['reason'] : null,
+			];
+		}
+
+		foreach ($this->cmux->codexSurfaceIdsByPid() as $pid => $surfaceId) {
+			$ref = (string) ($surfaceUuids[$surfaceId]['surface_ref'] ?? '');
+			if ($ref === '' || ($out[$ref]['agent'] ?? null) === 'codex') { continue; }
+			$out[$ref] = [
+				'session_id' => null,
+				'agent'      => 'codex',
+				'pid'        => (int) $pid,
+				'targetable' => false,
+				'reason'     => 'live codex with no rollout yet (zero-turn session)',
+			];
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Claude publishes its session id in ~/.claude/sessions/<pid>.json; a codex process
+	 * instead holds its own rollout open, whose filename carries the id. Both are read
+	 * off the OS, which is what makes them usable as bury's last-line kill gate.
+	 */
+	public function sessionIdForPid(int $pid, string $agent = 'claude'): ?string {
+		return $agent === 'codex'
+			? $this->artifacts->codexSessionIdForPid($pid)
+			: $this->cmux->sessionIdForPid($pid);
 	}
 
 	/**

@@ -61,11 +61,10 @@ class Graveyard {
 	/**
 	 * The cmux client, for the code below that still reasons in cmux shapes.
 	 *
-	 * @deprecated Task 3c. Bury classification and resurrect still walk a cmux tree and
-	 * debug-terminals dump directly instead of the transport's own surface list, so they
+	 * @deprecated Task 3c. Only resurrect() and resolveTargetWindow() are left on it: they
+	 * still walk a cmux tree directly instead of the transport's own surface list, so they
 	 * cannot run on a non-cmux transport at all — and say so rather than quietly acting on
-	 * an empty tree. Every remaining caller is one Task 3b/3c re-seats onto the seam;
-	 * when the last one goes, so does this.
+	 * an empty tree. Re-seat those two and this goes with them.
 	 */
 	private function cmuxTransport(): Transport\CmuxTransport {
 		if (!$this->transport instanceof Transport\CmuxTransport) {
@@ -640,11 +639,6 @@ class Graveyard {
 		return $this->transport->liveSessions();
 	}
 
-	/** @see Transport\CmuxTransport::treeIndex() — a cmux tree walk, below the seam. */
-	public function treeIndex(array $tree): array {
-		return $this->cmuxTransport()->treeIndex($tree);
-	}
-
 	/** @see Helpers\AgentArtifacts::dedupBySessionId() — a row-shape helper every transport needs. */
 	public function dedupBySessionId(array $rows): array {
 		return $this->artifacts->dedupBySessionId($rows);
@@ -802,14 +796,11 @@ class Graveyard {
 	 * Public so tests can substitute it without shelling out to cmux/lsof.
 	 */
 	public function liveCodexBySurfaceRef(): array {
-		$out = $this->cmux()->joinCodexToSurfaces(
-			$this->cmux()->loadCodexSessionsByPid(),
-			$this->cmux()->mapSurfaceUuids($this->cmux()->tree())
-		);
 		$bySurf = [];
-		foreach ($out as $r) {
-			if (($r['surface_ref'] ?? '') !== '' && !empty($r['session_id'])) {
-				$bySurf[$r['surface_ref']] = $r['session_id'];
+		foreach ($this->transport->surfaces() as $s) {
+			if (($s['agent'] ?? null) !== 'codex') { continue; }
+			if (($s['surface_ref'] ?? '') !== '' && !empty($s['session_id'])) {
+				$bySurf[$s['surface_ref']] = $s['session_id'];
 			}
 		}
 		return $bySurf;
@@ -817,11 +808,10 @@ class Graveyard {
 
 	/** Surface refs hosting any Codex TUI, including zero-turn sessions with no rollout. */
 	public function liveCodexSurfaceRefs(): array {
-		$surfaces = $this->cmux()->mapSurfaceUuids($this->cmux()->tree());
 		$out = [];
-		foreach ($this->cmux()->codexSurfaceIdsByPid() as $surfaceId) {
-			$ref = $surfaces[$surfaceId]['surface_ref'] ?? '';
-			if ($ref !== '') { $out[$ref] = true; }
+		foreach ($this->transport->surfaces() as $s) {
+			$ref = (string) ($s['surface_ref'] ?? '');
+			if (($s['agent'] ?? null) === 'codex' && $ref !== '') { $out[$ref] = true; }
 		}
 		return $out;
 	}
@@ -1305,7 +1295,9 @@ class Graveyard {
 	 * member and buryOne can act on it. Returns null when the probe carried no session id
 	 * or the id is not tracked by any live pid file (nothing to bury).
 	 *
-	 * $sessionsByPid is loadClaudeSessionsByPid() output (keyed by pid). The row's cwd is
+	 * $liveRows is liveSessions() output; the probed session is always in it (a fresh or
+	 * cwd-drifted session IS reported, just as targetable=false — which is what made us
+	 * probe), and $surface is that surface's transport row. The row's cwd is
 	 * the session file's LAUNCH cwd — NOT the probe's current cwd — because every
 	 * JSONL-based step downstream (gate 2 needles, deriveSummary, last_active, and
 	 * resurrect's `claude --resume`) resolves ~/.claude/projects/<encoded-cwd>/<sid>.jsonl
@@ -1317,13 +1309,13 @@ class Graveyard {
 	 * directly instead of re-resolving via liveSessions() (which cannot bind a fresh/drifted
 	 * session — the whole reason we probed).
 	 */
-	public function synthesizeProbedRow(string $ref, string $wsRef, array $probe, array $sessionsByPid, array $treeIx, int $idleSeconds = PHP_INT_MAX): ?array {
+	public function synthesizeProbedRow(string $ref, string $wsRef, array $probe, array $liveRows, array $surface, int $idleSeconds = PHP_INT_MAX): ?array {
 		$sid = $probe['session_id'] ?? '';
 		if ($sid === '') { return null; }
 
-		$pid = null; $meta = null;
-		foreach ($sessionsByPid as $p => $s) {
-			if (($s['session_id'] ?? '') === $sid) { $pid = (int) $p; $meta = $s; break; }
+		$meta = null;
+		foreach ($liveRows as $r) {
+			if (($r['session_id'] ?? '') === $sid) { $meta = $r; break; }
 		}
 		if ($meta === null) { return null; }
 
@@ -1334,13 +1326,13 @@ class Graveyard {
 			'cwd'             => $cwd,
 			'model'           => $meta['model'] ?? null,
 			'skip_perms'      => $meta['skip_perms'] ?? null,
-			'pid'             => $pid,
+			'pid'             => isset($meta['pid']) ? (int) $meta['pid'] : null,
 			'tty'             => '',
 			'surface_ref'     => $ref,
-			'surface_id'      => $treeIx['surface'][$ref]['id'] ?? $ref,
+			'surface_id'      => $surface['surface_id'] ?? $ref,
 			'workspace_ref'   => $wsRef,
-			'workspace_title' => $treeIx['workspace'][$wsRef] ?? '',
-			'tab_title'       => $treeIx['surface'][$ref]['title'] ?? '',
+			'workspace_title' => $surface['workspace_title'] ?? '',
+			'tab_title'       => $surface['title'] ?? '',
 			'idle_seconds'    => $idleSeconds,
 			'targetable'      => true,
 			'reason'          => 'bound via /status probe',
@@ -1419,9 +1411,7 @@ class Graveyard {
 		// so the pid's OWN thread has to be picked out (codexSessionIdForPid). Reading
 		// "the first open rollout" aborted teardown of healthy sessions with
 		// "pid N maps to session <a subagent>".
-		$pidSid = ($sess['agent'] ?? 'claude') === 'codex'
-			? $this->artifacts->codexSessionIdForPid($pid)
-			: $this->cmux()->sessionIdForPid($pid);
+		$pidSid = $this->transport->sessionIdForPid($pid, $sess['agent'] ?? 'claude');
 		if ($pidSid !== $target) {
 			$this->cli->err("  Teardown aborted (gate 3): pid {$pid} maps to session " . substr((string) $pidSid, 0, 8) . ", not target " . substr($target, 0, 8) . " — leaving it ALIVE.");
 			return false;
@@ -1591,7 +1581,8 @@ class Graveyard {
 	 * PURE. Classify a workspace's surfaces into a layout + member lists.
 	 *
 	 * Inputs (all injectable for testing):
-	 *   $wsNode        cmux tree workspace node (panes[].surfaces[])
+	 *   $surfaces      the transport's surfaces() rows for this scope (a whole workspace,
+	 *                  or one pane), in layout order — group_pos is that order.
 	 *   $liveByRef     [surface_ref => liveSessions row] for TARGETABLE claude rows
 	 *   $isClaudeByRef [surface_ref => bool]  content-probe result (has a Claude REPL
 	 *                  statusline). A shell has no statusline. Reliable for fresh+resumed.
@@ -1612,99 +1603,97 @@ class Graveyard {
 	 *                 (fresh/ambiguous) — presence forces abort unless --force. Each
 	 *                 carries its 'agent' so the abort report can explain it correctly.
 	 */
-	public function classifyWorkspaceLayout(array $wsNode, array $liveByRef, array $isClaudeByRef, array $isCodexByRef = [], array $cwdByRef = [], array $unboundByRef = []): array {
+	public function classifyWorkspaceLayout(array $surfaces, array $liveByRef, array $isClaudeByRef, array $isCodexByRef = [], array $cwdByRef = [], array $unboundByRef = []): array {
 		$layout = [];
 		$members = [];
 		$untargetable = [];
 		$pos = 0;
 
-		foreach ($wsNode['panes'] ?? [] as $paneIdx => $pane) {
-			foreach ($pane['surfaces'] ?? [] as $surf) {
-				$ref  = $surf['ref'] ?? '';
-				$type = $surf['type'] ?? 'terminal';
-				$row  = $liveByRef[$ref] ?? null;
-				$unboundRow = $unboundByRef[$ref] ?? null;
-				$isClaude = $isClaudeByRef[$ref] ?? false;
+		foreach ($surfaces as $surf) {
+			$ref  = $surf['surface_ref'] ?? '';
+			$type = $surf['type'] ?? 'terminal';
+			$row  = $liveByRef[$ref] ?? null;
+			$unboundRow = $unboundByRef[$ref] ?? null;
+			$isClaude = $isClaudeByRef[$ref] ?? false;
 
-				$entry = [
-					'group_pos'    => $pos,
-					'pane_index'   => $pane['index'] ?? $paneIdx,
-					'index_in_pane'=> $surf['index_in_pane'] ?? 0,
-					'ref'          => $ref,
-					'type'         => $type,
-					'title'        => $surf['title'] ?? '',
-					'url'          => $surf['url'] ?? null,
-					'cwd'          => $row['cwd'] ?? $cwdByRef[$ref] ?? null,
-					'kind'         => 'shell',
-					'claude_session_id' => null,
-					// Whether this was the tab showing in its pane, so resurrect can bring
-					// the same one back to the front instead of whichever it created last.
-					'selected_in_pane' => (bool) ($surf['selected_in_pane'] ?? false),
+			$entry = [
+				'group_pos'    => $pos,
+				'pane_index'   => $surf['pane_index'] ?? 0,
+				'index_in_pane'=> $surf['position'] ?? 0,
+				'ref'          => $ref,
+				'type'         => $type,
+				'title'        => $surf['title'] ?? '',
+				'url'          => $surf['url'] ?? null,
+				'cwd'          => $row['cwd'] ?? $cwdByRef[$ref] ?? null,
+				'kind'         => 'shell',
+				'claude_session_id' => null,
+				// Whether this was the tab showing in its pane, so resurrect can bring
+				// the same one back to the front instead of whichever it created last.
+				'selected_in_pane' => (bool) ($surf['selected_in_pane'] ?? false),
+			];
+
+			// A non-terminal, non-browser surface is a cmux-native agent session
+			// (e.g. type "agentSession", the React Claude UI). It has no tty for the
+			// join/statusline machinery, so it can never be a bound member — but it
+			// IS Claude, so treat it as claude (untargetable) to force an abort rather
+			// than silently closing it as if it were a shell.
+			$claudeSurface = $isClaude || ($type !== 'terminal' && $type !== 'browser');
+
+			// A codex session lives in a PLAIN terminal and shows no Claude statusline,
+			// so it never trips $claudeSurface. Detect it from the codex surface-probe
+			// (all live codex, targetable or not) or a bound codex row — otherwise a
+			// workspace bury would class it 'shell' and CLOSE it without archiving
+			// (dotfiles-5p5, data loss). Checked before Claude so a codex terminal is
+			// never mistaken for one.
+			$isCodex = $isCodexByRef[$ref] ?? false;
+			$codexSurface = $type !== 'browser'
+				&& ($isCodex || ($row && $this->rowAgent($row) === 'codex'));
+
+			if ($type === 'browser') {
+				$entry['kind'] = 'browser';
+			} elseif ($codexSurface && $row && ($row['targetable'] ?? false)) {
+				$entry['kind'] = 'codex';
+				// Reuse claude_session_id as the generic agent-session id the manifest
+				// and resurrect key on; a codex tombstone stores this same id as
+				// session_id, so manifestPositions()/tombBySid resolve it.
+				$entry['claude_session_id'] = $row['session_id'];
+				$m = $row; $m['group_pos'] = $pos;
+				$members[] = $m;
+			} elseif ($codexSurface) {
+				// A live codex the join could not bind to a unique targetable surface.
+				// Like an untargetable Claude: detected, not buryable → forces abort
+				// (unless --force skips it, left alive) rather than closing it as a shell.
+				$entry['kind'] = 'codex-untargetable';
+				$untargetable[] = [
+					'ref'            => $ref,
+					'title'          => $surf['title'] ?? '',
+					'type'           => $type,
+					'agent'          => 'codex',
+					'session_reason' => $unboundRow['reason'] ?? null,
+					'no_bridge'      => $unboundRow['no_bridge'] ?? null,
 				];
-
-				// A non-terminal, non-browser surface is a cmux-native agent session
-				// (e.g. type "agentSession", the React Claude UI). It has no tty for the
-				// join/statusline machinery, so it can never be a bound member — but it
-				// IS Claude, so treat it as claude (untargetable) to force an abort rather
-				// than silently closing it as if it were a shell.
-				$claudeSurface = $isClaude || ($type !== 'terminal' && $type !== 'browser');
-
-				// A codex session lives in a PLAIN terminal and shows no Claude statusline,
-				// so it never trips $claudeSurface. Detect it from the codex surface-probe
-				// (all live codex, targetable or not) or a bound codex row — otherwise a
-				// workspace bury would class it 'shell' and CLOSE it without archiving
-				// (dotfiles-5p5, data loss). Checked before Claude so a codex terminal is
-				// never mistaken for one.
-				$isCodex = $isCodexByRef[$ref] ?? false;
-				$codexSurface = $type !== 'browser'
-					&& ($isCodex || ($row && $this->rowAgent($row) === 'codex'));
-
-				if ($type === 'browser') {
-					$entry['kind'] = 'browser';
-				} elseif ($codexSurface && $row && ($row['targetable'] ?? false)) {
-					$entry['kind'] = 'codex';
-					// Reuse claude_session_id as the generic agent-session id the manifest
-					// and resurrect key on; a codex tombstone stores this same id as
-					// session_id, so manifestPositions()/tombBySid resolve it.
-					$entry['claude_session_id'] = $row['session_id'];
-					$m = $row; $m['group_pos'] = $pos;
-					$members[] = $m;
-				} elseif ($codexSurface) {
-					// A live codex the join could not bind to a unique targetable surface.
-					// Like an untargetable Claude: detected, not buryable → forces abort
-					// (unless --force skips it, left alive) rather than closing it as a shell.
-					$entry['kind'] = 'codex-untargetable';
-					$untargetable[] = [
-						'ref'            => $ref,
-						'title'          => $surf['title'] ?? '',
-						'type'           => $type,
-						'agent'          => 'codex',
-						'session_reason' => $unboundRow['reason'] ?? null,
-						'no_bridge'      => $unboundRow['no_bridge'] ?? null,
-					];
-				} elseif ($claudeSurface && $row && ($row['targetable'] ?? false)) {
-					$entry['kind'] = 'claude';
-					$entry['claude_session_id'] = $row['session_id'];
-					$m = $row; $m['group_pos'] = $pos;
-					$members[] = $m;
-				} elseif ($claudeSurface) {
-					// A Claude surface the join could not bind to a targetable session
-					// (fresh/non-resumed, ambiguous, or a native agent session). Detected,
-					// not buryable → forces abort (unless --force skips it, alive).
-					$entry['kind'] = 'claude-untargetable';
-					$untargetable[] = [
-						'ref'            => $ref,
-						'title'          => $surf['title'] ?? '',
-						'type'           => $type,
-						'agent'          => 'claude',
-						'session_reason' => $unboundRow['reason'] ?? null,
-						'no_bridge'      => $unboundRow['no_bridge'] ?? null,
-					];
-				}
-
-				$layout[] = $entry;
-				$pos++;
+			} elseif ($claudeSurface && $row && ($row['targetable'] ?? false)) {
+				$entry['kind'] = 'claude';
+				$entry['claude_session_id'] = $row['session_id'];
+				$m = $row; $m['group_pos'] = $pos;
+				$members[] = $m;
+			} elseif ($claudeSurface) {
+				// A Claude surface the join could not bind to a targetable session
+				// (fresh/non-resumed, ambiguous, or a native agent session). Detected,
+				// not buryable → forces abort (unless --force skips it, alive).
+				$entry['kind'] = 'claude-untargetable';
+				$untargetable[] = [
+					'ref'            => $ref,
+					'title'          => $surf['title'] ?? '',
+					'type'           => $type,
+					'agent'          => 'claude',
+					'session_reason' => $unboundRow['reason'] ?? null,
+					'no_bridge'      => $unboundRow['no_bridge'] ?? null,
+				];
 			}
+
+			$layout[] = $entry;
+			$pos++;
 		}
 
 		return ['layout' => $layout, 'members' => $members, 'untargetable' => $untargetable];
@@ -1864,9 +1853,12 @@ class Graveyard {
 		return 'live Claude session present but could not be bound to this surface (ambiguous)';
 	}
 
-	/** Gather untargetable-surface facts (I/O) and delegate to untargetableReasonFor(). */
-	protected function diagnoseUntargetableSurface(string $ref, string $type, array $debug, array $proc, ?array $liveSessions = null): string {
-		$script = $debug[$ref]['script'] ?? null;
+	/**
+	 * Gather untargetable-surface facts (I/O) and delegate to untargetableReasonFor().
+	 * $surfaceByRef is the transport's surfaces() rows keyed by surface_ref.
+	 */
+	protected function diagnoseUntargetableSurface(string $ref, string $type, array $surfaceByRef, array $proc, ?array $liveSessions = null): string {
+		$script = $surfaceByRef[$ref]['script'] ?? null;
 		$roots  = [];
 		if ($script !== null) {
 			foreach ($proc as $pid => $info) {
@@ -1878,13 +1870,14 @@ class Graveyard {
 			$c = $this->artifacts->descendantClaudePid($proc, (int) $r);
 			if ($c) { $claude = $c; break; }
 		}
-		$sid = $claude !== null ? $this->cmux()->sessionIdForPid((int) $claude) : null;
+		$sid = $claude !== null ? $this->transport->sessionIdForPid((int) $claude) : null;
+		$live = $liveSessions ?? $this->liveSessions();
 
 		// If this surface's session is live but bound to a DIFFERENT surface, it's a
 		// duplicate view (same session on two surfaces; the join deduped to the other).
 		$boundElsewhere = null; $sessionReason = null;
 		if ($sid !== null) {
-			foreach ($liveSessions ?? $this->liveSessions() as $lr) {
+			foreach ($live as $lr) {
 				if ($lr['session_id'] !== $sid) { continue; }
 				if (($lr['targetable'] ?? false) && $lr['surface_ref'] !== '' && $lr['surface_ref'] !== $ref) {
 					$boundElsewhere = $lr['surface_ref'];
@@ -1899,11 +1892,14 @@ class Graveyard {
 		// exact signal the cwd-match fallback uses), not the surface's shell cwd — a claude
 		// launched from ~ but running in ~/.dotfiles shows the latter. Count how many live
 		// sessions that statusline cwd matches; >1 is the ambiguity that blocks the bind.
-		$screen    = $this->readLastScreen($ref, (string) ($debug[$ref]['workspace_ref'] ?? ''), 30);
+		$screen    = $this->readLastScreen($ref, (string) ($surfaceByRef[$ref]['workspace_ref'] ?? ''), 30);
 		$cwd       = (string) ($this->extractStatuslineCwd($screen) ?? '');
 		$cwdSessionCount = 0;
 		if ($cwd !== '') {
-			foreach ($this->cmux()->loadClaudeSessionsByPid() as $s) {
+			// Counted over the live Claude sessions, which is what makes the on-screen
+			// fallback ambiguous — bound or not, they all compete for this cwd.
+			foreach ($live as $s) {
+				if (($s['agent'] ?? 'claude') !== 'claude') { continue; }
 				if ($this->statuslineMatchesSession($screen, (string) ($s['cwd'] ?? ''))) { $cwdSessionCount++; }
 			}
 		}
@@ -1973,30 +1969,27 @@ class Graveyard {
 	}
 
 	/**
-	 * PURE. Locate a pane in a cmux tree by its ref (pane:N) or stable UUID, and return
-	 * the pane node plus where it lives:
-	 *   ['node' => <pane>, 'ws_ref' => .., 'ws_title' => .., 'window_ref' => ..]
-	 * or null if no pane matches. Backs a pane bury: the node becomes a one-pane node
-	 * fed to the same classification the whole-workspace bury uses, and the ws/window
-	 * refs target the manifest at the right workspace.
+	 * PURE. Pick one pane out of the transport's surfaces() rows by its ref (pane:N) or
+	 * stable UUID, and return that pane's surfaces plus where they live:
+	 *   ['surfaces' => [<row>,..], 'ws_ref' => .., 'ws_title' => .., 'window_ref' => ..]
+	 * or null if no pane matches. Backs a pane bury: the pane's surfaces go through the
+	 * same classification the whole-workspace bury runs, and the ws/window refs target
+	 * the manifest at the right workspace.
 	 */
-	public function findPaneNode(array $tree, string $paneRefOrId): ?array {
-		foreach ($tree['windows'] ?? [] as $window) {
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				foreach ($ws['panes'] ?? [] as $pane) {
-					if (($pane['ref'] ?? null) === $paneRefOrId
-						|| (($pane['id'] ?? '') !== '' && $pane['id'] === $paneRefOrId)) {
-						return [
-							'node'        => $pane,
-							'ws_ref'      => $ws['ref'] ?? '',
-							'ws_title'    => $ws['title'] ?? '',
-							'window_ref'  => $window['ref'] ?? '',
-						];
-					}
-				}
-			}
+	public function findPaneSurfaces(array $surfaces, string $paneRefOrId): ?array {
+		$out = null;
+		foreach ($surfaces as $s) {
+			if (($s['pane_ref'] ?? null) !== $paneRefOrId
+				&& (($s['pane_id'] ?? '') === '' || $s['pane_id'] !== $paneRefOrId)) { continue; }
+			$out ??= [
+				'surfaces'   => [],
+				'ws_ref'     => (string) ($s['workspace_ref'] ?? ''),
+				'ws_title'   => (string) ($s['workspace_title'] ?? ''),
+				'window_ref' => (string) ($s['window_ref'] ?? ''),
+			];
+			$out['surfaces'][] = $s;
 		}
-		return null;
+		return $out;
 	}
 
 	/**
@@ -2029,10 +2022,10 @@ class Graveyard {
 	 * the rest of the parent workspace stays alive.
 	 */
 	public function buryPane(string $paneRefOrId, bool $force, bool $autoConfirm): void {
-		$loc = $this->findPaneNode($this->cmux()->tree(), $paneRefOrId);
+		$loc = $this->findPaneSurfaces($this->transport->surfaces(), $paneRefOrId);
 		if (!$loc) { $this->cli->exitErr("No live pane matches '{$paneRefOrId}'."); return; }
 
-		$cls = $this->buildBuryClassification($loc['node'], $loc['ws_ref'], $loc['ws_title']);
+		$cls = $this->buildBuryClassification($loc['surfaces'], $loc['ws_ref'], $loc['ws_title']);
 		$decision = $this->paneBuryDecision($cls);
 
 		if ($decision['action'] === 'none') {
@@ -2094,7 +2087,7 @@ class Graveyard {
 		$wsRef   = $wsInfo['ref'];
 		$wsTitle = $wsInfo['title'];
 
-		$cls = $this->buildBuryClassification($wsInfo['node'], $wsRef, $wsTitle);
+		$cls = $this->buildBuryClassification($this->transport->surfaces($wsRef), $wsRef, $wsTitle);
 
 		$this->buryClassifiedAsGroup($cls, $wsRef, $wsTitle, (string) ($wsInfo['window_ref'] ?? ''), $force, $autoConfirm, [
 			'label'             => 'workspace',
@@ -2105,14 +2098,15 @@ class Graveyard {
 	}
 
 	/**
-	 * I/O. Probe every surface in a node (a whole workspace, or a single pane) and
-	 * classify it into burial members + untargetable agents + a layout, via
-	 * classifyWorkspaceLayout. Self-guards against burying the caller's own session.
+	 * I/O. Probe every surface in a scope (a whole workspace, or a single pane — the
+	 * transport's surfaces() rows either way) and classify it into burial members +
+	 * untargetable agents + a layout, via classifyWorkspaceLayout. Self-guards against
+	 * burying the caller's own session.
 	 * Shared by buryWorkspace and buryPane so both get the SAME detection — including
 	 * the codex OS-bind and the /status last-resort probe that keep an agent from
 	 * being misread as a shell and closed unarchived (dotfiles-5p5).
 	 */
-	public function buildBuryClassification(array $node, string $wsRef, string $wsTitle): array {
+	public function buildBuryClassification(array $surfaces, string $wsRef, string $wsTitle): array {
 		$liveSessions = $this->liveSessions();
 
 		// Index this live-session snapshot by surface_ref. Keep unbound rows too: their
@@ -2131,13 +2125,13 @@ class Graveyard {
 			}
 		}
 		$isClaudeByRef = [];
-		foreach ($node['panes'] ?? [] as $pane) {
-			foreach ($pane['surfaces'] ?? [] as $surf) {
-				$ref = $surf['ref'] ?? '';
-				if ($ref === '' || ($surf['type'] ?? '') === 'browser') { $isClaudeByRef[$ref] = false; continue; }
-				$screen = $this->readLastScreen($ref, $wsRef, 8);
-				$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null;
-			}
+		$surfaceByRef  = [];
+		foreach ($surfaces as $surf) {
+			$ref = $surf['surface_ref'] ?? '';
+			$surfaceByRef[$ref] = $surf;
+			if ($ref === '' || ($surf['type'] ?? '') === 'browser') { $isClaudeByRef[$ref] = false; continue; }
+			$screen = $this->readLastScreen($ref, $wsRef, 8);
+			$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null;
 		}
 		// Every live codex bound to a surface (targetable or not), so classify can tell a
 		// codex terminal from a shell — codex shows no Claude statusline, so the probe above
@@ -2155,14 +2149,11 @@ class Graveyard {
 		// foreground process cwd while the workspace still exists so resurrect can cd
 		// the restored shell back to where it was buried.
 		$cwdByRef = [];
-		$debugByRef = $this->cmux()->parseDebugTerminals($this->cmux()->debugTerminals());
-		foreach ($node['panes'] ?? [] as $pane) {
-			foreach ($pane['surfaces'] ?? [] as $surf) {
-				$ref = $surf['ref'] ?? '';
-				if (($surf['type'] ?? '') !== 'terminal' || $ref === '' || isset($liveByRef[$ref]) || ($isClaudeByRef[$ref] ?? false) || ($isCodexByRef[$ref] ?? false)) { continue; }
-				$tty = $debugByRef[$ref]['tty'] ?? '';
-				if ($tty !== '') { $cwdByRef[$ref] = $this->proc->getCwdForTty($tty); }
-			}
+		foreach ($surfaces as $surf) {
+			$ref = $surf['surface_ref'] ?? '';
+			if (($surf['type'] ?? '') !== 'terminal' || $ref === '' || isset($liveByRef[$ref]) || ($isClaudeByRef[$ref] ?? false) || ($isCodexByRef[$ref] ?? false)) { continue; }
+			$tty = (string) ($surf['tty'] ?? '');
+			if ($tty !== '') { $cwdByRef[$ref] = $this->proc->getCwdForTty($tty); }
 		}
 
 		// Last-resort bind: for a Claude surface the join left unbound (a fresh /
@@ -2173,21 +2164,19 @@ class Graveyard {
 		// it lives ONLY here in the bury path — never the liveSessions()/ls hot path. Never
 		// probe the caller's own surface (that would type /status into our own REPL).
 		$selfSurf = $this->selfSurfaceId();
-		$treeIx   = $this->treeIndex($this->cmux()->tree());
-		$byPid    = $this->cmux()->loadClaudeSessionsByPid();
 		foreach ($isClaudeByRef as $ref => $isClaude) {
 			if (!$isClaude || $ref === '' || isset($liveByRef[$ref])) { continue; }
-			if ($selfSurf && ($ref === $selfSurf || ($treeIx['surface'][$ref]['id'] ?? null) === $selfSurf)) { continue; }
+			if ($selfSurf && ($ref === $selfSurf || ($surfaceByRef[$ref]['surface_id'] ?? null) === $selfSurf)) { continue; }
 			$probe = $this->probeSurfaceIdentity($ref, $wsRef);
 			if (!$probe) { continue; }
-			$row = $this->synthesizeProbedRow($ref, $wsRef, $probe, $byPid, $treeIx);
+			$row = $this->synthesizeProbedRow($ref, $wsRef, $probe, $liveSessions, $surfaceByRef[$ref] ?? []);
 			if ($row) {
 				$this->cli->msg('  Bound ' . $ref . ' via /status → ' . substr($row['session_id'], 0, 8) . ' (' . $row['cwd'] . ').', 'cyan');
 				$liveByRef[$ref] = $row;
 			}
 		}
 
-		$cls = $this->classifyWorkspaceLayout($node, $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef, $unboundByRef);
+		$cls = $this->classifyWorkspaceLayout($surfaces, $liveByRef, $isClaudeByRef, $isCodexByRef, $cwdByRef, $unboundByRef);
 
 		// Self-guard: never bury a group (workspace or pane) containing the caller's own
 		// session. exitErr() exits; the return keeps the : array contract satisfied.
@@ -2218,7 +2207,8 @@ class Graveyard {
 		if ($cls['untargetable']) {
 			$w     = $this->termWidth();
 			$proc  = $this->proc->parseProcTable($this->proc->psProcTable());
-			$debug = $this->cmux()->parseDebugTerminals($this->cmux()->debugTerminals());
+			$surfaceByRef = [];
+			foreach ($this->transport->surfaces($wsRef) as $s) { $surfaceByRef[$s['surface_ref']] = $s; }
 			$this->cli->msg(ucfirst($label) . ' "' . $wsTitle . '" has ' . count($cls['untargetable']) . ' agent surface(s) not safely targetable:', 'yellow');
 			foreach ($cls['untargetable'] as $u) {
 				// diagnoseUntargetableSurface() is Claude-shaped (walks to a Claude pid,
@@ -2233,7 +2223,7 @@ class Graveyard {
 						'no_bridge' => false,
 					]);
 				} else {
-					$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $debug, $proc);
+					$reason = $this->diagnoseUntargetableSurface($u['ref'], $u['type'] ?? 'terminal', $surfaceByRef, $proc);
 				}
 				$this->cli->msg('  ' . $this->ellipsizeText($u['ref'] . '  ' . $this->stripGlyph((string) $u['title']), $w - 2), 'yellow');
 				// Wrap the reason (never ellipsize) so the full explanation + fix is always shown.

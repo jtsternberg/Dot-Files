@@ -277,30 +277,34 @@ final class GraveyardTest extends TestCase
 	}
 
 	/**
-	 * findPaneNode locates a pane by ref OR by its stable UUID and returns the pane's
-	 * parent workspace ref/title and window ref, so a pane bury can build a one-pane
-	 * node and target the right workspace.
+	 * findPaneSurfaces picks a pane out of the transport's surface rows by ref OR by its
+	 * stable UUID, and returns that pane's surfaces plus the parent workspace ref/title
+	 * and window ref, so a pane bury classifies only the pane and targets the right
+	 * workspace.
 	 */
-	public function testFindPaneNode(): void
+	public function testFindPaneSurfaces(): void
 	{
-		$tree = ['windows' => [['ref' => 'window:1', 'workspaces' => [
-			['ref' => 'workspace:29', 'id' => 'WS-UUID', 'title' => 'boss', 'panes' => [
-				['ref' => 'pane:54', 'id' => '45AC', 'surfaces' => [['ref' => 'surface:114']]],
-				['ref' => 'pane:55', 'id' => 'BEEF', 'surfaces' => [['ref' => 'surface:200']]],
-			]],
-		]]]];
+		$mk = fn(string $ref, string $paneRef, string $paneId) => [
+			'surface_ref' => $ref, 'pane_ref' => $paneRef, 'pane_id' => $paneId,
+			'workspace_ref' => 'workspace:29', 'workspace_title' => 'boss', 'window_ref' => 'window:1',
+		];
+		$surfaces = [
+			$mk('surface:114', 'pane:54', '45AC'),
+			$mk('surface:200', 'pane:55', 'BEEF'),
+			$mk('surface:201', 'pane:55', 'BEEF'),
+		];
 
-		$byRef = $this->gy->findPaneNode($tree, 'pane:55');
+		$byRef = $this->gy->findPaneSurfaces($surfaces, 'pane:55');
 		$this->assertSame('workspace:29', $byRef['ws_ref']);
 		$this->assertSame('boss', $byRef['ws_title']);
 		$this->assertSame('window:1', $byRef['window_ref']);
-		$this->assertSame('pane:55', $byRef['node']['ref']);
+		$this->assertSame(['surface:200', 'surface:201'], array_column($byRef['surfaces'], 'surface_ref'));
 
-		$byUuid = $this->gy->findPaneNode($tree, '45AC');
-		$this->assertSame('pane:54', $byUuid['node']['ref']);
+		$byUuid = $this->gy->findPaneSurfaces($surfaces, '45AC');
+		$this->assertSame(['surface:114'], array_column($byUuid['surfaces'], 'surface_ref'));
 		$this->assertSame('workspace:29', $byUuid['ws_ref']);
 
-		$this->assertNull($this->gy->findPaneNode($tree, 'nope'));
+		$this->assertNull($this->gy->findPaneSurfaces($surfaces, 'nope'));
 	}
 
 	/**
@@ -340,10 +344,10 @@ final class GraveyardTest extends TestCase
 				public array $workspaceBuries = [];
 				public array $groupBuries = [];
 				public function __construct($cli, $cmux, array $cls) { parent::__construct($cli, $cmux); $this->clsToReturn = $cls; }
-				public function findPaneNode(array $tree, string $id): ?array {
-					return ['node' => ['ref' => 'pane:54', 'surfaces' => []], 'ws_ref' => 'workspace:29', 'ws_title' => 'boss', 'window_ref' => 'window:1'];
+				public function findPaneSurfaces(array $surfaces, string $id): ?array {
+					return ['surfaces' => [], 'ws_ref' => 'workspace:29', 'ws_title' => 'boss', 'window_ref' => 'window:1'];
 				}
-				public function buildBuryClassification(array $node, string $wsRef, string $wsTitle): array { return $this->clsToReturn; }
+				public function buildBuryClassification(array $surfaces, string $wsRef, string $wsTitle): array { return $this->clsToReturn; }
 				public function selfSessionId(): ?string { return null; }
 				public function buryIds(array $ids, bool $auto, bool $force = false): void { $this->buried = $ids; }
 				public function buryWorkspace(string $nameOrRef, bool $force, bool $auto): void { $this->workspaceBuries[] = $nameOrRef; }
@@ -430,7 +434,7 @@ final class GraveyardTest extends TestCase
 				['ref' => 'surface:59', 'id' => 'UUID-59', 'title' => 'lg'],
 			]]]],
 		]]]];
-		$ix = $this->gy->treeIndex($tree);
+		$ix = $this->transport->treeIndex($tree);
 		$this->assertSame('asana', $ix['workspace']['workspace:22']);
 		$this->assertSame('UUID-59', $ix['surface']['surface:59']['id']);
 	}
@@ -554,19 +558,15 @@ final class GraveyardTest extends TestCase
 
 	public function testClassifyWorkspaceLayout(): void
 	{
-		$wsNode = ['panes' => [
-			['index' => 0, 'surfaces' => [
-				['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'claude a', 'index_in_pane' => 0],
-				['ref' => 'surface:2', 'type' => 'terminal', 'title' => 'fresh claude', 'index_in_pane' => 1],
-			]],
-			['index' => 1, 'surfaces' => [
-				['ref' => 'surface:3', 'type' => 'terminal', 'title' => 'a shell', 'index_in_pane' => 0],
-				['ref' => 'surface:4', 'type' => 'browser', 'title' => 'docs', 'url' => 'https://x', 'index_in_pane' => 1],
-			]],
-		]];
+		$surfaces = [
+			['surface_ref' => 'surface:1', 'pane_index' => 0, 'position' => 0, 'type' => 'terminal', 'title' => 'claude a'],
+			['surface_ref' => 'surface:2', 'pane_index' => 0, 'position' => 1, 'type' => 'terminal', 'title' => 'fresh claude'],
+			['surface_ref' => 'surface:3', 'pane_index' => 1, 'position' => 0, 'type' => 'terminal', 'title' => 'a shell'],
+			['surface_ref' => 'surface:4', 'pane_index' => 1, 'position' => 1, 'type' => 'browser', 'title' => 'docs', 'url' => 'https://x'],
+		];
 		$liveByRef = ['surface:1' => ['session_id' => 'sid-1', 'cwd' => '/a', 'targetable' => true, 'tab_title' => 'claude a']];
 		$isClaudeByRef = ['surface:1' => true, 'surface:2' => true, 'surface:3' => false, 'surface:4' => false];
-		$c = $this->gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef);
+		$c = $this->gy->classifyWorkspaceLayout($surfaces, $liveByRef, $isClaudeByRef);
 
 		$this->assertCount(1, $c['members']);
 		$this->assertSame('sid-1', $c['members'][0]['session_id']);
@@ -579,13 +579,13 @@ final class GraveyardTest extends TestCase
 
 		// Each entry records whether it was the tab showing in its pane, so resurrect
 		// can re-select it. surface:2 was the visible tab in pane 0; nothing else.
-		$wsNode['panes'][0]['surfaces'][1]['selected_in_pane'] = true;
-		$c2 = $this->gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef);
+		$surfaces[1]['selected_in_pane'] = true;
+		$c2 = $this->gy->classifyWorkspaceLayout($surfaces, $liveByRef, $isClaudeByRef);
 		$this->assertSame([false, true, false, false], array_column($c2['layout'], 'selected_in_pane'));
 
-		$wsAgent = ['panes' => [['index' => 0, 'surfaces' => [
-			['ref' => 'surface:9', 'type' => 'agentSession', 'title' => 'Claude Code · React', 'index_in_pane' => 0],
-		]]]];
+		$wsAgent = [
+			['surface_ref' => 'surface:9', 'pane_index' => 0, 'position' => 0, 'type' => 'agentSession', 'title' => 'Claude Code · React'],
+		];
 		$ca = $this->gy->classifyWorkspaceLayout($wsAgent, [], []);
 		$this->assertCount(1, $ca['untargetable']);
 		$this->assertSame('claude-untargetable', $ca['layout'][0]['kind']);
@@ -593,12 +593,12 @@ final class GraveyardTest extends TestCase
 
 	public function testClassifyWorkspaceLayoutPreservesShellCwdFromTerminalProbe(): void
 	{
-		$wsNode = ['panes' => [['index' => 0, 'surfaces' => [
-			['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'shell', 'index_in_pane' => 0],
-		]]]];
+		$surfaces = [
+			['surface_ref' => 'surface:1', 'pane_index' => 0, 'position' => 0, 'type' => 'terminal', 'title' => 'shell'],
+		];
 
 		$layout = $this->gy->classifyWorkspaceLayout(
-			$wsNode,
+			$surfaces,
 			[],
 			['surface:1' => false],
 			[],
@@ -611,13 +611,13 @@ final class GraveyardTest extends TestCase
 
 	public function testClassifyWorkspaceLayoutCarriesUntargetableJoinDiagnostics(): void
 	{
-		$wsNode = ['panes' => [['index' => 0, 'surfaces' => [
-			['ref' => 'surface:7', 'type' => 'terminal', 'title' => 'Claude collision', 'index_in_pane' => 0],
-		]]]];
+		$surfaces = [
+			['surface_ref' => 'surface:7', 'pane_index' => 0, 'position' => 0, 'type' => 'terminal', 'title' => 'Claude collision'],
+		];
 		$reason = 'CMUX_SURFACE_ID collision: the claimed surface belongs to another live session';
 
 		$classified = $this->gy->classifyWorkspaceLayout(
-			$wsNode,
+			$surfaces,
 			[],
 			['surface:7' => true],
 			[],
@@ -642,20 +642,18 @@ final class GraveyardTest extends TestCase
 	 */
 	public function testClassifyWorkspaceLayoutClassifiesCodexMembers(): void
 	{
-		$wsNode = ['panes' => [
-			['index' => 0, 'surfaces' => [
-				['ref' => 'surface:1', 'type' => 'terminal', 'title' => 'codex a', 'index_in_pane' => 0],
-				['ref' => 'surface:2', 'type' => 'terminal', 'title' => 'codex fresh', 'index_in_pane' => 1],
-				['ref' => 'surface:3', 'type' => 'terminal', 'title' => 'a shell', 'index_in_pane' => 2],
-			]],
-		]];
+		$surfaces = [
+			['surface_ref' => 'surface:1', 'pane_index' => 0, 'position' => 0, 'type' => 'terminal', 'title' => 'codex a'],
+			['surface_ref' => 'surface:2', 'pane_index' => 0, 'position' => 1, 'type' => 'terminal', 'title' => 'codex fresh'],
+			['surface_ref' => 'surface:3', 'pane_index' => 0, 'position' => 2, 'type' => 'terminal', 'title' => 'a shell'],
+		];
 		// surface:1 is a bound, targetable codex row; surface:2 is a live codex the join
 		// left unbound (no targetable row); surface:3 is a genuine shell.
 		$liveByRef = ['surface:1' => ['session_id' => 'cdx-1', 'agent' => 'codex', 'cwd' => '/c', 'targetable' => true, 'tab_title' => 'codex a']];
 		$isClaudeByRef = ['surface:1' => false, 'surface:2' => false, 'surface:3' => false];
 		$isCodexByRef  = ['surface:1' => true, 'surface:2' => true, 'surface:3' => false];
 
-		$c = $this->gy->classifyWorkspaceLayout($wsNode, $liveByRef, $isClaudeByRef, $isCodexByRef);
+		$c = $this->gy->classifyWorkspaceLayout($surfaces, $liveByRef, $isClaudeByRef, $isCodexByRef);
 
 		$this->assertSame(['codex', 'codex-untargetable', 'shell'], array_column($c['layout'], 'kind'));
 		$this->assertCount(1, $c['members']);
@@ -918,15 +916,13 @@ final class GraveyardTest extends TestCase
 	public function testSynthesizeProbedRow(): void
 	{
 		$sid = '7404aa63-8617-4fdd-9e39-9d40882d3faa';
-		// loadClaudeSessionsByPid() shape: keyed by pid, values carry session_id/cwd/model/skip_perms.
-		$byPid = [
-			51234 => ['session_id' => $sid, 'cwd' => '/Users/JT', 'model' => 'opus', 'skip_perms' => true, 'status' => 'idle'],
-			99999 => ['session_id' => 'other-sid', 'cwd' => '/tmp', 'model' => 'sonnet', 'skip_perms' => false],
+		// liveSessions() shape: the probed session is in it, just as targetable=false.
+		$liveRows = [
+			['session_id' => $sid, 'cwd' => '/Users/JT', 'model' => 'opus', 'skip_perms' => true, 'pid' => 51234, 'targetable' => false],
+			['session_id' => 'other-sid', 'cwd' => '/tmp', 'model' => 'sonnet', 'skip_perms' => false, 'pid' => 99999, 'targetable' => true],
 		];
-		$treeIx = [
-			'surface'   => ['surface:51' => ['id' => 'srf-uuid-51', 'title' => 'llmsummarize']],
-			'workspace' => ['workspace:3' => 'llmsummarize'],
-		];
+		// The transport's surfaces() row for the surface being probed.
+		$surface = ['surface_ref' => 'surface:51', 'surface_id' => 'srf-uuid-51', 'title' => 'llmsummarize', 'workspace_title' => 'llmsummarize'];
 
 		// cwd-drift case: probe reports the CURRENT cwd (/.dotfiles), which differs from the
 		// session file's LAUNCH cwd (/Users/JT). The row must carry the LAUNCH cwd, because
@@ -935,7 +931,7 @@ final class GraveyardTest extends TestCase
 		// would point at the wrong project dir. Gate 1 (which sees the current cwd) is instead
 		// bypassed for probed rows: the probe already proved surface↔session identity.
 		$probe = ['session_id' => $sid, 'cwd' => '/Users/JT/.dotfiles'];
-		$row = $this->gy->synthesizeProbedRow('surface:51', 'workspace:3', $probe, $byPid, $treeIx);
+		$row = $this->gy->synthesizeProbedRow('surface:51', 'workspace:3', $probe, $liveRows, $surface);
 
 		$this->assertSame($sid, $row['session_id']);
 		$this->assertSame('/Users/JT', $row['cwd'], 'must use LAUNCH cwd (where the JSONL lives), not the drifted current cwd');
@@ -951,14 +947,14 @@ final class GraveyardTest extends TestCase
 		$this->assertTrue($row['_probed'], 'must be flagged so the member loop uses it directly');
 
 		// Probe with no cwd → fall back to the session file's launch cwd.
-		$noCwd = $this->gy->synthesizeProbedRow('surface:51', 'workspace:3', ['session_id' => $sid, 'cwd' => ''], $byPid, $treeIx);
+		$noCwd = $this->gy->synthesizeProbedRow('surface:51', 'workspace:3', ['session_id' => $sid, 'cwd' => ''], $liveRows, $surface);
 		$this->assertSame('/Users/JT', $noCwd['cwd']);
 
 		// session_id not tracked in any live pid file → cannot synthesize → null.
-		$this->assertNull($this->gy->synthesizeProbedRow('surface:51', 'workspace:3', ['session_id' => 'ghost-sid', 'cwd' => '/x'], $byPid, $treeIx));
+		$this->assertNull($this->gy->synthesizeProbedRow('surface:51', 'workspace:3', ['session_id' => 'ghost-sid', 'cwd' => '/x'], $liveRows, $surface));
 
 		// Empty probe (parser found nothing) → null.
-		$this->assertNull($this->gy->synthesizeProbedRow('surface:51', 'workspace:3', [], $byPid, $treeIx));
+		$this->assertNull($this->gy->synthesizeProbedRow('surface:51', 'workspace:3', [], $liveRows, $surface));
 	}
 
 	public function testPassesPreExportGate(): void

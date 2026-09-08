@@ -44,7 +44,7 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 
 	public function testTreeIndexExposesWorkspaceAndPaneIdsPerSurface(): void
 	{
-		$ix = $this->gy->treeIndex($this->tree());
+		$ix = $this->transport->treeIndex($this->tree());
 
 		$this->assertSame('DDDDDDDD-0000-4000-8000-000000000157', $ix['surface']['surface:157']['id']);
 		$this->assertSame('F62E7243-D094-42CD-A9C5-F23CBFC52CD7', $ix['surface']['surface:157']['workspace_id']);
@@ -55,7 +55,7 @@ final class GraveyardResurrectInPlaceTest extends TestCase
 	public function testTreeIndexKeepsTheWorkspaceTitleLookup(): void
 	{
 		// Pre-existing shape must survive: this map is read as [ref => title].
-		$ix = $this->gy->treeIndex($this->tree());
+		$ix = $this->transport->treeIndex($this->tree());
 		$this->assertSame('dotfiles', $ix['workspace']['workspace:32']);
 	}
 

@@ -108,6 +108,10 @@ final class SessionTransportContractTest extends TestCase
 	{
 		$t = new NullTransport($this->cli);
 		$this->assertSame('', $t->readScreen('s1', 'w1'));
+		$this->assertSame([], $t->surfaces());
+		$this->assertSame([], $t->surfaces('w1'));
+		$this->assertNull($t->sessionIdForPid(1234));
+		$this->assertNull($t->sessionIdForPid(1234, 'codex'));
 		$this->assertNull($t->resolveWorkspace('anything'));
 		$this->assertSame(0, $t->workspaceSurfaceCount('w1'));
 		$this->assertNull($t->paneRefForSurface('w1', 's1'));
@@ -117,8 +121,10 @@ final class SessionTransportContractTest extends TestCase
 
 	/**
 	 * The seam must not grow cmux-shaped methods. Task 3c asserts this exhaustively;
-	 * this is the standing guard for the four worst offenders, which would each force
-	 * every other transport to fabricate a cmux data structure.
+	 * this is the standing guard for the worst offenders, which would each force every
+	 * other transport to fabricate a cmux data structure. The list grows as bury's
+	 * re-seating retires each one: surfaces() is what replaced the tree walk, the
+	 * debug-terminals dump and the surface-UUID map, so none of the three may come back.
 	 */
 	public function test_the_interface_exposes_no_cmux_shaped_method(): void
 	{
@@ -126,8 +132,91 @@ final class SessionTransportContractTest extends TestCase
 			fn(\ReflectionMethod $m) => $m->getName(),
 			(new \ReflectionClass(SessionTransport::class))->getMethods()
 		);
-		foreach (['tree', 'debugTerminals', 'parseDebugTerminals', 'mapSurfaceUuids', 'cmuxBin', 'cmux'] as $leak) {
+		$leaks = [
+			'tree', 'debugTerminals', 'parseDebugTerminals', 'mapSurfaceUuids', 'cmuxBin', 'cmux',
+			'treeIndex', 'joinSessionsToSurfaces', 'joinCodexToSurfaces',
+			'loadClaudeSessionsByPid', 'loadCodexSessionsByPid', 'codexSurfaceIdsByPid',
+			'windowRefExists',
+		];
+		foreach ($leaks as $leak) {
 			$this->assertNotContains($leak, $methods);
 		}
+	}
+
+	/**
+	 * surfaces() is the shape bury classification reads. Its rows must be complete —
+	 * a missing key reads as "not an agent surface" or "no tty", and the surface then
+	 * gets closed as a shell instead of archived (dotfiles-5p5, data loss) — so pin
+	 * the key set the way liveSessions()' is pinned.
+	 */
+	public function test_the_documented_surface_row_keys_are_the_ones_the_walk_emits(): void
+	{
+		$expected = [
+			'position', 'pane_index', 'pane_ref', 'pane_id', 'selected_in_pane',
+			'surface_ref', 'surface_id', 'workspace_ref', 'workspace_title', 'window_ref',
+			'type', 'title', 'url', 'tty', 'cwd', 'script',
+			'session_id', 'agent', 'pid', 'targetable', 'reason',
+		];
+
+		// A cmux whose whole world is one workspace holding one terminal, so the walk
+		// runs for real without shelling out anywhere.
+		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
+			public function tree(): array {
+				return ['windows' => [['ref' => 'window:1', 'workspaces' => [
+					['ref' => 'workspace:2', 'title' => 'boss', 'panes' => [
+						['ref' => 'pane:3', 'id' => 'PANE-UUID', 'index' => 0, 'surfaces' => [
+							['ref' => 'surface:4', 'id' => 'SURF-UUID', 'type' => 'terminal', 'title' => 'zsh'],
+						]],
+					]],
+				]]]];
+			}
+			public function debugTerminals(): string { return ''; }
+			public function psProcTable(): string { return ''; }
+			public function loadClaudeSessionsByPid(): array { return []; }
+			public function loadCodexSessionsByPid(): array { return []; }
+			public function codexSurfaceIdsByPid(): array { return []; }
+		};
+
+		$rows = (new CmuxTransport($this->cli, $cmux))->surfaces();
+		$this->assertCount(1, $rows);
+		$this->assertSame($expected, array_keys($rows[0]));
+		$this->assertSame('surface:4', $rows[0]['surface_ref']);
+		$this->assertSame('workspace:2', $rows[0]['workspace_ref']);
+		$this->assertNull($rows[0]['agent'], 'a plain shell is bound to no agent');
+
+		// Scoping is by workspace ref, and an unknown one yields nothing at all.
+		$this->assertCount(1, (new CmuxTransport($this->cli, $cmux))->surfaces('workspace:2'));
+		$this->assertSame([], (new CmuxTransport($this->cli, $cmux))->surfaces('workspace:99'));
+	}
+
+	/**
+	 * A codex TUI that has not written a rollout yet is still a codex surface. It has
+	 * no session id to report, and reading that as "no agent here" is what closes a
+	 * live session unarchived (dotfiles-5p5).
+	 */
+	public function test_a_zero_turn_codex_still_claims_its_surface(): void
+	{
+		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
+			public function tree(): array {
+				return ['windows' => [['ref' => 'window:1', 'workspaces' => [
+					['ref' => 'workspace:2', 'title' => 'boss', 'panes' => [
+						['ref' => 'pane:3', 'index' => 0, 'surfaces' => [
+							['ref' => 'surface:4', 'id' => 'SURF-UUID', 'type' => 'terminal', 'title' => 'codex'],
+						]],
+					]],
+				]]]];
+			}
+			public function debugTerminals(): string { return ''; }
+			public function psProcTable(): string { return ''; }
+			public function loadClaudeSessionsByPid(): array { return []; }
+			public function loadCodexSessionsByPid(): array { return []; } // no rollout yet
+			public function codexSurfaceIdsByPid(): array { return [4242 => 'SURF-UUID']; }
+		};
+
+		$row = (new CmuxTransport($this->cli, $cmux))->surfaces()[0];
+		$this->assertSame('codex', $row['agent']);
+		$this->assertNull($row['session_id']);
+		$this->assertSame(4242, $row['pid']);
+		$this->assertFalse($row['targetable']);
 	}
 }

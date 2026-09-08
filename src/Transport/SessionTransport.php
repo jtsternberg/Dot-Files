@@ -38,6 +38,42 @@ interface SessionTransport
 	 */
 	public function liveSessions(): array;
 
+	/**
+	 * Every surface the transport hosts, annotated with whatever agent session is
+	 * bound to it. Pass a workspace ref to scope it; null spans all workspaces
+	 * (liveCodexSurfaceRefs needs the unscoped form).
+	 *
+	 * The raw material for bury classification: `position` is the surface's order
+	 * within its pane, and `type` is where transports differ — cmux emits
+	 * 'terminal'|'browser'|'markdown'|…, herdr only ever 'terminal'. Ordered as the
+	 * transport lays the workspace out, because bury numbers a group's members by
+	 * that order and resurrect replays it.
+	 *
+	 * The binding is the transport's DETERMINISTIC one. liveSessions() is the
+	 * authority on membership — it adds artifact enrichment and a screen-scraping
+	 * second pass on top — so bury reads liveSessions() for who to bury and these
+	 * rows for how the workspace is shaped. A row with `agent` set and `session_id`
+	 * null is a live agent the transport can see but has no session for yet (a
+	 * zero-turn codex): still an agent surface, and closing it as a shell is
+	 * data loss (dotfiles-5p5).
+	 *
+	 * `script` is the unique per-surface launch/resume script a transport bridges
+	 * sessions through, or null when it has no such bridge (herdr launches agents
+	 * directly). `cwd` is the surface's own recorded cwd — not the foreground
+	 * process's, which bury re-probes through `tty` while the workspace is alive.
+	 *
+	 * @return list<array{position:int, pane_index:int, pane_ref:?string,
+	 *   pane_id:?string, selected_in_pane:bool, surface_ref:string,
+	 *   surface_id:string, workspace_ref:string, workspace_title:string,
+	 *   window_ref:?string, type:string, title:string, url:?string, tty:?string,
+	 *   cwd:?string, script:?string, session_id:?string, agent:?string, pid:?int,
+	 *   targetable:bool, reason:?string}>
+	 */
+	public function surfaces(?string $workspaceRef = null): array;
+
+	/** The agent session id the transport believes is running on this pid, or null. */
+	public function sessionIdForPid(int $pid, string $agent = 'claude'): ?string;
+
 	// --- drive an existing surface (bury: /export, /status, screen probes) ---
 
 	public function sendText(string $surfaceRef, string $workspaceRef, string $text): void;

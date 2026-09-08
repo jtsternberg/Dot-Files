@@ -29,6 +29,10 @@ final class NullTransport implements SessionTransport
 
 	public function liveSessions(): array { return []; }
 
+	public function surfaces(?string $workspaceRef = null): array { return []; }
+
+	public function sessionIdForPid(int $pid, string $agent = 'claude'): ?string { return null; }
+
 	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string { return ''; }
 
 	/** Same shape Cmux produces for a handle it cannot find in the tree. */
