@@ -17,5 +17,7 @@ description: How to verify changes to this dotfiles repo's PHP CLI scripts (bin/
   `agent-browser screenshot /tmp/out.png` and Read the png. The
   `--allow-file-access` flag is required for file:// URLs. `agent-browser close`
   when done — the daemon lingers otherwise.
-- `bin/graveyard` gates ALL verbs on `cmux ping` at startup — cmux must be
-  running even for store-only reads.
+- `bin/graveyard` needs a session transport for every verb except the store-only
+  ones (`page`, `serve`): it exits with `No session transport is reachable. Is cmux
+  or herdr running?` when NEITHER cmux nor herdr answers. Either one alone is
+  enough, and discovery reads both.

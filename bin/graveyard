@@ -2,7 +2,7 @@
 <?php
 namespace JT;
 # =============================================================================
-# graveyard — demote, browse, and resurrect Claude Code sessions via cmux.
+# graveyard — demote, browse, and resurrect Claude Code sessions via cmux or herdr.
 # By Justin Sternberg <me@jtsternberg.com>
 #
 # Version 0.1.0
@@ -33,7 +33,7 @@ namespace JT;
 # graveyard page [--no-open] [--port=8787] [--stop]   (ensure the loopback server, open the live overview; --no-open just prints the URL; --stop shuts it down)
 # graveyard serve [--port=8787] [--stop]   (quiet alias for `page --no-open`; --stop shuts the server down)
 # graveyard show <id>
-# graveyard resurrect <id|name> [--from-transcript]   (name = workspace/tab title substring; unique match required)
+# graveyard resurrect <id|name> [--from-transcript] [--transport=<cmux|herdr>]   (name = workspace/tab title substring; unique match required)
 # =============================================================================
 
 $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
@@ -41,7 +41,7 @@ $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 $helpyHelperton = $cli->getHelp();
 $helpyHelperton
 	->setScriptName('graveyard')
-	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux.')
+	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux or herdr.')
 	->setSampleUsage('<bury|ls|search|show|rename|delete|resurrect|page> [args]')
 	->buildDocs([
 		'bury' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection',
@@ -66,6 +66,7 @@ $helpyHelperton
 		'delete --workspace|-ws <group>' => 'PERMANENTLY delete a whole workspace group — every member session plus the manifest. Confirms unless -y.',
 		'resurrect --workspace|-ws <group>' => 'Rebuild a buried workspace from its manifest (tab order + cwds/urls) and resurrect each member session into position (resume-first)',
 		'--from-transcript'  => 'Force resurrect to re-read the exported transcript instead of --resume, even if the JSONL still exists',
+		'--transport=<cmux|herdr>' => 'Which multiplexer a `resurrect` recreates into. Discovery (ls/candidates/search/page) always reads BOTH, and bury drives whichever transport reported the session, so this flag only picks the target for a NEW workspace. Default: the only reachable transport, or cmux when both are up. herdr hosts terminals only — a grouped restore into it drops browser/markdown surfaces, splits a stacked pane into separate panes, and loses split ratios, so it names what it will lose and asks first (-y accepts).',
 		'repair [--apply]' => 'Backfill stored config (skip_perms/model) for already-buried sessions from their surviving JSONL — fixes false-negatives recorded when the JSONL was missing at burial. Dry-run by default; --apply writes the corrections to both the index and per-session meta.json.',
 		'env: GRAVEYARD_ROOT' => 'Where the store lives (default ~/.claude-graveyard).',
 		'env: GRAVEYARD_EXPORT_BIN' => 'Path to export-session.mjs, which bury uses to archive transcripts by reading the session JSONL directly (works on dead sessions, ~100ms, appends no turn to the target). Auto-detected; set it to point at a specific copy. Set it to "off" to archive the old way instead: typing /export into the live REPL, which is slower and needs the session alive, but writes Claude Code\'s own TUI-rendered text. The two renderers name their output differently — transcript.md for the binary, transcript.txt for /export — and every reader resolves either.',
@@ -81,12 +82,28 @@ $sub = $cli->getArg(1);
 // Store-only verbs never touch a live cmux session — don't gate them on it.
 $storeOnlyVerbs = ['page', 'serve'];
 
-$transport = new Transport\CmuxTransport($cli, new Helpers\Cmux($cli));
-if (!in_array($sub, $storeOnlyVerbs, true) && !$transport->available()) {
-	$cli->exitErr('cmux is not reachable. Is cmux running?');
+// Discovery reads the UNION of whatever is reachable, so a session is found wherever
+// it lives and each row carries its own transport — which is why bury needs no flag.
+// Creates (resurrect) need a target that does not exist yet, so they take --transport,
+// else the only reachable transport, else cmux.
+$registry = new Transport\TransportRegistry($cli, [
+	new Transport\CmuxTransport($cli, new Helpers\Cmux($cli)),
+	new Transport\HerdrTransport($cli, new Helpers\Herdr($cli)),
+]);
+
+try {
+	$primary = $registry->primary($cli->hasFlag('transport') ? (string) $cli->getFlag('transport') : null);
+} catch (\RuntimeException $e) {
+	$cli->exitErr($e->getMessage());
 }
 
-$gy  = new Graveyard($cli, $transport);
+if (!in_array($sub, $storeOnlyVerbs, true) && !$primary) {
+	$cli->exitErr('No session transport is reachable. Is cmux or herdr running?');
+}
+
+// Store-only verbs run with nothing reachable, and must still get a transport they
+// cannot drive rather than a null.
+$gy  = new Graveyard($cli, $primary ?: new Transport\NullTransport($cli), null, $registry);
 
 // Cmux::tree() throws (not exit()s) when cmux is unreachable/unparseable — process-exit
 // plumbing belongs here at the entry seam, not inside the shelling seam (dotfiles-3qa).

@@ -32,12 +32,18 @@ final class GraveyardJsonTest extends TestCase
 		// A claude row with no explicit agent still reports itself as claude/buryable.
 		$this->assertSame('claude', $j[0]['agent']);
 		$this->assertTrue($j[0]['buryable']);
+		// A row from before the transport union still reports itself as cmux-hosted,
+		// so an agent reading this never sees an empty transport.
+		$this->assertSame('cmux', $j[0]['transport']);
 		// Stable key set so agents can rely on it. `agent` and `buryable` were added
 		// when graveyard learned to DISCOVER codex sessions without being able to
 		// bury them (dotfiles-nvf) — a consumer that offers a bury needs to know
-		// which rows would be refused. Additive; every pre-existing key kept.
+		// which rows would be refused. `transport` was added when discovery became a
+		// union over cmux + herdr, for the same reason the text view marks it: a
+		// consumer needs to know where the session actually is. Additive; every
+		// pre-existing key kept.
 		$this->assertSame(
-			['session_id', 'agent', 'idle_seconds', 'busy', 'buryable', 'targetable', 'reason', 'workspace_title', 'tab_title', 'cwd'],
+			['session_id', 'agent', 'transport', 'idle_seconds', 'busy', 'buryable', 'targetable', 'reason', 'workspace_title', 'tab_title', 'cwd'],
 			array_keys($j[0])
 		);
 	}

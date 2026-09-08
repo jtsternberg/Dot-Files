@@ -15,9 +15,12 @@ allowed-tools: [Bash, Read]
 
 `graveyard` (`bin/graveyard` here) buries idle Claude Code and Codex sessions to
 `~/.claude-graveyard/` — freeing RAM while keeping a rendered transcript +
-metadata — then lists, searches, and resurrects them. cmux must be running for
-the live-session verbs (`bury`, `candidates`, `peek`); browsing/resurrecting
-buried sessions works regardless.
+metadata — then lists, searches, and resurrects them.
+
+It drives **two multiplexers**: cmux and herdr. Either one being up is enough for
+the live-session verbs (`bury`, `candidates`, `peek`) — they fail only when
+neither answers (`No session transport is reachable. Is cmux or herdr running?`).
+Browsing buried sessions (`ls`, `search`, `page`, `show`) works regardless.
 
 JT asks for this conversationally — *"any good candidates worth burying?"*,
 *"look in the graveyard for the ollama session,"* *"resurrect the tailscale
@@ -28,6 +31,22 @@ truth (don't mirror the command list here — it bitrots). Run
 Every verb has a machine-readable mode (`--json` on `ls`, `candidates`,
 `search`), so prefer flags over scraping human output when you need to filter
 or rank.
+
+## Both multiplexers, one list
+
+Discovery is a **union**: `candidates`, `ls`, `search` and `page` see sessions
+under cmux AND herdr in one list, and every row says which hosts it — a
+`[herdr]` tag on the text line (cmux is unmarked, as the incumbent), and a
+`transport` field in `candidates --json`. `bury` needs no flag: it drives
+whichever transport reported the session.
+
+Only `resurrect` takes `--transport=<cmux|herdr>`, because a restore creates a
+workspace that does not exist yet. Default: the only reachable transport, or
+cmux when both are up. **herdr hosts terminals only**, so a grouped restore into
+it drops browser/markdown surfaces entirely, splits a stacked cmux pane into
+separate panes, and loses split ratios and nested orientation. It names exactly
+what it will lose and asks first (`-y` accepts; with no tty and no `-y` it
+refuses rather than dropping surfaces silently).
 
 ## The four things JT asks for
 
@@ -82,5 +101,6 @@ workspace/tab title substring; a unique match resumes in place. If it's
 ambiguous the CLI lists the candidates — pick with him (or narrow the phrase),
 never guess. `graveyard resurrect --workspace <group>` for a whole buried
 workspace; `graveyard ls` prints each group's exact `resurrect --workspace`
-line. Resurrecting rebuilds a cmux workspace and resumes the recorded agent, so
-confirm before running it.
+line. Resurrecting rebuilds a workspace in the target multiplexer and resumes
+the recorded agent, so confirm before running it — and if the target is herdr,
+read out the losses it prints before accepting them.

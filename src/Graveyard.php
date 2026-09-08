@@ -28,8 +28,23 @@ class Graveyard {
 
 	protected $cli;
 
-	/** The multiplexer graveyard discovers, drives and restores sessions through. */
+	/**
+	 * The multiplexer a CREATE lands in — resurrect's target, and the default drive
+	 * target for anything not carrying a row of its own. Chosen at the entry seam
+	 * (--transport, else the only reachable one, else cmux).
+	 */
 	protected Transport\SessionTransport $transport;
+
+	/**
+	 * Every transport graveyard can see, or null when there is only $transport.
+	 *
+	 * Discovery reads the UNION through this (liveSessions()), and a live row routes
+	 * back to its own transport through it (transportForRow()). Null is the page
+	 * server's shape and every test that constructs a Graveyard with one transport:
+	 * behavior is then exactly single-transport, which is what keeps a cmux-only
+	 * install's output byte-identical.
+	 */
+	protected ?Transport\TransportRegistry $registry;
 
 	/** Claude/Codex on-disk artifacts + argv semantics. Transport-free by design. */
 	protected Helpers\AgentArtifacts $artifacts;
@@ -51,11 +66,17 @@ class Graveyard {
 	 */
 	protected ?Helpers\CodexRollout $codexRollout = null;
 
-	public function __construct($cli, Transport\SessionTransport $transport, ?Helpers\AgentArtifacts $artifacts = null) {
+	public function __construct(
+		$cli,
+		Transport\SessionTransport $transport,
+		?Helpers\AgentArtifacts $artifacts = null,
+		?Transport\TransportRegistry $registry = null
+	) {
 		$this->cli       = $cli;
 		$this->transport = $transport;
 		$this->artifacts = $artifacts ?: new Helpers\AgentArtifacts($cli);
 		$this->proc      = $this->artifacts->proc();
+		$this->registry  = $registry;
 	}
 
 	public function storeRoot(): string {
@@ -613,7 +634,103 @@ class Graveyard {
 	 * this method — never at a call site.
 	 */
 	public function liveSessions(): array {
-		return $this->transport->liveSessions();
+		return $this->registry ? $this->registry->liveSessions() : $this->transport->liveSessions();
+	}
+
+	/**
+	 * The transport that HOSTS a live row, which is not always the primary one.
+	 *
+	 * Discovery is a union, so a row handed to bury may belong to either multiplexer —
+	 * and its `surface_ref`/`workspace_ref` are only meaningful to the one that
+	 * produced it. Driving the wrong transport with them does not fail cleanly: a
+	 * matching ref there names a DIFFERENT pane, so `/export` would be typed into
+	 * somebody else's REPL. That is why every row carries its transport, and why bury
+	 * needs no flag.
+	 *
+	 * A row naming no transport predates the union (a fixture, or a caller that built
+	 * the row itself) and belongs to the primary.
+	 */
+	protected function transportForRow(array $row): Transport\SessionTransport {
+		if (!$this->registry || ($row['transport'] ?? '') === '') { return $this->transport; }
+		return $this->registry->forRow($row);
+	}
+
+	/**
+	 * Run $fn with the row's own transport bound as the drive target.
+	 *
+	 * Bury reaches the transport through a dozen small helpers that take refs rather
+	 * than rows (sendExportCommand, readLastScreen, closeSurfaceOrWorkspace…). Binding
+	 * once at the top of the bury of a single session routes all of them together,
+	 * rather than threading a transport argument through every one and leaving the next
+	 * helper to be the one that forgets.
+	 */
+	protected function driveRow(array $row, callable $fn) {
+		return $this->driveVia($this->transportForRow($row), $fn);
+	}
+
+	/** @see driveRow() — same binding, for a target resolved by handle rather than by row. */
+	protected function driveVia(Transport\SessionTransport $transport, callable $fn) {
+		$previous        = $this->transport;
+		$this->transport = $transport;
+		try {
+			return $fn();
+		} finally {
+			$this->transport = $previous;
+		}
+	}
+
+	/**
+	 * Where to look for a target named by a handle rather than carried on a row — a
+	 * workspace title, a pane ref. Primary first, then the rest of the union.
+	 *
+	 * With one transport this is a one-element list, so every lookup below behaves
+	 * exactly as it did before the union existed.
+	 *
+	 * @return list<Transport\SessionTransport>
+	 */
+	protected function searchTransports(): array {
+		if (!$this->registry) { return [$this->transport]; }
+		$out = [$this->transport];
+		foreach ($this->registry->available() as $t) {
+			if ($t !== $this->transport) { $out[] = $t; }
+		}
+		return $out;
+	}
+
+	/**
+	 * Resolve a workspace name/ref against every transport, and say which one has it.
+	 *
+	 * A handle is only meaningful to its own transport, so the answer must name one:
+	 * `['transport' => …, 'info' => resolveWorkspace()'s array]`, or null for no match.
+	 * Two transports both matching a title is a genuine ambiguity — burying the wrong
+	 * workspace closes real surfaces — so it is refused, not guessed. An ambiguity
+	 * *within* one transport surfaces as its own RuntimeException, and is only
+	 * re-thrown when nothing else matched: a clean hit elsewhere is the better answer.
+	 */
+	protected function resolveWorkspaceAcrossTransports(string $nameOrRef): ?array {
+		$hits  = [];
+		$error = null;
+		foreach ($this->searchTransports() as $t) {
+			try {
+				$info = $t->resolveWorkspace($nameOrRef);
+			} catch (\RuntimeException $e) {
+				$error = $error ?: $e;
+				continue;
+			}
+			if ($info) { $hits[] = ['transport' => $t, 'info' => $info]; }
+		}
+
+		if (count($hits) === 1) { return $hits[0]; }
+		if (count($hits) > 1) {
+			throw new \RuntimeException(sprintf(
+				"Ambiguous workspace '%s' — matches under %s. Pass the %s ref instead.",
+				$nameOrRef,
+				implode(' and ', array_map(fn($h) => $h['transport']->name(), $hits)),
+				$hits[0]['transport']->name()
+			));
+		}
+		if ($error) { throw $error; }
+		return null;
 	}
 
 	/** @see Helpers\AgentArtifacts::dedupBySessionId() — a row-shape helper every transport needs. */
@@ -1184,10 +1301,12 @@ class Graveyard {
 	 * working after the session is gone — which is the whole point of archiving it.
 	 */
 	public function codexRolloutReadPath(string $sessionId): string {
-		// Live-first is transport-free: the rollout lookup is an on-disk artifact read, so
-		// the page server takes the same path the CLI does and falls through to the archive
-		// when the session's rollout is gone. (Before the transport seam, NullCmux stubbed
-		// this to null and the page server never looked at the live file at all.)
+		// Live-first is the CLI's answer, and only the CLI's: the page server is built with
+		// Helpers\NullAgentArtifacts, whose codexRolloutPathFor() is null, so a request
+		// handler always falls through to the archive even while the session is running
+		// (dotfiles-dnc). NullCmux used to stub the artifact reads along with the cmux
+		// ones; the transport seam split them, and the null reader is what puts that
+		// guarantee back on a class instead of on a coincidence.
 		$live = $this->artifacts->codexRolloutPathFor($sessionId);
 		if ($live !== null && is_file($live)) { return $live; }
 		$archived = $this->codexRolloutArchivePath($sessionId);
@@ -1439,7 +1558,18 @@ class Graveyard {
 		}
 	}
 
+	/**
+	 * Bury one live session, driving the transport that reported it.
+	 *
+	 * The routing lives here rather than inside the gates because everything below
+	 * this point — the screen reads, the /export, the teardown — has to reach the SAME
+	 * multiplexer, and a row's refs mean nothing to any other one.
+	 */
 	public function buryOne(array $sess, bool $force, bool $autoConfirm, ?array $group = null, bool $deferClose = false): bool {
+		return $this->driveRow($sess, fn() => $this->buryOneVia($sess, $force, $autoConfirm, $group, $deferClose));
+	}
+
+	protected function buryOneVia(array $sess, bool $force, bool $autoConfirm, ?array $group = null, bool $deferClose = false): bool {
 		$id      = substr((string) $sess['session_id'], 0, 8);
 		$idFloor = self::IDLE_FLOOR_DEFAULT;
 
@@ -2001,9 +2131,21 @@ class Graveyard {
 	 * the rest of the parent workspace stays alive.
 	 */
 	public function buryPane(string $paneRefOrId, bool $force, bool $autoConfirm): void {
-		$loc = $this->findPaneSurfaces($this->transport->surfaces(), $paneRefOrId);
+		// A pane ref belongs to one transport, so look in each until one owns it, then
+		// stay bound to that one for the rest of the bury.
+		$loc  = null;
+		$host = $this->transport;
+		foreach ($this->searchTransports() as $t) {
+			$loc = $this->findPaneSurfaces($t->surfaces(), $paneRefOrId);
+			if ($loc) { $host = $t; break; }
+		}
 		if (!$loc) { $this->cli->exitErr("No live pane matches '{$paneRefOrId}'."); return; }
 
+		$this->driveVia($host, fn() => $this->buryPaneAt($loc, $paneRefOrId, $force, $autoConfirm));
+	}
+
+	/** @see buryPane() — the pane's own transport is already bound when this runs. */
+	protected function buryPaneAt(array $loc, string $paneRefOrId, bool $force, bool $autoConfirm): void {
 		$cls = $this->buildBuryClassification($loc['surfaces'], $loc['ws_ref'], $loc['ws_title']);
 		$decision = $this->paneBuryDecision($cls);
 
@@ -2056,24 +2198,29 @@ class Graveyard {
 		}
 
 		try {
-			$wsInfo = $this->transport->resolveWorkspace($nameOrRef);
+			$hit = $this->resolveWorkspaceAcrossTransports($nameOrRef);
 		} catch (\RuntimeException $e) {
 			$this->cli->exitErr($e->getMessage());
 			return;
 		}
-		if (!$wsInfo) { $this->cli->exitErr("No workspace matches '{$nameOrRef}'."); return; }
+		if (!$hit) { $this->cli->exitErr("No workspace matches '{$nameOrRef}'."); return; }
 
+		$wsInfo  = $hit['info'];
 		$wsRef   = $wsInfo['ref'];
 		$wsTitle = $wsInfo['title'];
 
-		$cls = $this->buildBuryClassification($this->transport->surfaces($wsRef), $wsRef, $wsTitle);
+		// Bound for the whole bury: classification, the /export typing and the close all
+		// have to reach the transport this workspace actually lives in.
+		$this->driveVia($hit['transport'], function () use ($wsRef, $wsTitle, $wsInfo, $force, $autoConfirm) {
+			$cls = $this->buildBuryClassification($this->transport->surfaces($wsRef), $wsRef, $wsTitle);
 
-		$this->buryClassifiedAsGroup($cls, $wsRef, $wsTitle, (string) ($wsInfo['window_ref'] ?? ''), $force, $autoConfirm, [
-			'label'             => 'workspace',
-			'captureLayoutTree' => true,
-			'close'             => 'workspace',
-			'rerun'             => 'graveyard bury -ws ' . escapeshellarg($wsTitle),
-		]);
+			$this->buryClassifiedAsGroup($cls, $wsRef, $wsTitle, (string) ($wsInfo['window_ref'] ?? ''), $force, $autoConfirm, [
+				'label'             => 'workspace',
+				'captureLayoutTree' => true,
+				'close'             => 'workspace',
+				'rerun'             => 'graveyard bury -ws ' . escapeshellarg($wsTitle),
+			]);
+		});
 	}
 
 	/**
@@ -3928,6 +4075,14 @@ class Graveyard {
 			if (!empty($t['group_id']) && $t['group_id'] === $m['group_id']) { $tombBySid[$t['session_id']] = $t; }
 		}
 
+		// A transport that hosts terminals only cannot reproduce everything a cmux bury
+		// recorded. Say exactly what is about to be given up, by name, before creating
+		// anything — a half-restore is worse than a refused one.
+		if (!$this->confirmDegradedRestore($this->degradedRestoreWarnings($layout, $m, $this->transport))) {
+			$this->cli->msg('  Restore aborted — nothing was created.', 'yellow');
+			return;
+		}
+
 		$title    = $m['group_title'] ?: 'resurrected';
 		$firstCwd = $layout[0]['cwd'] ?? null;
 		$targetWin = $this->resolveTargetWindow($m['window_ref'] ?? null);
@@ -3968,6 +4123,69 @@ class Graveyard {
 		}
 
 		$this->resurrectWorkspaceManual($m, $layout, $tombBySid, $fromTranscript, $targetWin);
+	}
+
+	/**
+	 * PURE. Everything a restore into $transport cannot bring back from this manifest,
+	 * as the lines a confirm shows. Empty means nothing is lost, so nothing is asked.
+	 *
+	 * Named, not counted: "3 surfaces will be dropped" is not a decision anyone can
+	 * make, whereas "[browser] PR #2393" is. And the loss under herdr is wider than
+	 * surface types, which is the other half of why this is a list rather than a flag —
+	 * a stacked pane comes back as several panes, the geometry does not come back at
+	 * all, and the workspace cannot land in the tab it was buried from.
+	 */
+	public function degradedRestoreWarnings(array $layout, array $manifest, Transport\SessionTransport $transport): array {
+		if ($transport->supportsNonTerminalSurfaces()) { return []; }
+
+		$name    = $transport->name();
+		$dropped = [];
+		$byPane  = [];
+		foreach ($layout as $e) {
+			$type = (string) ($e['type'] ?? 'terminal');
+			$byPane[(int) ($e['pane_index'] ?? 0)][] = $e;
+			if ($type === 'terminal') { continue; }
+			$title     = trim((string) ($e['title'] ?? ''));
+			$dropped[] = sprintf('    - [%s] %s', $type, $title !== '' ? $title : '(untitled)');
+		}
+
+		$lines = [];
+		if ($dropped) {
+			$lines[] = "  {$name} hosts terminals only. These surfaces will NOT be restored:";
+			foreach ($dropped as $line) { $lines[] = $line; }
+		}
+		foreach ($byPane as $idx => $entries) {
+			if (count($entries) < 2) { continue; }
+			$lines[] = sprintf(
+				'  Pane %d held %d stacked tabs — %s has no tab stack, so they return as %d separate panes.',
+				$idx + 1, count($entries), $name, count($entries)
+			);
+		}
+		if (count($byPane) > 1) {
+			$lines[] = "  Split ratios and nested orientation are lost — {$name} restores the panes and their order, not the geometry.";
+		}
+		if ((string) ($manifest['window_ref'] ?? '') !== '') {
+			$lines[] = "  A new {$name} workspace cannot be aimed at a tab, so this will not land in the tab it was buried from.";
+		}
+		return $lines;
+	}
+
+	/**
+	 * I/O. Show the losses and get a yes. True when there is nothing to warn about.
+	 *
+	 * With no tty and no -y the answer is NO. There is no one to ask, and proceeding
+	 * would drop named surfaces silently — the exact outcome the prompt exists to
+	 * prevent — so a scripted restore has to accept the losses explicitly with -y.
+	 */
+	protected function confirmDegradedRestore(array $warnings): bool {
+		if (!$warnings) { return true; }
+		foreach ($warnings as $line) { $this->cli->msg($line, 'yellow'); }
+		if ($this->cli->isAutoconfirm()) { return true; }
+		if (!$this->cli->isInteractive()) {
+			$this->cli->err('  Nothing here can answer a prompt — re-run with -y to accept the losses above.');
+			return false;
+		}
+		return $this->cli->confirm('  Restore the terminals anyway?');
 	}
 
 	/**
@@ -4224,10 +4442,13 @@ class Graveyard {
 
 		$out = [];
 		foreach ($rows as $r) {
+			// The busy probe is a screen read, so it goes to the transport that reported
+			// the row — a herdr pane ref means nothing to cmux, and the wrong screen
+			// would answer "busy?" about somebody else's session.
 			$busy = $this->isBusy(
 				(int) $r['idle_seconds'],
 				self::IDLE_FLOOR_DEFAULT,
-				$this->readLastScreen($r['surface_ref'], $r['workspace_ref'])
+				$this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref']))
 			);
 			$out[] = $this->candidateRowFor($r, $busy);
 		}
@@ -4247,6 +4468,9 @@ class Graveyard {
 		return [
 			'session_id'      => $r['session_id'],
 			'agent'           => $agent,
+			// Carried, not re-derived: a candidate row is a view of a union row, and both
+			// the [herdr] tag and the --json field read where the session lives from here.
+			'transport'       => $r['transport'] ?? 'cmux',
 			'idle_seconds'    => $r['idle_seconds'],
 			'cwd'             => $r['cwd'],
 			'workspace_title' => $r['workspace_title'],
@@ -4295,6 +4519,9 @@ class Graveyard {
 		return array_map(fn($r) => [
 			'session_id'      => $r['session_id'] ?? '',
 			'agent'           => $r['agent'] ?? 'claude',
+			// Which multiplexer hosts it. An agent reading this needs it for the same
+			// reason the text view marks it: it says where the session actually is.
+			'transport'       => $r['transport'] ?? 'cmux',
 			'idle_seconds'    => (int) ($r['idle_seconds'] ?? 0),
 			'busy'            => (bool) ($r['busy'] ?? false),
 			'buryable'        => (bool) ($r['buryable'] ?? (($r['agent'] ?? 'claude') === 'claude')),
@@ -4361,6 +4588,12 @@ class Graveyard {
 		// trial. Claude stays unmarked — it's the overwhelming majority.
 		$agent = $r['agent'] ?? 'claude';
 		if ($agent !== 'claude') { $title = "[{$agent}] {$title}"; }
+		// Same convention, for the same reason, one level out: discovery is a union now,
+		// so a row can be hosted by either multiplexer and where it lives decides where
+		// you go look at it. cmux stays unmarked as the incumbent — which is also what
+		// keeps a cmux-only install's output exactly what it was.
+		$transport = (string) ($r['transport'] ?? 'cmux');
+		if ($transport !== '' && $transport !== 'cmux') { $title = "[{$transport}] {$title}"; }
 		$left = sprintf('%s  %-4s %-4s', $id, $idle, $state);
 
 		$avail = $width - mb_strlen($left) - 2 - mb_strlen($flag);
@@ -4524,7 +4757,7 @@ class Graveyard {
 					continue;
 				}
 				$r = $cands[$idx];
-				$this->cli->msg($this->readLastScreen($r['surface_ref'], $r['workspace_ref'], 40));
+				$this->cli->msg($this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref'], 40)));
 				continue;
 			}
 			$indices = $this->parseReplSelection($line, count($cands));
@@ -4575,7 +4808,7 @@ class Graveyard {
 			$s['model'] ?: '(unknown)',
 			$this->idleHuman((int) $s['idle_seconds'])
 		);
-		echo $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40);
+		echo $this->driveRow($s, fn() => $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40));
 	}
 
 	/**

@@ -128,6 +128,7 @@ _graveyard() {
 						'(-h --help)'{-h,--help}'[display help]' \
 						'(-ws --workspace)'{-ws,--workspace}'[resurrect a buried workspace]:workspace group:' \
 						'--from-transcript[restart from the archived transcript instead of resuming]' \
+						'--transport=[multiplexer to recreate into]:transport:(cmux herdr)' \
 						'1:buried session id or name:'
 					;;
 				repair)

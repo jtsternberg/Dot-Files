@@ -20,7 +20,11 @@ $cli = require_once dirname(__DIR__) . '/src/bootstrap.php';
 
 $path   = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
-$gy     = new Graveyard($cli, new Transport\NullTransport($cli));
+// No transport AND no live artifact reads: the served page renders the archive only.
+// Both halves are needed — NullTransport says nothing is live, but a real
+// AgentArtifacts beside it still reads ~/.claude and ~/.codex, and
+// Graveyard::codexRolloutReadPath() prefers a live rollout (dotfiles-dnc).
+$gy     = new Graveyard($cli, new Transport\NullTransport($cli), new Helpers\NullAgentArtifacts($cli));
 
 // JSON API — live rename/delete, shared core with the CLI verbs.
 if (strpos($path, '/api/') === 0) {
