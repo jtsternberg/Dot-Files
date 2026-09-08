@@ -82,7 +82,7 @@ if ($helpyHelperton->batSignal) {
 $sub = $cli->getArg(1);
 
 // Store-only verbs never touch a live cmux session — don't gate them on it.
-$storeOnlyVerbs = ['page', 'serve', 'note'];
+$storeOnlyVerbs = ['page', 'serve', 'note', 'show', 'rename'];
 
 // Discovery reads the UNION of whatever is reachable, so a session is found wherever
 // it lives and each row carries its own transport — which is why bury needs no flag.

@@ -269,4 +269,35 @@ final class GraveyardNoteTest extends TestCase
 		$gp = $gy->ensureGroupNote('offgrp');
 		$this->assertSame("# Offline Plot\n\n", file_get_contents($gp));
 	}
+
+	// --- Test 9: show + rename are store-only too (JT's consistency call) ---
+
+	public function testShowAndRenameCoreLogicRunWithNoTransport(): void
+	{
+		// Same store-only guarantee as `note`: show/rename annotate, retitle, or open a
+		// buried session purely from the store — resolve + a file/index write — with the
+		// editor launch (show) living in bin/graveyard's untestable seam. So all three
+		// belong in $storeOnlyVerbs and must run with cmux down. NullTransport's surface
+		// ops THROW, so any accidental transport hop here fails loudly instead of passing.
+		$transport = new \JT\Transport\NullTransport($this->cli);
+		$this->assertFalse($transport->available(), 'NullTransport models cmux being down');
+		$gy = new Graveyard($this->cli, $transport);
+
+		// show — the store half (resolve + ensureTranscript); the editor launch is bin-only.
+		$gy->upsertIndex($this->tomb('showme00-full', 'open me offline'));
+		$res = $gy->resolveTombstoneFuzzy('showme00');
+		$this->assertNotNull($res['match']);
+		$this->assertSame($gy->transcriptPath('showme00-full'), $gy->ensureTranscript($res['match']));
+
+		// rename session — resolve + setSessionName, all store-side.
+		$gy->renameSession('showme00', 'Renamed offline');
+		$this->assertSame('Renamed offline', $gy->sessionMeta('showme00-full')['name']);
+
+		// rename group — resolve + setGroupName.
+		$gid = 'renamegrp-uuid';
+		$gy->upsertIndex($this->tomb('rg111111-full', 'g', $gid, 'Old Plot', 0));
+		$this->seedGroup($gid, 'Old Plot');
+		$gy->renameGroup($gid, 'New Plot Name');
+		$this->assertSame('New Plot Name', $gy->resolveGroup($gid)['group_title']);
+	}
 }
