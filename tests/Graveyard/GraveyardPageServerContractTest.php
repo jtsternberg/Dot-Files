@@ -214,4 +214,25 @@ final class GraveyardPageServerContractTest extends TestCase
 		$this->assertSame(200, $res['status']);
 		$this->assertNull($gy->sessionMeta(self::CLAUDE_ID));
 	}
+
+	/**
+	 * The note channel is a sibling of the transcript channel: the router serves
+	 * /page-data/<key>.note.js from renderNoteJs(), null → 404. Exercised in the
+	 * router's cmux-free shape, same as the transcript payload above.
+	 */
+	public function testNotePayloadRendersWithoutCmuxAndNullsWhenAbsent(): void
+	{
+		$gy = $this->routerGraveyard();
+		$this->seedStore($gy);
+
+		$this->assertNull($gy->renderNoteJs(self::CLAUDE_ID)); // no note yet → router 404s
+
+		$path = $gy->noteSessionPath(self::CLAUDE_ID);
+		@mkdir(dirname($path), 0777, true);
+		file_put_contents($path, "# hi\n\nsome context\n");
+
+		$js = $gy->renderNoteJs(self::CLAUDE_ID);
+		$this->assertNotNull($js);
+		$this->assertStringContainsString('some context', $js);
+	}
 }

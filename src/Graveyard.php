@@ -211,6 +211,12 @@ class Graveyard {
 	public function pageDataDir(): string { return $this->storeRoot() . '/page-data'; }
 	public function transcriptJsPath(string $id): string { return $this->pageDataDir() . "/{$id}.js"; }
 
+	// Human NOTES.md (graveyard note): free-form markdown context the human attaches to a
+	// buried session/plot, rendered in the modal. It lives INSIDE the target's own dir, so
+	// delete/purge (which rmrf that dir) carry it out with no extra cleanup — pinned by test.
+	public function noteSessionPath(string $id): string { return $this->sessionDir($id) . '/NOTES.md'; }
+	public function noteGroupPath(string $gid): string { return $this->workspaceGroupDir($gid) . '/NOTES.md'; }
+
 	public function parseDuration(string $s): int {
 		if (!preg_match('/^(\d+)([smhd]?)$/', trim($s), $m)) {
 			throw new \InvalidArgumentException("Invalid duration: {$s}");
@@ -329,6 +335,98 @@ class Graveyard {
 		$n = $this->setGroupName((string) $m['group_id'], $name);
 		$this->cli->successMsg('Renamed workspace ' . substr((string) $m['group_id'], 0, 8)
 			. " ({$n} session" . ($n === 1 ? '' : 's') . ") → \"{$name}\".");
+	}
+
+	/**
+	 * Verb logic (testable half). Resolve a buried SESSION fuzzily, create its
+	 * sessions/<id>/NOTES.md if absent — seeded with a single `# <title>` heading so a
+	 * brand-new note isn't blank in the modal — and return the absolute path. Pure of
+	 * editor/HTTP I/O: bin/graveyard owns the editor launch (the untestable seam),
+	 * mirroring showTombstone. Ambiguous/no-match errors copy rename's block verbatim.
+	 */
+	public function ensureSessionNote(string $ref): string {
+		$res = $this->resolveTombstoneFuzzy($ref);
+		$t   = $res['match'];
+		if (!$t) {
+			if ($res['ambiguous']) { $this->cli->exitErr("'{$ref}' is ambiguous — narrow it or pass a full session-id."); }
+			$this->cli->exitErr("No buried session matches '{$ref}'.");
+		}
+		return $this->ensureNoteFile($this->noteSessionPath((string) $t['session_id']), $this->titleizeSummary($t));
+	}
+
+	/**
+	 * Verb logic (testable half). Same as ensureSessionNote for a whole PLOT: resolve the
+	 * workspace group by id prefix, create workspaces/<gid>/NOTES.md if absent, return the
+	 * path. Mirrors renameGroup's resolution + not-found error.
+	 */
+	public function ensureGroupNote(string $prefix): string {
+		$m = $this->resolveGroup($prefix);
+		if (!$m) { $this->cli->exitErr("No single workspace group matches '{$prefix}'."); }
+		$gid   = (string) $m['group_id'];
+		$title = trim((string) ($m['group_title'] ?? '')) ?: substr($gid, 0, 8);
+		return $this->ensureNoteFile($this->noteGroupPath($gid), $title);
+	}
+
+	/** I/O. Create the note's parent dir + a seeded NOTES.md if absent; return the path. */
+	protected function ensureNoteFile(string $path, string $title): string {
+		$dir = dirname($path);
+		if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+		if (!is_file($path)) { @file_put_contents($path, '# ' . $title . "\n\n"); }
+		return $path;
+	}
+
+	# =========================================================================
+	# note rendering (design 2026-09-08): NOTES.md → HTML in the modal, via its
+	# own page-data channel (window.GYN), parallel to the transcript's GYT.
+	# =========================================================================
+
+	/**
+	 * PURE. Render a NOTES.md string to sanitized HTML with league/commonmark. The single
+	 * place markdown becomes HTML for a note. Configured safe: raw HTML in the note is
+	 * STRIPPED (html_input=>strip) — nothing the author typed as a tag survives — unsafe
+	 * link schemes are dropped (allow_unsafe_links=>false), and the Autolink extension turns
+	 * a bare Slack/issue URL into a real link. That server-side strip is precisely what lets
+	 * the modal assign the result via innerHTML (the one place it does; see the sink comment
+	 * in graveyard-page.html and TuiTranscript.php's note on why transcripts stay textContent).
+	 */
+	public function renderNoteHtml(string $md): string {
+		$env = new \League\CommonMark\Environment\Environment([
+			'html_input'         => 'strip',
+			'allow_unsafe_links' => false,
+		]);
+		$env->addExtension(new \League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension());
+		$env->addExtension(new \League\CommonMark\Extension\Autolink\AutolinkExtension());
+		return (new \League\CommonMark\MarkdownConverter($env))->convert($md)->getContent();
+	}
+
+	/**
+	 * I/O read-only. The note payload for one page-data key, or null when there is none
+	 * (router → 404). The route key is a session_id for a stone and a group_id for a plot;
+	 * both are UUIDs, indistinguishable by shape, so check the session path first, then the
+	 * group path (a session dir and a workspace dir live under different roots and can never
+	 * collide on the same UUID, so first-match is safe).
+	 */
+	public function renderNoteJs(string $key): ?string {
+		if ($key === '') { return null; }
+		$sp = $this->noteSessionPath($key);
+		$gp = $this->noteGroupPath($key);
+		$path = is_file($sp) ? $sp : (is_file($gp) ? $gp : null);
+		if ($path === null) { return null; }
+		return $this->pageNoteJs($key, $this->renderNoteHtml((string) file_get_contents($path)));
+	}
+
+	/**
+	 * PURE. A rendered note as an injectable page-data JS file: assigns window.GYN[key].
+	 * Same escaping the transcript payload uses — JSON_HEX_TAG so a note containing
+	 * "</script>" can't break out of the block, INVALID_UTF8_SUBSTITUTE so mangled bytes
+	 * don't fail the encode.
+	 */
+	public function pageNoteJs(string $key, string $html): string {
+		return 'window.GYN=window.GYN||{};GYN['
+			. json_encode($key)
+			. ']='
+			. json_encode($html, JSON_HEX_TAG | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
+			. ';';
 	}
 
 	/** I/O. Recursively remove a directory (or a file). No-op if absent. */
@@ -3753,6 +3851,7 @@ class Graveyard {
 			'GROUP_TITLE' => $e($groupTitle),
 			'BURIED'      => $e($buried),
 			'POS'         => $e($pos),
+			'HAS_NOTE'    => is_file($this->noteSessionPath($sid)) ? '1' : '0',
 		]);
 	}
 
@@ -3842,13 +3941,15 @@ class Graveyard {
 			// NOTE: the fieldset must NOT be display:grid (Chromium/WebKit render
 			// grid fieldsets wrong) — the inner div carries the stone grid instead.
 			$cols = $this->plotColumns((string) ($u['gid'] ?? ''), count($u['members']), $generatedAt);
-			$rows[] = $this->renderPartial('plot', [
-				'HUE'    => (string) (int) $u['hue'],
-				'COLS'   => (string) $cols,
-				'TITLE'  => $e($u['title']),
-				'GID'    => $e((string) ($u['gid'] ?? '')),
-				'GID8'   => $e((string) ($u['gid8'] ?? '')),
-				'STONES' => implode("\n", $stones),
+			$gid     = (string) ($u['gid'] ?? '');
+			$rows[]  = $this->renderPartial('plot', [
+				'HUE'      => (string) (int) $u['hue'],
+				'COLS'     => (string) $cols,
+				'TITLE'    => $e($u['title']),
+				'GID'      => $e($gid),
+				'GID8'     => $e((string) ($u['gid8'] ?? '')),
+				'HAS_NOTE' => ($gid !== '' && is_file($this->noteGroupPath($gid))) ? '1' : '0',
+				'STONES'   => implode("\n", $stones),
 			]);
 		}
 
