@@ -863,11 +863,16 @@ final class GraveyardTest extends TestCase
 		// Graveyard subclass would sit on a method nothing in this path calls.
 		$transport = new class ($this->cli, $this->cmux) extends \JT\Transport\CmuxTransport {
 			public array $probedFor = [];
+			public array $screensSeen = [];
 			public function contentProbeBind(array $fresh, array $unbound, array $screens): array {
 				foreach ($fresh as $f) { $this->probedFor[] = $f['session_id']; }
+				$this->screensSeen = $screens;
 				return [];
 			}
-			public function readScreen(string $ref, string $wsRef, int $lines = 0): string { return ''; }
+			// null: the read FAILED. The content probe is a poller-shaped bulk read, so
+			// the seam's null must be coalesced before it reaches contentProbeBind() —
+			// an unreadable surface simply matches no probe.
+			public function readScreen(string $ref, string $wsRef, int $lines = 0): ?string { return null; }
 			public function probe(array $rows, array $debug): array {
 				return $this->bindUnresolvedByContentProbe($rows, $debug, ['surface' => [], 'workspace' => []]);
 			}
@@ -880,6 +885,9 @@ final class GraveyardTest extends TestCase
 		], ['surface:5' => ['tty' => 'ttys005', 'workspace_ref' => 'workspace:1']]);
 
 		$this->assertSame(['no-bridge'], $transport->probedFor);
+		// Every screen reaching the probe is a STRING even though the read failed: this
+		// is a poller-shaped bulk read, so the seam's null costs a match, not a crash.
+		$this->assertSame(['surface:5' => ''], $transport->screensSeen);
 	}
 
 	public function testParseStatusProbe(): void

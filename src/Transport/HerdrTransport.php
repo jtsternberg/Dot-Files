@@ -555,9 +555,11 @@ class HerdrTransport implements SessionTransport
 	 * Cmux::readScreen(); bury passes a bounded tail because a whole scrollback would
 	 * match an active-turn marker from minutes ago.
 	 *
-	 * Returns '' rather than throwing, unlike the send verbs: bury POLLS this in a
+	 * Returns null rather than throwing, unlike the send verbs: bury POLLS this in a
 	 * loop while waiting for a modal or a prompt, and a transient read failure must
-	 * cost one iteration, not the whole bury.
+	 * cost one iteration, not the whole bury — so a poller coalesces null to ''. The
+	 * busy check reads the same null as "no evidence" and refuses; see
+	 * SessionTransport::readScreen().
 	 */
 	/**
 	 * A BOUNDED read must ask herdr for `visible`, not `recent`.
@@ -579,13 +581,13 @@ class HerdrTransport implements SessionTransport
 	 * could have surfaced it. It is pinned now by asserting the ARGV instead —
 	 * HerdrTransportTest::testReadScreenAsksForVisibleWhenBoundedAndRecentWhenNot.
 	 */
-	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string {
+	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): ?string {
 		try {
 			return $lines > 0
 				? $this->herdr->paneRead($surfaceRef, 'visible', $lines)
 				: $this->herdr->paneRead($surfaceRef, 'recent', null);
 		} catch (RuntimeException $e) {
-			return '';
+			return null;
 		}
 	}
 

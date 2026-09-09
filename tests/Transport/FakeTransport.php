@@ -28,7 +28,9 @@ final class FakeTransport implements SessionTransport
 		private array $surfaces = [],
 		private ?array $layoutTree = null,
 		/** Non-null when this fake is the transport hosting the caller. */
-		private ?string $selfSurfaceRef = null
+		private ?string $selfSurfaceRef = null,
+		/** What readScreen() answers: '' = read a blank surface, null = the read failed. */
+		public ?string $screen = ''
 	) {}
 
 	/** A live row carrying just enough for liveness annotation and row routing. */
@@ -71,9 +73,14 @@ final class FakeTransport implements SessionTransport
 	public function sendKey(string $surfaceRef, string $workspaceRef, string $key): void {
 		$this->calls[] = ['sendKey', [$surfaceRef, $workspaceRef, $key]];
 	}
-	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string {
+	/**
+	 * '' by default — a read that SUCCEEDED against a blank surface, which is what the
+	 * gates then refuse on. Set $screen to null to fake a read that FAILED; that is a
+	 * different answer and the busy check treats it as busy. @see SessionTransport.
+	 */
+	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): ?string {
 		$this->calls[] = ['readScreen', [$surfaceRef, $workspaceRef, $lines]];
-		return '';
+		return $this->screen;
 	}
 
 	public function describeWorkspace(string $handle, string $fallbackTitle = ''): string {

@@ -270,10 +270,38 @@ final class SessionTransportContractTest extends TestCase
 		}
 	}
 
+	/**
+	 * Every implementation must keep '' and null apart, because the two callers of
+	 * readScreen() want opposite things from a failure: a bury poller loses one
+	 * iteration, the busy check refuses for want of evidence (dotfiles-mfe). Asserted
+	 * per transport HERE rather than once per transport file, so a third one cannot
+	 * quietly answer '' for both.
+	 */
+	public function test_a_failed_screen_read_is_null_and_a_read_screen_is_a_string(): void
+	{
+		// cmux: the stub answers nothing for read-screen, which is what a failure looks
+		// like through shell_exec (null for an error AND for no output — this seam cannot
+		// tell those apart, so it reports the safe one).
+		$this->assertNull($this->transport->readScreen('surface:1', 'workspace:1', 6));
+
+		$stub = $this->graveyardRoot . '/cmux-screen-stub';
+		file_put_contents($stub, "#!/bin/sh\nprintf 'a pane with text\\n'\n");
+		chmod($stub, 0755);
+		putenv('CMUX_BIN=' . $stub);
+		$this->assertSame("a pane with text\n", $this->transport->readScreen('surface:1', 'workspace:1', 6));
+
+		// herdr: a read that throws is a failure; see HerdrTransportTest for the fixture.
+		$herdr = new HerdrTransport($this->cli, new Herdr($this->cli));
+		putenv('HERDR_BIN=' . $this->graveyardRoot . '/no-such-herdr');
+		$this->assertNull($herdr->readScreen('wZ:p1', 'wZ', 6));
+	}
+
 	public function test_null_transport_read_only_verbs_answer_empty(): void
 	{
 		$t = new NullTransport($this->cli);
-		$this->assertSame('', $t->readScreen('s1', 'w1'));
+		// null, not '': no surface was read, so there is no evidence — and '' would
+		// claim one was seen and found blank, which a busy check reads as not-busy.
+		$this->assertNull($t->readScreen('s1', 'w1'));
 		$this->assertSame([], $t->surfaces());
 		$this->assertSame([], $t->surfaces('w1'));
 		$this->assertFalse($t->windowExists('window:1'));

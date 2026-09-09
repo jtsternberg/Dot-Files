@@ -308,7 +308,8 @@ class CmuxTransport implements SessionTransport
 		foreach ($debug as $ref => $d) {
 			if (isset($bound[$ref])) { continue; }
 			$unbound[$ref] = ['tty' => $d['tty'] ?? '', 'workspace_ref' => $d['workspace_ref'] ?? ''];
-			$screenByRef[$ref] = $this->readScreen($ref, $d['workspace_ref'] ?? '', 8);
+			// A poller-shaped bulk read: an unreadable surface simply matches no probe.
+			$screenByRef[$ref] = $this->readScreen($ref, $d['workspace_ref'] ?? '', 8) ?? '';
 		}
 
 		$binds = $this->contentProbeBind($fresh, $unbound, $screenByRef);
@@ -346,13 +347,22 @@ class CmuxTransport implements SessionTransport
 	 * only this seam knows about --lines, and the bury gates depend on reading a bounded
 	 * tail (a whole 200-line scrollback would match an active-turn marker from minutes
 	 * ago). $lines = 0 omits the flag, which is Cmux::readScreen()'s behavior.
+	 *
+	 * No-output and failure are the SAME shell_exec answer here (null on error and on a
+	 * command that printed nothing, '' on an empty pipe), so this seam cannot tell them
+	 * apart and reports the safe one: null, "no evidence". A poller coalesces that to ''
+	 * and loses an iteration; the busy check refuses. Reading a blank screen as unknown
+	 * costs nothing real — a surface only reaches the busy check once its gate 1 has
+	 * proved a live agent is hosted there, and a live agent's TUI is never blank.
 	 */
-	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string {
+	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): ?string {
 		$cmd = escapeshellcmd($this->cmux->cmuxBin()) . ' read-screen --surface ' . escapeshellarg($surfaceRef)
 			 . ' --workspace ' . escapeshellarg($workspaceRef);
 		if ($lines > 0) { $cmd .= ' --lines ' . (int) $lines; }
 
-		return (string) shell_exec($cmd . ' 2>/dev/null');
+		$out = shell_exec($cmd . ' 2>/dev/null');
+
+		return ($out === null || $out === false || $out === '') ? null : $out;
 	}
 
 	# =========================================================================

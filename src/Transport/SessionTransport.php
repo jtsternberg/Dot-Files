@@ -101,8 +101,17 @@ interface SessionTransport
 	public function sendText(string $surfaceRef, string $workspaceRef, string $text): void;
 	public function sendKey(string $surfaceRef, string $workspaceRef, string $key): void;
 
-	/** Visible buffer of a surface. $lines = 0 means "whatever the transport shows by default". */
-	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string;
+	/**
+	 * Visible buffer of a surface. $lines = 0 means "whatever the transport shows by
+	 * default".
+	 *
+	 * '' and null are DIFFERENT answers and every implementation must keep them apart:
+	 * '' is "I read the surface and it is blank", null is "the read failed, I know
+	 * nothing". Callers want opposite things from a failure — a bury poller waiting for
+	 * a modal must lose one iteration (`?? ''`), while the busy check must refuse for
+	 * want of evidence — so the seam reports which happened and each caller decides.
+	 */
+	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): ?string;
 
 	// --- describe / resolve, for confirmation prompts and fuzzy targeting ---
 

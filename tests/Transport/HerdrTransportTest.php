@@ -747,12 +747,15 @@ SH;
 	}
 
 	/**
-	 * '' rather than a throw, unlike the send verbs: bury POLLS this while waiting for
-	 * a modal, so a transient read failure must cost one iteration, not the bury.
+	 * null rather than a throw, unlike the send verbs: bury POLLS this while waiting
+	 * for a modal, so a transient read failure must cost one iteration, not the bury —
+	 * the poller coalesces the null to ''. It is null and not '' so the OTHER kind of
+	 * caller, the busy check, can tell a failed read from a blank surface and refuse
+	 * for want of evidence instead of tearing a session down mid-turn.
 	 */
-	public function testReadScreenAnswersEmptyRatherThanThrowingWhenTheReadFails(): void
+	public function testReadScreenAnswersNullRatherThanThrowingWhenTheReadFails(): void
 	{
-		$this->assertSame('', $this->transport()->readScreen('wZZ:p9', 'wZZ', 10));
+		$this->assertNull($this->transport()->readScreen('wZZ:p9', 'wZZ', 10));
 	}
 
 	# =====================================================================

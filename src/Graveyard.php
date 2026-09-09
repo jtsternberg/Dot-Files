@@ -665,12 +665,47 @@ class Graveyard {
 		}));
 	}
 
-	public function isBusy(int $idleSeconds, int $idleFloor, string $lastScreen): bool {
-		if ($idleSeconds < $idleFloor) { return true; }
-		return (bool) preg_match(self::ACTIVE_TURN_RE, $lastScreen);
+	/**
+	 * PURE. Why a busy check refuses this session — or null when bury may proceed.
+	 *
+	 * 'active': the idle clock is inside the floor, or an active-turn marker is on
+	 * screen. 'unreadable': $lastScreen is null, so the screen read FAILED and an
+	 * active turn cannot be ruled out. No evidence has to read as busy, because bury
+	 * types into a live REPL and then kills a process tree. Nothing else backstops it
+	 * on two paths: a _probed row is gate-1 exempt (passesPreExportGate()) and carries
+	 * an idle time that may be unknown, and the codex gate 1 is OS-exact and reads no
+	 * screen at all.
+	 *
+	 * The two reasons stay apart because --force means something different in each:
+	 * 'active' is a session to leave alone, 'unreadable' is a transport that answered
+	 * nothing.
+	 */
+	public function busyReason(int $idleSeconds, int $idleFloor, ?string $lastScreen): ?string {
+		if ($lastScreen === null) { return 'unreadable'; }
+		if ($idleSeconds < $idleFloor) { return 'active'; }
+		return preg_match(self::ACTIVE_TURN_RE, $lastScreen) ? 'active' : null;
 	}
 
-	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): string {
+	/** PURE. What a busyReason() tells the operator: [the skip, the --force override]. */
+	public function busyMessages(string $reason, string $title): array {
+		if ($reason === 'unreadable') {
+			return [
+				"  Skipping {$title} — could not read its screen, so an active turn cannot be ruled out (use --force to override).",
+				'  Could not read the session\'s screen but --force given; proceeding.',
+			];
+		}
+		return [
+			"  Skipping {$title} — session looks busy (use --force to override).",
+			'  Session looks busy but --force given; proceeding.',
+		];
+	}
+
+	public function isBusy(int $idleSeconds, int $idleFloor, ?string $lastScreen): bool {
+		return $this->busyReason($idleSeconds, $idleFloor, $lastScreen) !== null;
+	}
+
+	/** null when the read FAILED, '' when the surface really is blank. @see SessionTransport::readScreen() */
+	public function readLastScreen(string $surfaceRef, string $workspaceRef, int $lines = 6): ?string {
 		return $this->transport->readScreen($surfaceRef, $workspaceRef, $lines);
 	}
 
@@ -1019,13 +1054,22 @@ class Graveyard {
 
 		// Busy check. Idle comes from the rollout's last record; the screen regex also
 		// catches codex's "Esc to interrupt" working indicator.
+		//
+		// This is the ONLY gate on the codex path that looks at a screen — gate 1 above
+		// is an OS-exact host check that reads none, and gate 2 compares archived files.
+		// So an unreadable screen has nothing else standing behind it here, and
+		// busyReason() refuses on it rather than falling back to the rollout's idle
+		// clock alone: that clock is written by codex's own turn records, which stop
+		// being a liveness signal the moment the rollout is the thing we cannot read.
 		$screen = $this->readLastScreen((string) $sess['surface_ref'], (string) $sess['workspace_ref']);
-		if ($this->isBusy((int) $sess['idle_seconds'], self::IDLE_FLOOR_DEFAULT, $screen)) {
+		$busy   = $this->busyReason((int) $sess['idle_seconds'], self::IDLE_FLOOR_DEFAULT, $screen);
+		if ($busy !== null) {
+			[$skip, $override] = $this->busyMessages($busy, (string) $sess['tab_title']);
 			if (!$force) {
-				$this->cli->msg("  Skipping {$sess['tab_title']} — session looks busy (use --force to override).", 'yellow');
+				$this->cli->msg($skip, 'yellow');
 				return false;
 			}
-			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
+			$this->cli->msg($override, 'yellow');
 		}
 
 		if ($this->codexArchiveUpToDate($sid)) {
@@ -1280,7 +1324,8 @@ class Graveyard {
 		$deadline = time() + max(1, $timeoutSeconds);
 		while (time() < $deadline) {
 			usleep(400000); // 0.4s — let the modal render before reading
-			$probe = $this->parseStatusProbe($this->readLastScreen($surfaceRef, $wsRef, 40));
+			// Poller: a failed read costs this iteration, not the probe.
+			$probe = $this->parseStatusProbe($this->readLastScreen($surfaceRef, $wsRef, 40) ?? '');
 			if ($probe) { $found = $probe; break; }
 		}
 
@@ -1453,13 +1498,24 @@ class Graveyard {
 	 * resurrect's `claude --resume`) resolves ~/.claude/projects/<encoded-cwd>/<sid>.jsonl
 	 * by the launch cwd; the drifted current cwd points at the wrong project dir. The
 	 * mismatch the probe defeats (statusline shows current cwd) is instead handled by
-	 * passesPreExportGate(), which bypasses gate 1 for _probed rows. The pid comes from the
-	 * session file that records this session id, so killMember's gate 3
-	 * (claudeSessionIdForPid === target) still holds. Marked _probed so buryWorkspace's member loop uses this row
-	 * directly instead of re-resolving via liveSessions() (which cannot bind a fresh/drifted
-	 * session — the whole reason we probed).
+	 * passesPreExportGate(), which bypasses gate 1 for _probed rows.
+	 *
+	 * Idle comes from that same live row unless a caller names one, and NOT from
+	 * PHP_INT_MAX. That is this codebase's "idle is unmeasurable" sentinel, which the
+	 * views meeting it SKIP (buryIdle, candidates) — but a busy check does not skip, it
+	 * COMPARES, and PHP_INT_MAX compares as infinitely idle, the strongest possible
+	 * not-busy vote, on the one row shape gate 1 does not backstop. $meta is this very
+	 * session's live row, so its idle is measured from this session's own JSONL; the
+	 * sentinel survives only where that row's idle is itself unmeasurable, and there it
+	 * still means unknown.
+	 *
+	 * The pid comes from the session file that records this session id, so killMember's
+	 * gate 3 (claudeSessionIdForPid === target) still holds. Marked _probed so
+	 * buryWorkspace's member loop uses this row directly instead of re-resolving via
+	 * liveSessions() (which cannot bind a fresh/drifted session — the whole reason we
+	 * probed).
 	 */
-	public function synthesizeProbedRow(string $ref, string $wsRef, array $probe, array $liveRows, array $surface, int $idleSeconds = PHP_INT_MAX): ?array {
+	public function synthesizeProbedRow(string $ref, string $wsRef, array $probe, array $liveRows, array $surface, ?int $idleSeconds = null): ?array {
 		$sid = $probe['session_id'] ?? '';
 		if ($sid === '') { return null; }
 
@@ -1483,7 +1539,7 @@ class Graveyard {
 			'workspace_ref'   => $wsRef,
 			'workspace_title' => $surface['workspace_title'] ?? '',
 			'tab_title'       => $surface['title'] ?? '',
-			'idle_seconds'    => $idleSeconds,
+			'idle_seconds'    => $idleSeconds ?? (int) ($meta['idle_seconds'] ?? PHP_INT_MAX),
 			'targetable'      => true,
 			'reason'          => 'bound via /status probe',
 			'_probed'         => true,
@@ -1663,20 +1719,25 @@ class Graveyard {
 		// at the wrong tab; abort before typing /export into someone else's session.
 		// A /status-probed row is exempt — the probe already read this surface's Session
 		// ID back, a stronger proof than the drift-prone statusline heuristic.
-		if (!$this->passesPreExportGate($sess, $screen)) {
-			$onscreen = $this->extractStatuslineCwd($screen);
+		// A failed read ('' here, null in $screen) reads to gate 1 as "no statusline",
+		// which is what already made it refuse. The busy check below keeps the null so
+		// it can tell an unreadable surface from a quiet one.
+		if (!$this->passesPreExportGate($sess, $screen ?? '')) {
+			$onscreen = $this->extractStatuslineCwd($screen ?? '');
 			$this->cli->err("  Refusing to bury {$id} (gate 1): resolved surface shows "
 				. ($onscreen !== null ? "cwd '{$onscreen}'" : 'no Claude REPL statusline')
 				. ", not session cwd '{$sess['cwd']}' — leaving it ALIVE.");
 			return false;
 		}
 
-		if ($this->isBusy((int) $sess['idle_seconds'], $idFloor, $screen)) {
+		$busy = $this->busyReason((int) $sess['idle_seconds'], $idFloor, $screen);
+		if ($busy !== null) {
+			[$skip, $override] = $this->busyMessages($busy, (string) $sess['tab_title']);
 			if (!$force) {
-				$this->cli->msg("  Skipping {$sess['tab_title']} — session looks busy (use --force to override).", 'yellow');
+				$this->cli->msg($skip, 'yellow');
 				return false;
 			}
-			$this->cli->msg('  Session looks busy but --force given; proceeding.', 'yellow');
+			$this->cli->msg($override, 'yellow');
 		}
 
 		if ($this->transcriptUpToDate((string) $sess['session_id'], (string) ($sess['cwd'] ?? ''))) {
@@ -2055,7 +2116,9 @@ class Graveyard {
 		// exact signal the cwd-match fallback uses), not the surface's shell cwd — a claude
 		// launched from ~ but running in ~/.dotfiles shows the latter. Count how many live
 		// sessions that statusline cwd matches; >1 is the ambiguity that blocks the bind.
-		$screen    = $this->readLastScreen($ref, (string) ($surfaceByRef[$ref]['workspace_ref'] ?? ''), 30);
+		// Diagnostic only (it names WHY a row is untargetable); an unreadable surface
+		// simply yields no on-screen cwd, which is already one of the cases below.
+		$screen    = $this->readLastScreen($ref, (string) ($surfaceByRef[$ref]['workspace_ref'] ?? ''), 30) ?? '';
 		$cwd       = (string) ($this->extractStatuslineCwd($screen) ?? '');
 		$cwdSessionCount = 0;
 		if ($cwd !== '') {
@@ -2310,7 +2373,10 @@ class Graveyard {
 			$ref = $surf['surface_ref'] ?? '';
 			$surfaceByRef[$ref] = $surf;
 			if ($ref === '' || ($surf['type'] ?? '') === 'browser') { $isClaudeByRef[$ref] = false; continue; }
-			$screen = $this->readLastScreen($ref, $wsRef, 8);
+			// An unreadable surface is not a Claude surface as far as classify is
+			// concerned — same answer a blank screen gives, and both are safe: a
+			// misclassified Claude tab is refused by bury's gates, not torn down.
+			$screen = $this->readLastScreen($ref, $wsRef, 8) ?? '';
 			$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null;
 		}
 		// Every live codex bound to a surface (targetable or not), so classify can tell a
@@ -4091,7 +4157,8 @@ class Graveyard {
 	protected function waitForReplReady(string $surfRef, string $wsRef): void {
 		$deadline = microtime(true) + 30;
 		do {
-			if ($this->replReady($this->transport->readScreen($surfRef, $wsRef))) { return; }
+			// Poller: a failed read costs this iteration, not the wait.
+			if ($this->replReady($this->transport->readScreen($surfRef, $wsRef) ?? '')) { return; }
 			usleep(200000);
 		} while (microtime(true) < $deadline);
 		$this->cli->msg('  REPL prompt was not observed before timeout; sending the restore preamble.', 'yellow');
@@ -4498,7 +4565,9 @@ class Graveyard {
 		foreach ($rows as $r) {
 			// The busy probe is a screen read, so it goes to the transport that reported
 			// the row — a herdr pane ref means nothing to cmux, and the wrong screen
-			// would answer "busy?" about somebody else's session.
+			// would answer "busy?" about somebody else's session. The null a failed read
+			// returns is passed through, not coalesced: this column has to agree with
+			// what bury will actually do, and bury refuses a surface it cannot read.
 			$busy = $this->isBusy(
 				(int) $r['idle_seconds'],
 				self::IDLE_FLOOR_DEFAULT,
@@ -4814,7 +4883,7 @@ class Graveyard {
 					continue;
 				}
 				$r = $cands[$idx];
-				$this->cli->msg($this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref'], 40)));
+				$this->cli->msg($this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref'], 40)) ?? '(could not read the screen)');
 				continue;
 			}
 			$indices = $this->parseReplSelection($line, count($cands));
@@ -4865,7 +4934,7 @@ class Graveyard {
 			$s['model'] ?: '(unknown)',
 			$this->idleHuman((int) $s['idle_seconds'])
 		);
-		echo $this->driveRow($s, fn() => $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40));
+		echo $this->driveRow($s, fn() => $this->readLastScreen($s['surface_ref'], $s['workspace_ref'], 40)) ?? "(could not read the screen)\n";
 	}
 
 	/**

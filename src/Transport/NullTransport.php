@@ -37,7 +37,11 @@ final class NullTransport implements SessionTransport
 	/** Nothing is hosted here, so no handle can still exist. */
 	public function windowExists(string $windowRef): bool { return false; }
 
-	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string { return ''; }
+	/**
+	 * null, not '': nothing is hosted here, so no screen was read and there is no
+	 * evidence to hand a busy check. '' would claim a surface was seen and found blank.
+	 */
+	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): ?string { return null; }
 
 	/** Same shape Cmux produces for a handle it cannot find in the tree. */
 	public function describeWorkspace(string $handle, string $fallbackTitle = ''): string {
