@@ -805,13 +805,13 @@ final class HerdrTransportTest extends TestCase
 	{
 		$rows = $this->transport()->liveSessions();
 		$ids  = array_column($rows, 'session_id');
-		$this->assertContains('df8529bd-8e10-423c-983d-f17356dd706c', $ids);
+		$this->assertContains('11111111-1111-4111-8111-111111111111', $ids);
 	}
 
 	public function test_liveSessions_carries_pane_and_workspace_handles(): void
 	{
 		$rows = $this->transport()->liveSessions();
-		$row  = $this->rowFor($rows, 'df8529bd-8e10-423c-983d-f17356dd706c');
+		$row  = $this->rowFor($rows, '11111111-1111-4111-8111-111111111111');
 
 		$this->assertSame('herdr', $row['transport']);
 		$this->assertSame('wC:p2', $row['surface_ref']);

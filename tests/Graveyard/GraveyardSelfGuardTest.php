@@ -48,8 +48,8 @@ final class GraveyardSelfGuardTest extends TestCase
 	 *
 	 * Stubbing Proc rather than AgentArtifacts keeps the artifact read real — the
 	 * <pid>.json parse and the liveness gate both run — so only the two OS primitives
-	 * are faked. Pinned against the source by the mutation check in this file's
-	 * companion (see Gaps report); no method here shadows one that has moved.
+	 * are faked. No method here shadows one that has moved, so this double cannot go
+	 * quietly dead the way a Cmux subclass would.
 	 */
 	private function callerProc(): Proc
 	{
@@ -132,6 +132,36 @@ final class GraveyardSelfGuardTest extends TestCase
 
 		$kept = $gy->filterSelf($gy->liveSessions(), $gy->selfSurfaceId(), $gy->selfSessionId());
 		$this->assertSame(['beef0002-0000-0000-0000-000000000000'], array_column($kept, 'session_id'));
+	}
+
+	/**
+	 * filterSelf()'s two SURFACE clauses, pinned on their own.
+	 *
+	 * The test above passes a resolved session id in alongside the handle, so the
+	 * session-id clause does all the work and both surface clauses could be deleted
+	 * with the whole suite still green. They are load-bearing exactly when the surface
+	 * matches a row whose session id does NOT — a row with a null sid, or two agents
+	 * sharing one surface — which is the case a stale handle produces, so it is worth
+	 * a guard of its own.
+	 */
+	public function test_a_surface_handle_alone_drops_that_row_even_with_no_session_id(): void
+	{
+		$rows = [
+			['session_id' => null,   'surface_ref' => 'wF:p3', 'surface_id' => 'wF:p3'],
+			['session_id' => 'keep', 'surface_ref' => 'wF:p9', 'surface_id' => 'wF:p9'],
+		];
+
+		// selfSessionId deliberately null: only the surface clauses can do this.
+		$kept = $this->gy->filterSelf($rows, 'wF:p3', null);
+		$this->assertSame(['keep'], array_column($kept, 'session_id'));
+
+		// The second clause matches on surface_id, which for cmux is the stable UUID
+		// while surface_ref is positional — a caller may hold either handle.
+		$byId = $this->gy->filterSelf([
+			['session_id' => null,   'surface_ref' => 'surface:7', 'surface_id' => 'UUID-A'],
+			['session_id' => 'keep', 'surface_ref' => 'surface:8', 'surface_id' => 'UUID-B'],
+		], 'UUID-A', null);
+		$this->assertSame(['keep'], array_column($byId, 'session_id'));
 	}
 
 	/**

@@ -175,6 +175,47 @@ final class SessionTransportContractTest extends TestCase
 	}
 
 	/**
+	 * The key set alone is NOT enough for `opts`, and the docblock above that field
+	 * used to claim this test covered it. It didn't: replacing
+	 * `'opts' => $j['opts'] ?? []` with `'opts' => []` passed the whole suite.
+	 *
+	 * That is the one field where an empty value is a SECURITY regression rather than
+	 * a cosmetic one. buildTombstone() stores it as agent_opts and resurrect replays
+	 * it, and `codex resume` re-reads config instead of rehydrating turn_context — so
+	 * a codex session created `--sandbox read-only` and restored from empty opts comes
+	 * back with FULL ACCESS (dotfiles-f1n). HerdrTransport's identical line was already
+	 * pinned by its codex-opts test; cmux was the asymmetric half.
+	 */
+	public function test_the_cmux_row_carries_codex_opts_by_value_not_just_by_key(): void
+	{
+		$transport = new class ($this->cli, $this->cmux) extends CmuxTransport {
+			public function rowFor(array $join): array {
+				return $this->liveSessionRow($join, $this->treeIndex([]), time());
+			}
+		};
+
+		$opts = ['sandbox' => 'read-only', 'approval' => 'never', 'effort' => 'high'];
+
+		$row = $transport->rowFor([
+			'session_id' => 'a', 'agent' => 'codex', 'cwd' => '/x', 'model' => null,
+			'skip_perms' => false, 'opts' => $opts, 'pid' => null, 'tty' => null,
+			'surface_ref' => '', 'workspace_ref' => '', 'title' => '',
+			'targetable' => true, 'reason' => null,
+		]);
+
+		$this->assertSame($opts, $row['opts'], 'a restored codex sandbox must survive the row');
+
+		// And the absent case still degrades to [] rather than null, which buildTombstone
+		// stores and resurrect reads as "nothing recorded".
+		$bare = $transport->rowFor([
+			'session_id' => 'b', 'agent' => 'claude', 'cwd' => '/x', 'model' => null,
+			'skip_perms' => false, 'pid' => null, 'tty' => null, 'surface_ref' => '',
+			'workspace_ref' => '', 'title' => '', 'targetable' => true, 'reason' => null,
+		]);
+		$this->assertSame([], $bare['opts']);
+	}
+
+	/**
 	 * The same pin, run against herdr over its snapshot fixture. Two transports now
 	 * feed the same buildTombstone(), so a key added to one and not the other is a
 	 * tombstone whose contents depend on which multiplexer happened to be running.

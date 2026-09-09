@@ -574,8 +574,10 @@ class HerdrTransport implements SessionTransport
 	 *     has no marker, so on any path that bypasses gate 1 the busy check would fail
 	 *     OPEN and tear down a session mid-turn.
 	 *
-	 * Unit tests cannot catch this: a stubbed HERDR_BIN returns its canned fixture
-	 * whatever --source and --lines say. It took a real bury against a real herdr agent.
+	 * It took a real bury against a real herdr agent to FIND: a stubbed HERDR_BIN
+	 * returns its canned fixture whatever --source and --lines say, so no fixture
+	 * could have surfaced it. It is pinned now by asserting the ARGV instead —
+	 * HerdrTransportTest::testReadScreenAsksForVisibleWhenBoundedAndRecentWhenNot.
 	 */
 	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string {
 		try {

@@ -17,10 +17,13 @@ allowed-tools: [Bash, Read]
 `~/.claude-graveyard/` — freeing RAM while keeping a rendered transcript +
 metadata — then lists, searches, and resurrects them.
 
-It drives **two multiplexers**: cmux and herdr. Either one being up is enough for
-the live-session verbs (`bury`, `candidates`, `peek`) — they fail only when
-neither answers (`No session transport is reachable. Is cmux or herdr running?`).
-Browsing buried sessions (`ls`, `search`, `page`, `show`) works regardless.
+It drives **two multiplexers**: cmux and herdr. Either one being up is enough — every
+verb except `page` and `serve` needs a live transport and exits
+`No session transport is reachable. Is cmux or herdr running?` when neither answers.
+That includes the browsing verbs: `ls`, `search` and `show` annotate each tombstone with
+whether its session is running again, so they ask a transport too. Only `page` and
+`serve` read the store alone (`$storeOnlyVerbs` in `bin/graveyard`), which is why the
+served page renders with no transport behind it at all.
 
 JT asks for this conversationally — *"any good candidates worth burying?"*,
 *"look in the graveyard for the ollama session,"* *"resurrect the tailscale
