@@ -25,6 +25,9 @@ final class NullTransport implements SessionTransport
 	/** Never "available": there is nothing behind it to reach. */
 	public function available(): bool { return false; }
 
+	/** Hosts nobody, so it never claims the caller — whatever the environment says. */
+	public function selfSurfaceRef(): ?string { return null; }
+
 	public function supportsNonTerminalSurfaces(): bool { return false; }
 
 	public function liveSessions(): array { return []; }

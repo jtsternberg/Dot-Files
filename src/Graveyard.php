@@ -60,6 +60,14 @@ class Graveyard {
 	protected ?array $liveIdCache = null;
 
 	/**
+	 * Memoised caller identification from process ancestry. Null is a real answer here
+	 * (an unidentifiable caller), so the flag carries "asked" separately — otherwise the
+	 * `ps` walk would re-run on every self-guard of a verb that cannot be identified.
+	 */
+	protected ?string $callerAncestrySid = null;
+	protected bool $callerAncestrySidResolved = false;
+
+	/**
 	 * Memoised codex rollout reader. Held rather than newed per call because its
 	 * per-file parse cache lives on the instance, and one `search --full-text` or page
 	 * render can ask about the same 60 MB rollout more than once.
@@ -580,19 +588,65 @@ class Graveyard {
 		}
 	}
 
+	/**
+	 * The surface/pane the caller occupies, asked of the REGISTRY rather than the
+	 * primary transport.
+	 *
+	 * The primary is cmux-first, so asking it alone is dotfiles-8wh: an agent in a herdr
+	 * pane got null and lost every self-guard at once. Registryless construction (the
+	 * page server, and every test) asks its one transport, so single-transport behavior
+	 * is exactly what it always was.
+	 */
 	public function selfSurfaceId(): ?string {
-		return getenv('CMUX_SURFACE_ID') ?: null;
+		return $this->registry ? $this->registry->selfSurfaceRef() : $this->transport->selfSurfaceRef();
 	}
 
+	/**
+	 * The caller's own session, by two INDEPENDENT paths.
+	 *
+	 * They used to be one — a null surface handle short-circuited to a null session id
+	 * — so a caller no multiplexer claimed had no protection at all rather than half of
+	 * it (dotfiles-8wh). Now the surface match is tried first (one live read the caller
+	 * has usually already paid for, and the answer cmux has always given), and the
+	 * process ancestry answers on its own when it misses.
+	 *
+	 * Null when neither path lands. That is the deliberate floor: guessing here would
+	 * filter SOMEBODY ELSE'S session out of bury's view, which hides a real session from
+	 * the operator instead of merely failing to protect one.
+	 */
 	public function selfSessionId(): ?string {
-		$sid = $this->selfSurfaceId();
-		if (!$sid) { return null; }
-		foreach ($this->liveSessions() as $s) {
-			if (($s['surface_id'] ?? null) === $sid || ($s['surface_ref'] ?? null) === $sid) {
-				return $s['session_id'];
+		$surfaceId = $this->selfSurfaceId();
+		if ($surfaceId) {
+			foreach ($this->liveSessions() as $s) {
+				if (($s['surface_id'] ?? null) === $surfaceId || ($s['surface_ref'] ?? null) === $surfaceId) {
+					return $s['session_id'];
+				}
 			}
 		}
-		return null;
+		return $this->callerSessionIdFromAncestry();
+	}
+
+	/**
+	 * The caller's session from its own process ancestry: nearest claude ancestor of
+	 * getmypid(), then that pid's ~/.claude/sessions/<pid>.json.
+	 *
+	 * Claude Code writes that file under ANY multiplexer, which is what makes this path
+	 * independent of every surface env var. Memoised because it is a process-lifetime
+	 * fact behind a `ps -Ao` shell-out, and bury asks for the caller repeatedly.
+	 *
+	 * Codex callers get null: codex publishes no per-pid file, so identifying one means
+	 * an lsof-per-pid sweep, and this guard must stay cheap enough to run on every verb.
+	 * They keep the surface-handle guard, which is what they had before.
+	 */
+	protected function callerSessionIdFromAncestry(): ?string {
+		if ($this->callerAncestrySidResolved) { return $this->callerAncestrySid; }
+		$this->callerAncestrySidResolved = true;
+
+		$proc = $this->proc->parseProcTable($this->proc->psProcTable());
+		$pid  = $this->artifacts->ancestorClaudePid($proc, getmypid());
+		$this->callerAncestrySid = $pid !== null ? $this->artifacts->claudeSessionIdForPid($pid) : null;
+
+		return $this->callerAncestrySid;
 	}
 
 	public function resolveLiveBySessionId(string $sessionId): ?array {
@@ -4610,8 +4664,11 @@ class Graveyard {
 		$ids = array_values(array_unique(array_filter($sessionIds, fn($s) => $s !== '')));
 		if (!$ids) { $this->cli->msg('No session ids given.', 'yellow'); return; }
 
-		if ($this->selfSurfaceId() === null) {
-			$this->cli->msg('Warning: CMUX_SURFACE_ID is unset — self-protection is disabled; verify your targets.', 'yellow');
+		// Only when BOTH identifications came up empty is the guard actually off — a
+		// herdr caller has no CMUX_SURFACE_ID and never did, and naming that variable
+		// here told it self-protection was gone when the ancestry path had it covered.
+		if ($this->selfSurfaceId() === null && $this->selfSessionId() === null) {
+			$this->cli->msg('Warning: cannot identify the calling session (no surface handle, no claude ancestor) — self-protection is disabled; verify your targets.', 'yellow');
 		}
 
 		$selfSessionId = $this->selfSessionId();

@@ -70,6 +70,32 @@ final class TransportRegistry
 		return $this->availableCache;
 	}
 
+	/**
+	 * The surface/pane handle of the process calling graveyard, from whichever
+	 * transport claims it.
+	 *
+	 * Asking the primary transport instead is the shape of dotfiles-8wh: the primary is
+	 * cmux-first, so an agent inside a herdr pane got null, both self-guards collapsed
+	 * to nothing, and `bury --idle` listed the session running the command.
+	 *
+	 * Every REGISTERED transport is asked, not just the reachable ones. Each answer is
+	 * an env read, so this costs nothing, and gating it on available() would disable
+	 * self-protection at the worst moment — an agent whose multiplexer server has died
+	 * is still the caller, and its row can still be reported by the other transport
+	 * (Claude Code publishes ~/.claude/sessions/<pid>.json under any multiplexer).
+	 */
+	public function selfSurfaceRef(): ?string {
+		return $this->selfTransport()?->selfSurfaceRef();
+	}
+
+	/** The transport hosting the caller — whichever one claims a surface handle for it. */
+	public function selfTransport(): ?SessionTransport {
+		foreach ($this->transports as $t) {
+			if ($t->selfSurfaceRef() !== null) { return $t; }
+		}
+		return null;
+	}
+
 	public function byName(string $name): ?SessionTransport {
 		foreach ($this->transports as $t) {
 			if ($t->name() === $name) { return $t; }

@@ -18,16 +18,16 @@ namespace JT\Helpers;
  * still running means serving a moving target from a process that has no business
  * knowing it exists. Everything it may show is under GRAVEYARD_ROOT.
  *
- * The four overridden methods are exactly the live-state readers Graveyard reaches
- * for on the page paths. Anything else AgentArtifacts does — path encoding, resume
- * command construction, title normalisation — is pure or archive-only and is
- * inherited unchanged.
+ * The overridden methods are exactly the live-state readers Graveyard reaches for on
+ * the page paths, plus every path resolver they go through. Anything else
+ * AgentArtifacts does — path encoding, resume command construction, title
+ * normalisation — is pure or archive-only and is inherited unchanged.
  *
- * Two of the four are belt-and-braces and cannot be pinned by a test: readSessionJsonl
- * and lastRealActivity both resolve their file through jsonlPathFor(), so the override
- * below already forces them to their empty answers, and dropping them changes no
+ * Two of them are belt-and-braces and cannot be pinned by a test: readSessionJsonl and
+ * lastRealActivity both resolve their file through the resolvers below, so those
+ * overrides already force them to their empty answers, and dropping them changes no
  * observable behavior TODAY. They are here because that is an implementation detail of
- * the parent, not a promise — a future jsonlPathFor that no longer routes through this
+ * the parent, not a promise — a future resolver that no longer routes through this
  * class would silently reopen dotfiles-dnc through them.
  */
 class NullAgentArtifacts extends AgentArtifacts
@@ -37,6 +37,14 @@ class NullAgentArtifacts extends AgentArtifacts
 
 	/** Empty rather than a path under $HOME: a path that exists is a path that gets read. */
 	public function jsonlPathFor(string $sessionId, string $cwd): string { return ''; }
+
+	/**
+	 * Null, and NOT derived from jsonlPathFor(): the resolver finds a transcript by
+	 * session id when the composed path misses, so it reaches ~/.claude/projects on its
+	 * own. Leaving it inherited would let the router resolve a live transcript through
+	 * transcriptPathFor() with the override above satisfied — dotfiles-dnc, reopened.
+	 */
+	public function resolveJsonlPath(string $sessionId, ?string $cwd): ?string { return null; }
 
 	public function readSessionJsonl(?string $sessionId, ?string $cwd): array {
 		return ['permission_mode' => null, 'model' => null];

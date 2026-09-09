@@ -666,12 +666,31 @@ final class CmuxCodexTest extends TestCase
 		);
 	}
 
-	public function testTranscriptPathForClaudeMatchesJsonlPathFor(): void
+	/**
+	 * transcriptPathFor() answers with the cwd-composed path when that file EXISTS, and
+	 * null when the session has no transcript anywhere.
+	 *
+	 * Both agents now behave alike: it is "where is this session's transcript", not "where
+	 * would it be", so a caller can no longer be handed a path to nothing. The claude half
+	 * used to return the composed path unconditionally, which is what made a session whose
+	 * reported cwd is wrong read as unresumable (dotfiles-hvf) — the resolver behind it
+	 * finds such a transcript by session id instead.
+	 */
+	public function testTranscriptPathForClaudeAnswersTheComposedPathWhenItExists(): void
 	{
-		$this->assertSame(
-			$this->cmux->jsonlPathFor('sid', '/Users/JT/Code/x'),
-			$this->cmux->transcriptPathFor('claude', 'sid', '/Users/JT/Code/x')
-		);
+		$cwd  = sys_get_temp_dir() . '/cmux-tx-' . getmypid();
+		$sid  = 'tx-' . getmypid() . '-' . bin2hex(random_bytes(4));
+		$path = $this->cmux->jsonlPathFor($sid, $cwd);
+		@mkdir(dirname($path), 0755, true);
+		file_put_contents($path, "{}\n");
+
+		try {
+			$this->assertSame($path, $this->cmux->transcriptPathFor('claude', $sid, $cwd));
+			$this->assertNull($this->cmux->transcriptPathFor('claude', 'sid-with-no-transcript', $cwd));
+		} finally {
+			unlink($path);
+			@rmdir(dirname($path));
+		}
 	}
 
 	public function testCodexRolloutPathForFindsARolloutByUuidRegardlessOfDate(): void

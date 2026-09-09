@@ -198,6 +198,48 @@ final class TransportRegistryTest extends TestCase
 		$this->assertSame($herdr, $reg->primary());
 	}
 
+	// ── who hosts the caller ─────────────────────────────────────────────────
+
+	/**
+	 * The registry finds the caller wherever it is, which is the fix for dotfiles-8wh:
+	 * primary() is cmux-first, so asking the primary alone left every herdr-hosted agent
+	 * unclaimed and its self-guards collapsed together.
+	 */
+	public function testSelfSurfaceRefAsksEveryTransportNotJustThePrimary(): void
+	{
+		$cmux  = new FakeTransport('cmux', [], true);
+		$herdr = new FakeTransport('herdr', [], true, false, [], null, 'wF:p3');
+		$reg   = $this->registry([$cmux, $herdr]);
+
+		$this->assertSame('cmux', $reg->primary()->name(), 'the incumbent is still the primary');
+		$this->assertSame('wF:p3', $reg->selfSurfaceRef());
+		$this->assertSame('herdr', $reg->selfTransport()->name());
+	}
+
+	/** Nobody claims the caller — a human in a plain terminal. */
+	public function testSelfSurfaceRefIsNullWhenNoTransportClaimsTheCaller(): void
+	{
+		$reg = $this->registry([$this->fake('cmux', ['a']), $this->fake('herdr', ['b'])]);
+
+		$this->assertNull($reg->selfSurfaceRef());
+		$this->assertNull($reg->selfTransport());
+	}
+
+	/**
+	 * An UNREACHABLE transport still gets to claim the caller. Its answer is an env
+	 * read, and an agent whose multiplexer server has just died is exactly the caller
+	 * that most needs the guard — gating this on available() would drop protection at
+	 * the worst moment.
+	 */
+	public function testAnUnreachableTransportStillClaimsItsOwnCaller(): void
+	{
+		$down = new FakeTransport('herdr', [], false, false, [], null, 'wF:p3');
+		$reg  = $this->registry([$this->fake('cmux', ['a']), $down]);
+
+		$this->assertSame(['cmux'], array_map(fn($t) => $t->name(), $reg->available()));
+		$this->assertSame('wF:p3', $reg->selfSurfaceRef());
+	}
+
 	public function testPrimaryRefusesAnUnknownRequestedTransport(): void
 	{
 		$reg = $this->registry([$this->fake('cmux', ['a'])]);

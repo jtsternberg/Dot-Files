@@ -33,6 +33,8 @@ class CmuxTransport implements SessionTransport
 
 	public function available(): bool { return $this->cmux->ping(); }
 
+	public function selfSurfaceRef(): ?string { return getenv('CMUX_SURFACE_ID') ?: null; }
+
 	public function supportsNonTerminalSurfaces(): bool { return true; }
 
 	# =========================================================================

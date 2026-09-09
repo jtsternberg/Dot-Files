@@ -24,6 +24,17 @@ interface SessionTransport
 	public function available(): bool;
 
 	/**
+	 * The surface/pane handle of the process CALLING graveyard, if this transport is
+	 * the one hosting it. cmux answers from CMUX_SURFACE_ID, herdr from HERDR_PANE_ID.
+	 * null means "not my caller" — which is how the registry identifies the host.
+	 *
+	 * Read from the environment, never from the multiplexer, so it stays answerable
+	 * when the transport is unreachable: an agent whose server has died is still the
+	 * caller, and self-protection must not lapse with it.
+	 */
+	public function selfSurfaceRef(): ?string;
+
+	/**
 	 * Live agent sessions this transport hosts.
 	 *
 	 * @return list<array{

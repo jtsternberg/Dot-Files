@@ -45,6 +45,13 @@ class HerdrTransport implements SessionTransport
 	public function available(): bool { return $this->herdr->available(); }
 
 	/**
+	 * herdr exports HERDR_PANE_ID (alongside HERDR_WORKSPACE_ID/HERDR_TAB_ID) into every
+	 * pane it starts, and its value IS the pane id liveSessions() stamps as both
+	 * surface_ref and surface_id — so the caller's own row matches on either lookup.
+	 */
+	public function selfSurfaceRef(): ?string { return getenv('HERDR_PANE_ID') ?: null; }
+
+	/**
 	 * False: a herdr pane hosts a terminal and nothing else — no browser, no markdown
 	 * viewer. A grouped restore of a cmux-buried workspace therefore DROPS those
 	 * members, which is why Graveyard has to ask before restoring into herdr.

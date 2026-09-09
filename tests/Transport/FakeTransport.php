@@ -26,7 +26,9 @@ final class FakeTransport implements SessionTransport
 		private bool $available = true,
 		private bool $nonTerminal = false,
 		private array $surfaces = [],
-		private ?array $layoutTree = null
+		private ?array $layoutTree = null,
+		/** Non-null when this fake is the transport hosting the caller. */
+		private ?string $selfSurfaceRef = null
 	) {}
 
 	/** A live row carrying just enough for liveness annotation and row routing. */
@@ -57,6 +59,7 @@ final class FakeTransport implements SessionTransport
 
 	public function name(): string { return $this->name; }
 	public function available(): bool { return $this->available; }
+	public function selfSurfaceRef(): ?string { return $this->selfSurfaceRef; }
 	public function supportsNonTerminalSurfaces(): bool { return $this->nonTerminal; }
 	public function liveSessions(): array { return $this->liveSessions; }
 	public function surfaces(?string $workspaceRef = null): array { return $this->surfaces; }

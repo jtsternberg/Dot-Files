@@ -37,6 +37,9 @@ class AgentArtifacts {
 	protected $cli;
 	protected Proc $proc;
 
+	/** Memoised resolveJsonlPath() answers, keyed "<session id>\0<reported cwd>". */
+	private array $jsonlPathCache = [];
+
 	public function __construct($cli, ?Proc $proc = null) {
 		$this->cli  = $cli;
 		$this->proc = $proc ?: new Proc($cli);
@@ -63,6 +66,60 @@ class AgentArtifacts {
 	public function jsonlPathFor(string $sessionId, string $cwd): string {
 		$claudeDir = $this->cli->convertPathToAbsolute('~/.claude');
 		return "{$claudeDir}/projects/{$this->encodeProjectKey($cwd)}/{$sessionId}.jsonl";
+	}
+
+	/**
+	 * Where a claude session's transcript ACTUALLY is, given a cwd that may be wrong.
+	 *
+	 * Claude Code files a transcript under the project key of the cwd it first ran in and
+	 * keeps writing there, while a multiplexer reports where the process is NOW — herdr
+	 * from the pane, cmux from ~/.claude/sessions/<pid>.json, which records the resumed
+	 * process's own cwd. Resume a session in another directory and the two disagree for
+	 * good, so composing the path from the reported cwd misses; lastRealActivity() then
+	 * returns null and the session reads as infinitely idle (dotfiles-hvf).
+	 *
+	 * The session id is globally unique and already in the filename, so the transcript is
+	 * findable without the cwd at all. Composition stays FIRST — one file_exists, against
+	 * a scan of every project directory — so the scan is only paid on a miss, and a
+	 * session whose cwd is right resolves exactly as it always did.
+	 *
+	 * Memoised per (session, cwd): a single `candidates` render asks several readers about
+	 * the same row, and each miss would otherwise rescan.
+	 */
+	public function resolveJsonlPath(string $sessionId, ?string $cwd): ?string {
+		if ($sessionId === '') { return null; }
+
+		$key = $sessionId . "\0" . (string) $cwd;
+		if (array_key_exists($key, $this->jsonlPathCache)) { return $this->jsonlPathCache[$key]; }
+
+		$composed = (string) $cwd !== '' ? $this->jsonlPathFor($sessionId, (string) $cwd) : '';
+		if ($composed !== '' && is_file($composed)) { return $this->jsonlPathCache[$key] = $composed; }
+
+		return $this->jsonlPathCache[$key] = $this->findJsonlBySessionId($sessionId);
+	}
+
+	/**
+	 * The transcript for a session id, wherever it was filed. Null when there is none.
+	 *
+	 * The id is interpolated into a glob pattern, so one carrying pattern metacharacters
+	 * could match a DIFFERENT session's file — and idle time, model and permission mode
+	 * would then be read off somebody else's conversation. Such an id is refused rather
+	 * than escaped: no real session id contains one.
+	 *
+	 * More than one project directory can hold the same id (a session resumed elsewhere
+	 * before this resolver existed, then written to again). The most recently written file
+	 * is the live conversation, so idle time is measured against that and not a stale copy.
+	 */
+	protected function findJsonlBySessionId(string $sessionId): ?string {
+		if ($sessionId === '' || strpbrk($sessionId, "*?[]\\/\0") !== false) { return null; }
+
+		$projects = $this->cli->convertPathToAbsolute('~/.claude') . '/projects';
+		$hits     = glob("{$projects}/*/{$sessionId}.jsonl") ?: [];
+		if (!$hits) { return null; }
+		if (count($hits) > 1) {
+			usort($hits, fn($a, $b) => (int) @filemtime($b) <=> (int) @filemtime($a));
+		}
+		return $hits[0];
 	}
 
 	/**
@@ -214,13 +271,14 @@ class AgentArtifacts {
 	public function readSessionJsonl(?string $sessionId, ?string $cwd): array {
 		$result = ['permission_mode' => null, 'model' => null];
 
-		if (!$sessionId || !$cwd) {
+		if (!$sessionId) {
 			return $result;
 		}
 
-		$jsonlPath = $this->jsonlPathFor($sessionId, $cwd);
+		// A missing cwd is no longer a dead end: the transcript is findable by id alone.
+		$jsonlPath = $this->resolveJsonlPath($sessionId, $cwd);
 
-		if (!file_exists($jsonlPath)) {
+		if ($jsonlPath === null) {
 			return $result;
 		}
 
@@ -317,9 +375,9 @@ class AgentArtifacts {
 	 * isSyntheticEntry) are skipped so restored sessions don't look freshly active.
 	 */
 	public function lastRealActivity(string $sessionId, string $cwd): ?int {
-		$jsonlPath = $this->jsonlPathFor($sessionId, $cwd);
+		$jsonlPath = $this->resolveJsonlPath($sessionId, $cwd);
 
-		if (!is_file($jsonlPath)) {
+		if ($jsonlPath === null) {
 			return null;
 		}
 
@@ -390,15 +448,15 @@ class AgentArtifacts {
 
 	/**
 	 * Transcript path for a session, dispatched on agent — what "is this still
-	 * resumable?" is decided on. Claude's is derivable from (id, cwd); codex's
-	 * must be globbed by id, so this can return null where jsonlPathFor() always
-	 * returns a (possibly nonexistent) path.
+	 * resumable?" is decided on. Both agents are now resolved by id (claude preferring
+	 * the cwd-composed path when it hits), so both return null rather than a path that
+	 * does not exist, and a session whose reported cwd is wrong still reads as resumable.
 	 */
 	public function transcriptPathFor(string $agent, string $sessionId, string $cwd): ?string {
 		if ($agent === 'codex') {
 			return $this->codexRolloutPathFor($sessionId);
 		}
-		return $cwd !== '' ? $this->jsonlPathFor($sessionId, $cwd) : null;
+		return $this->resolveJsonlPath($sessionId, $cwd);
 	}
 
 	/** PURE. Path of the FIRST rollout jsonl an lsof dump shows open, or null. */
@@ -541,6 +599,30 @@ class AgentArtifacts {
 			if (preg_match('#cmux-(?:surface|agent)-resume/(claude-[A-Za-z0-9._-]+\.zsh)#', $proc[$pid]['cmd'], $m)) {
 				return $m[1];
 			}
+			$pid = $proc[$pid]['ppid'];
+			if ($pid <= 1) { break; }
+		}
+		return null;
+	}
+
+	/**
+	 * PURE. Nearest ancestor of $pid (inclusive) running the claude binary, or null.
+	 *
+	 * The mirror of descendantClaudePid(), and what identifies the CALLER: graveyard
+	 * runs as `php` under a shell under the agent that invoked it, so the agent's pid is
+	 * a short walk up — and claudeSessionIdForPid() turns that into a session id under
+	 * any multiplexer, with no surface env var involved.
+	 *
+	 * NEAREST, deliberately. An agent nested inside another agent's shell would
+	 * otherwise be identified as its parent, and a wrong self-id is worse than none: it
+	 * filters somebody else's session out of bury's view entirely.
+	 */
+	public function ancestorClaudePid(array $proc, int $pid): ?int {
+		$guard = 0;
+		$seen  = [];
+		while (isset($proc[$pid]) && $guard++ < 64 && !isset($seen[$pid])) {
+			$seen[$pid] = true;
+			if ($this->isClaudeCommand($proc[$pid]['cmd'] ?? '')) { return $pid; }
 			$pid = $proc[$pid]['ppid'];
 			if ($pid <= 1) { break; }
 		}

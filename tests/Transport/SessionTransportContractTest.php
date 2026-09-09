@@ -41,6 +41,8 @@ final class SessionTransportContractTest extends TestCase
 	protected function tearDown(): void
 	{
 		putenv('HERDR_BIN');
+		putenv('CMUX_SURFACE_ID');
+		putenv('HERDR_PANE_ID');
 		parent::tearDown();
 	}
 
@@ -70,6 +72,58 @@ final class SessionTransportContractTest extends TestCase
 	public function test_herdr_transport_reports_its_name(): void
 	{
 		$this->assertSame('herdr', $this->herdrTransport()->name());
+	}
+
+	/**
+	 * Each transport claims the caller from its OWN env var and no other's. This is the
+	 * pin under dotfiles-8wh: with only cmux able to answer, an agent in a herdr pane was
+	 * claimed by nobody, so both self-guards went null together and `bury --idle` listed
+	 * the session running it.
+	 *
+	 * Asserted per transport rather than through the registry, because the registry
+	 * identifies the HOST by which transport answers — a transport that answered from
+	 * someone else's variable would hand it the wrong one.
+	 */
+	public function test_each_transport_claims_the_caller_from_its_own_env_var_only(): void
+	{
+		$cmux  = $this->transport;
+		$herdr = $this->herdrTransport();
+		$null  = new NullTransport($this->cli);
+
+		putenv('CMUX_SURFACE_ID=surface:42');
+		putenv('HERDR_PANE_ID');
+		$this->assertSame('surface:42', $cmux->selfSurfaceRef());
+		$this->assertNull($herdr->selfSurfaceRef(), 'a cmux surface is not herdr\'s caller');
+		$this->assertNull($null->selfSurfaceRef());
+
+		putenv('CMUX_SURFACE_ID');
+		putenv('HERDR_PANE_ID=wF:p3');
+		$this->assertSame('wF:p3', $herdr->selfSurfaceRef());
+		$this->assertNull($cmux->selfSurfaceRef(), 'a herdr pane is not cmux\'s caller');
+		$this->assertNull($null->selfSurfaceRef());
+
+		// And an empty value is "unset", not a handle that matches an empty surface_ref.
+		putenv('CMUX_SURFACE_ID=');
+		putenv('HERDR_PANE_ID=');
+		$this->assertNull($cmux->selfSurfaceRef());
+		$this->assertNull($herdr->selfSurfaceRef());
+	}
+
+	/**
+	 * And it must answer without the transport being reachable. NullTransport aside, a
+	 * transport whose server has died still hosts the caller, and a self-guard that
+	 * lapsed exactly then would let a dying agent bury itself.
+	 */
+	public function test_the_caller_claim_is_an_env_read_not_a_server_round_trip(): void
+	{
+		putenv('HERDR_BIN=/nonexistent/herdr');
+		putenv('HERDR_PANE_ID=wF:p3');
+		$herdr = new HerdrTransport($this->cli, new Herdr($this->cli));
+
+		$this->assertFalse($herdr->available(), 'no server behind it');
+		$this->assertSame('wF:p3', $herdr->selfSurfaceRef());
+
+		putenv('HERDR_PANE_ID');
 	}
 
 	public function test_cmux_transport_supports_non_terminal_surfaces(): void

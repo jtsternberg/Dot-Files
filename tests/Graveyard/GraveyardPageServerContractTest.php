@@ -120,9 +120,14 @@ final class GraveyardPageServerContractTest extends TestCase
 	}
 
 	/**
-	 * All four live reads, each asserted against what the REAL reader answers for the
-	 * same session — otherwise "returns null" proves nothing, because a real reader
-	 * returns null for a session that simply isn't there.
+	 * Every live read, each asserted against what the REAL reader answers for the same
+	 * session — otherwise "returns null" proves nothing, because a real reader returns
+	 * null for a session that simply isn't there.
+	 *
+	 * resolveJsonlPath() is here because it is the one live read that does NOT go through
+	 * jsonlPathFor(): it finds a transcript by session id when the composed path misses,
+	 * so the emptied jsonlPathFor() above does not cover it, and transcriptPathFor() would
+	 * hand the router a live path (dotfiles-dnc) with every other override satisfied.
 	 */
 	public function testTheNullArtifactReaderAnswersEveryLiveReadEmpty(): void
 	{
@@ -142,6 +147,12 @@ final class GraveyardPageServerContractTest extends TestCase
 
 		$this->assertNotNull($real->lastRealActivity(self::CLAUDE_ID, '/tmp/dotfiles'));
 		$this->assertNull($null->lastRealActivity(self::CLAUDE_ID, '/tmp/dotfiles'));
+
+		// Asked with a WRONG cwd, so the answer can only come from the by-id search the
+		// router must not be allowed to run.
+		$this->assertNotNull($real->resolveJsonlPath(self::CLAUDE_ID, '/tmp/somewhere-else'));
+		$this->assertNull($null->resolveJsonlPath(self::CLAUDE_ID, '/tmp/somewhere-else'));
+		$this->assertNull($null->transcriptPathFor('claude', self::CLAUDE_ID, '/tmp/dotfiles'));
 	}
 
 	/**
