@@ -73,7 +73,8 @@ several bury as a group that resurrects into a *new* workspace named at bury
 time (a `<parent> (pane)` default under `-y`). A `workspace_id=`/`workspace_ref=`
 line buries the whole workspace as a group, same as `--workspace`. A *bare*
 `workspace:N` or bare UUID is left alone — only the labelled paste opts into a
-pane/workspace group bury. Still get his nod first.
+pane/workspace group bury. Still get his nod first. A single-target bury then
+offers to author that target's note (below) — not when you run it with `-y`.
 
 **Search buried sessions for a topic** — `graveyard search <term>` matches
 workspace/tab/cwd/summary (case-insensitive, newest-first). Widen/split the
@@ -125,6 +126,16 @@ Slack thread where follow-up landed, issues spun out of the session, a "resume
 here next" pointer. The note is rendered as HTML in that target's modal on the
 `graveyard page` overview (a 📝-style note pane above the transcript), strictly
 1:1 — a session's modal shows only its own note, a plot's only the plot note.
+
+**`bury` offers the note at burial time.** After burying a *single* target — one
+session, or a workspace/pane group — `graveyard bury` asks *"Add a note to this
+buried session/plot?"* (default no) and on yes opens the same `NOTES.md`, seeded
+the same way, in the same editor. It never asks after a multi-session bury
+(several ids, `--idle`, a multi-pick), and `bury <id> --group <gid>` never
+re-offers a plot note the group's original bury already offered. The offer is
+skipped outright under `-y`, `--silent`/`--porcelain`, or with no tty — which is
+how an agent runs bury, so it can't hang you. Don't drop `-y` to reach the
+offer: point JT at `graveyard note <id>` afterwards instead.
 
 `note` **opens an editor** (`code -r`, else `$EDITOR`) exactly like `show`, so
 like `show` it will hang an agent — it is a *human* action. Don't run it to

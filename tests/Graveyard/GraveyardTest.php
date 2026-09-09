@@ -349,10 +349,11 @@ final class GraveyardTest extends TestCase
 				}
 				public function buildBuryClassification(array $surfaces, string $wsRef, string $wsTitle): array { return $this->clsToReturn; }
 				public function selfSessionId(): ?string { return null; }
-				public function buryIds(array $ids, bool $auto, bool $force = false): void { $this->buried = $ids; }
-				public function buryWorkspace(string $nameOrRef, bool $force, bool $auto): void { $this->workspaceBuries[] = $nameOrRef; }
-				public function buryClassifiedAsGroup(array $cls, string $wsRef, string $title, string $windowRef, bool $force, bool $autoConfirm, array $opts): void {
+				public function buryIds(array $ids, bool $auto, bool $force = false): array { $this->buried = $ids; return self::NO_NOTE_TARGET; }
+				public function buryWorkspace(string $nameOrRef, bool $force, bool $auto): array { $this->workspaceBuries[] = $nameOrRef; return self::NO_NOTE_TARGET; }
+				public function buryClassifiedAsGroup(array $cls, string $wsRef, string $title, string $windowRef, bool $force, bool $autoConfirm, array $opts): array {
 					$this->groupBuries[] = ['title' => $title, 'ws_ref' => $wsRef, 'opts' => $opts];
+					return self::NO_NOTE_TARGET;
 				}
 			};
 		};

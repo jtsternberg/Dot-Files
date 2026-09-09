@@ -26,6 +26,9 @@ namespace JT;
 # graveyard bury --idle=<dur> [-y]  (space form "--idle <dur>" also works)
 # graveyard bury --workspace|-ws <name|ref|group-id> [--force] [-y]  (bury a whole workspace group; -ws is short for --workspace. A buried group-id re-buries the workspace it was resurrected into — symmetric with resurrect.)
 # graveyard bury <session-id> --group <group-id> [--force] [-y]  (finish a half-bury: rejoin one live session to an existing group at its reserved slot)
+#   After burying a SINGLE target (one session, or a workspace/pane group), bury offers to
+#   open that target's NOTES.md — the same note `graveyard note` writes. Skipped under
+#   -y, --silent/--porcelain, or with no tty.
 # graveyard candidates [--porcelain]
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
@@ -50,8 +53,9 @@ $helpyHelperton
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
 		'bury --workspace|-ws <name|ref|group-id>' => 'Bury every targetable Claude session in a workspace as a group (shared group id + layout manifest); non-Claude surfaces are snapshotted and closed. Any untargetable Claude aborts the whole bury unless --force. Accepts a cmux workspace ref, a title substring, OR a buried group-id prefix — a group-id re-buries the workspace that group was resurrected into (symmetric with `resurrect`), matching live members by session id and falling back to the group title. (-ws is a short alias for --workspace.)',
 		'bury <session-id> --group <group-id>' => 'Finish a half-buried workspace: bury ONE still-alive session into an EXISTING group at the slot its layout manifest already reserves (keeps pane position; no fresh group). Printed automatically by a --workspace bury that leaves a member alive. Ids resolve by prefix; refuses if the session is not a member of that group.',
+		'bury (note follow-up)' => 'After burying a SINGLE note target — one session, or a workspace/pane group — bury offers to open that target\'s NOTES.md, creating and seeding it exactly as `graveyard note` does. A multi-session bury (several ids, --idle, or a multi-pick) has no one note to write, so it never asks; nor does `bury <id> --group <gid>`, since the group\'s original bury already offered its plot note. Skipped entirely under -y, --silent/--porcelain, or with no tty — an unattended bury must never end up blocked on an editor.',
 		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
-		'-y'              => 'Skip confirmations',
+		'-y'              => 'Skip confirmations (and, with them, bury\'s post-bury note offer — see "bury (note follow-up)")',
 		'candidates [--porcelain] [--json]' => 'List live agent sessions sorted by idle time; codex rows are marked [codex]. --porcelain: tab-separated; --json: structured rows (adds agent + buryable) — both agent-readable',
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions. A ↑ marks one whose session is running again — resurrect keeps the tombstone so it can be resurrected later, so archived does not always mean down. (--json: structured {workspaces,sessions}, each row carrying live + live_agent)',
@@ -107,16 +111,33 @@ if (!in_array($sub, $storeOnlyVerbs, true) && !$primary) {
 // cannot drive rather than a null.
 $gy  = new Graveyard($cli, $primary ?: new Transport\NullTransport($cli), null, $registry);
 
+/**
+ * Open a note in the editor. The launch is the untestable seam (like showTombstone's),
+ * so it lives here rather than in the class — and it lives here ONCE, because two verbs
+ * now reach it: `note`, and the offer `bury` makes after burying a single target. A
+ * bury-time note must open exactly the way `graveyard note` opens one.
+ */
+function openNoteInEditor($cli, string $path): void {
+	$editor = trim((string) shell_exec('command -v code 2>/dev/null'));
+	if ($editor) { shell_exec('code -r ' . escapeshellarg($path)); }
+	else { $ed = getenv('EDITOR') ?: 'vi'; $cli->runCommand($ed . ' ' . escapeshellarg($path)); }
+	$cli->successMsg("Opened {$path}");
+}
+
 // Cmux::tree() throws (not exit()s) when cmux is unreachable/unparseable — process-exit
 // plumbing belongs here at the entry seam, not inside the shelling seam (dotfiles-3qa).
 try {
 switch ($sub) {
 	case 'bury':
+		// What was buried, for the post-bury note offer below: one session, one plot, or
+		// nothing nameable. The two paths that never produce a note target (--idle's bulk
+		// sweep, and --group finishing a plot whose note was already offered) leave it null.
+		$buryOutcome = null;
 		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {
 			$ws = (string) $cli->getFlag('workspace');
 			if ($ws === '') { $ws = (string) $cli->getArg(2); } // supports "--workspace <name>" and "-ws <name>" (space form)
 			if ($ws === '') { $cli->exitErr('Usage: graveyard bury --workspace|-ws <name|ref>'); }
-			$gy->buryWorkspace($ws, $cli->hasFlag('force'), $cli->isAutoconfirm());
+			$buryOutcome = $gy->buryWorkspace($ws, $cli->hasFlag('force'), $cli->isAutoconfirm());
 		} elseif ($cli->hasFlag('idle')) {
 			$dur = (string) $cli->getFlag('idle');
 			if ($dur === '') { $dur = (string) $cli->getArg(2); } // supports "--idle 15s" (space-separated)
@@ -141,11 +162,24 @@ switch ($sub) {
 		} else {
 			$rest = [];
 			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
-			if (!$rest) { $gy->pickAndBury($cli->isAutoconfirm()); break; }
-			if (count($rest) === 1) {
-				$gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
+			if (!$rest) {
+				$buryOutcome = $gy->pickAndBury($cli->isAutoconfirm());
+			} elseif (count($rest) === 1) {
+				$buryOutcome = $gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
 			} else {
-				$gy->buryIds($rest, $cli->isAutoconfirm());
+				$buryOutcome = $gy->buryIds($rest, $cli->isAutoconfirm());
+			}
+		}
+
+		// Offer to author the buried target's NOTES.md right now — the same file, seeding
+		// and editor `graveyard note` would give it. noteOffer() owns the whole decision,
+		// INCLUDING the skip for -y/--silent/no-tty: confirm() answers yes under -y, so
+		// asking first would launch an editor mid-automation.
+		if ($offer = $gy->noteOffer($buryOutcome)) {
+			if ($cli->confirm("Add a note to this buried {$offer['noun']}?")) {
+				openNoteInEditor($cli, $offer['kind'] === 'group'
+					? $gy->ensureGroupNote($offer['ref'])
+					: $gy->ensureSessionNote($offer['ref']));
 			}
 		}
 		break;
@@ -192,10 +226,7 @@ switch ($sub) {
 			if ($ref === '') { $cli->exitErr('Usage: graveyard note <id>'); }
 			$path = $gy->ensureSessionNote($ref);
 		}
-		$editor = trim((string) shell_exec('command -v code 2>/dev/null'));
-		if ($editor) { shell_exec('code -r ' . escapeshellarg($path)); }
-		else { $ed = getenv('EDITOR') ?: 'vi'; $cli->runCommand($ed . ' ' . escapeshellarg($path)); }
-		$cli->successMsg("Opened {$path}");
+		openNoteInEditor($cli, $path);
 		break;
 	case 'rename':
 		if ($cli->hasFlag('workspace') || $cli->hasShortFlag('ws')) {

@@ -26,6 +26,12 @@ class Graveyard {
 	// unmatched siblings get a blank column of the same width so titles stay aligned.
 	const MATCH_MARK = '✱';
 
+	// The bury-outcome a bury with no single note target reports. Every bury verb that
+	// can produce one returns this shape so bin/graveyard can ask noteOffer() one
+	// question regardless of which path ran; the two that structurally never produce one
+	// (buryIdle's bulk sweep, buryIntoGroup's finish) stay void instead.
+	const NO_NOTE_TARGET = ['note_target' => null];
+
 	protected $cli;
 
 	/**
@@ -365,6 +371,34 @@ class Graveyard {
 		$gid   = (string) $m['group_id'];
 		$title = trim((string) ($m['group_title'] ?? '')) ?: substr($gid, 0, 8);
 		return $this->ensureNoteFile($this->noteGroupPath($gid), $title);
+	}
+
+	/**
+	 * PURE. Decide whether a just-finished bury should offer to author its target's note,
+	 * and with which noun — the post-bury half of the `note` verb (JT, 2026-09-09).
+	 * Takes a bury verb's outcome (see NO_NOTE_TARGET) and returns
+	 * ['kind' => 'session'|'group', 'ref' => <id>, 'noun' => 'session'|'plot'], or null
+	 * for "don't ask". The caller then prompts and hands 'ref' to ensureSessionNote /
+	 * ensureGroupNote, so a bury-time note is byte-for-byte the same note `graveyard
+	 * note` writes.
+	 *
+	 * Three runs never get asked, and the skip lives HERE rather than at the prompt:
+	 * $cli->confirm() answers YES under -y, so prompting first would launch an editor in
+	 * the middle of automation; --silent/--porcelain output is meant to be parsed; and a
+	 * prompt with no tty behind it blocks until the process is killed. None of those can
+	 * hand-author a note anyway, and a bury must never end up blocked on an editor.
+	 */
+	public function noteOffer(?array $outcome): ?array {
+		if ($this->cli->isAutoconfirm() || $this->cli->isSilent() || !$this->cli->isInteractive()) { return null; }
+
+		$target = $outcome['note_target'] ?? null;
+		if (!is_array($target)) { return null; }
+
+		$kind = (string) ($target['kind'] ?? '');
+		$ref  = (string) ($target['id'] ?? '');
+		if ($ref === '' || !in_array($kind, ['session', 'group'], true)) { return null; }
+
+		return ['kind' => $kind, 'ref' => $ref, 'noun' => $kind === 'group' ? 'plot' : 'session'];
 	}
 
 	/** I/O. Create the note's parent dir + a seeded NOTES.md if absent; return the path. */
@@ -2345,7 +2379,7 @@ class Graveyard {
 	 * "<parent-workspace> (pane)" default under -y). Only the pane's surfaces are closed;
 	 * the rest of the parent workspace stays alive.
 	 */
-	public function buryPane(string $paneRefOrId, bool $force, bool $autoConfirm): void {
+	public function buryPane(string $paneRefOrId, bool $force, bool $autoConfirm): array {
 		// A pane ref belongs to one transport, so look in each until one owns it, then
 		// stay bound to that one for the rest of the bury.
 		$loc  = null;
@@ -2354,26 +2388,25 @@ class Graveyard {
 			$loc = $this->findPaneSurfaces($t->surfaces(), $paneRefOrId);
 			if ($loc) { $host = $t; break; }
 		}
-		if (!$loc) { $this->cli->exitErr("No live pane matches '{$paneRefOrId}'."); return; }
+		if (!$loc) { $this->cli->exitErr("No live pane matches '{$paneRefOrId}'."); return self::NO_NOTE_TARGET; }
 
-		$this->driveVia($host, fn() => $this->buryPaneAt($loc, $paneRefOrId, $force, $autoConfirm));
+		return $this->driveVia($host, fn() => $this->buryPaneAt($loc, $paneRefOrId, $force, $autoConfirm));
 	}
 
 	/** @see buryPane() — the pane's own transport is already bound when this runs. */
-	protected function buryPaneAt(array $loc, string $paneRefOrId, bool $force, bool $autoConfirm): void {
+	protected function buryPaneAt(array $loc, string $paneRefOrId, bool $force, bool $autoConfirm): array {
 		$cls = $this->buildBuryClassification($loc['surfaces'], $loc['ws_ref'], $loc['ws_title']);
 		$decision = $this->paneBuryDecision($cls);
 
 		if ($decision['action'] === 'none') {
 			$this->cli->exitErr("No agent sessions in that pane to bury (nothing bury could bind — try the surface id, or bury the whole workspace).");
-			return;
+			return self::NO_NOTE_TARGET;
 		}
 
 		if ($decision['action'] === 'single') {
 			// One agent in the pane → today's plain single-session bury; sibling non-agent
 			// surfaces in the pane are left untouched, exactly like `bury <session>`.
-			$this->buryIds([$decision['single_sid']], $autoConfirm, $force);
-			return;
+			return $this->buryIds([$decision['single_sid']], $autoConfirm, $force);
 		}
 
 		// ≥2 agents (or a member + an untargetable) → group the pane into a new workspace.
@@ -2384,7 +2417,7 @@ class Graveyard {
 			if ($answer !== '') { $title = $answer; }
 		}
 
-		$this->buryClassifiedAsGroup($cls, $loc['ws_ref'], $title, $loc['window_ref'], $force, $autoConfirm, [
+		return $this->buryClassifiedAsGroup($cls, $loc['ws_ref'], $title, $loc['window_ref'], $force, $autoConfirm, [
 			'label'             => 'pane group',
 			'captureLayoutTree' => false,
 			'close'             => 'surfaces',
@@ -2392,7 +2425,7 @@ class Graveyard {
 		]);
 	}
 
-	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): void {
+	public function buryWorkspace(string $nameOrRef, bool $force, bool $autoConfirm): array {
 		$liveSessions = null;
 		// Group-id symmetry with resurrect (dotfiles-bury-group-target): resurrect
 		// accepts a buried group-id prefix, so bury --workspace does too. If the arg
@@ -2407,7 +2440,7 @@ class Graveyard {
 					'Group %s ("%s") has no live sessions or title to target — resurrect it first, or it may already be buried.',
 					substr((string) ($grp['group_id'] ?? $nameOrRef), 0, 8), (string) ($grp['group_title'] ?? '')
 				));
-				return;
+				return self::NO_NOTE_TARGET;
 			}
 			$nameOrRef = $target;
 		}
@@ -2416,9 +2449,9 @@ class Graveyard {
 			$hit = $this->resolveWorkspaceAcrossTransports($nameOrRef);
 		} catch (\RuntimeException $e) {
 			$this->cli->exitErr($e->getMessage());
-			return;
+			return self::NO_NOTE_TARGET;
 		}
-		if (!$hit) { $this->cli->exitErr("No workspace matches '{$nameOrRef}'."); return; }
+		if (!$hit) { $this->cli->exitErr("No workspace matches '{$nameOrRef}'."); return self::NO_NOTE_TARGET; }
 
 		$wsInfo  = $hit['info'];
 		$wsRef   = $wsInfo['ref'];
@@ -2426,10 +2459,10 @@ class Graveyard {
 
 		// Bound for the whole bury: classification, the /export typing and the close all
 		// have to reach the transport this workspace actually lives in.
-		$this->driveVia($hit['transport'], function () use ($wsRef, $wsTitle, $wsInfo, $force, $autoConfirm) {
+		return $this->driveVia($hit['transport'], function () use ($wsRef, $wsTitle, $wsInfo, $force, $autoConfirm) {
 			$cls = $this->buildBuryClassification($this->transport->surfaces($wsRef), $wsRef, $wsTitle);
 
-			$this->buryClassifiedAsGroup($cls, $wsRef, $wsTitle, (string) ($wsInfo['window_ref'] ?? ''), $force, $autoConfirm, [
+			return $this->buryClassifiedAsGroup($cls, $wsRef, $wsTitle, (string) ($wsInfo['window_ref'] ?? ''), $force, $autoConfirm, [
 				'label'             => 'workspace',
 				'captureLayoutTree' => true,
 				'close'             => 'workspace',
@@ -2543,7 +2576,7 @@ class Graveyard {
 	 * 'rerun' (the exact re-run command on total gate failure). Keeps the untargetable
 	 * abort guard for both callers.
 	 */
-	public function buryClassifiedAsGroup(array $cls, string $wsRef, string $title, string $windowRef, bool $force, bool $autoConfirm, array $opts): void {
+	public function buryClassifiedAsGroup(array $cls, string $wsRef, string $title, string $windowRef, bool $force, bool $autoConfirm, array $opts): array {
 		$wsTitle = $title;
 		$label   = $opts['label'] ?? 'workspace';
 		// Abort on any detected-but-unbindable agent surface, unless --force skips them.
@@ -2577,12 +2610,12 @@ class Graveyard {
 			}
 			if (!$force) {
 				$this->cli->exitErr('Refusing to partially destroy a ' . $label . '. Resolve these (or re-run with --force to skip them and leave them alive).');
-				return;
+				return self::NO_NOTE_TARGET;
 			}
 			$this->cli->msg('  --force: skipping the above (left ALIVE); the ' . $label . ' will not be fully closed.', 'yellow');
 		}
 
-		if (!$cls['members']) { $this->cli->exitErr('No targetable agent sessions in that ' . $label . ' to bury.'); return; }
+		if (!$cls['members']) { $this->cli->exitErr('No targetable agent sessions in that ' . $label . ' to bury.'); return self::NO_NOTE_TARGET; }
 
 		$this->cli->msg(sprintf('%s "%s" (%s): %d agent session(s), %d other surface(s).',
 			ucfirst($label), $wsTitle, $wsRef, count($cls['members']), count($cls['layout']) - count($cls['members'])), 'yellow');
@@ -2591,7 +2624,7 @@ class Graveyard {
 		}
 		if (!$autoConfirm && !$this->cli->confirm('Bury this ' . $label . ' (' . count($cls['members']) . ' session(s)) as a group?')) {
 			$this->cli->msg('Aborted.', 'yellow');
-			return;
+			return self::NO_NOTE_TARGET;
 		}
 
 		// Stamp a shared group + write the layout manifest BEFORE any destruction.
@@ -2693,6 +2726,11 @@ class Graveyard {
 		}
 
 		$this->cli->successMsg("Buried {$label} \"{$wsTitle}\" — group {$group} ({$buried} session(s)).");
+
+		// The whole plot is one note target, however many members it holds — so a group
+		// bury offers the PLOT note exactly once. A member a gate left alive is finished
+		// later by buryIntoGroup, which deliberately never re-offers it.
+		return ['note_target' => ['kind' => 'group', 'id' => $group]];
 	}
 
 	/**
@@ -2705,6 +2743,10 @@ class Graveyard {
 	 *
 	 * Refuses if the session is not a member of that group's manifest (out of scope to
 	 * graft a brand-new session into an existing plot; use `bury <id>` or `bury -ws`).
+	 *
+	 * Returns void, unlike the other bury verbs: this finishes a group an earlier
+	 * `bury -ws` created and already offered the plot note for, so there is deliberately
+	 * no note target to hand noteOffer() — see NO_NOTE_TARGET.
 	 */
 	public function buryIntoGroup(string $sessionRef, string $groupRef, bool $force, bool $autoConfirm): void {
 		$gids = $this->matchGroupIds($groupRef);
@@ -4599,21 +4641,19 @@ class Graveyard {
 		return $this->matchIdentifier($this->liveSessions(), $id);
 	}
 
-	public function buryByRef(string $id, bool $force, bool $autoConfirm): void {
+	public function buryByRef(string $id, bool $force, bool $autoConfirm): array {
 		$class = $this->classifyBuryIdentifier($id);
 
 		// A labelled workspace id (workspace_ref=/workspace_id=) is the whole-workspace
 		// group bury — hand it to that path with the pasted value verbatim.
 		if ($class['kind'] === 'workspace') {
-			$this->buryWorkspace($class['value'], $force, $autoConfirm);
-			return;
+			return $this->buryWorkspace($class['value'], $force, $autoConfirm);
 		}
 
 		// A labelled pane id buries the pane: one agent session → a plain single bury;
 		// several → a group into a new workspace (see buryPane).
 		if ($class['kind'] === 'pane') {
-			$this->buryPane($class['value'], $force, $autoConfirm);
-			return;
+			return $this->buryPane($class['value'], $force, $autoConfirm);
 		}
 
 		// A labelled surface id matches ONE field; a bare identifier uses the generic
@@ -4624,6 +4664,7 @@ class Graveyard {
 
 		if (!$matches) {
 			$this->cli->exitErr("No live session matches '{$id}'.");
+			return self::NO_NOTE_TARGET;
 		}
 
 		if (count($matches) > 1) {
@@ -4639,6 +4680,7 @@ class Graveyard {
 				));
 			}
 			$this->cli->exitErr("'{$id}' is ambiguous — narrow it or pass a full session-id.");
+			return self::NO_NOTE_TARGET;
 		}
 
 		$match = $matches[0];
@@ -4646,12 +4688,14 @@ class Graveyard {
 		$selfSessionId = $this->selfSessionId();
 		if ($selfSessionId && ($match['session_id'] ?? null) === $selfSessionId) {
 			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+			return self::NO_NOTE_TARGET;
 		}
 		if ($selfSurfaceId && (($match['surface_id'] ?? null) === $selfSurfaceId || ($match['surface_ref'] ?? null) === $selfSurfaceId)) {
 			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
+			return self::NO_NOTE_TARGET;
 		}
 
-		$this->buryIds([$match['session_id']], $autoConfirm, $force);
+		return $this->buryIds([$match['session_id']], $autoConfirm, $force);
 	}
 
 	public function candidates(): array {
@@ -4880,9 +4924,9 @@ class Graveyard {
 		return $left . '  ' . $titleTxt . '  ' . $shortCwd . $flag;
 	}
 
-	public function buryIds(array $sessionIds, bool $autoConfirm, bool $force = false): void {
+	public function buryIds(array $sessionIds, bool $autoConfirm, bool $force = false): array {
 		$ids = array_values(array_unique(array_filter($sessionIds, fn($s) => $s !== '')));
-		if (!$ids) { $this->cli->msg('No session ids given.', 'yellow'); return; }
+		if (!$ids) { $this->cli->msg('No session ids given.', 'yellow'); return self::NO_NOTE_TARGET; }
 
 		// Only when BOTH identifications came up empty is the guard actually off — a
 		// herdr caller has no CMUX_SURFACE_ID and never did, and naming that variable
@@ -4907,7 +4951,7 @@ class Graveyard {
 		if ($selfSessionId && in_array($selfSessionId, $ids, true)) {
 			$this->cli->exitErr('Refusing to bury the caller\'s own session.');
 		}
-		if (!$resolved) { $this->cli->msg('No live sessions to bury.', 'yellow'); return; }
+		if (!$resolved) { $this->cli->msg('No live sessions to bury.', 'yellow'); return self::NO_NOTE_TARGET; }
 
 		$this->cli->msg('Sessions to bury:', 'yellow');
 		foreach ($resolved as $s) {
@@ -4915,7 +4959,7 @@ class Graveyard {
 				substr($s['session_id'], 0, 8), $s['idle_seconds'], $s['workspace_title'], $s['tab_title']));
 		}
 		if (!$autoConfirm && !$this->cli->confirm('Bury these ' . count($resolved) . ' session(s)?')) {
-			$this->cli->msg('Aborted.', 'yellow'); return;
+			$this->cli->msg('Aborted.', 'yellow'); return self::NO_NOTE_TARGET;
 		}
 
 		$n = 0;
@@ -4925,6 +4969,14 @@ class Graveyard {
 			if ($this->buryOne($fresh, $force, true)) { $n++; }
 		}
 		$this->cli->successMsg("Buried {$n} of " . count($resolved) . ' session(s).');
+
+		// One id asked for and one session buried is the ONE case with a single note
+		// target — the plain `bury <ref>` and a picker that chose one row both land here.
+		// Asking for several is the bulk case: no single target, and a prompt per session
+		// would be noise.
+		return (count($ids) === 1 && $n === 1)
+			? ['note_target' => ['kind' => 'session', 'id' => (string) $resolved[0]['session_id']]]
+			: self::NO_NOTE_TARGET;
 	}
 
 	public function buryIdle(int $thresholdSecs, bool $autoConfirm): void {
@@ -4957,9 +5009,9 @@ class Graveyard {
 		$this->cli->successMsg("Buried {$n} of " . count($ids) . ' session(s).');
 	}
 
-	public function pickAndBury(bool $autoConfirm): void {
+	public function pickAndBury(bool $autoConfirm): array {
 		$cands = $this->candidates();
-		if (!$cands) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
+		if (!$cands) { $this->cli->msg('No buryable sessions.', 'yellow'); return self::NO_NOTE_TARGET; }
 
 		if (trim((string) shell_exec('command -v fzf 2>/dev/null')) !== '') {
 			$ids = $this->pickWithFzf($cands);
@@ -4967,8 +5019,10 @@ class Graveyard {
 			$ids = $this->pickWithRepl($cands);
 		}
 
-		if (!$ids) { $this->cli->msg('Nothing selected.', 'yellow'); return; }
-		$this->buryIds($ids, $autoConfirm);
+		if (!$ids) { $this->cli->msg('Nothing selected.', 'yellow'); return self::NO_NOTE_TARGET; }
+		// Picking exactly one row is a single-session bury like any other, so buryIds
+		// reports its note target and the picker path gets the offer for free.
+		return $this->buryIds($ids, $autoConfirm);
 	}
 
 	public function pickWithFzf(array $cands): array {
