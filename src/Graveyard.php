@@ -4616,7 +4616,17 @@ class Graveyard {
 
 	/**
 	 * PURE: single tab-separated porcelain line for a candidate row. No trailing newline.
-	 * Columns: session_id, idle_seconds, busy|idle, targetable|UNTARGETABLE, workspace_title, cwd, reason.
+	 * Columns: session_id, idle_seconds, busy|idle, targetable|UNTARGETABLE, workspace_title,
+	 * cwd, reason, agent, transport.
+	 *
+	 * agent/transport are APPENDED, not slotted in beside the title they describe: these
+	 * columns are positional, so anything already reading fields 1-7 has to keep working.
+	 * Both are named explicitly rather than left blank for the default pairing — a
+	 * porcelain consumer should never have to infer 'claude' or 'cmux' from an empty field.
+	 *
+	 * Note column 5 is the WORKSPACE title, while the human line shows the TAB title. That
+	 * predates the transport work and is deliberate — a workspace title is the stabler
+	 * handle to script against — but it does mean the tab title is not available here.
 	 */
 	public function formatCandidatePorcelain(array $row): string {
 		return implode("\t", [
@@ -4627,6 +4637,8 @@ class Graveyard {
 			$row['workspace_title'],
 			$row['cwd'],
 			$row['reason'] ?? '',
+			(string) ($row['agent'] ?? 'claude'),
+			(string) ($row['transport'] ?? 'cmux'),
 		]);
 	}
 
@@ -4683,9 +4695,12 @@ class Graveyard {
 		if (!$rows) { $this->cli->msg('No buryable sessions.', 'yellow'); return; }
 		$w    = $this->termWidth();
 		$home = getenv('HOME') ?: '';
+		// Once for the whole list, not per row: the column has to be the same width on
+		// every line to line the descriptions up, and 0 means don't reserve it at all.
+		$kindW = $this->candidateKindWidth($rows);
 		foreach ($rows as $r) {
 			$targetable = $r['targetable'] ?? true;
-			$this->cli->msg($this->candidateLine($r, $w, $home), $targetable ? '' : 'yellow');
+			$this->cli->msg($this->candidateLine($r, $w, $home, $kindW), $targetable ? '' : 'yellow');
 			if (!$targetable) {
 				$this->cli->msg($this->ellipsizeText('          ⚠ ' . $r['reason'], $w), 'yellow');
 			}
@@ -4697,8 +4712,49 @@ class Graveyard {
 		}
 	}
 
-	/** PURE. One width-bounded candidate line: id · idle · state · title · cwd (· ⚠ if untargetable). */
-	public function candidateLine(array $r, int $width, string $home): string {
+	/**
+	 * PURE. What kind of session this row is, as a single label, or '' for the default.
+	 *
+	 * Agent and transport are TWO AXES: `codex` says which agent runs, `herdr` says
+	 * which multiplexer hosts it, and any combination is possible. One label carries
+	 * both and names only what departs from the default, because Claude-under-cmux is
+	 * the overwhelming majority and marking it would be noise on every row.
+	 *
+	 * Why it is worth showing at all: a codex row is real and idle but bury refuses it
+	 * (dotfiles-nvf), and a herdr row lives somewhere else entirely — so where you go
+	 * to look at it, and whether bury will touch it, both read off this.
+	 */
+	public function candidateKindLabel(array $r): string {
+		$parts = [];
+		$agent = (string) ($r['agent'] ?? 'claude');
+		if ($agent !== '' && $agent !== 'claude') { $parts[] = $agent; }
+		$transport = (string) ($r['transport'] ?? 'cmux');
+		if ($transport !== '' && $transport !== 'cmux') { $parts[] = $transport; }
+
+		return implode('/', $parts);
+	}
+
+	/**
+	 * PURE. Column width the kind labels need across these rows — 0 when every row is
+	 * the default pairing.
+	 *
+	 * Zero means the column is not reserved at all, which is what keeps a cmux-only,
+	 * Claude-only install's `candidates` output byte-identical to what it was before
+	 * graveyard learned a second transport existed.
+	 */
+	public function candidateKindWidth(array $rows): int {
+		$w = 0;
+		foreach ($rows as $r) { $w = max($w, mb_strlen($this->candidateKindLabel($r))); }
+		return $w;
+	}
+
+	/** PURE. Right-pad to a column width by DISPLAY length — sprintf's %-Ns counts bytes. */
+	private function padTo(string $text, int $width): string {
+		return $text . str_repeat(' ', max(0, $width - mb_strlen($text)));
+	}
+
+	/** PURE. One width-bounded candidate line: id · idle · state · [kind ·] title · cwd (· ⚠ if untargetable). */
+	public function candidateLine(array $r, int $width, string $home, int $kindWidth = 0): string {
 		$id    = substr((string) $r['session_id'], 0, 8);
 		$idle  = $this->idleHuman((int) $r['idle_seconds']);
 		$state = ($r['busy'] ?? false) ? 'busy' : 'idle';
@@ -4706,18 +4762,12 @@ class Graveyard {
 		$title = $this->stripGlyph((string) ($r['tab_title'] ?? ''));
 		if ($title === '' || $title === 'Terminal') { $title = (string) ($r['workspace_title'] ?? ''); }
 		if ($title === '') { $title = '(untitled)'; }
-		// Tag anything that isn't Claude: these rows are real and idle, but bury
-		// refuses them (dotfiles-nvf), and an unmarked row teaches that only by
-		// trial. Claude stays unmarked — it's the overwhelming majority.
-		$agent = $r['agent'] ?? 'claude';
-		if ($agent !== 'claude') { $title = "[{$agent}] {$title}"; }
-		// Same convention, for the same reason, one level out: discovery is a union now,
-		// so a row can be hosted by either multiplexer and where it lives decides where
-		// you go look at it. cmux stays unmarked as the incumbent — which is also what
-		// keeps a cmux-only install's output exactly what it was.
-		$transport = (string) ($r['transport'] ?? 'cmux');
-		if ($transport !== '' && $transport !== 'cmux') { $title = "[{$transport}] {$title}"; }
 		$left = sprintf('%s  %-4s %-4s', $id, $idle, $state);
+		// Padded even when this row's label is empty, so the descriptions line up down
+		// the list instead of stepping in and out around the marked rows.
+		if ($kindWidth > 0) {
+			$left .= ' ' . $this->padTo($this->candidateKindLabel($r), $kindWidth);
+		}
 
 		$avail = $width - mb_strlen($left) - 2 - mb_strlen($flag);
 		if ($avail < 24) {

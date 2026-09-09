@@ -243,9 +243,12 @@ final class GraveyardCodexTest extends TestCase
 			'session_id' => '019fa599-6b5f', 'agent' => 'codex', 'idle_seconds' => 90000,
 			'busy' => false, 'targetable' => true, 'tab_title' => 'p81u worker',
 			'workspace_title' => 'cp', 'cwd' => '/Users/JT/Code/claude-plugins',
-		], 120, '/Users/JT');
+		], 120, '/Users/JT', 5);
 
-		$this->assertStringContainsString('[codex]', $line);
+		// A column now, not a bracket tag inside the description.
+		$this->assertStringNotContainsString('[codex]', $line);
+		$this->assertStringContainsString('codex', $line);
+		$this->assertLessThan(mb_strpos($line, 'p81u worker'), mb_strpos($line, 'codex'));
 	}
 
 	public function testCandidateLineLeavesClaudeRowsUnmarked(): void
@@ -284,10 +287,10 @@ final class GraveyardCodexTest extends TestCase
 		$this->assertTrue($json[0]['buryable']);
 	}
 
-	public function testPorcelainColumnCountIsUnchanged(): void
+	public function testPorcelainAppendsKindColumnsWithoutShiftingTheOldOnes(): void
 	{
-		// The porcelain line is a documented tab format that scripts parse; adding
-		// codex must not shift or add columns.
+		// The porcelain line is a documented tab format that scripts parse. agent and
+		// transport were APPENDED, so fields 1-7 must sit exactly where they always did.
 		$row = $this->gy->candidateRowFor([
 			'session_id' => 'abc', 'agent' => 'codex', 'idle_seconds' => 100,
 			'cwd' => '/x', 'workspace_title' => 'w', 'tab_title' => 't',
@@ -295,6 +298,9 @@ final class GraveyardCodexTest extends TestCase
 			'model' => null, 'skip_perms' => false, 'targetable' => true, 'reason' => '',
 		], false);
 
-		$this->assertCount(7, explode("\t", $this->gy->formatCandidatePorcelain($row)));
+		$cols = explode("\t", $this->gy->formatCandidatePorcelain($row));
+		$this->assertCount(9, $cols);
+		$this->assertSame(['abc', '100', 'idle', 'targetable', 'w', '/x', ''], array_slice($cols, 0, 7));
+		$this->assertSame(['codex', 'cmux'], array_slice($cols, 7, 2));
 	}
 }

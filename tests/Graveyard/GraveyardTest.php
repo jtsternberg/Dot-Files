@@ -197,11 +197,11 @@ final class GraveyardTest extends TestCase
 	public function testFormatCandidatePorcelain(): void
 	{
 		$idleRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'targetable' => true, 'reason' => '', 'workspace_title' => 'proj', 'cwd' => '/x'];
-		$this->assertSame("abc\t3600\tidle\ttargetable\tproj\t/x\t", $this->gy->formatCandidatePorcelain($idleRow));
+		$this->assertSame("abc\t3600\tidle\ttargetable\tproj\t/x\t\tclaude\tcmux", $this->gy->formatCandidatePorcelain($idleRow));
 		$busyRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => true, 'targetable' => true, 'reason' => '', 'workspace_title' => 'proj', 'cwd' => '/x'];
-		$this->assertSame("abc\t3600\tbusy\ttargetable\tproj\t/x\t", $this->gy->formatCandidatePorcelain($busyRow));
+		$this->assertSame("abc\t3600\tbusy\ttargetable\tproj\t/x\t\tclaude\tcmux", $this->gy->formatCandidatePorcelain($busyRow));
 		$untRow = ['session_id' => 'abc', 'idle_seconds' => 3600, 'busy' => false, 'targetable' => false, 'reason' => 'collision', 'workspace_title' => 'proj', 'cwd' => '/x'];
-		$this->assertSame("abc\t3600\tidle\tUNTARGETABLE\tproj\t/x\tcollision", $this->gy->formatCandidatePorcelain($untRow));
+		$this->assertSame("abc\t3600\tidle\tUNTARGETABLE\tproj\t/x\tcollision\tclaude\tcmux", $this->gy->formatCandidatePorcelain($untRow));
 	}
 
 	public function testBuryIdsEmptyIsNoOp(): void

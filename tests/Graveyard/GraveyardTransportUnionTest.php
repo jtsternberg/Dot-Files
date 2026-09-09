@@ -97,21 +97,25 @@ final class GraveyardTransportUnionTest extends TestCase
 	/**
 	 * A row says which multiplexer hosts it, in the view JT actually reads.
 	 *
-	 * Same convention as the `[codex]` agent tag: the incumbent stays unmarked, which
-	 * is also what keeps a cmux-only install's `candidates` output unchanged.
+	 * It rides the same `kind` column as the agent axis, and the incumbent stays blank —
+	 * which is what keeps a cmux-only install's `candidates` output unchanged.
 	 */
-	public function testACandidateLineTagsANonCmuxRowAndLeavesCmuxUnmarked(): void
+	public function testACandidateLineNamesANonCmuxRowAndLeavesCmuxBlank(): void
 	{
 		$row = FakeTransport::row('herdr', 'b', ['tab_title' => 'Callee lifecycle', 'idle_seconds' => 300]);
 
-		$this->assertStringContainsString('[herdr] Callee lifecycle', $this->gy->candidateLine($row, 120, '/Users/JT'));
+		$line = $this->gy->candidateLine($row, 120, '/Users/JT', 5);
+		$this->assertStringContainsString('herdr', $line);
+		$this->assertStringContainsString('Callee lifecycle', $line);
+		$this->assertStringNotContainsString('[herdr]', $line);
+		$this->assertLessThan(mb_strpos($line, 'Callee lifecycle'), mb_strpos($line, 'herdr'));
 
 		$row['transport'] = 'cmux';
-		$this->assertStringNotContainsString('[cmux]', $this->gy->candidateLine($row, 120, '/Users/JT'));
+		$this->assertStringNotContainsString('cmux', $this->gy->candidateLine($row, 120, '/Users/JT', 5));
 
 		// A row from before the union names no transport and must read as cmux.
 		unset($row['transport']);
-		$this->assertStringNotContainsString('[', $this->gy->candidateLine($row, 120, '/Users/JT'));
+		$this->assertSame(0, $this->gy->candidateKindWidth([$row]));
 	}
 
 	/**

@@ -38,10 +38,17 @@ or rank.
 ## Both multiplexers, one list
 
 Discovery is a **union**: `candidates`, `ls`, `search` and `page` see sessions
-under cmux AND herdr in one list, and every row says which hosts it — a
-`[herdr]` tag on the text line (cmux is unmarked, as the incumbent), and a
-`transport` field in `candidates --json`. `bury` needs no flag: it drives
-whichever transport reported the session.
+under cmux AND herdr in one list, and every row says which hosts it.
+
+`candidates` carries a **kind column** between the state and the description,
+naming only what departs from the default — blank for Claude-under-cmux,
+otherwise `herdr`, `codex`, or `codex/herdr`. Agent and transport are two
+separate axes sharing one column. The column is omitted entirely when every row
+is the default pairing, so a cmux-only install's output is unchanged.
+`candidates --json` carries `agent` and `transport` as fields; `--porcelain`
+carries them as columns 8 and 9, appended so fields 1-7 never move.
+
+`bury` needs no flag: it drives whichever transport reported the session.
 
 Only `resurrect` takes `--transport=<cmux|herdr>`, because a restore creates a
 workspace that does not exist yet. Default: the only reachable transport, or
