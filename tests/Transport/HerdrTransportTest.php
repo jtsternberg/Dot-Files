@@ -713,17 +713,37 @@ SH;
 		$this->assertSame('ctrl+c', $t->herdrKeyName('ctrl+c'));
 	}
 
-	/** $lines = 0 means "no limit", matching Cmux::readScreen(). */
-	public function testReadScreenReadsTheRecentBufferAndHonoursALineBound(): void
+	/**
+	 * A BOUNDED read asks for `visible`; an unbounded one asks for `recent`.
+	 *
+	 * This is the dotfiles-6xo bug, and no stub could have caught it — the stub
+	 * returns its canned file whatever --source says, so only the ARGV can be pinned.
+	 * Against a real herdr 0.8.2: `pane read --source recent --lines 6` returns ZERO
+	 * BYTES on a pane whose scrollback is shorter than the viewport (`--lines 12` too;
+	 * it only starts answering above ~12), while `--source visible --lines 6` returns
+	 * the on-screen tail including the Claude statusline.
+	 *
+	 * Graveyard::readLastScreen() defaults to SIX lines, and both bury gates read that
+	 * one string: GATE 1 scrapes the statusline for a cwd, and isBusy() looks for an
+	 * active-turn marker. An empty screen made gate 1 refuse every herdr bury outright,
+	 * and would have made isBusy() fail OPEN on any path that bypasses gate 1.
+	 *
+	 * $lines = 0 means "no limit", matching Cmux::readScreen().
+	 */
+	public function testReadScreenAsksForVisibleWhenBoundedAndRecentWhenNot(): void
 	{
 		$this->write('screen.txt', "line one\nline two\n");
 		$t = $this->transport();
 
 		$this->assertSame("line one\nline two", $t->readScreen('wA:p1', 'wA', 40));
-		$this->assertSame('pane read wA:p1 --source recent --lines 40', $this->loggedArgv());
+		$this->assertSame('pane read wA:p1 --source visible --lines 40', $this->loggedArgv());
+
+		// The default Graveyard::readLastScreen() bound — the one that returned nothing.
+		$t->readScreen('wA:p1', 'wA', 6);
+		$this->assertSame('pane read wA:p1 --source visible --lines 6', $this->loggedArgv(1));
 
 		$t->readScreen('wA:p1', 'wA');
-		$this->assertSame('pane read wA:p1 --source recent', $this->loggedArgv(1));
+		$this->assertSame('pane read wA:p1 --source recent', $this->loggedArgv(2));
 	}
 
 	/**

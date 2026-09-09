@@ -552,9 +552,29 @@ class HerdrTransport implements SessionTransport
 	 * loop while waiting for a modal or a prompt, and a transient read failure must
 	 * cost one iteration, not the whole bury.
 	 */
+	/**
+	 * A BOUNDED read must ask herdr for `visible`, not `recent`.
+	 *
+	 * `recent` is history-oriented: `pane read --source recent --lines 6` returns
+	 * ZERO BYTES on a pane whose scrollback is shorter than the viewport, and only
+	 * starts answering somewhere above 12 lines. Every caller of a bounded read wants
+	 * "the last N lines on screen" — which is what `Cmux::readScreen --lines N` gives
+	 * and what `visible` gives — and the callers are the bury gates:
+	 *
+	 *   - GATE 1 scrapes the Claude REPL statusline for a cwd. An empty screen reads
+	 *     as "no statusline", so every herdr bury was refused (dotfiles-6xo).
+	 *   - isBusy() looks for an active-turn marker in the SAME string. An empty screen
+	 *     has no marker, so on any path that bypasses gate 1 the busy check would fail
+	 *     OPEN and tear down a session mid-turn.
+	 *
+	 * Unit tests cannot catch this: a stubbed HERDR_BIN returns its canned fixture
+	 * whatever --source and --lines say. It took a real bury against a real herdr agent.
+	 */
 	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): string {
 		try {
-			return $this->herdr->paneRead($surfaceRef, 'recent', $lines > 0 ? $lines : null);
+			return $lines > 0
+				? $this->herdr->paneRead($surfaceRef, 'visible', $lines)
+				: $this->herdr->paneRead($surfaceRef, 'recent', null);
 		} catch (RuntimeException $e) {
 			return '';
 		}
