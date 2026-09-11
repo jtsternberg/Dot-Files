@@ -4,6 +4,21 @@
 [credential]
 	helper = osxkeychain
 
+; github.com over HTTPS via gh's token. The path is absolute because git run from
+; GUI apps has no Homebrew PATH. The rewrite exists so unattended agent pushes
+; survive screen lock: the github SSH key's passphrase lives in the login
+; keychain, which refuses "User interaction is not allowed" while locked; gh's
+; token does not. Stored remotes keep the git@ form. See private/system-journal
+; entry ssh-github-keychain-passphrase-user-interaction-not-allowed.
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+
 [safe]
 	directory = /private/etc/apache2
 

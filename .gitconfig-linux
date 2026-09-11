@@ -17,3 +17,11 @@
 ; [credential]
 ; 	helper = /usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret
 ; 	helper = store
+
+; github.com over HTTPS via gh's token (gh keeps it in plaintext hosts.yml here).
+[credential "https://github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
