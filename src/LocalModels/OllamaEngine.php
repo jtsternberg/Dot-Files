@@ -73,28 +73,17 @@ final class OllamaEngine extends AbstractStoreEngine {
 	 * (Quitting the app was tried and does not work: Ollama's menubar app refuses
 	 * AppleScript quit with -128 "User canceled".)
 	 *
+	 * Which models are loaded comes from OllamaRunners, the one reader of
+	 * `ollama ps` — the watchdog reads the same rows to size the kernel GPU zone,
+	 * and a parsing fix has to serve both or the two drift apart.
+	 *
 	 * @return string[] models actually stopped
 	 */
 	public function releaseHolds(): array {
 		$bin = getenv( 'AIMODELS_OLLAMA_BIN' ) ?: 'ollama';
 
-		exec( escapeshellarg( $bin ) . ' ps 2>/dev/null', $lines, $code );
-		if ( 0 !== $code ) {
-			return [];
-		}
-
 		$released = [];
-		foreach ( $lines as $line ) {
-			$line = trim( $line );
-			if ( '' === $line || 0 === strpos( $line, 'NAME' ) ) {
-				continue;
-			}
-
-			$model = (string) ( preg_split( '/\s+/', $line )[0] ?? '' );
-			if ( '' === $model ) {
-				continue;
-			}
-
+		foreach ( ( new OllamaRunners() )->names() as $model ) {
 			exec( escapeshellarg( $bin ) . ' stop ' . escapeshellarg( $model ) . ' 2>&1', $out, $stopCode );
 			// A refused stop is not a release. Reporting it as one is what let the
 			// previous approach claim success it never achieved.

@@ -22,6 +22,10 @@ namespace JT;
 #                         into the GBs) — a wired-kernel leak that %free/pressure
 #                         cannot see. Caught a real "zone map exhausted" panic on
 #                         2026-07-13 that userspace metrics missed entirely.
+#                         A big GPU zone is checked against Ollama's resident
+#                         models first: loaded weights legitimately wire GBs into
+#                         it, and alerting on that taught JT to ignore the one
+#                         signal that arrives minutes before a panic.
 #   - ON AC *OR* BATTERY: /tmp filling up — 5000MB+ total, or any single top-level
 #                         item at 1000MB+ (parked backups, giant scratch files).
 #                         Measurement only; removal is a human call.
@@ -491,6 +495,26 @@ $mem    = readMemory();
 $topMem = readTop($selfPid, 'mem');
 $zones  = readKernelZones();
 $tmp    = new TmpUsage();
+// Resident LLM weights wire GBs into the kernel's GPU zones by design, so the
+// single-zone leak threshold has to know what is loaded before it calls a big
+// GPU zone a leak (KernelZoneAttribution carries the 2026-09-12 case). Read
+// once: the alert, the log line and the readout must all describe one sample,
+// and they all branch off $zoneOver below rather than re-deriving it.
+$gpuGb  = KernelZoneAttribution::gpuResidentGb();
+$zoneAttributed = $zones['topZone'] !== null
+	&& $zones['topZoneGb'] !== null
+	&& KernelZoneAttribution::explains($zones['topZone'], $zones['topZoneGb'], $gpuGb);
+$zoneSingleOver = $zones['topZoneGb'] !== null
+	&& $zones['topZoneGb'] >= ZONE_SINGLE_GB
+	&& ! $zoneAttributed;
+$zoneMapOver    = $zones['mapPct'] !== null && $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT;
+$zoneOver       = $zoneSingleOver || $zoneMapOver;
+// Attribution holds whenever a model is loaded, including when the zone is
+// nowhere near the threshold — so only SAY so where it changed the outcome,
+// otherwise every log line carries a token that means nothing.
+$zoneSuppressed = $zoneAttributed
+	&& $zones['topZoneGb'] !== null
+	&& $zones['topZoneGb'] >= ZONE_SINGLE_GB;
 $state  = readState($stateFile);
 
 $tmpTotalMb = $tmp->totalMb();
@@ -584,9 +608,7 @@ if (($activeThrash && $underPressure) || ($memCritical && $memCriticalPrev)) {
 // panics ("zone map exhausted") with userspace RAM looking fine. Growth is
 // monotonic during a real leak, so a single reading over threshold is alertable
 // immediately — no 2-check gate — because we may only have minutes of headroom.
-if (($zones['mapPct'] !== null && $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT)
-	|| ($zones['topZoneGb'] !== null && $zones['topZoneGb'] >= ZONE_SINGLE_GB)
-) {
+if ($zoneOver) {
 	$bits = [];
 	if ($zones['mapPct'] !== null) {
 		$bits[] = sprintf('zone map %.0f%% full (%.1f/%.1fG)', $zones['mapPct'], $zones['mapUsedGb'], $zones['mapLimitGb']);
@@ -596,11 +618,20 @@ if (($zones['mapPct'] !== null && $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT)
 	}
 	$reason = 'Kernel zone pressure: ' . implode(', ', $bits);
 	$alerts[] = $reason;
-	$notifications['kernelzone'] = [
-		'💥 Kernel memory leak risk',
-		implode(', ', $bits),
-		'Wired-kernel leak (invisible to RAM %). Often an EndpointSecurity flood from process churn — ' . ASSESS_HINT,
-	];
+	// A map already explained by resident models is still worth sending — a full
+	// map panics whatever filled it — but the fix is `ollama stop`, not a hunt
+	// for a leak, and naming the wrong one wastes the only warning JT gets.
+	$notifications['kernelzone'] = $zoneAttributed
+		? [
+			'💥 Kernel zone map nearly full',
+			implode(', ', $bits),
+			KernelZoneAttribution::describe($gpuGb) . ' — ' . ASSESS_HINT,
+		]
+		: [
+			'💥 Kernel memory leak risk',
+			implode(', ', $bits),
+			'Wired-kernel leak (invisible to RAM %). Often an EndpointSecurity flood from process churn — ' . ASSESS_HINT,
+		];
 }
 
 // --- /tmp disk-usage detection (AC or battery) ------------------------------
@@ -699,6 +730,16 @@ if ($notifyEnabled) {
 		'lastNotified'    => $lastNotified,
 	]);
 
+	// One parenthesised group so a log line stays greppable: largest zone first,
+	// then what Ollama accounts for. Without the ollama= clause there is no way to
+	// read a historical 8.8G GPU-zone line back and tell it from a leak.
+	$zoneDetail = implode(',', array_filter([
+		$zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0
+			? sprintf('%s=%.1fG', $zones['topZone'], $zones['topZoneGb']) : '',
+		$gpuGb > 0 ? sprintf('ollama=%.1fG', $gpuGb) : '',
+		$zoneSuppressed ? 'attributed' : '',
+	]));
+
 	$logParts = [
 		$sub . ':',
 		'source=' . ($batt['onBattery'] ? 'battery' : 'ac'),
@@ -708,8 +749,10 @@ if ($notifyEnabled) {
 		'drain=' . ($drainRate === null ? 'n/a' : sprintf('%.0f%%/hr', $drainRate)),
 		'mem=' . ($mem['free'] === null ? '?' : $mem['free'] . '%free') . '/lvl' . ($mem['level'] ?? '?'),
 		'swap=' . ($swapRate === null ? 'n/a' : sprintf('%.0f/min', $swapRate)),
+		// The ollama= clause is what makes a historical 8.8G GPU-zone line readable
+		// months later: without it there is no way to tell that reading from a leak.
 		'zonemap=' . ($zones['mapPct'] === null ? 'n/a' : sprintf('%.0f%%', $zones['mapPct']))
-			. ($zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0 ? sprintf('(%s=%.1fG)', $zones['topZone'], $zones['topZoneGb']) : ''),
+			. ($zoneDetail === '' ? '' : '(' . $zoneDetail . ')'),
 		'tmp=' . $tmpTotalMb . 'MB'
 			. ($tmpTopName !== null && $tmpTopMb >= 1024 ? sprintf('(%s=%dMB)', $tmpTopName, $tmpTopMb) : ''),
 		'top=[' . formatTop($top, TOP_N) . ']',
@@ -744,14 +787,19 @@ if (!$cli->isSilent()) {
 		$swapRate === null ? 'no swap-rate baseline yet' : sprintf('swapping %.0f pages/min', $swapRate)
 	), $underPressure ? 'yellow' : '');
 	if ($zones['mapPct'] !== null) {
-		$zoneOver = $zones['mapPct'] >= ZONE_MAP_PCT_LIMIT
-			|| ($zones['topZoneGb'] !== null && $zones['topZoneGb'] >= ZONE_SINGLE_GB);
 		$cli->msg(sprintf(
 			'  Kernel zone map: %.0f%% full (%.1f/%.1fG)%s',
 			$zones['mapPct'], $zones['mapUsedGb'], $zones['mapLimitGb'],
 			$zones['topZone'] !== null && $zones['topZoneGb'] >= 1.0
 				? sprintf(' | largest: %s=%.1fG', $zones['topZone'], $zones['topZoneGb']) : ''
 		), $zoneOver ? 'red' : '');
+		if ($gpuGb > 0) {
+			$cli->msg(sprintf(
+				'    %.1fG of GPU-resident Ollama weights%s',
+				$gpuGb,
+				$zoneSuppressed ? ' — accounts for the zone above, not a leak' : ''
+			), $zoneSuppressed ? 'green' : '');
+		}
 	}
 	$tmpOver = $tmpTotalMb >= TMP_TOTAL_MB || $tmpTopMb >= TMP_ITEM_MB;
 	$cli->msg(sprintf(

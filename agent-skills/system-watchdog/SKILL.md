@@ -55,6 +55,9 @@ First, figure out **which axis tripped** — the notification title and the log'
 - 🔋 **battery** — `Battery (NN%): …`
 - 💥 **kernel zone leak** — `Kernel zone pressure: …`. Wired-kernel memory,
   invisible to `%free`/pressure; ends in a "zone map exhausted" panic if ignored.
+  Two shapes: `Kernel memory leak risk` is unexplained memory, while `Kernel
+  zone map nearly full` means resident LLM weights already account for the
+  largest zone and the map is still near its limit — unload a model.
 - 📦 **/tmp filling up** — `Tmp usage: …`. Disk, not RAM. See the playbook in §2.
 
 Then re-sample everything live; a memory alert can coincide with a CPU hog.
@@ -80,6 +83,7 @@ vm_stat | grep -iE 'swapin|swapout|occupied'           # cumulative swap + compr
 zprint 2>/dev/null | head -1                           # header
 zprint 2>/dev/null | sort -k3 -h -r | head -5          # biggest zones by cur size
 zprint 2>/dev/null | grep -i '^total'                  # zone map used of limit
+ollama ps                                              # GPU-resident weights: do they explain it?
 
 # Disk — /tmp (📦 alerts). Note /tmp is a symlink to /private/tmp.
 du -skc /private/tmp/*(D) 2>/dev/null | sort -n | tail -12   # zsh; (D) includes dotfiles
@@ -137,6 +141,16 @@ EndpointSecurity buffers (a build loop, a runaway spawner, a security agent), or
 heavy GPU work for the IOGPU zones. Fix the driver, or reboot — the zone only
 frees on reboot. A zone in the GBs and still growing across checks is minutes-
 to-hours from a hard panic; say that plainly.
+
+**First, for any IOGPU zone: run `ollama ps`.** A loaded model wires its weights
+into `com.apple.iokit.IOGPUFamily.API`, so ~8GB of resident models puts that
+zone at ~8GB with nothing wrong — sum the GPU share of the sizes and compare.
+The watchdog does this itself (`JT\KernelZoneAttribution`) and suppresses
+the single-zone alert when resident weights plus ~2GB cover the zone, so a 💥
+alert naming an IOGPU zone means the size is *already* unexplained — or that
+Ollama unloaded between the check and your triage, so re-read `ollama ps` before
+concluding anything. Real leak signature: the zone keeps climbing with nothing
+resident, or sits GBs above the resident total.
 
 ### 📦 /tmp filling up — playbook
 
