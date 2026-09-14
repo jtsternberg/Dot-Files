@@ -2,11 +2,11 @@
 name: system-journal
 description: |
   Machine-specific journal of past infrastructure and config incidents on THIS
-  Mac (jt-mbp14): NAS/QNAP, SSH, network, DNS, tailnet/VPN, auth, firmware,
-  mounts, shares, printers, and launchd. READ IT FIRST when something
-  infrastructural is broken, and RECORD an entry after resolving one. Triggers
-  on symptoms as first stated, including "can't ssh", "Permission denied
-  (publickey)", "too many authentication failures", "git push to the NAS
+  machine: NAS/QNAP, SSH, network, DNS, tailnet/VPN, auth, firmware, mounts,
+  shares, printers, and service managers (launchd/systemd). READ IT FIRST when
+  something infrastructural is broken, and RECORD an entry after resolving one.
+  Triggers on symptoms as first stated, including "can't ssh", "Permission
+  denied (publickey)", "too many authentication failures", "git push to the NAS
   fails", "can't mount", "can't reach the NAS", "share isn't showing up",
   DNS/tailnet weirdness, or auth failing for no reason, especially with temporal
   tells such as "this worked yesterday", "broke after a reboot", "stopped
@@ -18,7 +18,7 @@ description: |
 allowed-tools: [Bash, Read, Write, Edit, ScheduleWakeup]
 ---
 
-# System Journal — jt-mbp14
+# System Journal — this machine
 
 A curated log of **non-obvious infrastructure / config incidents on this
 machine**, plus the standing facts and deliberate changes that make the next
@@ -190,7 +190,7 @@ The index is a **cache of entry frontmatter**. Never hand-edit it — regenerate
 after any entry write, so it cannot drift out of sync with the entries:
 
 ```bash
-cd ~/.dotfiles/private/system-journal && { printf '# System Journal — index (jt-mbp14)\n\n<!-- GENERATED from entry frontmatter — do not hand-edit. Regen one-liner lives in the system-journal skill. -->\n\n'; for f in entries/*.md; do awk -v F="$f" '/^---[[:space:]]*$/{if(++n==2)exit;next} n==1{k=$1;sub(/:$/,"",k);a[k]=substr($0,index($0,": ")+2)} END{printf "- %s · %s%s · %s · [%s] · [%s] · → %s\n", a["date"], a["kind"], (a["status"]=="active"?"":" ("toupper(a["status"])")"), a["symptom"], a["component"], a["pattern"], F}' "$f"; done | sort -r; } > index.md
+cd ~/.dotfiles/private/system-journal && { printf '# System Journal — index (%s)\n\n<!-- GENERATED from entry frontmatter — do not hand-edit. Regen one-liner lives in the system-journal skill. -->\n\n' "$(hostname -s | tr '[:upper:]' '[:lower:]')"; for f in entries/*.md; do awk -v F="$f" '/^---[[:space:]]*$/{if(++n==2)exit;next} n==1{k=$1;sub(/:$/,"",k);a[k]=substr($0,index($0,": ")+2)} END{printf "- %s · %s%s · %s · [%s] · [%s] · → %s\n", a["date"], a["kind"], (a["status"]=="active"?"":" ("toupper(a["status"])")"), a["symptom"], a["component"], a["pattern"], F}' "$f"; done | sort -r; } > index.md
 ```
 
 Then commit — **scoped to this journal only**, never `-A` and never `commit -a`.
@@ -229,7 +229,9 @@ deferring.
 
 ## Notes
 
-- Specific to this Mac (jt-mbp14). Entries about other machines don't belong here.
+- **One journal per machine.** This is the journal for the host you're on
+  (`hostname -s`) — every entry in it describes that host. A finding about a
+  different machine belongs in that machine's journal, never in this one.
 - Be terse in entries but never paraphrase a command — verbatim commands are the
   most reused part of the whole journal.
 - Lead with the verdict. JT reads this while something is broken and he's annoyed.
