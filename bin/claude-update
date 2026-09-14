@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# claude-update — run `claude update`, then summarize what changed.
+# By Justin Sternberg <me@jtsternberg.com>
+# https://github.com/jtsternberg/Dot-Files/blob/master/bin/claude-update
+#
+# Version 0.1.0
+#
+# `claude update` itself only reports counts (e.g. "14 features, 101
+# bugfixes"). This wraps it, diffs the installed version before/after, and
+# lists what those features and fixes actually are, pulled from the same
+# CHANGELOG.md Claude Code mirrors locally.
+#
+# Usage:
+# claude-update [--full]
+# claude-update            Update, then list new features (fixes/other as counts)
+# claude-update --full     Also list every fix and other change
+# claude-update completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new ClaudeUpdateCommand( $cli ) ) )->run() );

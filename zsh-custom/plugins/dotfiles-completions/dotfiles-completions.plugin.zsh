@@ -211,6 +211,27 @@ _xname_lazy() {
 	_xname "$@"
 }
 
+_claude_update_lazy() {
+	local generated
+
+	generated="$(command claude-update completion zsh 2>/dev/null)" || {
+		_message 'unable to generate claude-update completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load claude-update completion'
+		return 1
+	}
+
+	if (( ! $+functions[_claude_update] )); then
+		_message 'claude-update completion did not define _claude_update'
+		return 1
+	fi
+
+	_claude_update "$@"
+}
+
 _aimodels_lazy() {
 	local generated
 
@@ -261,6 +282,7 @@ _herdr_lazy() {
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
+compdef _claude_update_lazy claude-update
 compdef _md_atx_lazy md-atx
 compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
