@@ -3,6 +3,7 @@ namespace JT\Tests\ClaudeUpdate;
 
 use JT\CLI\Command\Dispatcher;
 use JT\ClaudeUpdateCommand;
+use JT\Helpers\Ollama;
 use JT\Tests\TestCase;
 
 final class ClaudeUpdateCommandTest extends TestCase {
@@ -26,7 +27,11 @@ final class ClaudeUpdateCommandTest extends TestCase {
 		- Fixed something before the version we were on
 		MD;
 
-	private function handler( array $versions, ?callable $runner = null ): ClaudeUpdateCommand {
+	private function handler(
+		array $versions,
+		?callable $runner = null,
+		?Ollama $ollama = null
+	): ClaudeUpdateCommand {
 		$calls = 0;
 
 		return new ClaudeUpdateCommand(
@@ -41,6 +46,19 @@ final class ClaudeUpdateCommandTest extends TestCase {
 			},
 			static fn(): ?string => self::CHANGELOG,
 			static fn(): bool => true,
+			$ollama,
+		);
+	}
+
+	/** An Ollama double that fails the test if it's ever asked to resolve a model or chat. */
+	private function unusedOllama(): Ollama {
+		return new Ollama(
+			function (): bool {
+				$this->fail( 'Ollama::resolveModel should not have been called.' );
+			},
+			function (): array {
+				$this->fail( 'Ollama::chat should not have been called.' );
+			}
 		);
 	}
 
@@ -179,6 +197,69 @@ final class ClaudeUpdateCommandTest extends TestCase {
 		$this->assertSame( 0, $code );
 		$this->assertStringContainsString( "couldn't fetch a changelog", $output );
 		$this->assertStringContainsString( 'code.claude.com/docs/en/changelog', $output );
+	}
+
+	public function testBelowThresholdNeverCallsOllama(): void {
+		$handler = $this->handler( [ '2.1.268', '2.1.270' ], null, $this->unusedOllama() );
+		$this->cli->setArgs( [ 'claude-update' ] );
+
+		ob_start();
+		$code = ( new Dispatcher( $this->cli, $handler ) )->run();
+		ob_end_clean();
+
+		$this->assertSame( 0, $code );
+	}
+
+	public function testFullOptionNeverCallsOllamaEvenAboveThreshold(): void {
+		$handler = $this->handler( [ '2.1.268', '2.1.270' ], null, $this->unusedOllama() );
+		$this->cli->setArgs( [ 'claude-update', '--full', '--summarize-over=1' ] );
+
+		ob_start();
+		$code = ( new Dispatcher( $this->cli, $handler ) )->run();
+		ob_end_clean();
+
+		$this->assertSame( 0, $code );
+	}
+
+	public function testAboveThresholdSummarizesViaOllamaInsteadOfListingBullets(): void {
+		$ollama  = new Ollama(
+			null,
+			static fn( string $url, string $payload, int $timeout ): array => [
+				json_encode( [ 'message' => [ 'content' => 'The gist: two new features, a couple fixes.' ] ] ),
+				'',
+			]
+		);
+		$handler = $this->handler( [ '2.1.268', '2.1.270' ], null, $ollama );
+		$this->cli->setArgs( [ 'claude-update', '--summarize-over=1', '--model=qwen3-coder' ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $this->cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertStringContainsString( 'Updated 2.1.268 → 2.1.270 (2 versions)', $output );
+		$this->assertStringContainsString( 'The gist: two new features, a couple fixes.', $output );
+		$this->assertStringNotContainsString( 'Features (2)', $output );
+		$this->assertStringNotContainsString( 'Added a shiny new feature', $output );
+	}
+
+	public function testOllamaFailureFallsBackToTheNormalBucketListing(): void {
+		$ollama  = new Ollama(
+			null,
+			static fn( string $url, string $payload, int $timeout ): array => [ null, 'Connection refused' ]
+		);
+		$handler = $this->handler( [ '2.1.268', '2.1.270' ], null, $ollama );
+		$this->cli->setArgs( [ 'claude-update', '--summarize-over=1', '--model=qwen3-coder' ] );
+
+		ob_start();
+		$code   = ( new Dispatcher( $this->cli, $handler ) )->run();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertStringContainsString( "couldn't summarize via local model qwen3-coder", $output );
+		$this->assertStringContainsString( 'Connection refused', $output );
+		$this->assertStringContainsString( 'Features (2)', $output );
+		$this->assertStringContainsString( 'Added a shiny new feature', $output );
 	}
 
 	public function testHelpHasNoOperationalSideEffects(): void {

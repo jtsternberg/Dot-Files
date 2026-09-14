@@ -5,6 +5,7 @@ use JT\CLI\Attributes\Command;
 use JT\CLI\Attributes\Option;
 use JT\CLI\Attributes\Program;
 use JT\CLI\Helpers;
+use JT\Helpers\Ollama;
 
 #[Program(
 	name: 'claude-update',
@@ -17,6 +18,18 @@ final class ClaudeUpdateCommand {
 
 	/** Offline fallback: Claude Code's own local mirror of the file above. */
 	const LOCAL_CACHE_PATH = '.claude/cache/changelog.md';
+
+	/** Same default as auto-commit-ollama, so an unconfigured machine still gets a usable model. */
+	const DEFAULT_MODEL = 'qwen3-coder';
+
+	/** Above this many total changes, hand the list to the local model instead of dumping every bullet. */
+	const SUMMARIZE_OVER_DEFAULT = 40;
+
+	const SUMMARY_SYSTEM_PROMPT = 'You are a terse release-notes summarizer. Given a Claude Code '
+		. "changelog covering one or more versions, write a short summary a developer can skim in a "
+		. "few seconds. Group related changes, lead with what's most user-facing or impactful, and "
+		. 'skip minor internal fixes. Output ONLY the summary: plain text, bullet points (-), no '
+		. 'markdown headers, no preamble, no closing remarks.';
 
 	/** @var callable(string):int */
 	private $runner;
@@ -37,6 +50,7 @@ final class ClaudeUpdateCommand {
 		?callable $installedVersion = null,
 		?callable $changelogText = null,
 		?callable $commandExists = null,
+		private ?Ollama $ollama = null,
 	) {
 		$this->runner = $runner ?: static function ( string $command ): int {
 			passthru( $command, $code );
@@ -60,7 +74,17 @@ final class ClaudeUpdateCommand {
 	)]
 	public function run(
 		#[Option( description: 'List every fix and other change too, not just new features.' )]
-		bool $full = false
+		bool $full = false,
+		#[Option(
+			description: 'Ollama model to summarize a large changelog with (default: auto-detected, same as auto-commit-ollama).',
+		)]
+		?string $model = null,
+		#[Option(
+			name: 'summarize-over',
+			description: 'Ask the local model to summarize instead of listing bullets when there are more than this many changes.',
+			valueName: 'n',
+		)]
+		int $summarizeOver = self::SUMMARIZE_OVER_DEFAULT
 	): int {
 		if ( ! ( $this->commandExists )() ) {
 			$this->cli->err( 'claude not found on PATH.' );
@@ -107,9 +131,83 @@ final class ClaudeUpdateCommand {
 			$sections = $this->changelog()->sectionsSince( $sections, $before );
 		}
 
-		$this->printSummary( $before, $after, $this->changelog()->summarize( $sections ), $full );
+		$summary = $this->changelog()->summarize( $sections );
+		$this->printHeader( $before, $after, $summary['versionCount'] );
+
+		$ai = ! $full && $this->totalChanges( $summary ) > $summarizeOver
+			? $this->summarizeViaOllama( $before, $after, $summary, $model )
+			: null;
+
+		if ( null !== $ai ) {
+			$this->cli->msg( "\n" . $ai );
+
+			return 0;
+		}
+
+		$this->printBuckets( $summary, $full );
 
 		return 0;
+	}
+
+	/** @param array{features:string[], bugfixes:string[], other:string[], versionCount:int} $summary */
+	private function totalChanges( array $summary ): int {
+		return count( $summary['features'] ) + count( $summary['bugfixes'] ) + count( $summary['other'] );
+	}
+
+	/**
+	 * @param array{features:string[], bugfixes:string[], other:string[], versionCount:int} $summary
+	 */
+	private function summarizeViaOllama(
+		?string $before,
+		string $after,
+		array $summary,
+		?string $modelOverride
+	): ?string {
+		$model = $modelOverride ?: $this->ollama()->resolveModel(
+			$this->ollamaConfig(),
+			self::DEFAULT_MODEL,
+			getenv( 'HOME' ) ?: ''
+		);
+
+		$userPrompt = sprintf(
+			"Changes from %s to %s (%d versions):\n\nFeatures:\n%s\n\nBugfixes:\n%s\n\nOther changes:\n%s",
+			$before ?? '?',
+			$after,
+			$summary['versionCount'],
+			$this->bulletList( $summary['features'] ),
+			$this->bulletList( $summary['bugfixes'] ),
+			$this->bulletList( $summary['other'] )
+		);
+
+		$result = $this->ollama()->chat( $model, self::SUMMARY_SYSTEM_PROMPT, $userPrompt );
+
+		if ( null === $result['content'] ) {
+			$this->cli->msg( sprintf(
+				"\n(couldn't summarize via local model %s: %s — showing counts instead)",
+				$model,
+				$result['error'] ?? 'unknown error'
+			), 'yellow' );
+
+			return null;
+		}
+
+		return trim( $result['content'] );
+	}
+
+	/** @param string[] $lines */
+	private function bulletList( array $lines ): string {
+		return empty( $lines ) ? '(none)' : implode( "\n", array_map(
+			static fn( string $line ): string => '- ' . $line,
+			$lines
+		) );
+	}
+
+	/** Same config file bin/auto-commit-ollama reads — see the Ollama class docblock. */
+	private function ollamaConfig(): array {
+		$configDir  = getenv( 'XDG_CONFIG_HOME' ) ?: ( ( getenv( 'HOME' ) ?: '' ) . '/.config' );
+		$configFile = $configDir . '/auto-commit-ollama/config';
+
+		return is_file( $configFile ) ? ( parse_ini_file( $configFile ) ?: [] ) : [];
 	}
 
 	/**
@@ -129,10 +227,7 @@ final class ClaudeUpdateCommand {
 		return is_readable( $local ) ? (string) file_get_contents( $local ) : null;
 	}
 
-	/**
-	 * @param array{features:string[], bugfixes:string[], other:string[], versionCount:int} $summary
-	 */
-	private function printSummary( ?string $before, string $after, array $summary, bool $full ): void {
+	private function printHeader( ?string $before, string $after, int $versionCount ): void {
 		$green = $this->cli->color( 'green' );
 		$reset = $this->cli->color( 'none' );
 
@@ -141,11 +236,16 @@ final class ClaudeUpdateCommand {
 			$green,
 			$before ?? '?',
 			$after,
-			$summary['versionCount'],
-			1 === $summary['versionCount'] ? '' : 's',
+			$versionCount,
+			1 === $versionCount ? '' : 's',
 			$reset
 		) );
+	}
 
+	/**
+	 * @param array{features:string[], bugfixes:string[], other:string[], versionCount:int} $summary
+	 */
+	private function printBuckets( array $summary, bool $full ): void {
 		$this->printBucket( '✨ Features', $summary['features'], true );
 		$this->printBucket( '🐛 Bugfixes', $summary['bugfixes'], $full );
 		$this->printBucket( '🔧 Other changes', $summary['other'], $full );
@@ -181,5 +281,13 @@ final class ClaudeUpdateCommand {
 		}
 
 		return $this->changelog;
+	}
+
+	private function ollama(): Ollama {
+		if ( null === $this->ollama ) {
+			$this->ollama = new Ollama();
+		}
+
+		return $this->ollama;
 	}
 }
