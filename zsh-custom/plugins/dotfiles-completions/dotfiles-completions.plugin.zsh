@@ -232,6 +232,27 @@ _claude_update_lazy() {
 	_claude_update "$@"
 }
 
+_auto_commit_ollama_lazy() {
+	local generated
+
+	generated="$(command auto-commit-ollama completion zsh 2>/dev/null)" || {
+		_message 'unable to generate auto-commit-ollama completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load auto-commit-ollama completion'
+		return 1
+	}
+
+	if (( ! $+functions[_auto_commit_ollama] )); then
+		_message 'auto-commit-ollama completion did not define _auto_commit_ollama'
+		return 1
+	fi
+
+	_auto_commit_ollama "$@"
+}
+
 _aimodels_lazy() {
 	local generated
 
@@ -286,4 +307,5 @@ compdef _claude_update_lazy claude-update
 compdef _md_atx_lazy md-atx
 compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
+compdef _auto_commit_ollama_lazy auto-commit-ollama
 compdef _herdr_lazy herdr
