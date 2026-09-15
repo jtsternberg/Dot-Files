@@ -406,15 +406,40 @@ check_backup() {
         notify "BACKUP FAILED: cannot create $partial"
         return
     fi
-    log "[4/6] backup: rsync $PALACE/ -> $partial/ (started $(date '+%H:%M:%S'))"
-    if rsync -a --delete "$PALACE/" "$partial/" >>"$LOG" 2>&1; then
-        [[ "$partial" != "$dest" ]] && mv "$partial" "$dest"
-        log "[4/6] backup: complete -> $dest ($(du -sh "$dest" 2>/dev/null | awk '{print $1}')) at $(date '+%H:%M:%S')"
-    else
-        notify "BACKUP FAILED: rsync of palace to $SECONDARY errored -- see watchdog.log"
+    # chroma.sqlite3 is a LIVE database: editor hooks write to it continuously, so
+    # a file-level copy is both torn (a store copied mid-write is a corrupt store)
+    # and unreliable -- macOS /usr/bin/rsync is openrsync, which aborts with
+    # "unexpected end of file" when the source grows underneath it, and on
+    # 2026-09-15 that silently produced a 2.7G backup containing all five HNSW
+    # segments and no database at all. The DB goes through SQLite's online-backup
+    # API instead, which yields a consistent snapshot without blocking writers.
+    log "[4/6] backup: rsync $PALACE/ -> $partial/ (HNSW segments; started $(date '+%H:%M:%S'))"
+    if ! rsync -a --delete --exclude 'chroma.sqlite3' --exclude 'chroma.sqlite3-*' \
+            "$PALACE/" "$partial/" >>"$LOG" 2>&1; then
+        notify "BACKUP FAILED: rsync of palace segments to $SECONDARY errored -- see watchdog.log"
         log "[4/6] backup: leaving $partial for inspection"
         return
     fi
+
+    log "[4/6] backup: sqlite3 .backup chroma.sqlite3 -> $partial/ (started $(date '+%H:%M:%S'))"
+    if ! sqlite3 "$PALACE/chroma.sqlite3" ".backup '$partial/chroma.sqlite3'" >>"$LOG" 2>&1; then
+        notify "BACKUP FAILED: sqlite3 .backup of chroma.sqlite3 errored -- see watchdog.log"
+        log "[4/6] backup: leaving $partial for inspection"
+        return
+    fi
+
+    # An unreadable DB copy is worse than none: it would look like a good backup.
+    local qc
+    qc="$(sqlite3 "$partial/chroma.sqlite3" 'PRAGMA quick_check;' 2>&1 | head -1)"
+    if [[ "$qc" != "ok" ]]; then
+        notify "BACKUP FAILED: backed-up chroma.sqlite3 fails quick_check ($qc)"
+        log "[4/6] backup: quick_check=$qc -- leaving $partial for inspection"
+        return
+    fi
+    log "[4/6] backup: chroma.sqlite3 quick_check=ok"
+
+    [[ "$partial" != "$dest" ]] && mv "$partial" "$dest"
+    log "[4/6] backup: complete -> $dest ($(du -sh "$dest" 2>/dev/null | awk '{print $1}')) at $(date '+%H:%M:%S')"
 
     # Prune to the newest BACKUP_KEEP dated dirs.
     local -a all=()
@@ -475,11 +500,19 @@ latest = pypi.get("info", {}).get("version", "")
 # Release date of the *installed* version -- the retirement test needs it.
 files = pypi.get("releases", {}).get(installed) or []
 inst_date = files[0].get("upload_time_iso_8601", "") if files else ""
+# An issue can be closed by a fix that only exists on a branch. Notifying on the
+# close alone cried wolf daily on 2026-09-15: #1710 closed 04:32Z and #2373 on
+# 09-12, while the newest release (3.9.0, published 08-31) contained neither --
+# verified by reading searcher.py out of the 3.9.0 sdist. Only a release
+# published AFTER the close can possibly carry it.
+lfiles = pypi.get("releases", {}).get(latest) or []
+latest_date = lfiles[0].get("upload_time_iso_8601", "") if lfiles else ""
 
 print("ERROR=0")
 print(f"LATEST={latest}")
 print(f"NEWER={'1' if key(latest) > key(installed) else '0'}")
 print(f"INST_DATE={inst_date}")
+print(f"LATEST_DATE={latest_date}")
 print(f"S1710={i1.get('state','?')}")
 print(f"C1710={i1.get('closed_at') or ''}")
 print(f"S2373={i2.get('state','?')}")
@@ -488,14 +521,18 @@ print(f"C2373={i2.get('closed_at') or ''}")
 c1 = i1.get("closed_at") or ""
 retire = i1.get("state") == "closed" and c1 and inst_date and inst_date > c1
 print(f"RETIRE={'1' if retire else '0'}")
+# Has ANY release shipped since each close? Gates the "fix landed" notifications.
+print(f"REL1710={'1' if (c1 and latest_date and latest_date > c1) else '0'}")
+c2 = i2.get("closed_at") or ""
+print(f"REL2373={'1' if (c2 and latest_date and latest_date > c2) else '0'}")
 PYEOF
 )"
-    local ERROR=1 LATEST="" NEWER=0 INST_DATE="" S1710="?" C1710="" S2373="?" C2373="" RETIRE=0 MSG=""
+    local ERROR=1 LATEST="" NEWER=0 INST_DATE="" LATEST_DATE="" S1710="?" C1710="" S2373="?" C2373="" RETIRE=0 REL1710=0 REL2373=0 MSG=""
     # shellcheck disable=SC2034  # v is consumed by the eval below; shellcheck can't see through it
     while IFS='=' read -r k v; do
         [[ -z "$k" ]] && continue
         case "$k" in
-            ERROR|LATEST|NEWER|INST_DATE|S1710|C1710|S2373|C2373|RETIRE|MSG) eval "$k=\$v" ;;
+            ERROR|LATEST|NEWER|INST_DATE|LATEST_DATE|S1710|C1710|S2373|C2373|RETIRE|REL1710|REL2373|MSG) eval "$k=\$v" ;;
         esac
     done <<<"$summary"
 
@@ -508,11 +545,16 @@ PYEOF
     [[ "$NEWER" == "1" ]] && \
         notify "mempalace $LATEST is available (installed $INSTALLED_VER). Note: upgrading reverts the hand-applied CLI search patch (#2373)."
 
-    if [[ "$S1710" == "closed" ]]; then
-        notify "durable fix may have landed -- #1710 is CLOSED. Check release notes, upgrade mempalace."
+    if [[ "$S1710" == "closed" && "$REL1710" == "1" ]]; then
+        notify "durable fix may have landed -- #1710 is CLOSED and $LATEST shipped after it. Check release notes, upgrade mempalace."
+    elif [[ "$S1710" == "closed" ]]; then
+        log "[5/6] upstream: #1710 closed $C1710 but no release since (latest $LATEST published ${LATEST_DATE:-unknown}) -- fix is not shipped, staying quiet"
     fi
-    [[ "$S2373" == "closed" ]] && \
-        notify "upstream #2373 (CLI search crash) is CLOSED -- an upgrade may make the hand patch unnecessary."
+    if [[ "$S2373" == "closed" && "$REL2373" == "1" ]]; then
+        notify "upstream #2373 (CLI search crash) is CLOSED and $LATEST shipped after it -- an upgrade may make the hand patch unnecessary."
+    elif [[ "$S2373" == "closed" ]]; then
+        log "[5/6] upstream: #2373 closed $C2373 but no release since -- hand patch still required"
+    fi
 
     # --- CHECK 6: self-retirement -----------------------------------------
     if [[ "$RETIRE" == "1" ]]; then
