@@ -19,9 +19,6 @@ final class ClaudeUpdateCommand {
 	/** Offline fallback: Claude Code's own local mirror of the file above. */
 	const LOCAL_CACHE_PATH = '.claude/cache/changelog.md';
 
-	/** Same default as auto-commit-ollama, so an unconfigured machine still gets a usable model. */
-	const DEFAULT_MODEL = 'qwen3-coder';
-
 	/** Above this many total changes, hand the list to the local model instead of dumping every bullet. */
 	const SUMMARIZE_OVER_DEFAULT = 40;
 
@@ -164,8 +161,8 @@ final class ClaudeUpdateCommand {
 		?string $modelOverride
 	): ?string {
 		$model = $modelOverride ?: $this->ollama()->resolveModel(
-			$this->ollamaConfig(),
-			self::DEFAULT_MODEL,
+			$this->ollama()->config(),
+			Ollama::DEFAULT_MODEL,
 			getenv( 'HOME' ) ?: ''
 		);
 
@@ -200,14 +197,6 @@ final class ClaudeUpdateCommand {
 			static fn( string $line ): string => '- ' . $line,
 			$lines
 		) );
-	}
-
-	/** Same config file bin/auto-commit-ollama reads — see the Ollama class docblock. */
-	private function ollamaConfig(): array {
-		$configDir  = getenv( 'XDG_CONFIG_HOME' ) ?: ( ( getenv( 'HOME' ) ?: '' ) . '/.config' );
-		$configFile = $configDir . '/auto-commit-ollama/config';
-
-		return is_file( $configFile ) ? ( parse_ini_file( $configFile ) ?: [] ) : [];
 	}
 
 	/**

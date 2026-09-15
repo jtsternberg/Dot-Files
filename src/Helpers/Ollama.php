@@ -10,12 +10,13 @@ namespace JT\Helpers;
  * config file predates this class and isn't commit-specific despite its
  * directory name — it's "which local model to use," so every local-model
  * tool in this repo reads the same one rather than each keeping its own.
- * auto-commit-ollama still carries its own copy of this logic (dotfiles-206
- * tracks migrating it here too).
  */
 class Ollama {
 
 	const DEFAULT_URL = 'http://localhost:11434/api/chat';
+
+	/** Used when neither a --model flag nor the config file names one. */
+	const DEFAULT_MODEL = 'qwen3-coder';
 
 	/** Storage path that means "the SD card", per auto-commit-ollama. */
 	const SD_PATH = '/Volumes/AI-LAB/ollama/models';
@@ -52,7 +53,34 @@ class Ollama {
 	}
 
 	/**
-	 * @return array{content:?string, error:?string}
+	 * Where ~/.ollama-models currently points, or null when it isn't a symlink.
+	 */
+	public function storagePath( string $home ): ?string {
+		$target = ( $this->readlink )( $home . '/.ollama-models' );
+
+		return false === $target ? null : $target;
+	}
+
+	/**
+	 * Read the shared "which local model to use" config — see the class docblock.
+	 *
+	 * @param ?string $configDir Config root to read from; defaults to the XDG one.
+	 *
+	 * @return array<string,string>
+	 */
+	public function config( ?string $configDir = null ): array {
+		$dir  = $configDir ?: ( getenv( 'XDG_CONFIG_HOME' ) ?: ( ( getenv( 'HOME' ) ?: '' ) . '/.config' ) );
+		$file = $dir . '/auto-commit-ollama/config';
+
+		return is_file( $file ) ? ( parse_ini_file( $file ) ?: [] ) : [];
+	}
+
+	/**
+	 * `errorType` separates a failure to reach Ollama at all ('transport' — the
+	 * server is probably not running) from one Ollama itself reported ('api' —
+	 * e.g. an unknown model), which callers word very differently.
+	 *
+	 * @return array{content:?string, error:?string, errorType:?string}
 	 */
 	public function chat(
 		string $model,
@@ -73,15 +101,23 @@ class Ollama {
 		[ $body, $error ] = ( $this->post )( $url, $payload, $timeoutSeconds );
 
 		if ( '' !== $error ) {
-			return [ 'content' => null, 'error' => $error ];
+			return [ 'content' => null, 'error' => $error, 'errorType' => 'transport' ];
 		}
 
 		$data = json_decode( (string) $body, true );
 		if ( ! empty( $data['error'] ) ) {
-			return [ 'content' => null, 'error' => (string) $data['error'] ];
+			return [
+				'content'   => null,
+				'error'     => (string) $data['error'],
+				'errorType' => 'api',
+			];
 		}
 
-		return [ 'content' => $data['message']['content'] ?? null, 'error' => null ];
+		return [
+			'content'   => $data['message']['content'] ?? null,
+			'error'     => null,
+			'errorType' => null,
+		];
 	}
 
 	/** @return array{0:?string, 1:string} [response body, curl error] */
