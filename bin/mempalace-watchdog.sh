@@ -19,7 +19,7 @@
 #   2. quarantine event: *.drift-* dirs, or new hook.log quarantine lines
 #   3. the hand-applied CLI search fallback patch reverted by an upgrade (#2373)
 #   4. a stale weekly palace backup to the Secondary volume
-#   5. a newer mempalace release / movement on #1710 / #2373 (network; quiet on
+#   5. a newer mempalace release / movement on #1710 / #2373 / #2510 (network; quiet on
 #      network failure -- never false-alerts over flaky wifi)
 #   6. SELF-RETIREMENT once the durable fix is demonstrably installed
 #
@@ -32,7 +32,9 @@
 #   'mempalace-watchdog.sh uninstall'; 'status' prints launchd + log state.
 #
 # SELF-RETIREMENT
-#   When #1710 is closed AND the installed build postdates its closure, the
+#   When BOTH #1710 (quarantine_invalid_hnsw_metadata) and #2510
+#   (quarantine_stale_hnsw -- the guard that actually destroyed this palace) are
+#   closed AND the installed build postdates both closures, the
 #   watchdog writes a persistent "retired" marker in the state dir, boots out
 #   and removes its LaunchAgent *symlink*, and exits. Every later run sees the
 #   marker and exits immediately. It never deletes the tracked script or plist
@@ -172,8 +174,8 @@ cmd_status() {
 retire() {
     local ver="$1"
     notify "mempalace watchdog retiring -- durable fix installed (v${ver})"
-    log "RETIRE: #1710 closed and installed v${ver} postdates its closure."
-    printf 'retired %s installed=v%s (#1710 durable fix landed)\n' \
+    log "RETIRE: #1710 and #2510 closed, installed v${ver} postdates both closures."
+    printf 'retired %s installed=v%s (#1710 + #2510 durable fixes landed)\n' \
         "$(date '+%Y-%m-%d %H:%M:%S')" "$ver" >"$RETIRED_MARKER"
     log "RETIRE: wrote marker $RETIRED_MARKER; future runs will exit immediately."
     log "RETIRE: removing LaunchAgent symlink ($PLIST) and booting out gui/$(id -u)/${LABEL}."
@@ -468,6 +470,7 @@ check_upstream() {
     if [[ -n "${WATCHDOG_SKIP_NETWORK:-}" ]]; then log "[5/6] upstream: skipped"; return; fi
     local repo="MemPalace/mempalace"      # verified from dist-info METADATA Project-URL
     local pypi="$STATE_DIR/pypi.json" i1="$STATE_DIR/issue-1710.json" i2="$STATE_DIR/issue-2373.json"
+    local i3="$STATE_DIR/issue-2510.json"
     local ok=1
 
     curl -sSfL --max-time 25 "https://pypi.org/pypi/mempalace/json" -o "$pypi" 2>>"$LOG" \
@@ -478,10 +481,13 @@ check_upstream() {
     curl -sSfL --max-time 25 -H "Accept: application/vnd.github+json" \
         "https://api.github.com/repos/$repo/issues/2373" -o "$i2" 2>>"$LOG" \
         || { log "[5/6] upstream: GitHub #2373 fetch failed -- staying quiet"; ok=0; }
+    curl -sSfL --max-time 25 -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$repo/issues/2510" -o "$i3" 2>>"$LOG" \
+        || { log "[5/6] upstream: GitHub #2510 fetch failed -- staying quiet"; ok=0; }
     (( ok == 0 )) && return
 
     local summary
-    summary="$("$PY" - "$pypi" "$i1" "$i2" "$INSTALLED_VER" <<'PYEOF'
+    summary="$("$PY" - "$pypi" "$i1" "$i2" "$i3" "$INSTALLED_VER" <<'PYEOF'
 import json, re, sys
 
 def load(p):
@@ -491,7 +497,8 @@ def load(p):
         print(f"ERROR=1 MSG={type(e).__name__}")
         raise SystemExit(0)
 
-pypi, i1, i2, installed = load(sys.argv[1]), load(sys.argv[2]), load(sys.argv[3]), sys.argv[4]
+pypi, i1, i2, i3, installed = (load(sys.argv[1]), load(sys.argv[2]), load(sys.argv[3]),
+                                load(sys.argv[4]), sys.argv[5])
 
 def key(v):
     return tuple(int(x) for x in re.findall(r"\d+", v or "")) or (0,)
@@ -517,22 +524,31 @@ print(f"S1710={i1.get('state','?')}")
 print(f"C1710={i1.get('closed_at') or ''}")
 print(f"S2373={i2.get('state','?')}")
 print(f"C2373={i2.get('closed_at') or ''}")
-# Retire only when the installed build postdates the fix landing upstream.
+# Retirement needs BOTH quarantine paths fixed and shipped, not just #1710.
+# #1710 covers quarantine_invalid_hnsw_metadata; the vectors this watchdog exists
+# to protect were destroyed through the sibling guard quarantine_stale_hnsw,
+# tracked separately in #2510. A date-only gate on #1710 would retire the guard
+# on any release published after its close while the real path stayed broken.
 c1 = i1.get("closed_at") or ""
-retire = i1.get("state") == "closed" and c1 and inst_date and inst_date > c1
+c3 = i3.get("closed_at") or ""
+both_closed = i1.get("state") == "closed" and i3.get("state") == "closed"
+retire = bool(both_closed and c1 and c3 and inst_date
+              and inst_date > c1 and inst_date > c3)
 print(f"RETIRE={'1' if retire else '0'}")
+print(f"S2510={i3.get('state','?')}")
+print(f"C2510={c3}")
 # Has ANY release shipped since each close? Gates the "fix landed" notifications.
 print(f"REL1710={'1' if (c1 and latest_date and latest_date > c1) else '0'}")
 c2 = i2.get("closed_at") or ""
 print(f"REL2373={'1' if (c2 and latest_date and latest_date > c2) else '0'}")
 PYEOF
 )"
-    local ERROR=1 LATEST="" NEWER=0 INST_DATE="" LATEST_DATE="" S1710="?" C1710="" S2373="?" C2373="" RETIRE=0 REL1710=0 REL2373=0 MSG=""
+    local ERROR=1 LATEST="" NEWER=0 INST_DATE="" LATEST_DATE="" S1710="?" C1710="" S2373="?" C2373="" S2510="?" C2510="" RETIRE=0 REL1710=0 REL2373=0 MSG=""
     # shellcheck disable=SC2034  # v is consumed by the eval below; shellcheck can't see through it
     while IFS='=' read -r k v; do
         [[ -z "$k" ]] && continue
         case "$k" in
-            ERROR|LATEST|NEWER|INST_DATE|LATEST_DATE|S1710|C1710|S2373|C2373|RETIRE|REL1710|REL2373|MSG) eval "$k=\$v" ;;
+            ERROR|LATEST|NEWER|INST_DATE|LATEST_DATE|S1710|C1710|S2373|C2373|S2510|C2510|RETIRE|REL1710|REL2373|MSG) eval "$k=\$v" ;;
         esac
     done <<<"$summary"
 
@@ -540,7 +556,7 @@ PYEOF
         log "[5/6] upstream: could not parse fetched JSON ($MSG) -- staying quiet"
         return
     fi
-    log "[5/6] upstream: installed=$INSTALLED_VER (released ${INST_DATE:-unknown}) latest=$LATEST newer=$NEWER | #1710=$S1710${C1710:+ closed_at=$C1710} | #2373=$S2373${C2373:+ closed_at=$C2373}"
+    log "[5/6] upstream: installed=$INSTALLED_VER (released ${INST_DATE:-unknown}) latest=$LATEST newer=$NEWER | #1710=$S1710${C1710:+ closed_at=$C1710} | #2373=$S2373${C2373:+ closed_at=$C2373} | #2510=$S2510${C2510:+ closed_at=$C2510}"
 
     [[ "$NEWER" == "1" ]] && \
         notify "mempalace $LATEST is available (installed $INSTALLED_VER). Note: upgrading reverts the hand-applied CLI search patch (#2373)."
@@ -559,12 +575,12 @@ PYEOF
     # --- CHECK 6: self-retirement -----------------------------------------
     if [[ "$RETIRE" == "1" ]]; then
         if [[ -n "${WATCHDOG_NO_RETIRE:-}" ]]; then
-            log "[6/6] RETIREMENT ELIGIBLE (suppressed by WATCHDOG_NO_RETIRE): #1710 closed $C1710, installed $INSTALLED_VER released $INST_DATE"
+            log "[6/6] RETIREMENT ELIGIBLE (suppressed by WATCHDOG_NO_RETIRE): #1710 closed $C1710, #2510 closed $C2510, installed $INSTALLED_VER released $INST_DATE"
             return
         fi
         retire "$INSTALLED_VER"
     fi
-    log "[6/6] retirement: not eligible (#1710=$S1710, installed $INSTALLED_VER released ${INST_DATE:-unknown})"
+    log "[6/6] retirement: not eligible (#1710=$S1710, #2510=$S2510, installed $INSTALLED_VER released ${INST_DATE:-unknown})"
 }
 
 # ---------------------------------------------------------------------------
