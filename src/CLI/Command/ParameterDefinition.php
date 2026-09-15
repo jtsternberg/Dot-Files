@@ -18,6 +18,7 @@ final class ParameterDefinition {
 		public readonly ?string $valueName = null,
 		public readonly ?string $completionCommand = null,
 		public readonly ?string $completion = null,
+		public readonly bool $optionalValue = false,
 	) {
 	}
 
@@ -59,9 +60,9 @@ final class ParameterDefinition {
 
 		$token = implode( '|', $forms );
 		if ( ! $this->isBoolean() ) {
-			$token = '--' . $this->name . '=<'
-				. ( $this->valueName ?: $this->name )
-				. '>';
+			$value = '=<' . ( $this->valueName ?: $this->name ) . '>';
+			$token = '--' . $this->name
+				. ( $this->optionalValue ? '[' . $value . ']' : $value );
 		}
 
 		return '[' . $token . ']';

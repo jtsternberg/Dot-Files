@@ -200,7 +200,11 @@ final class ZshCompletion {
 
 		$value = $parameter->valueName ?: $parameter->name;
 
-		return $this->quote( "--{$parameter->name}=[{$description}]:{$value}:" );
+		// `=-` keeps the value attached to the option word; `::` makes it
+		// optional, so Zsh accepts a bare `--opt` as well as `--opt=value`.
+		return $parameter->optionalValue
+			? $this->quote( "--{$parameter->name}=-[{$description}]::{$value}:" )
+			: $this->quote( "--{$parameter->name}=[{$description}]:{$value}:" );
 	}
 
 	private function commandDescription( string $description ): string {

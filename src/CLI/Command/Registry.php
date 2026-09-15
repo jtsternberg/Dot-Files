@@ -103,7 +103,8 @@ final class Registry {
 			$option->name ?: str_replace( '_', '-', $parameter->getName() ),
 			$option->description,
 			$option->aliases,
-			$option->valueName
+			$option->valueName,
+			optionalValue: $option->optionalValue
 		);
 	}
 }

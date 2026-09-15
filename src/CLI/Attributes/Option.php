@@ -14,6 +14,7 @@ final class Option {
 		public readonly array $aliases = [],
 		public readonly string $description = '',
 		public readonly ?string $valueName = null,
+		public readonly bool $optionalValue = false,
 	) {
 	}
 }

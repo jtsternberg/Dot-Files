@@ -74,6 +74,24 @@ final class DemoCommand {
 	}
 
 	#[Command(
+		name: 'retry',
+		description: 'Retry a commit.',
+	)]
+	public function retry(
+		#[Option(
+			aliases: [ 'r' ],
+			description: 'Commit to retry.',
+			valueName: 'hash',
+			optionalValue: true,
+		)]
+		?string $commit = null
+	): int {
+		$this->calls[] = [ 'retry', $commit ];
+
+		return 0;
+	}
+
+	#[Command(
 		name: 'internal',
 		description: 'Hidden compatibility helper.',
 		hidden: true,
@@ -214,5 +232,42 @@ final class CommandFrameworkTest extends TestCase {
 		// A variadic argument with completion 'files' renders as a repeatable
 		// rest spec whose action is Zsh's _files.
 		$this->assertStringContainsString( "'*:files:_files'", $output );
+	}
+
+	public function testAnOptionalValueOptionAdvertisesItsValueAsOptionalInHelp(): void {
+		$definition = Registry::fromHandler( new DemoCommand() );
+		$output     = $this->cli->getHelp()->renderProgram( $definition );
+
+		$this->assertStringContainsString( 'demo retry [--commit[=<hash>]]', $output );
+	}
+
+	public function testAnOptionalValueOptionCompletesWithAnOptionalZshValueSlot(): void {
+		$output = ( new ZshCompletion() )->render( Registry::fromHandler( new DemoCommand() ) );
+
+		$this->assertStringContainsString( "'--commit=-[Commit to retry.]::hash:'", $output );
+	}
+
+	public function testABareOptionalValueOptionBindsAnEmptyStringRatherThanFailing(): void {
+		$handler = new DemoCommand();
+		$this->cli->setArgs( [ 'demo', 'retry', '--commit' ] );
+
+		$this->assertSame( 0, ( new Dispatcher( $this->cli, $handler ) )->run() );
+		$this->assertSame( [ [ 'retry', '' ] ], $handler->calls );
+	}
+
+	public function testABareOptionalValueAliasBindsAnEmptyStringRatherThanFailing(): void {
+		$handler = new DemoCommand();
+		$this->cli->setArgs( [ 'demo', 'retry', '-r' ] );
+
+		$this->assertSame( 0, ( new Dispatcher( $this->cli, $handler ) )->run() );
+		$this->assertSame( [ [ 'retry', '' ] ], $handler->calls );
+	}
+
+	public function testAnAbsentOptionalValueOptionKeepsItsDefault(): void {
+		$handler = new DemoCommand();
+		$this->cli->setArgs( [ 'demo', 'retry' ] );
+
+		$this->assertSame( 0, ( new Dispatcher( $this->cli, $handler ) )->run() );
+		$this->assertSame( [ [ 'retry', null ] ], $handler->calls );
 	}
 }

@@ -164,6 +164,12 @@ final class Dispatcher {
 			return $this->coerce( $definition, $this->cli->getFlag( $definition->name ) );
 		}
 
+		// A bare alias carries no value, so an optional-value option reads as
+		// present-without-one rather than as a usage error.
+		if ( $present && $definition->optionalValue ) {
+			return $this->coerce( $definition, '' );
+		}
+
 		if ( $present ) {
 			throw new UsageException(
 				"Option --{$definition->name} requires its value in --{$definition->name}=<value> form."
