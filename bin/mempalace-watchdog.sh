@@ -8,16 +8,20 @@
 #   vector segment away as "corrupt"; ChromaDB's auto-purged WAL could not
 #   replay, permanently losing ~47k vectors (the palace's entire first month).
 #   The palace was fully re-embedded 2026-08-28 (347k+ drawers, divergence 0).
-#   The destructive-quarantine bug is STILL present as of mempalace 3.8.0 --
-#   upstream https://github.com/MemPalace/mempalace/issues/1710 (open). This
-#   watchdog guards against a repeat until that durable fix ships, then removes
-#   itself (see SELF-RETIREMENT below).
+#   The guard that did it, quarantine_stale_hnsw, still renames segments away
+#   as of mempalace 3.10.0, which added a third trigger to it (impossible
+#   header.bin counts, #2146) -- upstream
+#   https://github.com/MemPalace/mempalace/issues/2510 (open). Its sibling
+#   quarantine_invalid_hnsw_metadata was fixed in 3.9.0 and tracked in #1710
+#   (closed 2026-09-15). This watchdog guards against a repeat until the
+#   stale-HNSW path is fixed too, then removes itself (see SELF-RETIREMENT).
 #
 # WHAT IT WATCHES (each check independent; one failure never stops the rest;
 # read-only toward the palace except outward rsync copies):
 #   1. drawers sqlite/HNSW divergence            (MemPalace/mempalace#1710)
 #   2. quarantine event: *.drift-* dirs, or new hook.log quarantine lines
-#   3. the hand-applied CLI search fallback patch reverted by an upgrade (#2373)
+#   3. the filtered-search fallback missing from the installed build (#2373 --
+#      hand-applied through 3.9.0, upstream since 3.10.0)
 #   4. a stale weekly palace backup to the Secondary volume
 #   5. a newer mempalace release / movement on #1710 / #2373 / #2510 (network; quiet on
 #      network failure -- never false-alerts over flaky wifi)
@@ -99,6 +103,27 @@ notify() {
     local esc="${msg//\\/\\\\}"; esc="${esc//\"/\\\"}"
     osascript -e "display notification \"$esc\" with title \"mempalace watchdog\"" \
         >/dev/null 2>&1 || log "  WARN: osascript notification failed"
+}
+
+# Upstream state changes once and then stays changed: an issue stays closed, a
+# release stays the latest. Alerting on the state rather than on the change
+# meant "#1710 is CLOSED and 3.10.0 shipped after it" fired every morning from
+# 2026-09-16 on, including after the upgrade it was asking for. notify_once
+# fires when <token> differs from what a key last alerted on -- so a given
+# (condition, release) pair is announced exactly once, and a genuinely new
+# release re-arms it.
+notify_once() {
+    local key="$1" token="$2" msg="$3"
+    local stamp="$STATE_DIR/notified-$key"
+    if [[ -f "$stamp" && "$(cat "$stamp" 2>/dev/null)" == "$token" ]]; then
+        log "  (already notified for $key=$token, staying quiet)"
+        return 0
+    fi
+    notify "$msg"
+    # The redirect itself is what fails on an unwritable state dir, and the
+    # shell reports that to its own stderr, so the subshell carries the mute.
+    ( printf '%s\n' "$token" >"$stamp" ) 2>/dev/null \
+        || log "  WARN: could not record notify stamp $stamp"
 }
 
 # Volume-mounted test that a leftover /Volumes/<name> directory cannot fake.
@@ -309,16 +334,24 @@ check_hook_log() {
 }
 
 # ===========================================================================
-# CHECK 3 -- has `uv tool upgrade` silently reverted the CLI search patch?
+# CHECK 3 -- does the installed build still carry the filtered-search fallback?
 # Resolved dynamically: the python3.X component moves on interpreter bumps.
 # ===========================================================================
+# mempalace 3.10.0 split searcher.py into a package, so the CLI's search()
+# lives in searcher/cli_search.py there and in searcher.py at 3.9.0 and below.
+# Both layouts must resolve: a resolver that knows only one reports a build it
+# cannot find as a build whose fallback is missing.
 resolve_searcher() {
-    local p
-    for p in "$HOME"/.local/share/uv/tools/mempalace/lib/python*/site-packages/mempalace/searcher.py; do
-        [[ -f "$p" ]] && { printf '%s\n' "$p"; return 0; }
+    local p base
+    for base in "$HOME"/.local/share/uv/tools/mempalace/lib/python*/site-packages/mempalace; do
+        for p in "$base/searcher/cli_search.py" "$base/searcher.py"; do
+            [[ -f "$p" ]] && { printf '%s\n' "$p"; return 0; }
+        done
     done
-    p="$(find "$HOME/.local/share/uv/tools/mempalace" -name searcher.py -path '*/mempalace/*' -print -quit 2>/dev/null)"
-    [[ -n "$p" ]] && { printf '%s\n' "$p"; return 0; }
+    for p in cli_search.py searcher.py; do
+        p="$(find "$HOME/.local/share/uv/tools/mempalace" -name "$p" -path '*/mempalace/*' -print -quit 2>/dev/null)"
+        [[ -n "$p" ]] && { printf '%s\n' "$p"; return 0; }
+    done
     return 1
 }
 
@@ -326,7 +359,7 @@ check_patch() {
     if [[ -n "${WATCHDOG_SKIP_PATCH:-}" ]]; then log "[3/6] patch: skipped"; return; fi
     local searcher
     if ! searcher="$(resolve_searcher)"; then
-        notify "CHECK FAILED: cannot locate installed mempalace searcher.py -- CLI fallback patch unverified"
+        notify "CHECK FAILED: cannot locate the installed mempalace CLI search module -- filtered-search fallback unverified"
         return
     fi
     local verdict
@@ -350,8 +383,8 @@ PYEOF
     log "[3/6] patch: $verdict ($searcher)"
     case "$verdict" in
         PATCHED)  ;;
-        REVERTED) notify "CLI fallback patch reverted by upgrade -- re-apply (upstream #2373 still open)" ;;
-        *)        notify "CLI fallback patch UNVERIFIABLE ($verdict) -- search() no longer matches either shape; inspect searcher.py by hand (#2373)" ;;
+        REVERTED) notify "filtered-search fallback missing from the installed build -- upgrade mempalace (fixed upstream in 3.10.0, #2373) or re-apply the hand patch" ;;
+        *)        notify "filtered-search fallback UNVERIFIABLE ($verdict) -- search() no longer matches either shape; inspect $(basename "$searcher") by hand (#2373)" ;;
     esac
 }
 
@@ -559,15 +592,26 @@ PYEOF
     log "[5/6] upstream: installed=$INSTALLED_VER (released ${INST_DATE:-unknown}) latest=$LATEST newer=$NEWER | #1710=$S1710${C1710:+ closed_at=$C1710} | #2373=$S2373${C2373:+ closed_at=$C2373} | #2510=$S2510${C2510:+ closed_at=$C2510}"
 
     [[ "$NEWER" == "1" ]] && \
-        notify "mempalace $LATEST is available (installed $INSTALLED_VER). Note: upgrading reverts the hand-applied CLI search patch (#2373)."
+        notify_once "release" "$LATEST" "mempalace $LATEST is available (installed $INSTALLED_VER)."
 
-    if [[ "$S1710" == "closed" && "$REL1710" == "1" ]]; then
-        notify "durable fix may have landed -- #1710 is CLOSED and $LATEST shipped after it. Check release notes, upgrade mempalace."
+    # #1710's own fix shipped in 3.9.0; what retirement still waits on is #2510,
+    # the stale-HNSW path. So a #1710 release notice is only actionable while
+    # #2510 is also closed -- otherwise it asks for an upgrade that cannot
+    # retire the watchdog.
+    if [[ "$S1710" == "closed" && "$REL1710" == "1" && "$S2510" == "closed" ]]; then
+        notify_once "fix-1710" "$LATEST" "both quarantine paths are CLOSED and $LATEST shipped after them -- upgrade mempalace, then this watchdog can retire."
+    elif [[ "$S1710" == "closed" && "$REL1710" == "1" ]]; then
+        log "[5/6] upstream: #1710 closed $C1710 and shipped, but #2510 ($S2510) still guards the destructive path -- staying quiet"
     elif [[ "$S1710" == "closed" ]]; then
         log "[5/6] upstream: #1710 closed $C1710 but no release since (latest $LATEST published ${LATEST_DATE:-unknown}) -- fix is not shipped, staying quiet"
     fi
-    if [[ "$S2373" == "closed" && "$REL2373" == "1" ]]; then
-        notify "upstream #2373 (CLI search crash) is CLOSED and $LATEST shipped after it -- an upgrade may make the hand patch unnecessary."
+    # Announce #2373 only while the installed build still needs the hand patch;
+    # once check 3 finds the fallback in a build that postdates the close, the
+    # upgrade being asked for has already happened.
+    if [[ "$S2373" == "closed" && "$REL2373" == "1" && "$NEWER" == "1" ]]; then
+        notify_once "fix-2373" "$LATEST" "upstream #2373 (CLI search crash) is CLOSED and $LATEST shipped after it -- upgrading makes the hand patch unnecessary."
+    elif [[ "$S2373" == "closed" && "$REL2373" == "1" ]]; then
+        log "[5/6] upstream: #2373 closed $C2373 and shipped in $LATEST, which is installed -- hand patch no longer needed"
     elif [[ "$S2373" == "closed" ]]; then
         log "[5/6] upstream: #2373 closed $C2373 but no release since -- hand patch still required"
     fi

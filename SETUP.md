@@ -145,10 +145,11 @@ for `quarantine_invalid_hnsw_metadata` and
 [MemPalace/mempalace#2510](https://github.com/MemPalace/mempalace/issues/2510) for
 `quarantine_stale_hnsw`, the guard that actually destroyed this palace. Each morning
 at 9:23 it checks drawers/HNSW divergence, watches for quarantine events (`.drift-*`
-dirs + new `hook.log` quarantine lines), verifies the hand-applied CLI search patch
-(#2373) survived any upgrade, keeps a weekly backup of the palace on
-`/Volumes/Secondary`, and reports new releases / issue movement. A healthy day
-logs only; anything wrong posts a macOS notification.
+dirs + new `hook.log` quarantine lines), verifies the installed build carries the
+filtered-search fallback (#2373 — hand-applied through 3.9.0, upstream since
+3.10.0), keeps a weekly backup of the palace on `/Volumes/Secondary`, and reports
+new releases / issue movement. A healthy day logs only; anything wrong posts a
+macOS notification.
 
 Two things it deliberately does not assume. A backup never file-copies
 `chroma.sqlite3` — the live DB goes through `sqlite3 ".backup"` and a
@@ -156,7 +157,9 @@ Two things it deliberately does not assume. A backup never file-copies
 `/usr/bin/rsync` is openrsync and aborts on a database growing underneath it. And a
 closed upstream issue is not a shipped fix: release-landed alerts require a release
 published *after* the close, and self-retirement requires **both** #1710 and #2510
-closed with the installed build postdating both. On retirement it writes a persistent
+closed with the installed build postdating both. Alerts also fire once per release
+rather than once per morning — upstream state changes once and then stays changed,
+so alerting on the state instead of the change cried wolf daily. On retirement it writes a persistent
 `retired` marker (checked first on every run), removes its LaunchAgent symlink, and
 boots out — it never deletes the tracked script/plist.
 
