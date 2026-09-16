@@ -22,7 +22,7 @@
 #   2. quarantine event: *.drift-* dirs, or new hook.log quarantine lines
 #   3. the filtered-search fallback missing from the installed build (#2373 --
 #      hand-applied through 3.9.0, upstream since 3.10.0)
-#   4. a stale daily palace backup to the Secondary volume
+#   4. a stale palace backup to the Secondary volume
 #   5. a newer mempalace release / movement on #1710 / #2373 / #2510 (network; quiet on
 #      network failure -- never false-alerts over flaky wifi)
 #   6. SELF-RETIREMENT once the durable fix is demonstrably installed
@@ -79,17 +79,20 @@ LOG="$STATE_DIR/watchdog.log"
 LOCK_DIR="$STATE_DIR/run.lock"
 OFFSET_FILE="$STATE_DIR/hook.offset"
 RETIRED_MARKER="$STATE_DIR/retired"
-BACKUP_ROOT="$SECONDARY/mempalace-daily-backup"
+BACKUP_ROOT="$SECONDARY/mempalace-palace-backup"
 PRESERVE_ROOT="$SECONDARY/mempalace-drift-preserve"
 
 readonly DIVERGENCE_THRESHOLD=2000
 # chroma purges embeddings_queue as it flushes, so a rebuilt index replays only
 # the WAL tail -- 1,223 of 401,254 vectors when measured on 2026-09-16. This
 # backup is the only full copy of the palace's vectors, and its age is the
-# re-mine window after any quarantine or rebuild, hence daily rather than
-# weekly. Seven kept keeps a week of restore points, so corruption that is
-# already in yesterday's copy is still recoverable from an earlier one.
-readonly BACKUP_MAX_AGE_DAYS=1
+# re-mine window after any quarantine or rebuild, so the window is two days
+# rather than the week it used to be. The daily 9:23 run backs up only when the
+# newest copy has reached this age, and PRAGMA quick_check over the external
+# volume costs ~23 minutes of the run that does. Seven kept spans about two
+# weeks at this cadence, so corruption already in the newest copy is still
+# recoverable from an earlier one.
+readonly BACKUP_MAX_AGE_DAYS=2
 readonly BACKUP_KEEP=7
 readonly MINE_WAIT_SECONDS=300
 readonly PY=/usr/bin/python3          # stdlib only -- no third-party imports below
@@ -395,14 +398,14 @@ PYEOF
 }
 
 # ===========================================================================
-# CHECK 4 -- daily backup of the palace to the Secondary volume
+# CHECK 4 -- backup of the palace to the Secondary volume
 # ===========================================================================
 mine_running() { pgrep -f "mempalace (mine|repair)" >/dev/null 2>&1; }
 
 check_backup() {
     if [[ -n "${WATCHDOG_SKIP_BACKUP:-}" ]]; then log "[4/6] backup: skipped"; return; fi
     if ! volume_mounted "$SECONDARY"; then
-        notify "BACKUP: $SECONDARY not mounted -- daily palace backup skipped"
+        notify "BACKUP: $SECONDARY not mounted -- palace backup skipped"
         return
     fi
 
@@ -423,7 +426,7 @@ check_backup() {
     fi
 
     # A mine writes to the palace; copying underneath it yields a torn backup.
-    # Mines take 60-90s, so wait a few minutes rather than losing the day.
+    # Mines take 60-90s, so wait a few minutes rather than losing the cycle.
     local waited=0
     while mine_running; do
         if (( waited >= MINE_WAIT_SECONDS )); then

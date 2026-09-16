@@ -147,16 +147,21 @@ for `quarantine_invalid_hnsw_metadata` and
 at 9:23 it checks drawers/HNSW divergence, watches for quarantine events (`.drift-*`
 dirs + new `hook.log` quarantine lines), verifies the installed build carries the
 filtered-search fallback (#2373 — hand-applied through 3.9.0, upstream since
-3.10.0), keeps a daily backup of the palace on `/Volumes/Secondary`, and reports
+3.10.0), backs the palace up to `/Volumes/Secondary` every other day, and reports
 new releases / issue movement. A healthy day logs only; anything wrong posts a
 macOS notification.
 
-The backup is daily, not weekly, because chroma purges `embeddings_queue` as it
-flushes: a rebuilt index can only replay the WAL tail, measured at 1,223 of
-401,254 vectors on 2026-09-16. That makes the backup the only full copy of the
-vectors, and its age the re-mine window after any quarantine or rebuild event.
-Seven dated copies are kept (~5.5G each), so corruption already present in
-yesterday's copy is still recoverable from an earlier one.
+The backup runs every other day rather than weekly because chroma purges
+`embeddings_queue` as it flushes: a rebuilt index can only replay the WAL tail,
+measured at 1,223 of 401,254 vectors on 2026-09-16. That makes the backup the
+only full copy of the vectors, and its age the re-mine window after any
+quarantine or rebuild event. The 9:23 run backs up only once the newest copy
+reaches `BACKUP_MAX_AGE_DAYS`, and the run that does costs ~25 minutes, almost
+all of it `PRAGMA quick_check` reading the 3.0G copy back off the external
+volume. Seven dated copies are kept (~5.5G each), about two weeks at this
+cadence, so corruption already present in the newest copy is still recoverable
+from an earlier one. The backup directory is named for what it holds, not for
+how often it runs, so changing the cadence never leaves a stale path behind.
 
 Two things it deliberately does not assume. A backup never file-copies
 `chroma.sqlite3` — the live DB goes through `sqlite3 ".backup"` and a
