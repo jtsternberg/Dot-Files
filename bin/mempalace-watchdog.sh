@@ -22,7 +22,7 @@
 #   2. quarantine event: *.drift-* dirs, or new hook.log quarantine lines
 #   3. the filtered-search fallback missing from the installed build (#2373 --
 #      hand-applied through 3.9.0, upstream since 3.10.0)
-#   4. a stale weekly palace backup to the Secondary volume
+#   4. a stale daily palace backup to the Secondary volume
 #   5. a newer mempalace release / movement on #1710 / #2373 / #2510 (network; quiet on
 #      network failure -- never false-alerts over flaky wifi)
 #   6. SELF-RETIREMENT once the durable fix is demonstrably installed
@@ -79,12 +79,18 @@ LOG="$STATE_DIR/watchdog.log"
 LOCK_DIR="$STATE_DIR/run.lock"
 OFFSET_FILE="$STATE_DIR/hook.offset"
 RETIRED_MARKER="$STATE_DIR/retired"
-BACKUP_ROOT="$SECONDARY/mempalace-weekly-backup"
+BACKUP_ROOT="$SECONDARY/mempalace-daily-backup"
 PRESERVE_ROOT="$SECONDARY/mempalace-drift-preserve"
 
 readonly DIVERGENCE_THRESHOLD=2000
-readonly BACKUP_MAX_AGE_DAYS=7
-readonly BACKUP_KEEP=2
+# chroma purges embeddings_queue as it flushes, so a rebuilt index replays only
+# the WAL tail -- 1,223 of 401,254 vectors when measured on 2026-09-16. This
+# backup is the only full copy of the palace's vectors, and its age is the
+# re-mine window after any quarantine or rebuild, hence daily rather than
+# weekly. Seven kept keeps a week of restore points, so corruption that is
+# already in yesterday's copy is still recoverable from an earlier one.
+readonly BACKUP_MAX_AGE_DAYS=1
+readonly BACKUP_KEEP=7
 readonly MINE_WAIT_SECONDS=300
 readonly PY=/usr/bin/python3          # stdlib only -- no third-party imports below
 
@@ -389,14 +395,14 @@ PYEOF
 }
 
 # ===========================================================================
-# CHECK 4 -- weekly backup of the palace to the Secondary volume
+# CHECK 4 -- daily backup of the palace to the Secondary volume
 # ===========================================================================
 mine_running() { pgrep -f "mempalace (mine|repair)" >/dev/null 2>&1; }
 
 check_backup() {
     if [[ -n "${WATCHDOG_SKIP_BACKUP:-}" ]]; then log "[4/6] backup: skipped"; return; fi
     if ! volume_mounted "$SECONDARY"; then
-        notify "BACKUP: $SECONDARY not mounted -- weekly palace backup skipped"
+        notify "BACKUP: $SECONDARY not mounted -- daily palace backup skipped"
         return
     fi
 
@@ -417,7 +423,7 @@ check_backup() {
     fi
 
     # A mine writes to the palace; copying underneath it yields a torn backup.
-    # Mines take 60-90s, so wait a few minutes rather than losing the week.
+    # Mines take 60-90s, so wait a few minutes rather than losing the day.
     local waited=0
     while mine_running; do
         if (( waited >= MINE_WAIT_SECONDS )); then
@@ -646,9 +652,40 @@ if [[ -f "$RETIRED_MARKER" ]]; then
 fi
 
 # --- concurrency guard ------------------------------------------------------
+# The EXIT trap below releases the lock on a normal end, an INT and a TERM, but
+# nothing releases it on a SIGKILL -- a forced logout, a shutdown mid-run, or a
+# launchd kill. The leftover directory would then turn every later run into a
+# logged SKIP with no notification, so the daily backup would stop silently and
+# look healthy. A recorded pid that is dead, or whose process is newer than the
+# lock, is therefore treated as abandoned and taken over. A live holder still
+# wins: a long run is normal here, since PRAGMA quick_check over the external
+# volume takes tens of minutes on a multi-gigabyte palace.
+lock_holder_alive() {
+    local pid
+    pid="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    # A recycled pid belonging to some unrelated process is not a holder. The
+    # real holder always started before the lock it wrote.
+    local lock_start proc_start
+    lock_start="$(stat -f %m "$LOCK_DIR" 2>/dev/null)" || return 0
+    proc_start="$(ps -o lstart= -p "$pid" 2>/dev/null)" || return 0
+    proc_start="$("$PY" -c 'import sys,time,datetime; print(int(datetime.datetime.strptime(sys.argv[1].strip(), "%a %b %d %H:%M:%S %Y").timestamp()))' "$proc_start" 2>/dev/null)" || return 0
+    [[ "$proc_start" =~ ^[0-9]+$ ]] || return 0
+    (( proc_start <= lock_start + 5 ))
+}
+
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    log "SKIP: another run holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo '?'))"
-    exit 0
+    if lock_holder_alive; then
+        log "SKIP: another run holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo '?'))"
+        exit 0
+    fi
+    log "lock: taking over abandoned $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo '?') is gone)"
+    rm -rf "${LOCK_DIR:?}"
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        log "SKIP: could not take over $LOCK_DIR"
+        exit 0
+    fi
 fi
 printf '%s\n' "$$" >"$LOCK_DIR/pid"
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
