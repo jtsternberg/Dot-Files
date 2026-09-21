@@ -300,6 +300,34 @@ _herdr_lazy() {
 	_herdr "$@"
 }
 
+# The 1Password CLI (https://developer.1password.com/docs/cli) is third party,
+# but its completion follows the same generate-on-first-use contract as our own
+# commands. Generating it eagerly is expensive in a way that is easy to miss:
+# `op completion zsh` probes every CLI it ships a shell plugin for by running
+# `<cli> --version`, so a login-time eval spawns those probes in every shell —
+# and a quarantined probe target (ngrok was one) raises a Gatekeeper dialog on
+# each one. Deferring to the first `op ` completion keeps that off shell startup.
+_op_lazy() {
+	local generated
+
+	generated="$(command op completion zsh 2>/dev/null)" || {
+		_message 'unable to generate op completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load op completion'
+		return 1
+	}
+
+	if (( ! $+functions[_op] )); then
+		_message 'op completion did not define _op'
+		return 1
+	fi
+
+	_op "$@"
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
@@ -309,3 +337,4 @@ compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
 compdef _auto_commit_ollama_lazy auto-commit-ollama
 compdef _herdr_lazy herdr
+compdef _op_lazy op
