@@ -8,7 +8,7 @@ use JT\CLI\Helpers;
 
 #[Program(
 	name: 'linux-catchup',
-	description: 'Catch this Linux box up: update codex + claude, pull configured repos (via godo), and report/apply system (apt) updates.',
+	description: 'Catch this Linux box up: update codex + claude + ollama, pull configured repos (via godo), and report/apply system (apt) updates.',
 )]
 final class LinuxCatchupCommand {
 
@@ -61,7 +61,7 @@ final class LinuxCatchupCommand {
 		)]
 		bool $yes = false,
 		#[Option(
-			description: 'Run only these comma-separated steps: codex, claude, repos, system (alias system-update).',
+			description: 'Run only these comma-separated steps: codex, claude, ollama, repos, system (alias system-update).',
 			valueName: 'steps',
 		)]
 		?string $only = null
@@ -82,6 +82,11 @@ final class LinuxCatchupCommand {
 		if ( $catchup->shouldRun( 'claude', $only ) ) {
 			$this->section( 'claude update' );
 			$this->runToolUpdate( 'claude' );
+		}
+
+		if ( $catchup->shouldRun( 'ollama', $only ) ) {
+			$this->section( 'ollama update' );
+			$this->runOllamaUpdate();
 		}
 
 		$repos = $catchup->repos();
@@ -194,6 +199,75 @@ final class LinuxCatchupCommand {
 		}
 
 		$this->cli->msg( sprintf( '  %s not found on PATH — skipping.', $tool ), 'yellow' );
+	}
+
+	/**
+	 * Bring ollama current, unless something is using it.
+	 *
+	 * Shaped unlike codex/claude for one reason: ollama has no self-update
+	 * subcommand, so the vendor installer is the path, and it restarts the
+	 * systemd service — which evicts the resident model and kills in-flight
+	 * inference. `claude update` has no such cost; the next launch just picks up
+	 * the new binary. So `ollama ps` is the gate: nothing resident, upgrade like
+	 * any other tool; a model loaded, say why we're leaving it alone and move on
+	 * rather than failing the run.
+	 */
+	private function runOllamaUpdate(): void {
+		if ( ! ( $this->commandExists )( 'ollama' ) ) {
+			$this->cli->msg( '  ollama not found on PATH — skipping.', 'yellow' );
+
+			return;
+		}
+
+		$report = $this->catchup()->ollamaReport(
+			( $this->shellOutput )( 'ollama --version 2>&1' ),
+			( $this->shellOutput )(
+				'curl -fsSL --max-time 10 -H "Accept: application/vnd.github+json" '
+					. escapeshellarg( LinuxCatchup::OLLAMA_RELEASES_URL ) . ' 2>/dev/null'
+			)
+		);
+
+		if ( null === $report['installed'] || null === $report['latest'] ) {
+			$this->cli->msg(
+				'  could not compare versions (no `ollama --version` or no network) — skipping.',
+				'yellow'
+			);
+
+			return;
+		}
+
+		if ( ! $report['behind'] ) {
+			$this->cli->msg( sprintf( '  ollama %s is current. ✔', $report['installed'] ), 'green' );
+
+			return;
+		}
+
+		$this->cli->msg( sprintf(
+			'  ollama %s installed, %s available.',
+			$report['installed'],
+			$report['latest']
+		), 'yellow' );
+
+		if ( ! $this->catchup()->isLinux() ) {
+			$this->cli->msg( '  upgrade here with: brew upgrade ollama', 'yellow' );
+
+			return;
+		}
+
+		$resident = $this->catchup()->parseOllamaPs(
+			( $this->shellOutput )( 'ollama ps 2>/dev/null' )
+		);
+		if ( ! empty( $resident ) ) {
+			$this->cli->msg( sprintf(
+				"\n  ⚠ skipped: %s resident — upgrading restarts the service and would kill in-flight inference.",
+				implode( ', ', $resident )
+			), 'red' );
+			$this->cli->msg( sprintf( '    Upgrade later with: %s', LinuxCatchup::OLLAMA_INSTALLER ), 'yellow' );
+
+			return;
+		}
+
+		$this->runCommand( LinuxCatchup::OLLAMA_INSTALLER );
 	}
 
 	private function runSystemUpdates( bool $apply, bool $yes ): int {

@@ -11,8 +11,10 @@ namespace JT;
 # Runs, in order (each toggleable in ~/.linux-catchup.json):
 #   1. codex update
 #   2. claude update
-#   3. repos:  godo <key> for each configured key (defaults to `git prb`)
-#   4. system: refresh apt and report upgradable + security + reboot-required.
+#   3. ollama: upgrade via the vendor installer when behind the latest release,
+#              unless a model is resident (restarting kills in-flight inference)
+#   4. repos:  godo <key> for each configured key (defaults to `git prb`)
+#   5. system: refresh apt and report upgradable + security + reboot-required.
 #              With --apply, runs the upgrade (apt-get upgrade).
 #
 # The attributed LinuxCatchupCommand handler defines dispatch, help, and
@@ -24,7 +26,7 @@ namespace JT;
 # linux-catchup config          Print the resolved config + its path
 # linux-catchup completion zsh
 #
-# Steps: codex, claude, repos, system (alias: system-update). --only runs just
+# Steps: codex, claude, ollama, repos, system (alias: system-update). --only runs just
 # the named step(s), comma-separated, overriding the config toggles.
 # =============================================================================
 

@@ -9,9 +9,11 @@ use JT\CLI\Helpers;
  * Steps (each toggleable via ~/.linux-catchup.json):
  *   1. codex update
  *   2. claude update
- *   3. repos: `godo <key>` for each configured key (runs that key's stored
+ *   3. ollama: upgrade via the vendor installer when a newer release exists,
+ *      unless a model is currently resident (see ollamaReport/parseOllamaPs)
+ *   4. repos: `godo <key>` for each configured key (runs that key's stored
  *      commands, defaulting to `git prb`)
- *   4. system: refresh apt, report upgradable + security + reboot-required;
+ *   5. system: refresh apt, report upgradable + security + reboot-required;
  *      with --apply, actually run the upgrade.
  *
  * This class holds config loading/defaults and parsing apt output into a
@@ -43,6 +45,7 @@ class LinuxCatchup {
 		'repos'  => [],
 		'codex'  => true,
 		'claude' => true,
+		'ollama' => true,
 		'system' => true,
 	];
 
@@ -116,7 +119,7 @@ class LinuxCatchup {
 	}
 
 	/** The steps linux-catchup can run, in run order. */
-	const STEPS = [ 'codex', 'claude', 'repos', 'system' ];
+	const STEPS = [ 'codex', 'claude', 'ollama', 'repos', 'system' ];
 
 	/**
 	 * Normalize a --only value (comma-separated step names) to a list of
@@ -164,6 +167,66 @@ class LinuxCatchup {
 
 	public function isLinux(): bool {
 		return 'Linux' === PHP_OS_FAMILY;
+	}
+
+	/** The installer tracks this same release list. */
+	const OLLAMA_RELEASES_URL = 'https://api.github.com/repos/ollama/ollama/releases/latest';
+
+	/** Ollama has no self-update subcommand; the vendor installer is the path. */
+	const OLLAMA_INSTALLER = 'curl -fsSL https://ollama.com/install.sh | sh';
+
+	/**
+	 * Compare the installed ollama against the latest release tag.
+	 *
+	 * Checked separately from apt because the installer puts ollama in
+	 * /usr/local/bin outside any package, so `apt list --upgradable` is blind to
+	 * it — which is how a box sat 17 releases behind while the system step
+	 * called itself up to date. A stale runtime refuses new model architectures
+	 * with an error that reads as unsupported hardware, so the drift is worth
+	 * naming even on a run that can't act on it.
+	 *
+	 * @param string $rawVersion Raw `ollama --version` output ("ollama version
+	 *                           is 0.34.2", possibly after a no-server warning).
+	 *                           Bare `ollama version` is not a command, so
+	 *                           --version is the only form that works.
+	 * @param string $rawLatest  Raw JSON from OLLAMA_RELEASES_URL.
+	 * @return array{installed:?string, latest:?string, behind:bool}
+	 */
+	public function ollamaReport( string $rawVersion, string $rawLatest ): array {
+		$installed = preg_match( '/\b(\d+\.\d+\.\d+)\b/', $rawVersion, $m ) ? $m[1] : null;
+		$latest    = preg_match( '/"tag_name"\s*:\s*"v?([^"]+)"/', $rawLatest, $t ) ? $t[1] : null;
+
+		return [
+			'installed' => $installed,
+			'latest'    => $latest,
+			'behind'    => $installed && $latest && version_compare( $installed, $latest, '<' ),
+		];
+	}
+
+	/**
+	 * Resident model names from `ollama ps` output.
+	 *
+	 * With nothing loaded the command prints the header row alone and exits 0,
+	 * so "no data rows" is the safe-to-upgrade signal — not a non-zero exit.
+	 *
+	 * @return string[]
+	 */
+	public function parseOllamaPs( string $raw ): array {
+		$models = [];
+
+		foreach ( preg_split( '/\R/', $raw ) as $line ) {
+			$line = trim( $line );
+			if ( '' === $line || 0 === strpos( $line, 'NAME' ) ) {
+				continue;
+			}
+
+			$name = preg_split( '/\s+/', $line )[0] ?? '';
+			if ( '' !== $name ) {
+				$models[] = $name;
+			}
+		}
+
+		return $models;
 	}
 
 	/**
