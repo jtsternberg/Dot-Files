@@ -1,5 +1,8 @@
 # Set PATH, MANPATH, etc., for Homebrew.
 [[ -f /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
+# brew shellenv exports FPATH; a child shell inheriting a finished fpath builds a
+# different order than a fresh one, so compinit/oh-my-zsh rebuild the dump.
+typeset +x FPATH
 # As of 2/24/23, this command evaluates to:
 # ```
 # export HOMEBREW_PREFIX="/opt/homebrew";

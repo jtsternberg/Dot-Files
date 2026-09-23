@@ -1,5 +1,7 @@
 # Set path as only allowing unique values
 typeset -U path
+# Keep fpath deduped like path, so repeated prepends can't grow it.
+typeset -U fpath
 
 # Set architecture flags
 export ARCHFLAGS="-arch x86_64"

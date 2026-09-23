@@ -235,6 +235,29 @@ zstyle :bracketed-paste-magic paste-finish pastefinish
 ### Fix slowness of pastes
 source ~/.dotfiles/zsh-custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
+# Completion dirs go before oh-my-zsh so its single compinit sees them. A
+# second compinit would keep its own dump that thrashes against OMZ's.
+# https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
+if type brew &>/dev/null
+then
+  FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
+fi
+
+# snip CLI (https://github.com/jtsternberg/snippets-cli) completions
+fpath=(~/.zsh/completions $fpath)
+
+# The next lines enables shell command completion for Stripe
+fpath=(~/.stripe $fpath)
+
+# The following lines have been added by Docker Desktop to enable Docker CLI completions.
+fpath=(~/.docker/completions $fpath)
+# autoload -Uz compinit
+# compinit
+# End of Docker CLI completions
+
+# buddy-cli completions, https://github.com/jtsternberg/buddy-cli
+fpath=(~/.buddy-cli/completions $fpath)
+
 source $ZSH/oh-my-zsh.sh
 
 # Override composer plugin's 'c' alias
@@ -256,35 +279,10 @@ export CLAUDE_TITLE_PREFIX="🤖"
 # re: https://awesomemotive.slack.com/archives/C05E7N3SKEZ/p1778509535656589
 export AGENT_BROWSER_IDLE_TIMEOUT_MS=600000
 
-# https://docs.brew.sh/Shell-Completion#configuring-completions-in-zsh
-if type brew &>/dev/null
-then
-  FPATH="$(brew --prefix)/share/zsh/site-functions:${FPATH}"
-fi
-
-# snip CLI (https://github.com/jtsternberg/snippets-cli) completions
-fpath=(~/.zsh/completions $fpath)
-
-# The next lines enables shell command completion for Stripe
-fpath=(~/.stripe $fpath)
-
-# The following lines have been added by Docker Desktop to enable Docker CLI completions.
-fpath=(/Users/JT/.docker/completions $fpath)
-# autoload -Uz compinit
-# compinit
-# End of Docker CLI completions
-
-# buddy-cli completions, https://github.com/jtsternberg/buddy-cli
-fpath=(~/.buddy-cli/completions $fpath)
-
 # 1Password CLI completions load lazily from the dotfiles-completions plugin.
 
 # https://pages.tobi.lutke.com/try/
 eval "$(try init ~/src/tries)"
-
-# To refresh: rm -f ~/.zcompdump; compinit
-autoload -Uz compinit
-compinit
 
 # drplr CLI (https://github.com/jtsternberg/drplr) completions
 eval "$(drplr completions zsh)"
@@ -322,3 +320,6 @@ export PATH="/Users/JT/.local/bin:$PATH"
 
 # kimi-code
 export PATH="$HOME/.kimi-code/bin:$PATH"
+
+# See .zprofile; non-login shells skip it, so unexport here too.
+typeset +x FPATH
