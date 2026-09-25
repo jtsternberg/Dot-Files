@@ -81,6 +81,27 @@ alias claudecreateissue='claude "/create-github-issue"'
 alias claudecommitstaged='claude --model sonnet "/commit-staged"'
 alias weeklylog='goto monorepo && claude --dangerously-skip-permissions "/weeklylog"'
 alias agyolo='agy --dangerously-skip-permissions'
+# The board writes only to the log, never to this terminal: a pipe to `tee` here
+# would die with the tab and take the board down on its next write (SIGPIPE).
+csbstart() {
+	local log=/tmp/claude-sessions-board/board.log
+	if pgrep -xf "node /opt/homebrew/bin/csb start" >/dev/null; then
+		echo "already running: http://sessions.localhost:7788  (log: $log)"
+		return 0
+	fi
+	mkdir -p "${log:h}"
+	PROJECT_NAMES=~/.dirmap.json SUMMARY_BACKEND=ollama SUMMARY_MODEL="gemma4:26b-nvfp4,qwen3.5:9b" nohup csb start >"$log" 2>&1 &!
+	local i
+	for i in {1..60}; do
+		grep -q "sessions board" "$log" 2>/dev/null && break
+		pgrep -xf "node /opt/homebrew/bin/csb start" >/dev/null || break
+		sleep 0.5
+	done
+	cat "$log"
+	pgrep -xf "node /opt/homebrew/bin/csb start" >/dev/null || { echo "csb exited; see $log" >&2; return 1; }
+	echo "\nrunning: http://sessions.localhost:7788  (errors, if it dies: $log)"
+}
+alias csbstop='pkill -xf "node /opt/homebrew/bin/csb start"'
 
 # For when the sidebar items disappear.
 # https://apple.stackexchange.com/a/210469
