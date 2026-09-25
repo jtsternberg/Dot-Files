@@ -10,7 +10,7 @@
                 "gemma"
             ],
             "location": "sd",
-            "tested": "2026-07-24: best local big-file summarizer \u2014 fastest prefill of installed models + 262K ctx. ~2min cold for 35K tokens. Tight, accurate."
+            "tested": "2026-07-24: best local big-file summarizer \u2014 fastest prefill of installed models + 262K ctx. ~2min cold for 35K tokens. Tight, accurate. | 2026-09-25: best of 4 for short structured dashboard summaries (claude-sessions-board, ~500-tok prompt, TITLE line + 2 sentences): TITLE format held every run, specific titles; still opened 2 of 5 live summaries with a banned \"The session\" (all 4 models slip on that rule). 12s cold load from AI-LAB, ~0.6s warm; ~3.4s avg over 15 live board summaries. First pick when docked."
         },
         "gemma4:e4b": {
             "when": "Lean local summarizer for small files (llmsummarize auto routes <~8K tokens here). NOTE: default runtime ctx self-caps at 16384 \u2014 raise num_ctx or it silently truncates big files.",
@@ -21,7 +21,7 @@
             ],
             "location": "sd",
             "speed": "~269 tok/s prompt-eval, ~33 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx",
-            "tested": "2026-07-24: good plain-prose summaries, fastest decode of the 4 general models. Silently truncated 34K-tok input to 16K until num_ctx raised."
+            "tested": "2026-07-24: good plain-prose summaries, fastest decode of the 4 general models. Silently truncated 34K-tok input to 16K until num_ctx raised. | 2026-09-25: weak on short structured summaries (claude-sessions-board): dropped the required TITLE: label once, broke a 'no \"The session\"' rule. Use gemma4:26b-nvfp4 instead when docked."
         },
         "llama3.1:8b": {
             "when": "General chat fallback when you want a non-MLX / non-Gemma flavor. 14 months old; keep only if you have prompts tuned to llama3.",
@@ -81,7 +81,8 @@
                 "coding",
                 "fallback"
             ],
-            "location": "both"
+            "location": "both",
+            "tested": "2026-09-25: bad for instruction-following summaries (claude-sessions-board): copied the input's title verbatim 3/3 runs, broke a phrasing rule. Code model; don't use for prose."
         },
         "qwen3-coder:latest": {
             "when": "Primary coding agent (aider/pi). Tool-calling strong; decode fast.",
@@ -100,7 +101,7 @@
             ],
             "location": "both",
             "speed": "~225 tok/s prompt-eval, ~21 tok/s decode (measured 2026-07-24, 34K-tok file, COLD, think:false)",
-            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF."
+            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF. | 2026-09-25: runner-up for short structured dashboard summaries (claude-sessions-board, think:false): format OK, titles sometimes vague, once broke a 'no \"The session\"' rule. 29s cold, 0.7s warm. On both stores, so the undocked fallback."
         }
     },
     "graveyard": {
