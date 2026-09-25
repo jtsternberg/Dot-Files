@@ -1,0 +1,4 @@
+.callout[data-callout="custom-question-type"] {
+	--callout-color: 255, 255, 255;
+	--callout-icon: lucide-alert-circle;
+}
