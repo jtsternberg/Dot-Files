@@ -69,3 +69,4 @@ HANDOFF*.md
 .beads/proxieddb/
 
 .phpunit.cache
+/.beads.gate.lock
