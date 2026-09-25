@@ -1,0 +1,133 @@
+#!/bin/bash
+# =============================================================================
+# setup-obsidian-vault
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Symlinks each subdirectory of the dotfiles `obsidian/` dir (snippets, ...)
+# into the nearest `.obsidian` config dir: DIR itself when it is a `.obsidian`
+# dir, else DIR/.obsidian, else the shallowest `.obsidian` below DIR.
+#
+# Every link is checked before any is made. An existing target that holds
+# anything besides OS junk (.DS_Store, ._*, Thumbs.db, ...) aborts the whole
+# run with nothing changed.
+#
+# Usage:
+# setup-obsidian-vault [-n|--dry-run] [DIR]
+# =============================================================================
+set -euo pipefail
+
+usage() {
+	sed -n 's/^# \{0,1\}//; /^Usage:/,/^=/p' "$0" | sed '$d'
+}
+
+DRY_RUN=0
+START_DIR=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-n|--dry-run) DRY_RUN=1 ;;
+		-h|--help) usage; exit 0 ;;
+		-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+		*)
+			[ -z "$START_DIR" ] || { echo "Only one DIR allowed" >&2; exit 1; }
+			START_DIR="$1"
+			;;
+	esac
+	shift
+done
+
+SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)/obsidian"
+[ -d "$SOURCE_ROOT" ] || { echo "Missing source dir: $SOURCE_ROOT" >&2; exit 1; }
+
+START_DIR="${START_DIR:-$PWD}"
+[ -d "$START_DIR" ] || { echo "Not a directory: $START_DIR" >&2; exit 1; }
+START_DIR="$(cd "$START_DIR" && pwd -P)"
+
+find_vault_config() {
+	if [ "$(basename "$START_DIR")" = ".obsidian" ]; then
+		echo "$START_DIR"
+		return
+	fi
+	if [ -d "$START_DIR/.obsidian" ]; then
+		echo "$START_DIR/.obsidian"
+		return
+	fi
+
+	# Prune heavy trees so a monorepo search stays fast, and don't descend
+	# into a match (a vault's own .obsidian never nests another).
+	local found
+	found="$(find "$START_DIR" \
+		\( -name .git -o -name node_modules -o -name vendor \) -prune -o \
+		-type d -name .obsidian -print -prune 2>/dev/null |
+		awk -F/ '{ print NF "\t" $0 }' | sort -n)"
+
+	if [ -z "$found" ]; then
+		echo "No .obsidian dir found at or below $START_DIR" >&2
+		exit 1
+	fi
+
+	local depth nearest
+	depth="$(printf '%s\n' "$found" | head -1 | cut -f1)"
+	nearest="$(printf '%s\n' "$found" | awk -F'\t' -v d="$depth" '$1 == d { print $2 }')"
+	if [ "$(printf '%s\n' "$nearest" | wc -l)" -gt 1 ]; then
+		echo "Multiple .obsidian dirs at the same depth; pass one as DIR:" >&2
+		printf '%s\n' "$nearest" | sed 's/^/  /' >&2
+		exit 1
+	fi
+	echo "$nearest"
+}
+
+has_real_content() {
+	[ -n "$(find "$1" -mindepth 1 ! -type d \
+		! -name .DS_Store ! -name '._*' ! -name Thumbs.db \
+		! -name desktop.ini ! -name .localized -print -quit)" ]
+}
+
+VAULT_CONFIG="$(find_vault_config)"
+echo "Vault config: $VAULT_CONFIG"
+
+LINK_NAMES=()
+CONFLICTS=()
+for src in "$SOURCE_ROOT"/*/; do
+	[ -d "$src" ] || continue
+	src="${src%/}"
+	name="$(basename "$src")"
+	target="$VAULT_CONFIG/$name"
+
+	if [ -L "$target" ]; then
+		if [ "$(readlink "$target")" = "$src" ]; then
+			echo "  ok      $name (already linked)"
+		else
+			CONFLICTS+=("$target is a symlink to $(readlink "$target")")
+		fi
+	elif [ -d "$target" ]; then
+		if has_real_content "$target"; then
+			CONFLICTS+=("$target already has content")
+		else
+			LINK_NAMES+=("$name")
+		fi
+	elif [ -e "$target" ]; then
+		CONFLICTS+=("$target exists and is not a directory")
+	else
+		LINK_NAMES+=("$name")
+	fi
+done
+
+if [ ${#CONFLICTS[@]} -gt 0 ]; then
+	echo "Aborting; nothing changed:" >&2
+	printf '  %s\n' "${CONFLICTS[@]}" >&2
+	exit 1
+fi
+
+for name in ${LINK_NAMES[@]+"${LINK_NAMES[@]}"}; do
+	src="$SOURCE_ROOT/$name"
+	target="$VAULT_CONFIG/$name"
+	if [ "$DRY_RUN" -eq 1 ]; then
+		echo "  would link $target -> $src"
+		continue
+	fi
+	[ -d "$target" ] && rm -rf "$target"
+	ln -s "$src" "$target"
+	echo "  linked  $name -> $src"
+done

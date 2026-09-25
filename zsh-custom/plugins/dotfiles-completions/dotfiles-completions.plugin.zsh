@@ -328,6 +328,13 @@ _op_lazy() {
 	_op "$@"
 }
 
+_setup_obsidian_vault() {
+	_arguments \
+		'(-h --help)'{-h,--help}'[display help]' \
+		'(-n --dry-run)'{-n,--dry-run}'[show what would be linked without changing anything]' \
+		'1:directory to search for a .obsidian dir:_directories'
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
@@ -338,3 +345,4 @@ compdef _aimodels_lazy aimodels
 compdef _auto_commit_ollama_lazy auto-commit-ollama
 compdef _herdr_lazy herdr
 compdef _op_lazy op
+compdef _setup_obsidian_vault setup-obsidian-vault
