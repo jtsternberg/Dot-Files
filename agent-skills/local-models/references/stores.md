@@ -146,6 +146,15 @@ ever restarts an app.
    the restart and warn instead, because quitting mid-transcription kills the
    job). `AIMODELS_NO_RESTART=1` disables it. Ollama needs no equivalent: it
    resolves new loads through the symlink, and `eject` unloads what is cached.
+6. **MacWhisper remembers a model id, not a store.** Flipping to a store that
+   lacks the selected model fails in the app with "WhisperKit Model was not found
+   at expected location". Set `WHISPER_MODEL_LOCAL` / `WHISPER_MODEL_EXTERNAL` in
+   `~/.config/auto-commit-ollama/config` (the shared local-model config) and a
+   real switch rewrites the file-transcription and dictation model while the app
+   is quit (a running app overwrites the pref). Live transcription keeps its own
+   choice. The model must be a WhisperKit bundle in the target store, or the
+   switch leaves the selection alone and warns. The same busy vetoes skip the
+   write; every flip warns about any runner whose model the store lacks.
 
 ## Continue to model choice
 

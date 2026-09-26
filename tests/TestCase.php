@@ -73,6 +73,13 @@ abstract class TestCase extends BaseTestCase
 		chmod($launchctlStub, 0755);
 		putenv('AIMODELS_LAUNCHCTL_BIN=' . $launchctlStub);
 
+		// And for `defaults`: a MacWhisper flip rewrites the app's selected model.
+		// Exit 1 reads as "key not set", so an un-faked engine never touches it.
+		$defaultsStub = $this->graveyardRoot . '/defaults-stub';
+		file_put_contents($defaultsStub, "#!/bin/sh\nexit 1\n");
+		chmod($defaultsStub, 0755);
+		putenv('AIMODELS_DEFAULTS_BIN=' . $defaultsStub);
+
 		// Router-specific coverage constructs a Graveyard with NullTransport; see
 		// Graveyard/GraveyardPageServerContractTest.php. $this->gy is not that shape.
 		$this->gy = new Graveyard($this->cli, $this->transport);
@@ -83,6 +90,7 @@ abstract class TestCase extends BaseTestCase
 		putenv('GRAVEYARD_ROOT');
 		putenv('CMUX_BIN');
 		putenv('AIMODELS_LAUNCHCTL_BIN');
+		putenv('AIMODELS_DEFAULTS_BIN');
 		if (isset($this->graveyardRoot) && is_dir($this->graveyardRoot)) {
 			$this->rmrf($this->graveyardRoot);
 		}

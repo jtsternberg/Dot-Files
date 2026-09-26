@@ -140,7 +140,9 @@ decision, measure (below) and add the result here.
    from it is wrong by construction. Use `aimodels status`.
 5. **`.en` models on non-English audio fail silently** — fluent, wrong English.
 6. **A running MacWhisper caches its list at launch.** After a store flip,
-   relaunch before concluding a model is missing.
+   relaunch before concluding a model is missing. "WhisperKit Model was not
+   found" after a flip means the selected model isn't in that store; see
+   `WHISPER_MODEL_LOCAL` in [stores.md](stores.md).
 7. **Size is not speed across runtimes.** A 1.2 GB CoreML bundle can beat a 500 MB
    GGML one on this hardware. Only a measurement settles it.
 

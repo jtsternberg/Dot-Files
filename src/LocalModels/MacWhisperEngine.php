@@ -2,6 +2,8 @@
 
 namespace JT\LocalModels;
 
+use JT\Helpers\Ollama;
+
 /**
  * MacWhisper's model store.
  *
@@ -27,15 +29,25 @@ namespace JT\LocalModels;
  */
 final class MacWhisperEngine extends AbstractStoreEngine {
 
+	/** Runner prefs that follow the store, by label. Live transcription keeps its own choice. */
+	private const SWITCHED_RUNNERS = [
+		MacWhisperPrefs::SELECTED  => 'file transcription',
+		MacWhisperPrefs::DICTATION => 'dictation',
+	];
+
 	private AppControl $apps;
+
+	private MacWhisperPrefs $prefs;
 
 	public function __construct(
 		?string $home = null,
 		string $volumesRoot = '/Volumes',
-		?AppControl $apps = null
+		?AppControl $apps = null,
+		?MacWhisperPrefs $prefs = null
 	) {
 		parent::__construct( $home, $volumesRoot );
-		$this->apps = $apps ?: new AppControl();
+		$this->apps  = $apps ?: new AppControl();
+		$this->prefs = $prefs ?: new MacWhisperPrefs();
 	}
 
 	public function name(): string {
@@ -68,17 +80,118 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 	 * @return string[]
 	 */
 	protected function postApply( string $location ): array {
-		return $this->restartIfSafe( $location );
+		$key      = self::configKey( $location );
+		$model    = $this->configuredModel( $key );
+		$warnings = [];
+		$select   = null;
+
+		if ( null !== $model ) {
+			if ( $this->holdsWhisperKitModel( $location, $model ) ) {
+				$select = fn(): array => $this->selectModel( $model );
+			} else {
+				$warnings[] = $key . '=' . $model . ' is not a WhisperKit model in the ' . $location
+					. ' store — left MacWhisper\'s model selection alone.';
+			}
+		}
+
+		return array_merge(
+			$warnings,
+			$this->restartIfSafe( $location, $select ),
+			$this->missingModelWarnings( $location )
+		);
+	}
+
+	public static function configKey( string $location ): string {
+		return self::EXTERNAL === $location ? 'WHISPER_MODEL_EXTERNAL' : 'WHISPER_MODEL_LOCAL';
 	}
 
 	/**
+	 * The shared local-model config (see JT\Helpers\Ollama), read from $home
+	 * rather than XDG_CONFIG_HOME so a test's temp home can never pick up the real
+	 * file and rewrite the real app's selection.
+	 */
+	private function configuredModel( string $key ): ?string {
+		$value = trim( (string) ( ( new Ollama() )->config( $this->home . '/.config' )[ $key ] ?? '' ) );
+
+		return '' === $value ? null : $value;
+	}
+
+	private function holdsWhisperKitModel( string $location, string $model ): bool {
+		$store = $this->storePath( $location );
+		$found = is_dir( $store ) ? $this->modelsIn( $store ) : [];
+
+		return 'whisperkit' === ( $found[ $model ]['framework'] ?? null );
+	}
+
+	/**
+	 * Point the store-following runners at $model, keeping the rest of each
+	 * runner config (language etc). Only valid while MacWhisper is quit.
+	 *
+	 * @return string[]
+	 */
+	private function selectModel( string $model ): array {
+		$changed = [];
+
+		foreach ( self::SWITCHED_RUNNERS as $pref => $label ) {
+			$config = json_decode( (string) $this->prefs->get( $pref ), true );
+			$config = is_array( $config ) ? $config : [];
+
+			if ( ( $config['engine']['whisperKit']['model']['id'] ?? null ) === $model ) {
+				continue;
+			}
+
+			$config['engine'] = [ 'whisperKit' => [ 'model' => [ 'id' => $model ] ] ];
+			if ( ! $this->prefs->set( $pref, (string) json_encode( $config, JSON_UNESCAPED_SLASHES ) ) ) {
+				return [ 'could not write MacWhisper\'s ' . $label . ' model — select ' . $model . ' in MacWhisper.' ];
+			}
+			$changed[] = $label;
+		}
+
+		return empty( $changed ) ? [] : [ 'set MacWhisper\'s ' . implode( ' and ', $changed ) . ' model to ' . $model . '.' ];
+	}
+
+	/**
+	 * Name every runner whose WhisperKit model the store lacks — the case that
+	 * surfaces in the app only as "WhisperKit Model was not found at expected
+	 * location". Other engines' ids are not checked.
+	 *
+	 * @return string[]
+	 */
+	private function missingModelWarnings( string $location ): array {
+		$store = $this->storePath( $location );
+		$found = is_dir( $store ) ? $this->modelsIn( $store ) : [];
+		$runners = self::SWITCHED_RUNNERS + [ MacWhisperPrefs::LIVE => 'live transcription' ];
+		$missing = [];
+
+		foreach ( $runners as $pref => $label ) {
+			$config = json_decode( (string) $this->prefs->get( $pref ), true );
+			$id     = is_array( $config ) ? ( $config['engine']['whisperKit']['model']['id'] ?? null ) : null;
+
+			if ( is_string( $id ) && ! isset( $found[ $id ] ) ) {
+				$missing[ $id ][] = $label;
+			}
+		}
+
+		$warnings = [];
+		foreach ( $missing as $id => $labels ) {
+			$warnings[] = 'MacWhisper\'s ' . implode( ' and ', $labels ) . ' model ' . $id . ' is not in the '
+				. $location . ' store — set ' . self::configKey( $location )
+				. ' in ~/.config/auto-commit-ollama/config, or pick another model in MacWhisper.';
+		}
+
+		return $warnings;
+	}
+
+	/**
+	 * @param ?callable(): string[] $whileQuit Runs while the app cannot overwrite prefs.
+	 *
 	 * @return string[] warnings
 	 */
-	private function restartIfSafe( string $location ): array {
+	private function restartIfSafe( string $location, ?callable $whileQuit = null ): array {
 		$app = 'MacWhisper';
 
 		if ( ! $this->apps->isRunning( $app ) ) {
-			return [];
+			return $whileQuit ? $whileQuit() : [];
 		}
 
 		$stale = $app . ' caches its model list at launch, so relaunch it to see the '
@@ -100,12 +213,13 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 		}
 
 		$this->apps->waitForExit( $app );
+		$selected = $whileQuit ? $whileQuit() : [];
 
 		if ( ! $this->reopenWithRetry( $app ) ) {
-			return [ $app . ' was quit but did not reopen — relaunch it to see the ' . $location . ' store.' ];
+			return array_merge( $selected, [ $app . ' was quit but did not reopen — relaunch it to see the ' . $location . ' store.' ] );
 		}
 
-		return [ 'restarted MacWhisper so it lists the ' . $location . ' store.' ];
+		return array_merge( $selected, [ 'restarted MacWhisper so it lists the ' . $location . ' store.' ] );
 	}
 
 	/**
