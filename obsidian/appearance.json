@@ -1,0 +1,13 @@
+{
+  "cssTheme": "Obsidianite",
+  "theme": "system",
+  "translucency": false,
+  "textFontFamily": "Apple SD Gothic Neo",
+  "monospaceFontFamily": "Monaco",
+  "interfaceFontFamily": "Apple SD Gothic Neo",
+  "enabledCssSnippets": [
+    "callouts",
+    "readable-v2"
+  ],
+  "accentColor": ""
+}
