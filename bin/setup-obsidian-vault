@@ -3,15 +3,15 @@
 # setup-obsidian-vault
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 1.0.0
+# Version 1.1.0
 #
-# Symlinks each subdirectory of the dotfiles `obsidian/` dir (snippets, ...)
-# into the nearest `.obsidian` config dir: DIR itself when it is a `.obsidian`
-# dir, else DIR/.obsidian, else the shallowest `.obsidian` below DIR.
+# Symlinks each top-level entry (dirs and files) of the dotfiles `obsidian/`
+# dir into the nearest `.obsidian` config dir: DIR itself when it is a
+# `.obsidian` dir, else DIR/.obsidian, else the shallowest `.obsidian` below DIR.
 #
-# Every link is checked before any is made. An existing target that holds
-# anything besides OS junk (.DS_Store, ._*, Thumbs.db, ...) aborts the whole
-# run with nothing changed.
+# Every link is checked before any is made. An existing file target, or a dir
+# target holding anything besides OS junk (.DS_Store, ._*, Thumbs.db, ...),
+# aborts the whole run with nothing changed.
 #
 # Usage:
 # setup-obsidian-vault [-n|--dry-run] [DIR]
@@ -78,10 +78,23 @@ find_vault_config() {
 	echo "$nearest"
 }
 
+JUNK_NAMES=(.DS_Store '._*' Thumbs.db desktop.ini .localized)
+
+is_junk() {
+	local pattern
+	for pattern in "${JUNK_NAMES[@]}"; do
+		# shellcheck disable=SC2053 # $pattern is intentionally a glob
+		[[ "$1" == $pattern ]] && return 0
+	done
+	return 1
+}
+
 has_real_content() {
-	[ -n "$(find "$1" -mindepth 1 ! -type d \
-		! -name .DS_Store ! -name '._*' ! -name Thumbs.db \
-		! -name desktop.ini ! -name .localized -print -quit)" ]
+	local args=() pattern
+	for pattern in "${JUNK_NAMES[@]}"; do
+		args+=(! -name "$pattern")
+	done
+	[ -n "$(find "$1" -mindepth 1 ! -type d "${args[@]}" -print -quit)" ]
 }
 
 VAULT_CONFIG="$(find_vault_config)"
@@ -89,10 +102,10 @@ echo "Vault config: $VAULT_CONFIG"
 
 LINK_NAMES=()
 CONFLICTS=()
-for src in "$SOURCE_ROOT"/*/; do
-	[ -d "$src" ] || continue
-	src="${src%/}"
+for src in "$SOURCE_ROOT"/*; do
+	[ -e "$src" ] || continue
 	name="$(basename "$src")"
+	is_junk "$name" && continue
 	target="$VAULT_CONFIG/$name"
 
 	if [ -L "$target" ]; then
@@ -101,6 +114,8 @@ for src in "$SOURCE_ROOT"/*/; do
 		else
 			CONFLICTS+=("$target is a symlink to $(readlink "$target")")
 		fi
+	elif [ -d "$target" ] && [ -f "$src" ]; then
+		CONFLICTS+=("$target is a directory, but $name is a file")
 	elif [ -d "$target" ]; then
 		if has_real_content "$target"; then
 			CONFLICTS+=("$target already has content")
@@ -108,7 +123,7 @@ for src in "$SOURCE_ROOT"/*/; do
 			LINK_NAMES+=("$name")
 		fi
 	elif [ -e "$target" ]; then
-		CONFLICTS+=("$target exists and is not a directory")
+		CONFLICTS+=("$target already exists")
 	else
 		LINK_NAMES+=("$name")
 	fi
