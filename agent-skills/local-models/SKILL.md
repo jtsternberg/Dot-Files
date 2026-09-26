@@ -10,7 +10,8 @@ description: |
   whether AI-LAB is required, why a model is missing, how to reconcile stores,
   or why AI-LAB will not eject. Includes "run this locally", "can I transcribe
   offline", "Parakeet vs Whisper", Ollama fit/speed/context, aimodels watcher,
-  and safe eject questions. Not for cloud-only model IDs or pricing; after
+  and safe eject questions. Also whenever code, a script, or a config is being
+  written that calls a local model or names one. Not for cloud-only model IDs or pricing; after
   deciding local is the wrong path, use an available cloud-model skill.
 allowed-tools:
   - Bash
@@ -30,6 +31,26 @@ Run `aimodels status` before recommending or operating on a model. It reports
 both the internal and AI-LAB stores even when the external drive is absent.
 Treat recorded inventory and benchmark numbers as dated evidence to re-check,
 not permanent facts.
+
+## Availability moves on its own
+
+A LaunchAgent flips every engine's active store when AI-LAB mounts or ejects, so
+the models loadable now are not the models loadable in an hour. `ollama list`,
+`mw models list`, and a model that worked last session all describe only the
+current store. Never assume a model you see is always available.
+
+- **Check mount state first:** `aimodels status` prints `AI-LAB: mounted|not
+  mounted` and marks each model `L` (local store) and/or `X` (AI-LAB). Only an
+  `L` model survives an eject.
+- **Never hardcode a model name** into a script, command, config, or skill.
+  Resolve it per location from the shared config
+  `~/.config/auto-commit-ollama/config` (dotenv `KEY=value`, not
+  commit-specific despite the path): `MODEL`, `MODEL_LOCAL`, `MODEL_SD` for
+  Ollama, and `WHISPER_MODEL_LOCAL`, `WHISPER_MODEL_EXTERNAL` for MacWhisper.
+- **PHP code reads it through `JT\Helpers\Ollama::config()`**, and Ollama picks
+  the key with `resolveModel()`. A new tool that picks a local model reuses
+  both and adds keys to that file, not a config of its own.
+- **Anything that must work offline** defaults to a model in the local store.
 
 ## Route by scenario
 
