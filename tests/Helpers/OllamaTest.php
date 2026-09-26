@@ -130,4 +130,27 @@ final class OllamaTest extends TestCase {
 			( new Ollama() )->config( sys_get_temp_dir() . '/definitely-not-here-' . uniqid() )
 		);
 	}
+
+	private function configFrom( string $body ): array {
+		$dir = $this->graveyardRoot . '/xdg';
+		mkdir( $dir . '/auto-commit-ollama', 0777, true );
+		file_put_contents( $dir . '/auto-commit-ollama/config', $body );
+
+		return ( new Ollama() )->config( $dir );
+	}
+
+	/**
+	 * The file is shell-style, not INI: parse_ini_file() rejected a whole file
+	 * over "(" in a # comment and every key silently fell back to its default.
+	 */
+	public function testConfigSurvivesPunctuationInComments(): void {
+		$this->assertSame(
+			[ 'MODEL' => 'qwen3-coder', 'MODEL_LOCAL' => 'qwen2.5-coder:7b' ],
+			$this->configFrom( "# models (per store), used by aimodels!\nMODEL=\"qwen3-coder\"\nMODEL_LOCAL=qwen2.5-coder:7b # inline (note)\n" )
+		);
+	}
+
+	public function testAnUnparseableConfigIsEmptyRatherThanFatal(): void {
+		$this->assertSame( [], $this->configFrom( "MODEL=\"unterminated\n" ) );
+	}
 }

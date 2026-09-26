@@ -72,7 +72,19 @@ class Ollama {
 		$dir  = $configDir ?: ( getenv( 'XDG_CONFIG_HOME' ) ?: ( ( getenv( 'HOME' ) ?: '' ) . '/.config' ) );
 		$file = $dir . '/auto-commit-ollama/config';
 
-		return is_file( $file ) ? ( parse_ini_file( $file ) ?: [] ) : [];
+		if ( ! is_file( $file ) ) {
+			return [];
+		}
+
+		// Shell-style KEY=value, so a dotenv parser: parse_ini_file() rejected the
+		// whole file over "(" in a # comment, silently defaulting every key.
+		try {
+			return \Dotenv\Dotenv::parse( (string) file_get_contents( $file ) );
+		} catch ( \Dotenv\Exception\ExceptionInterface $e ) {
+			fwrite( STDERR, "Ignoring unparseable {$file}: {$e->getMessage()}\n" );
+
+			return [];
+		}
 	}
 
 	/**
