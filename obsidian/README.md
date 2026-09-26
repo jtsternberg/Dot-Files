@@ -2,6 +2,18 @@
 
 A copy of the vault's `.obsidian/` settings.
 
+To resume the session that created this and the `setup-obsidian-vault`:
+
+```
+graveyard resurrect f651445f
+```
+
+## Using `setup-obsidian-vault`
+
+`setup-obsidian-vault -n` - validates the current Obsidian vault configuration.
+`setup-obsidian-vault` - symlink the items in this dir to the current Obsidian vault (looks for `.obsidian/` dir recursively)
+`setup-obsidian-vault --new` - create a new Obsidian vault `.obsidian/` dir, and symlink the items in this dir to it.
+
 ## hotkeys.json
 
 On macOS, `Mod` and `Meta` both mean ⌘. The defaults listed below come from `app.hotkeyManager.defaultKeys` in Obsidian 1.14.2.
