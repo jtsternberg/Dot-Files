@@ -332,6 +332,7 @@ _setup_obsidian_vault() {
 	_arguments \
 		'(-h --help)'{-h,--help}'[display help]' \
 		'(-n --dry-run)'{-n,--dry-run}'[show what would be linked without changing anything]' \
+		'--new[create DIR/.obsidian instead of searching for one]' \
 		'1:directory to search for a .obsidian dir:_directories'
 }
 

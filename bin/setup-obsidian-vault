@@ -3,7 +3,7 @@
 # setup-obsidian-vault
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 1.1.0
+# Version 1.2.0
 #
 # Symlinks each top-level entry (dirs and files) of the dotfiles `obsidian/`
 # dir into the nearest `.obsidian` config dir: DIR itself when it is a
@@ -13,8 +13,10 @@
 # target holding anything besides OS junk (.DS_Store, ._*, Thumbs.db, ...),
 # aborts the whole run with nothing changed.
 #
+# --new skips the search and uses DIR/.obsidian, creating it if missing.
+#
 # Usage:
-# setup-obsidian-vault [-n|--dry-run] [DIR]
+# setup-obsidian-vault [-n|--dry-run] [--new] [DIR]
 # =============================================================================
 set -euo pipefail
 
@@ -23,10 +25,12 @@ usage() {
 }
 
 DRY_RUN=0
+NEW=0
 START_DIR=
 while [ $# -gt 0 ]; do
 	case "$1" in
 		-n|--dry-run) DRY_RUN=1 ;;
+		--new) NEW=1 ;;
 		-h|--help) usage; exit 0 ;;
 		-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
 		*)
@@ -97,7 +101,27 @@ has_real_content() {
 	[ -n "$(find "$1" -mindepth 1 ! -type d "${args[@]}" -print -quit)" ]
 }
 
-VAULT_CONFIG="$(find_vault_config)"
+if [ "$NEW" -eq 1 ]; then
+	if [ "$(basename "$START_DIR")" = ".obsidian" ]; then
+		echo "--new creates DIR/.obsidian; $START_DIR is already a .obsidian dir" >&2
+		exit 1
+	fi
+	VAULT_CONFIG="$START_DIR/.obsidian"
+	if [ -e "$VAULT_CONFIG" ] && [ ! -d "$VAULT_CONFIG" ]; then
+		echo "$VAULT_CONFIG exists and is not a directory" >&2
+		exit 1
+	fi
+	if [ ! -d "$VAULT_CONFIG" ]; then
+		if [ "$DRY_RUN" -eq 1 ]; then
+			echo "Would create: $VAULT_CONFIG"
+		else
+			mkdir "$VAULT_CONFIG"
+			echo "Created: $VAULT_CONFIG"
+		fi
+	fi
+else
+	VAULT_CONFIG="$(find_vault_config)"
+fi
 echo "Vault config: $VAULT_CONFIG"
 
 LINK_NAMES=()
