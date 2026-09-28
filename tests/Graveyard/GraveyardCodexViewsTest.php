@@ -3,7 +3,7 @@ namespace JT\Tests\Graveyard;
 
 use JT\Tests\TestCase;
 use JT\Graveyard;
-use JT\Helpers\Cmux;
+use JT\Tests\Transport\FakeTransport;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -413,17 +413,13 @@ final class GraveyardCodexViewsTest extends TestCase
 
 	public function testResurrectHandsOverTheRenderedMarkdownNotTheRawRollout(): void
 	{
-		// Costs ~3s: the transcript launch path waits for the REPL to come up. Worth it
-		// — this is the view that was actively telling a fresh agent to read a machine
-		// log it cannot make sense of.
 		$this->archiveRollout();
 
-		$cmux = new class($this->cli) extends Cmux {
-			public array $sent = [];
-			public function sendToSurface(string $surfRef, string $wsRef, string $text): void { $this->sent[] = $text; }
-			public function sendKeyToSurface(string $surfRef, string $wsRef, string $key): void {}
-		};
-		$gy = new class($this->cli, new \JT\Transport\CmuxTransport($this->cli, $cmux)) extends Graveyard {
+		// A fake transport showing a ready prompt: the transcript path polls readScreen()
+		// for the REPL, and a real CmuxTransport shelled out to cmux against surface:1 —
+		// never ready, so the test sat out the full 30s deadline.
+		$fake = new FakeTransport(name: 'cmux', screen: "❯ \n");
+		$gy = new class($this->cli, $fake) extends Graveyard {
 			public function launchTargetIsSafe(string $surfRef): bool { return true; }
 			public function launch(array $t): string
 			{
@@ -432,7 +428,8 @@ final class GraveyardCodexViewsTest extends TestCase
 		};
 
 		$this->assertSame('transcript', $gy->launch($this->codexTomb()));
-		$handoff = implode("\n", $cmux->sent);
+		$sent = array_filter($fake->calls, fn($c) => $c[0] === 'sendText');
+		$handoff = implode("\n", array_map(fn($c) => $c[1][2], $sent));
 		$this->assertStringContainsString($gy->transcriptMdPath(self::SID), $handoff);
 		$this->assertStringNotContainsString('rollout.jsonl', $handoff);
 	}

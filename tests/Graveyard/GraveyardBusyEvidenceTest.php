@@ -192,6 +192,8 @@ final class GraveyardBusyEvidenceTest extends TestCase
 	 */
 	public function testTheStatusProbePollerSurvivesAFailedRead(): void
 	{
+		// Slow (~0.8s) on purpose: the poller's real 0.4s ticks up to the 1s deadline
+		// are what's under test — a failed read must cost a tick, not the probe.
 		$fake = new FakeTransport(name: 'cmux', screen: null);
 		$gy   = new Graveyard($this->cli, $fake);
 

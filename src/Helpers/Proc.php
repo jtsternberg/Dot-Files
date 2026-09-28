@@ -37,9 +37,13 @@ class Proc {
 		return ($tty && $tty !== '??') ? $tty : null;
 	}
 
-	/** Raw `ps -Ao pid,ppid,command` output. */
+	/**
+	 * Raw `ps -Ao pid,ppid,command` output. PROC_PS_BIN is the test seam: every
+	 * liveness scan starts here, and the real table drags in lsof on each live codex.
+	 */
 	public function psProcTable(): string {
-		return (string) shell_exec('ps -Ao pid,ppid,command 2>/dev/null');
+		$ps = getenv('PROC_PS_BIN') ?: 'ps';
+		return (string) shell_exec(escapeshellcmd($ps) . ' -Ao pid,ppid,command 2>/dev/null');
 	}
 
 	/**

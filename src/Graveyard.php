@@ -3756,7 +3756,7 @@ class Graveyard {
 		$this->signalPid($pid, $sig);
 		for ($i = 0; $i < 20; $i++) {
 			if (!$this->serverListening($target)) { break; }
-			usleep(100000); // 100ms, up to ~2s
+			$this->pauseForPortRelease();
 		}
 		if ($this->serverListening($target)) {
 			$this->cli->err("Sent SIGTERM to pid {$pid} but port {$target} is still listening.");
@@ -3766,6 +3766,9 @@ class Graveyard {
 		$this->cli->successMsg("Stopped the graveyard server on port {$target}.");
 		return 0;
 	}
+
+	/** 100ms between port re-checks, up to ~2s. A seam so tests don't sit out the wait. */
+	protected function pauseForPortRelease(): void { usleep(100000); }
 
 	/**
 	 * I/O (read-only). Render the whole overview page fresh from the CURRENT

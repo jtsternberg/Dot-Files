@@ -294,6 +294,7 @@ final class GraveyardExportBinTest extends TestCase
 
 	public function testExportTranscriptFallsBackToReplWhenBinAbsent(): void
 	{
+		// ~0.4s: the REPL fallback's real stability tick.
 		putenv('GRAVEYARD_EXPORT_BIN=' . $this->tmpName('absent'));
 		$gy  = $this->spyGraveyard();
 		$sid = 'sess-repl-fallback';
@@ -305,6 +306,8 @@ final class GraveyardExportBinTest extends TestCase
 
 	public function testExportTranscriptFallsBackToReplWhenBinFails(): void
 	{
+		// ~0.7s: a freshly written stub bin pays macOS's first-exec check, then the
+		// REPL fallback's real stability tick.
 		// The binary being broken must not cost graveyard a capability it had before
 		// the seam existed — a live session is still buryable via the REPL.
 		$this->stubExportBin('', 1);

@@ -202,6 +202,7 @@ class StopDouble extends Graveyard
 	protected function pidIsOurServer(int $pid, int $port): bool { return $this->ours; }
 	protected function findServerPid(int $port): ?int { return $this->foundPid; }
 	protected function workerPids(int $pid, int $port): array { return $this->workers; }
+	protected function pauseForPortRelease(): void {}
 	protected function signalPid(int $pid, int $signal): void
 	{
 		$this->signalled[] = $pid;

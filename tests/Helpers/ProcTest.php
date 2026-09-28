@@ -89,4 +89,16 @@ final class ProcTest extends TestCase {
 	public function test_pidCommand_returns_this_processes_own_argv(): void {
 		$this->assertStringContainsString('php', $this->proc()->pidCommand(getmypid()));
 	}
+
+	public function test_psProcTable_shells_out_to_PROC_PS_BIN_when_set(): void {
+		$stub = $this->graveyardRoot . '/ps-probe';
+		file_put_contents($stub, "#!/bin/sh\necho \"args:\$*\"\n");
+		chmod($stub, 0755);
+		putenv('PROC_PS_BIN=' . $stub);
+		try {
+			$this->assertSame("args:-Ao pid,ppid,command\n", $this->proc()->psProcTable());
+		} finally {
+			putenv('PROC_PS_BIN');
+		}
+	}
 }

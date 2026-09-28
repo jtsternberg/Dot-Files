@@ -148,6 +148,8 @@ final class GraveyardTranscriptExtensionTest extends TestCase
 
 	public function testReplExportWritesTxt(): void
 	{
+		// ~0.4s: the REPL export poll needs two equal-size reads 0.4s apart to call the
+		// file finished.
 		$gy  = $this->replGraveyard();
 		$sid = 'repl-writes-txt';
 
@@ -175,6 +177,7 @@ final class GraveyardTranscriptExtensionTest extends TestCase
 
 	public function testReplExportSupersedesAStaleMarkdownArchive(): void
 	{
+		// ~0.4s: one real REPL-export stability tick (see testReplExportWritesTxt).
 		// Re-bury with GRAVEYARD_EXPORT_BIN=off after an earlier .md export. If the stale
 		// .md survived, transcriptPath() would prefer it and GATE 2 would check the WRONG
 		// file — the cosmetic rename turning into a correctness bug.
