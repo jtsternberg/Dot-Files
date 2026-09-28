@@ -165,8 +165,11 @@ PROMPT;
 			// followed by its indented output; only the unindented lines are prose.
 			$prose = [];
 			foreach ( explode( "\n", $body ) as $line ) {
-				if ( preg_match( '/^\s+↳ `([^`]+)/u', $line, $m ) ) {
-					$actions[] = $this->squash( $m[1], self::ACTION_CHARS );
+				if ( preg_match( '/^\s+↳ /u', $line ) ) {
+					preg_match_all( '/`([^`]+)`/u', $line, $calls );
+					foreach ( $calls[1] as $call ) {
+						$actions[] = $this->squash( $call, self::ACTION_CHARS );
+					}
 				} elseif ( '' !== $line && ! ctype_space( $line[0] ) ) {
 					$prose[] = $line;
 				}

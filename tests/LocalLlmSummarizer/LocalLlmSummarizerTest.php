@@ -84,11 +84,11 @@ MD;
 	}
 
 	public function testDigestListsToolCallsAsActionsAndKeepsThemOutOfTheReplies(): void {
-		$md = "**You:** run the suite\n\n**Claude:** Running it now.\n  ↳ `Bash: composer test`\n      OK (40 tests)\n      more output\nAll green.\n";
+		$md = "**You:** run the suite\n\n**Claude:** Running it now.\n  ↳ `Bash: composer test`, `Read: README.md`\n      OK (40 tests)\n      more output\nAll green.\n";
 
 		$digest = $this->summarizer()->digestTranscript( $md );
 
-		$this->assertStringContainsString( "- Bash: composer test", $digest );
+		$this->assertStringContainsString( "- Bash: composer test\n- Read: README.md", $digest );
 		$this->assertStringContainsString( 'Running it now. All green.', $digest );
 		$this->assertStringNotContainsString( 'OK (40 tests)', $digest );
 	}
