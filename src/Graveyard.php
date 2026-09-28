@@ -80,6 +80,13 @@ class Graveyard {
 	 */
 	protected ?Helpers\CodexRollout $codexRollout = null;
 
+	/** Local-model summarizer behind the page's summarize button; built on first use. */
+	protected ?LocalLlmSummarizer $summarizer = null;
+
+	public function setSummarizer(LocalLlmSummarizer $summarizer): void { $this->summarizer = $summarizer; }
+
+	protected function summarizer(): LocalLlmSummarizer { return $this->summarizer ??= new LocalLlmSummarizer(); }
+
 	public function __construct(
 		$cli,
 		Transport\SessionTransport $transport,
@@ -290,6 +297,26 @@ class Graveyard {
 		$found = false;
 		foreach ($idx['tombstones'] as &$t) {
 			if (($t['session_id'] ?? null) === $sessionId) { $t['name'] = $name; $found = true; }
+		}
+		unset($t);
+		if ($found) { $this->writeIndex($idx); }
+		return $found;
+	}
+
+	/**
+	 * I/O. Stamp a local-model description on a buried session (exact session id),
+	 * with the model that wrote it. Returns false if no such session.
+	 */
+	public function setSessionDescription(string $sessionId, string $description, string $model): bool {
+		$idx   = $this->readIndex();
+		$found = false;
+		foreach ($idx['tombstones'] as &$t) {
+			if (($t['session_id'] ?? null) === $sessionId) {
+				$t['description']       = trim($description);
+				$t['description_model'] = $model;
+				$t['described_at']      = gmdate('Y-m-d\TH:i:s\Z');
+				$found = true;
+			}
 		}
 		unset($t);
 		if ($found) { $this->writeIndex($idx); }
@@ -3339,7 +3366,7 @@ class Graveyard {
 		if ($method !== 'POST') {
 			return ['status' => 405, 'body' => ['ok' => false, 'error' => 'method not allowed']];
 		}
-		if ($path !== '/api/rename' && $path !== '/api/delete') {
+		if ($path !== '/api/rename' && $path !== '/api/delete' && $path !== '/api/summarize') {
 			return ['status' => 404, 'body' => ['ok' => false, 'error' => 'not found']];
 		}
 
@@ -3347,6 +3374,10 @@ class Graveyard {
 		$id    = (string) ($body['id'] ?? '');
 		if ($scope !== 'session' && $scope !== 'group') {
 			return ['status' => 400, 'body' => ['ok' => false, 'error' => "invalid scope '{$scope}'"]];
+		}
+
+		if ($path === '/api/summarize') {
+			return $this->apiSummarize($scope, $id);
 		}
 
 		if ($path === '/api/rename') {
@@ -3383,6 +3414,44 @@ class Graveyard {
 	}
 
 	/**
+	 * I/O. The page's summarize button: describe one session with a local model and
+	 * save the description. The TITLE is returned but never applied — the page offers
+	 * it as a suggestion, since a small model's name should not replace one the person
+	 * chose without them seeing it first.
+	 */
+	protected function apiSummarize(string $scope, string $id): array {
+		if ($scope !== 'session') {
+			return ['status' => 400, 'body' => ['ok' => false, 'error' => 'only a session can be summarized']];
+		}
+		$t = $this->resolveTombstoneFuzzy($id)['match'];
+		if (!$t) { return ['status' => 404, 'body' => ['ok' => false, 'error' => 'session not found']]; }
+
+		$sid = (string) $t['session_id'];
+		$tp  = $this->ensureTranscript($t);
+		if (!is_file($tp)) {
+			return ['status' => 422, 'body' => ['ok' => false, 'error' => 'no transcript is archived for this session']];
+		}
+
+		$r = $this->summarizer()->summarizeSession((string) file_get_contents($tp));
+		if ($r['error'] !== null) {
+			$status = $r['errorType'] === 'input' ? 422 : 502;
+			$error  = $r['errorType'] === 'transport'
+				? "Could not reach Ollama ({$r['error']}). Is it running?"
+				: (string) $r['error'];
+			return ['status' => $status, 'body' => ['ok' => false, 'error' => $error, 'model' => $r['model']]];
+		}
+
+		$this->setSessionDescription($sid, (string) $r['text'], $r['model']);
+		return ['status' => 200, 'body' => [
+			'ok'          => true,
+			'title'       => $r['title'],
+			'description' => $r['text'],
+			'model'       => $r['model'],
+			'duration_ms' => $r['durationMs'],
+		]];
+	}
+
+	/**
 	 * Verb. Boot PHP's built-in server rooted at the store, serving index.html +
 	 * page-data/ as static files plus the JSON API (via bin/graveyard_router.php)
 	 * for live rename/delete. BIND is always 127.0.0.1 (the Host header used for
@@ -3406,6 +3475,8 @@ class Graveyard {
 	# rendered FRESH per request by bin/graveyard_router.php — nothing is
 	# written to the store, so a just-buried session shows up on refresh.
 	# =========================================================================
+
+	const SERVE_WORKERS = 4;
 
 	/** Where the running-server state (port/pid/url) is persisted. */
 	public function serveStatePath(): string { return $this->storeRoot() . '/.serve.json'; }
@@ -3475,8 +3546,10 @@ class Graveyard {
 		$root   = $this->storeRoot();
 		$router = $this->routerPath();
 		$log    = $root . '/.serve.log';
+		// Workers, so a summarize request (a local model: seconds to a minute and a half)
+		// doesn't stall every other request behind it on a single-threaded `php -S`.
 		$serve  = sprintf('php -S 127.0.0.1:%d -t %s %s', $spawnPort, escapeshellarg($root), escapeshellarg($router));
-		$spawn  = sprintf('nohup %s > %s 2>&1 & echo $!', $serve, escapeshellarg($log));
+		$spawn  = sprintf('PHP_CLI_SERVER_WORKERS=%d nohup %s > %s 2>&1 & echo $!', self::SERVE_WORKERS, $serve, escapeshellarg($log));
 		$pid    = (int) trim((string) shell_exec('sh -c ' . escapeshellarg($spawn)));
 
 		for ($i = 0; $i < 30; $i++) {
@@ -3563,11 +3636,25 @@ class Graveyard {
 	protected function findServerPid(int $port): ?int {
 		$needle = "php -S 127.0.0.1:{$port}";
 		$out    = (string) shell_exec('pgrep -f ' . escapeshellarg($needle) . ' 2>/dev/null');
-		foreach (preg_split('/\s+/', trim($out)) ?: [] as $cand) {
-			$p = (int) $cand;
-			if ($p > 0 && $this->pidIsOurServer($p, $port)) { return $p; }
+		$ours   = array_values(array_filter(
+			array_map('intval', preg_split('/\s+/', trim($out)) ?: []),
+			fn(int $p): bool => $p > 0 && $this->pidIsOurServer($p, $port)
+		));
+		// Workers match the same command line; the master is the one whose parent isn't ours.
+		foreach ($ours as $p) {
+			$ppid = (int) trim((string) shell_exec('ps -p ' . $p . ' -o ppid= 2>/dev/null'));
+			if (!in_array($ppid, $ours, true)) { return $p; }
 		}
-		return null;
+		return $ours[0] ?? null;
+	}
+
+	/** I/O. The PHP_CLI_SERVER_WORKERS children of our server's master process. */
+	protected function workerPids(int $pid, int $port): array {
+		$out = (string) shell_exec('pgrep -P ' . (int) $pid . ' 2>/dev/null');
+		return array_values(array_filter(
+			array_map('intval', preg_split('/\s+/', trim($out)) ?: []),
+			fn(int $p): bool => $p > 0 && $this->pidIsOurServer($p, $port)
+		));
 	}
 
 	/** I/O. Send a signal to a pid. Wrapped for test seams. */
@@ -3626,6 +3713,8 @@ class Graveyard {
 		}
 
 		$sig = defined('SIGTERM') ? SIGTERM : 15;
+		// Workers first: SIGTERM to the master alone orphans them, still holding the port.
+		foreach ($this->workerPids($pid, $target) as $worker) { $this->signalPid($worker, $sig); }
 		$this->signalPid($pid, $sig);
 		for ($i = 0; $i < 20; $i++) {
 			if (!$this->serverListening($target)) { break; }
@@ -3881,19 +3970,21 @@ class Graveyard {
 		$groupTitle = trim((string) ($t['group_title'] ?? ''));
 
 		return $this->renderPartial('stone', [
-			'I'           => (string) min($i, 20),
-			'CROWN'       => 'crown-' . $this->stoneCrown($sid) . ($this->stoneCracked($title) ? ' cracked' : ''),
-			'SID'         => $e($sid),
-			'SID8'        => $e($sid8),
-			'TITLE'       => $e($title),
-			'WHERE'       => $e($where),
-			'DATES'       => $e($dates),
-			'TPATH'       => $e($tpath),
-			'TPATH_SHORT' => $e($tpathShort),
-			'GROUP_TITLE' => $e($groupTitle),
-			'BURIED'      => $e($buried),
-			'POS'         => $e($pos),
-			'HAS_NOTE'    => is_file($this->noteSessionPath($sid)) ? '1' : '0',
+			'I'                 => (string) min($i, 20),
+			'CROWN'             => 'crown-' . $this->stoneCrown($sid) . ($this->stoneCracked($title) ? ' cracked' : ''),
+			'SID'               => $e($sid),
+			'SID8'              => $e($sid8),
+			'TITLE'             => $e($title),
+			'WHERE'             => $e($where),
+			'DATES'             => $e($dates),
+			'TPATH'             => $e($tpath),
+			'TPATH_SHORT'       => $e($tpathShort),
+			'GROUP_TITLE'       => $e($groupTitle),
+			'BURIED'            => $e($buried),
+			'POS'               => $e($pos),
+			'HAS_NOTE'          => is_file($this->noteSessionPath($sid)) ? '1' : '0',
+			'DESCRIPTION'       => $e(trim((string) ($t['description'] ?? ''))),
+			'DESCRIPTION_MODEL' => $e((string) ($t['description_model'] ?? '')),
 		]);
 	}
 

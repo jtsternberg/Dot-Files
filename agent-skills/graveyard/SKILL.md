@@ -127,6 +127,14 @@ here next" pointer. The note is rendered as HTML in that target's modal on the
 `graveyard page` overview (a 📝-style note pane above the transcript), strictly
 1:1 — a session's modal shows only its own note, a plot's only the plot note.
 
+**A session modal's 🔮 summarize button** asks a local model
+(`local-llm-summarize --session` under the hood) for two sentences, which are
+saved on the tombstone as `description` and shown under the title as an
+epitaph. The model's short title is only *suggested* next to the rename field;
+nothing is renamed until JT clicks "use this name". A cold model can take ~30s,
+and the page server runs worker processes so the rest of the page stays live
+meanwhile.
+
 **`bury` offers the note at burial time.** After burying a *single* target — one
 session, or a workspace/pane group — `graveyard bury` asks *"Add a note to this
 buried session/plot?"* (default no) and on yes opens the same `NOTES.md`, seeded

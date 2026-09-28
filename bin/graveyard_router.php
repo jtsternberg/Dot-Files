@@ -12,6 +12,7 @@ namespace JT;
 #   GET  /  and  /index.html      -> Graveyard::renderStorePageHtml() (fresh)
 #   GET  /page-data/<id>.js       -> Graveyard::renderTranscriptJs()  (fresh)
 #   POST /api/rename, /api/delete -> Graveyard::handleApi() (same core as CLI)
+#   POST /api/summarize          -> Graveyard::handleApi() (local-model description)
 # Anything else falls through to php -S's static file handling. Bound to
 # 127.0.0.1 only by the launching command; never shells out with request data.
 # =============================================================================
@@ -26,7 +27,7 @@ $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 // Graveyard::codexRolloutReadPath() prefers a live rollout (dotfiles-dnc).
 $gy     = new Graveyard($cli, new Transport\NullTransport($cli), new Helpers\NullAgentArtifacts($cli));
 
-// JSON API — live rename/delete, shared core with the CLI verbs.
+// JSON API — live rename/delete/summarize, shared core with the CLI verbs.
 if (strpos($path, '/api/') === 0) {
 	header('Content-Type: application/json');
 	$raw  = (string) file_get_contents('php://input');

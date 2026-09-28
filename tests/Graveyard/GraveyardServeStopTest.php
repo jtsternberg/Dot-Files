@@ -128,6 +128,23 @@ final class GraveyardServeStopTest extends TestCase
 		$this->assertFileDoesNotExist($root . '/.serve.json');
 	}
 
+	/**
+	 * The server runs PHP_CLI_SERVER_WORKERS workers, and SIGTERM to the master
+	 * alone orphans them still holding the port.
+	 */
+	public function testWorkersAreSignalledBeforeTheMaster(): void
+	{
+		$root = $this->makeRoot();
+		$this->writeState($root, ['port' => 8787, 'pid' => 4242]);
+		$gy = new StopDouble($this->cli, $this->transport);
+		$gy->ours      = true;
+		$gy->listening = true;
+		$gy->workers   = [4243, 4244];
+		$code = $this->quiet(fn() => $gy->stopServer());
+		$this->assertSame(0, $code);
+		$this->assertSame([4243, 4244, 4242], $gy->signalled);
+	}
+
 	public function testPortStillListeningAfterSignalIsFailure(): void
 	{
 		$root = $this->makeRoot();
@@ -179,10 +196,12 @@ class StopDouble extends Graveyard
 	public bool $quietAfterSignal = true;
 	public ?int $foundPid = null;
 	public array $signalled = [];
+	public array $workers = [];
 
 	protected function serverListening(int $port): bool { return $this->listening; }
 	protected function pidIsOurServer(int $pid, int $port): bool { return $this->ours; }
 	protected function findServerPid(int $port): ?int { return $this->foundPid; }
+	protected function workerPids(int $pid, int $port): array { return $this->workers; }
 	protected function signalPid(int $pid, int $signal): void
 	{
 		$this->signalled[] = $pid;

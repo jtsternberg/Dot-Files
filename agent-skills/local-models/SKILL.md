@@ -49,7 +49,10 @@ current store. Never assume a model you see is always available.
   Ollama, and `WHISPER_MODEL_LOCAL`, `WHISPER_MODEL_EXTERNAL` for MacWhisper.
 - **PHP code reads it through `JT\Helpers\Ollama::config()`**, and Ollama picks
   the key with `resolveModel()`. A new tool that picks a local model reuses
-  both and adds keys to that file, not a config of its own.
+  both and adds keys to that file, not a config of its own: pass
+  `resolveModel()` a key prefix (`SUMMARY_MODEL` reads `SUMMARY_MODEL`,
+  `SUMMARY_MODEL_SD`, `SUMMARY_MODEL_LOCAL`) rather than reusing another tool's
+  `MODEL*` keys, which name code models.
 - **Anything that must work offline** defaults to a model in the local store.
 
 ## Route by scenario

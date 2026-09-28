@@ -210,9 +210,17 @@ Small models obey poorly, especially negative/leading instructions. Drive them v
 `/api/generate` and: put the instruction **after** the content (recency beats a leading
 "no markdown", which they mirror from a markdown-heavy input); phrase **positively**
 ("write one prose paragraph of 2–4 sentences"); set a `system` role; `temperature:0`;
-cap with `num_predict`; `think:false` on reasoning models. Working reference:
-`~/.dotfiles/bin/llmsummarize` (the `ollama` fork) — it also does size-based
-routing across local tiers + a cloud fallback, and sizes `num_ctx` to the file.
+cap with `num_predict`; `think:false` on reasoning models. Working references:
+
+- `local-llm-summarize [<file>] [--session] [--json]` (`JT\LocalLlmSummarizer`) —
+  the reusable local summarizer. Text mode sizes `num_ctx` to the input;
+  `--session` digests a graveyard `transcript.md` into a `TITLE:` line plus two
+  sentences (the graveyard page's summarize button). Its model resolves per store
+  from `SUMMARY_MODEL_SD` / `SUMMARY_MODEL_LOCAL` in the shared config — kept apart
+  from the commit tool's `MODEL*` keys because code models copy the input title
+  back instead of summarizing.
+- `~/.dotfiles/bin/llmsummarize` — a size-routed wrapper across hardcoded local
+  tiers plus cloud forks (claude, agy).
 
 ## Clean benchmarking method (when measured data is missing/stale)
 

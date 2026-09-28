@@ -318,6 +318,17 @@ dialog#plotmodal .card { overflow: auto; }
 	font: .82rem/1.55 var(--body, var(--mono)); color: #cdd4bf; animation: exhume .25s ease-out;
 }
 .note-pane :first-child { margin-top: 0; }
+/* The local model's two-sentence description: an epitaph, not a note, so it
+   reads as carved text rather than a pinned paper. */
+.epitaph-pane { margin: .55rem 0 0; font: italic .88rem/1.55 var(--serif); color: #cdd4bf; animation: exhume .25s ease-out; }
+.epitaph-pane .epitaph-by { display: block; margin-top: .2rem; font: normal .62rem var(--mono); color: #6b7263; letter-spacing: .06em; }
+.summarize-btn[disabled] { cursor: progress; color: var(--weathered); }
+.summarize-btn.summoning .dgr-glyph { display: inline-block; animation: summon 1.6s ease-in-out infinite; }
+@keyframes summon { 50% { opacity: .35; transform: scale(.85); } }
+.summary-err { margin: .1rem 0 .6rem; font: .72rem/1.5 var(--mono); color: #c98a8a; letter-spacing: .02em; }
+.suggest { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem; margin: 0 0 .45rem; font: .74rem var(--mono); color: var(--weathered); letter-spacing: .03em; }
+.suggest b { font: 600 .86rem var(--serif); color: var(--inscription); letter-spacing: 0; }
+.suggest .action { padding: .25rem .6rem; font-size: .7rem; }
 .note-pane :last-child { margin-bottom: 0; }
 .note-pane h1, .note-pane h2, .note-pane h3 { font-size: .95rem; margin: .7rem 0 .3rem; color: var(--inscription); }
 .note-pane a { color: var(--moss); }
@@ -529,11 +540,15 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
     <p class="meta" id="m-dates" x-text="item.dates"></p>
     <button type="button" class="plot-backlink" x-cloak x-show="item.plotTitle" @click="backToPlot()">⤴ part of the “<span x-text="item.plotTitle"></span>” plot</button>
     <div id="m-note" class="note-pane" x-ref="note" x-cloak x-show="item.hasNote"></div>
+    <p id="m-epitaph" class="epitaph-pane" x-cloak x-show="item.description"><span x-text="item.description"></span><span class="epitaph-by" x-show="item.descriptionModel" x-text="'— summarized by ' + item.descriptionModel"></span></p>
     <div id="m-body" x-ref="body"></div>
     <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
     <div class="actions">
       <button type="button" class="action resurrect-btn" @click="openRitual('graveyard resurrect ' + (item.sid8 || ''))"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
+      <button type="button" class="action resurrect-btn summarize-btn" :class="{ summoning: summarizing }" :disabled="summarizing" @click="apiSummarize()" title="summarize with a local model"><span class="dgr-glyph">🔮</span> <span x-text="summarizing ? 'consulting the local oracle… (a cold model takes ~30s)' : (item.description ? 're-summarize' : 'summarize')"></span></button>
+      <p class="summary-err" x-cloak x-show="summaryError" x-text="summaryError"></p>
       <p class="crypt-cap">✎ rename this session<span class="save-hint" x-cloak x-show="saved.rn"> — saved ✓</span></p>
+      <div class="suggest" x-cloak x-show="suggestion">suggested: <b x-text="suggestion"></b><button type="button" class="action" @click="acceptSuggestion()">use this name</button><button type="button" class="action" @click="suggestion = ''">dismiss</button></div>
       <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
       <p class="save-note">changes save automatically</p>
       <button type="button" class="danger-btn" @click="apiDeleteStone()"><span class="dgr-glyph">☠</span> delete this session…</button>
@@ -656,6 +671,9 @@ document.addEventListener("alpine:init", function () {
 			},
 			renameName: "",
 			renamePlotName: "",
+			summarizing: false,
+			suggestion: "",
+			summaryError: "",
 			saved: {}, // "saved ✓" flash flags, keyed rn/rnp
 			flashSaved: function (key) {
 				this.saved[key] = true;
@@ -682,6 +700,33 @@ document.addEventListener("alpine:init", function () {
 					self.renameStoneDom(self.item.id, name);
 					self.flashSaved("rn");
 				});
+			},
+			// The local model's TITLE is only offered (acceptSuggestion renames); the
+			// description is saved server-side, so it comes back on the next render.
+			apiSummarize: function () {
+				var id = this.item.id;
+				var self = this;
+				this.summarizing = true;
+				this.summaryError = "";
+				this.suggestion = "";
+				this.apiCall("/api/summarize", { scope: "session", id: id }).then(function (res) {
+					if (!res.ok) { throw new Error(res.error || "unknown error"); }
+					self.describeStoneDom(id, res.description, res.model);
+					if (self.item.id !== id) { return; } // the modal moved on to another session
+					self.item.description = res.description;
+					self.item.descriptionModel = res.model;
+					var t = (res.title || "").trim();
+					if (t && t !== (self.item.title || "").trim()) { self.suggestion = t; }
+				}).catch(function (e) {
+					if (self.item.id === id) { self.summaryError = "Summarize failed: " + e.message; }
+				}).finally(function () {
+					if (self.item.id === id) { self.summarizing = false; }
+				});
+			},
+			acceptSuggestion: function () {
+				this.renameName = this.suggestion;
+				this.suggestion = "";
+				this.apiRenameStone();
 			},
 			apiDeleteStone: function () {
 				if (!confirm('Permanently delete "' + (this.item.title || "") + '"? This grave and its transcript are gone for good.')) { return; }
@@ -780,6 +825,12 @@ document.addEventListener("alpine:init", function () {
 				var t = el.querySelector(".stone-title");
 				if (t) { t.textContent = name; }
 			},
+			describeStoneDom: function (id, description, model) {
+				var el = document.querySelector('.stone[data-id="' + this.cssEsc(id) + '"]');
+				if (!el) { return; }
+				el.dataset.description = description;
+				el.dataset.descriptionModel = model;
+			},
 			removeStoneDom: function (id) {
 				var el = document.querySelector('.stone[data-id="' + this.cssEsc(id) + '"]');
 				if (!el) { return; }
@@ -875,6 +926,8 @@ document.addEventListener("alpine:init", function () {
 					id: d.id, sid8: d.sid8, title: d.title, where: d.where,
 					dates: d.dates, tpath: d.tpath, tpathShort: d.tpathShort,
 					hasNote: d.hasNote === "1",
+					description: d.description || "",
+					descriptionModel: d.descriptionModel || "",
 					plotTitle: plotEl ? plotEl.dataset.title : "",
 					crownShape: (function () {
 						// Reuse the clicked headstone's top corner-shape on the modal, but at
@@ -885,6 +938,9 @@ document.addEventListener("alpine:init", function () {
 					})()
 				};
 				this.renameName = d.title;
+				this.summarizing = false;
+				this.suggestion = "";
+				this.summaryError = "";
 				this.copied = {};
 				this.$refs.dlg.showModal();
 				this.setModalParam("stone", d.sid8);
