@@ -253,6 +253,27 @@ _auto_commit_ollama_lazy() {
 	_auto_commit_ollama "$@"
 }
 
+_local_llm_summarize_lazy() {
+	local generated
+
+	generated="$(command local-llm-summarize completion zsh 2>/dev/null)" || {
+		_message 'unable to generate local-llm-summarize completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load local-llm-summarize completion'
+		return 1
+	}
+
+	if (( ! $+functions[_local_llm_summarize] )); then
+		_message 'local-llm-summarize completion did not define _local_llm_summarize'
+		return 1
+	fi
+
+	_local_llm_summarize "$@"
+}
+
 _aimodels_lazy() {
 	local generated
 
@@ -344,6 +365,7 @@ compdef _md_atx_lazy md-atx
 compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
 compdef _auto_commit_ollama_lazy auto-commit-ollama
+compdef _local_llm_summarize_lazy local-llm-summarize
 compdef _herdr_lazy herdr
 compdef _op_lazy op
 compdef _setup_obsidian_vault setup-obsidian-vault
