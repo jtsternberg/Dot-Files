@@ -50,6 +50,74 @@ final class OllamaTest extends TestCase {
 		);
 	}
 
+	/** A second tool gets its own keys, so it never inherits the commit tool's code models. */
+	public function testResolveModelReadsTheKeysForTheGivenPrefix(): void {
+		$config = [
+			'MODEL'               => 'commit-model',
+			'MODEL_SD'            => 'commit-sd',
+			'SUMMARY_MODEL_SD'    => 'summary-sd',
+			'SUMMARY_MODEL_LOCAL' => 'summary-local',
+		];
+
+		$this->assertSame(
+			'summary-sd',
+			( new Ollama( static fn(): string => Ollama::SD_PATH ) )
+				->resolveModel( $config, 'fallback', '/home/jt', 'SUMMARY_MODEL' )
+		);
+		$this->assertSame(
+			'summary-local',
+			( new Ollama( static fn(): string => '/Users/jt/.ollama/models' ) )
+				->resolveModel( $config, 'fallback', '/home/jt', 'SUMMARY_MODEL' )
+		);
+	}
+
+	public function testResolveModelFallsBackToTheToolDefaultNotTheCommitModel(): void {
+		$ollama = new Ollama( static fn(): string => Ollama::SD_PATH );
+
+		$this->assertSame(
+			'fallback',
+			$ollama->resolveModel( [ 'MODEL' => 'commit-model', 'MODEL_SD' => 'commit-sd' ], 'fallback', '/home/jt', 'SUMMARY_MODEL' )
+		);
+	}
+
+	public function testChatMergesExtraRequestFieldsIntoThePayload(): void {
+		$sent   = null;
+		$ollama = new Ollama(
+			null,
+			static function ( string $url, string $payload, int $timeout ) use ( &$sent ): array {
+				$sent = json_decode( $payload, true );
+
+				return [ json_encode( [ 'message' => [ 'content' => 'ok' ] ] ), '' ];
+			}
+		);
+
+		$ollama->chat( 'a-model', 'system', 'user', Ollama::DEFAULT_URL, 90, [
+			'think'   => false,
+			'options' => [ 'num_ctx' => 8192 ],
+		] );
+
+		$this->assertFalse( $sent['think'] );
+		$this->assertSame( [ 'num_ctx' => 8192 ], $sent['options'] );
+		$this->assertSame( 'a-model', $sent['model'] );
+		$this->assertFalse( $sent['stream'] );
+	}
+
+	public function testChatOmitsAnEmptySystemPrompt(): void {
+		$sent   = null;
+		$ollama = new Ollama(
+			null,
+			static function ( string $url, string $payload, int $timeout ) use ( &$sent ): array {
+				$sent = json_decode( $payload, true );
+
+				return [ json_encode( [ 'message' => [ 'content' => 'ok' ] ] ), '' ];
+			}
+		);
+
+		$ollama->chat( 'a-model', '', 'user' );
+
+		$this->assertSame( [ [ 'role' => 'user', 'content' => 'user' ] ], $sent['messages'] );
+	}
+
 	public function testChatReturnsMessageContentOnSuccess(): void {
 		$ollama = new Ollama(
 			null,

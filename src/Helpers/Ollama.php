@@ -38,9 +38,13 @@ class Ollama {
 
 	/**
 	 * @param array<string,string> $config Parsed ~/.config/auto-commit-ollama/config.
+	 * @param string               $prefix Key family to read: `<prefix>`, `<prefix>_SD`,
+	 *                                     `<prefix>_LOCAL`. Each tool with its own model
+	 *                                     needs gets its own family, so a summarizer never
+	 *                                     inherits the commit tool's code models.
 	 */
-	public function resolveModel( array $config, string $defaultModel, string $home ): string {
-		$default = $config['MODEL'] ?? $defaultModel;
+	public function resolveModel( array $config, string $defaultModel, string $home, string $prefix = 'MODEL' ): string {
+		$default = $config[ $prefix ] ?? $defaultModel;
 		$target  = ( $this->readlink )( $home . '/.ollama-models' );
 
 		if ( false === $target ) {
@@ -48,8 +52,8 @@ class Ollama {
 		}
 
 		return 0 === strpos( $target, self::SD_PATH )
-			? ( $config['MODEL_SD'] ?? $default )
-			: ( $config['MODEL_LOCAL'] ?? $default );
+			? ( $config[ $prefix . '_SD' ] ?? $default )
+			: ( $config[ $prefix . '_LOCAL' ] ?? $default );
 	}
 
 	/**
@@ -92,6 +96,11 @@ class Ollama {
 	 * server is probably not running) from one Ollama itself reported ('api' —
 	 * e.g. an unknown model), which callers word very differently.
 	 *
+	 * An empty $systemPrompt sends no system message at all.
+	 *
+	 * @param array<string,mixed> $request Extra top-level request fields, e.g.
+	 *                                     `think`, `options.num_ctx`, `keep_alive`.
+	 *
 	 * @return array{content:?string, error:?string, errorType:?string}
 	 */
 	public function chat(
@@ -99,16 +108,20 @@ class Ollama {
 		string $systemPrompt,
 		string $userPrompt,
 		string $url = self::DEFAULT_URL,
-		int $timeoutSeconds = 300
+		int $timeoutSeconds = 300,
+		array $request = []
 	): array {
-		$payload = (string) json_encode( [
+		$messages = [];
+		if ( '' !== $systemPrompt ) {
+			$messages[] = [ 'role' => 'system', 'content' => $systemPrompt ];
+		}
+		$messages[] = [ 'role' => 'user', 'content' => $userPrompt ];
+
+		$payload = (string) json_encode( array_merge( $request, [
 			'model'    => $model,
 			'stream'   => false,
-			'messages' => [
-				[ 'role' => 'system', 'content' => $systemPrompt ],
-				[ 'role' => 'user', 'content' => $userPrompt ],
-			],
-		] );
+			'messages' => $messages,
+		] ) );
 
 		[ $body, $error ] = ( $this->post )( $url, $payload, $timeoutSeconds );
 
