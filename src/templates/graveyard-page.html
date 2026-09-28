@@ -906,6 +906,10 @@ document.addEventListener("alpine:init", function () {
 			describeStoneDom: function (id, description, model) {
 				var el = document.querySelector('.stone[data-id="' + this.cssEsc(id) + '"]');
 				if (!el) { return; }
+				// data-search is "<description> <note>": swap the old description for the new.
+				var prev = el.dataset.description || "", rest = el.dataset.search || "";
+				if (prev && rest.indexOf(prev) === 0) { rest = rest.slice(prev.length); }
+				el.dataset.search = (description + " " + rest).trim();
 				el.dataset.description = description;
 				el.dataset.descriptionModel = model;
 			},
@@ -933,15 +937,18 @@ document.addEventListener("alpine:init", function () {
 			matchText: function (text) {
 				return !this.search || (text || "").toLowerCase().indexOf(this.search.toLowerCase().trim()) !== -1;
 			},
+			// data-search carries the description and notes, the same fields `graveyard search` reads.
+			stoneMatches: function (el) { return this.matchText(el.dataset.title + " " + (el.dataset.search || "")); },
+			plotMatches: function (el) { return this.matchText(el.dataset.title + " " + (el.dataset.search || "")); },
 			stoneVisible: function (el) {
 				var plot = el.closest("fieldset.plot");
-				if (plot && this.matchText(plot.dataset.title)) { return true; } // plot title matches: keep all members
-				return this.matchText(el.dataset.title);
+				if (plot && this.plotMatches(plot)) { return true; } // plot title/note matches: keep all members
+				return this.stoneMatches(el);
 			},
 			plotVisible: function (el) {
-				if (this.matchText(el.dataset.title)) { return true; }
+				if (this.plotMatches(el)) { return true; }
 				var stones = el.querySelectorAll(".stone");
-				for (var i = 0; i < stones.length; i++) { if (this.matchText(stones[i].dataset.title)) { return true; } }
+				for (var i = 0; i < stones.length; i++) { if (this.stoneMatches(stones[i])) { return true; } }
 				return false;
 			},
 			hasMatches: function () {

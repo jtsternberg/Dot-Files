@@ -26,6 +26,9 @@ class Graveyard {
 	// unmatched siblings get a blank column of the same width so titles stay aligned.
 	const MATCH_MARK = '✱';
 
+	/** ls/search marker for a session that carries a human NOTES.md. */
+	const NOTE_MARK = '✎';
+
 	// The bury-outcome a bury with no single note target reports. Every bury verb that
 	// can produce one returns this shape so bin/graveyard can ask noteOffer() one
 	// question regardless of which path ran; the two that structurally never produce one
@@ -2986,7 +2989,13 @@ class Graveyard {
 		// indistinguishable from a Claude headstone. Folded into $marker rather than the
 		// title so the existing width arithmetic covers it and lines still fit.
 		$tag   = $this->tombstoneAgent($t) === 'codex' ? '[codex] ' : '';
+		$tag  .= isset($t['note']) ? self::NOTE_MARK . ' ' : '';
 		$mark  = ($marker === '' ? '' : $marker . ' ') . $tag;
+		$desc  = trim((string) ($t['description'] ?? ''));
+		// Under the title, aligned with it (past the id column). Not through ellipsizeText
+		// with the pad attached: it trims leading whitespace.
+		$dtPad  = str_repeat(' ', $indent + 10);
+		$detail = $desc === '' ? null : $dtPad . $this->ellipsizeText($desc, max(8, $width - mb_strlen($dtPad)));
 		$mw    = mb_strlen($mark);
 		$STACK_BELOW = 100;
 
@@ -2996,7 +3005,7 @@ class Graveyard {
 				$cwdMax   = min(40, intdiv($avail, 2));
 				$shortCwd = $this->shortenCwd($cwd, $home, $cwdMax);
 				$titleTxt = $this->ellipsizeText($title, $avail - mb_strlen($shortCwd));
-				return ['primary' => $pad . $id . '  ' . $mark . $titleTxt . '  ' . $shortCwd . '  ' . $date, 'secondary' => null];
+				return ['primary' => $pad . $id . '  ' . $mark . $titleTxt . '  ' . $shortCwd . '  ' . $date, 'secondary' => null, 'detail' => $detail];
 			}
 		}
 
@@ -3009,7 +3018,7 @@ class Graveyard {
 		$cwdMax    = $width - mb_strlen($dPad) - 3 - strlen($date);
 		$shortCwd  = $this->shortenCwd($cwd, $home, max(0, $cwdMax));
 		$secondary = $dPad . ($shortCwd !== '' ? $shortCwd . ' · ' : '') . $date;
-		return ['primary' => $primary, 'secondary' => $secondary];
+		return ['primary' => $primary, 'secondary' => $secondary, 'detail' => $detail];
 	}
 
 	/** PURE. Group header line, truncated to $width. */
@@ -3060,6 +3069,7 @@ class Graveyard {
 		$lines = $this->lsEntryLines($t, $width, $home, $indent, $marker);
 		$this->cli->msg($lines['primary']);
 		if ($lines['secondary'] !== null) { $this->cli->msg($lines['secondary'], 'cyan'); }
+		if ($lines['detail'] !== null) { $this->cli->msg($lines['detail']); }
 	}
 
 	/** PURE: split tombstones into [group_id => members[], loose[]], preserving order. */
@@ -3108,12 +3118,15 @@ class Graveyard {
 					(string) ($t['tab_title'] ?? ''),
 					(string) ($t['cwd'] ?? ''),
 					(string) ($t['summary'] ?? ''),
+					(string) ($t['name'] ?? ''),
+					(string) ($t['description'] ?? ''),
+					(string) ($t['note'] ?? ''),
 				]
 			)));
 			if (str_contains($own, $needle)) { $hits[] = $t + ['match_scope' => 'session']; continue; }
 
 			$plot = $grouped
-				? mb_strtolower(((string) ($t['group_title'] ?? '')) . ' ' . ((string) ($t['workspace_title'] ?? '')))
+				? mb_strtolower(implode(' ', [(string) ($t['group_title'] ?? ''), (string) ($t['workspace_title'] ?? ''), (string) ($t['plot_note'] ?? '')]))
 				: '';
 			if (trim($plot) !== '' && str_contains($plot, $needle)) { $hits[] = $t + ['match_scope' => 'group']; continue; }
 
@@ -3167,6 +3180,12 @@ class Graveyard {
 			'live'            => (bool) ($t['live'] ?? false),
 		];
 		if (!empty($t['live_agent'])) { $row['live_agent'] = $t['live_agent']; }
+		// Only when present, so a row without them keeps its exact original shape.
+		if (trim((string) ($t['description'] ?? '')) !== '') {
+			$row['description']       = $t['description'];
+			$row['description_model'] = $t['description_model'] ?? null;
+		}
+		if (isset($t['note'])) { $row['note'] = $t['note']; }
 		// What this archive could NOT preserve. Structured output is a VIEW: a fact the
 		// text path warns about and the JSON omits is the same bug in machine-readable
 		// form. Only emitted when true, so every other row keeps its exact shape.
@@ -3235,14 +3254,14 @@ class Graveyard {
 		$grouped = $this->expandSearchHits($hits, $allTombs);
 		$out     = ['workspaces' => [], 'sessions' => []];
 		foreach ($grouped['workspaces'] as $ws) {
-			$out['workspaces'][] = [
+			$out['workspaces'][] = $this->withPlotNote([
 				'group_id' => $ws['group_id'],
 				'title'    => $ws['title'],
 				'sessions' => array_map(
 					fn($t) => $this->searchRowJson($t, isset($ws['matched'][(string) ($t['session_id'] ?? '')])),
 					$ws['sessions']
 				),
-			];
+			], $ws['sessions']);
 		}
 		$out['sessions'] = array_map(fn($t) => $this->searchRowJson($t, true), $grouped['sessions']);
 		return $out;
@@ -3312,7 +3331,9 @@ class Graveyard {
 
 	public function printSearch(string $term, bool $json, bool $fullText): void {
 		$hits = $this->searchTombstones($term, $fullText);
-		$all  = $this->readIndex()['tombstones'] ?? [];
+		// Siblings too, so a plot member that rode along unmatched carries the same
+		// annotations (liveness, notes) as the hit beside it.
+		$all  = $this->tombstones();
 		if ($json) {
 			echo json_encode($this->searchJson($hits, $all), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
 			return;
@@ -4002,6 +4023,8 @@ class Graveyard {
 			'HAS_NOTE'          => is_file($this->noteSessionPath($sid)) ? '1' : '0',
 			'DESCRIPTION'       => $e(trim((string) ($t['description'] ?? ''))),
 			'DESCRIPTION_MODEL' => $e((string) ($t['description_model'] ?? '')),
+			// What the page's search box matches beyond the title — the same fields `search` reads.
+			'SEARCH'            => $e(implode(' ', array_filter([trim((string) ($t['description'] ?? '')), (string) ($t['note'] ?? '')]))),
 		]);
 	}
 
@@ -4099,6 +4122,7 @@ class Graveyard {
 				'GID'      => $e($gid),
 				'GID8'     => $e((string) ($u['gid8'] ?? '')),
 				'HAS_NOTE' => ($gid !== '' && is_file($this->noteGroupPath($gid))) ? '1' : '0',
+				'SEARCH'   => $e((string) ($u['members'][0]['plot_note'] ?? '')),
 				'STONES'   => implode("\n", $stones),
 			]);
 		}
@@ -4315,7 +4339,37 @@ class Graveyard {
 	 * pay for it.
 	 */
 	public function tombstones(): array {
-		return $this->annotateLiveness($this->readIndex()['tombstones'] ?? [], $this->liveSessionIdsByAgentCached());
+		return $this->annotateLiveness(
+			$this->annotateNotes($this->readIndex()['tombstones'] ?? []),
+			$this->liveSessionIdsByAgentCached()
+		);
+	}
+
+	/**
+	 * I/O (read-only). Attach each tombstone's human NOTES.md text as `note` and its
+	 * plot's as `plot_note`, so every view that reads tombstones() can show and search
+	 * them. Keys are absent, not empty, where there is no note.
+	 */
+	public function annotateNotes(array $tombs): array {
+		$plotNotes = [];
+		foreach ($tombs as &$t) {
+			$sid = (string) ($t['session_id'] ?? '');
+			$own = $sid === '' ? null : $this->noteText($this->noteSessionPath($sid));
+			if ($own !== null) { $t['note'] = $own; }
+
+			$gid = (string) ($t['group_id'] ?? '');
+			if ($gid === '') { continue; }
+			if (!array_key_exists($gid, $plotNotes)) { $plotNotes[$gid] = $this->noteText($this->noteGroupPath($gid)); }
+			if ($plotNotes[$gid] !== null) { $t['plot_note'] = $plotNotes[$gid]; }
+		}
+		unset($t);
+		return $tombs;
+	}
+
+	protected function noteText(string $path): ?string {
+		if (!is_file($path)) { return null; }
+		$text = trim((string) file_get_contents($path));
+		return $text === '' ? null : $text;
 	}
 
 	/** liveSessionIdsByAgent(), resolved once per process. */
@@ -4922,15 +4976,21 @@ class Graveyard {
 	}
 
 	/** PURE: buried tombstones as {workspaces:[{group_id,title,sessions[]}], sessions:[loose...]}. */
+	/** PURE. A JSON workspace entry gains the plot's note when its members carry one. */
+	protected function withPlotNote(array $ws, array $members): array {
+		if (isset($members[0]['plot_note'])) { $ws['note'] = $members[0]['plot_note']; }
+		return $ws;
+	}
+
 	public function lsJson(array $tombs): array {
 		[$groups, $loose] = $this->groupTombstones($tombs);
 		$workspaces = [];
 		foreach ($groups as $gid => $members) {
-			$workspaces[] = [
+			$workspaces[] = $this->withPlotNote([
 				'group_id' => $gid,
 				'title'    => $members[0]['group_title'] ?? '',
 				'sessions' => array_map(fn($t) => $this->searchRowJson($t), $members),
-			];
+			], $members);
 		}
 		return [
 			'workspaces' => $workspaces,

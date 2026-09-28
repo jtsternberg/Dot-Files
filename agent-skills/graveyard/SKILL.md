@@ -77,9 +77,13 @@ pane/workspace group bury. Still get his nod first. A single-target bury then
 offers to author that target's note (below) — not when you run it with `-y`.
 
 **Search buried sessions for a topic** — `graveyard search <term>` matches
-workspace/tab/cwd/summary (case-insensitive, newest-first). Widen/split the
-term if dry; add `--full-text` to also grep transcript bodies before concluding
-nothing's there. If it still misses, say so plainly.
+workspace/tab/cwd/summary, the custom name, the local-model description and the
+session's `NOTES.md` (a plot's note matches the whole plot); case-insensitive,
+newest-first. Widen/split the term if dry; add `--full-text` to also grep
+transcript bodies before concluding nothing's there. If it still misses, say so
+plainly. In `ls`/`search` text a `✎` marks a session with a note and its
+description prints under the title; `--json` rows carry `description`,
+`description_model` and `note`, and workspace entries `note`, only when present.
 
 **Answer a question about a plot (resurrection triage)** — *"check the Break
 Free plot — did we discuss adding lyrics to all the songs?"* The real question
