@@ -181,6 +181,37 @@ MD;
 		$this->assertSame( 'input', $result['errorType'] );
 	}
 
+	/** qwen3.5:9b only reliably used a note that both opened and closed the digest. */
+	public function testNotesBracketTheDigest(): void {
+		$ollama = new StubSummaryOllama();
+
+		$this->summarizer( $ollama )->summarizeSession( self::TRANSCRIPT, null, "This built the cookie-jar reset.\n" );
+		$user = $ollama->chats[0]['user'];
+
+		$this->assertSame( 2, substr_count( $user, 'This built the cookie-jar reset.' ) );
+		$this->assertLessThan( strpos( $user, 'Original title:' ), strpos( $user, 'This built the cookie-jar reset.' ) );
+		$this->assertGreaterThan( strpos( $user, 'How it ended' ), strrpos( $user, 'This built the cookie-jar reset.' ) );
+		$this->assertStringEndsWith( "This built the cookie-jar reset.\n", $user );
+		$this->assertStringContainsString( "in the person's own words (base the TITLE and sentence 1 on this)", $user );
+	}
+
+	public function testNoNotesMeansNoNotesSection(): void {
+		$ollama = new StubSummaryOllama();
+
+		$this->summarizer( $ollama )->summarizeSession( self::TRANSCRIPT, null, "  \n" );
+
+		$this->assertStringNotContainsString( "in the person's own words", $ollama->chats[0]['user'] );
+	}
+
+	public function testNotesAloneAreEnoughToSummarize(): void {
+		$ollama = new StubSummaryOllama();
+
+		$result = $this->summarizer( $ollama )->summarizeSession( "# \n\n", null, 'Built the release runbook.' );
+
+		$this->assertNull( $result['error'] );
+		$this->assertCount( 1, $ollama->chats );
+	}
+
 	public function testSummarizeTextSizesTheContextToTheInput(): void {
 		$ollama = new StubSummaryOllama( [], false, [ 'content' => 'The file is a list.', 'error' => null, 'errorType' => null ] );
 

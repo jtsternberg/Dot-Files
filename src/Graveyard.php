@@ -3414,6 +3414,23 @@ class Graveyard {
 	}
 
 	/**
+	 * I/O (read-only). The human notes a summary should weigh: the plot's note, then the
+	 * session's own — the more specific one last, where a small model weighs it most.
+	 */
+	protected function summaryNotes(array $t): string {
+		$parts = [];
+		$gid   = (string) ($t['group_id'] ?? '');
+		if ($gid !== '' && is_file($this->noteGroupPath($gid))) {
+			$parts[] = "Notes on the whole plot (workspace) it belongs to:\n" . trim((string) file_get_contents($this->noteGroupPath($gid)));
+		}
+		$own = $this->noteSessionPath((string) ($t['session_id'] ?? ''));
+		if (is_file($own)) {
+			$parts[] = ($parts ? "Notes on this session:\n" : '') . trim((string) file_get_contents($own));
+		}
+		return implode("\n\n", $parts);
+	}
+
+	/**
 	 * I/O. The page's summarize button: describe one session with a local model and
 	 * save the description. The TITLE is returned but never applied — the page offers
 	 * it as a suggestion, since a small model's name should not replace one the person
@@ -3432,7 +3449,7 @@ class Graveyard {
 			return ['status' => 422, 'body' => ['ok' => false, 'error' => 'no transcript is archived for this session']];
 		}
 
-		$r = $this->summarizer()->summarizeSession((string) file_get_contents($tp));
+		$r = $this->summarizer()->summarizeSession((string) file_get_contents($tp), null, $this->summaryNotes($t));
 		if ($r['error'] !== null) {
 			$status = $r['errorType'] === 'input' ? 422 : 502;
 			$error  = $r['errorType'] === 'transport'

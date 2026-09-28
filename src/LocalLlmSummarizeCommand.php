@@ -37,15 +37,26 @@ final class LocalLlmSummarizeCommand {
 		#[Option( description: 'Ollama model to use (default: SUMMARY_MODEL_SD / SUMMARY_MODEL_LOCAL from the shared config, per store)' )]
 		?string $model = null,
 		#[Option( description: 'Print the result as JSON (title, summary, model, duration_ms, error)' )]
-		bool $json = false
+		bool $json = false,
+		#[Option( description: "With --session: the person's own notes on the session, weighted above the transcript", valueName: 'file' )]
+		?string $notes = null
 	): int {
 		$input = $this->read( $file );
 		if ( null === $input ) {
 			return $this->fail( $json, "No such file: {$file}", 'input' );
 		}
 
+		$notesText = '';
+		if ( null !== $notes && '' !== $notes ) {
+			$path = (string) $this->cli->convertPathToAbsolute( $notes );
+			if ( ! is_file( $path ) ) {
+				return $this->fail( $json, "No such notes file: {$notes}", 'input' );
+			}
+			$notesText = (string) file_get_contents( $path );
+		}
+
 		$result = $session
-			? $this->summarizer()->summarizeSession( $input, $model )
+			? $this->summarizer()->summarizeSession( $input, $model, $notesText )
 			: $this->summarizer()->summarizeText( $input, $model );
 
 		if ( null !== $result['error'] ) {

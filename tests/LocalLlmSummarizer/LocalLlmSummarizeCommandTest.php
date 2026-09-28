@@ -99,6 +99,25 @@ final class LocalLlmSummarizeCommandTest extends TestCase {
 		$this->assertIsInt( $json['duration_ms'] );
 	}
 
+	public function testNotesOptionFeedsANotesFileIntoTheSessionSummary(): void {
+		$ollama = new StubSummaryOllama();
+
+		[ $code ] = $this->dispatch(
+			[ $this->file( 't.md', "**You:** fix it\n" ), '--session', '--notes=' . $this->file( 'NOTES.md', 'Built the cookie reset.' ) ],
+			$ollama
+		);
+
+		$this->assertSame( 0, $code );
+		$this->assertStringContainsString( 'Built the cookie reset.', $ollama->chats[0]['user'] );
+	}
+
+	public function testAMissingNotesFileFails(): void {
+		[ $code, $output ] = $this->dispatch( [ $this->file( 't.md', "**You:** x\n" ), '--session', '--notes=' . $this->dir . '/nope.md' ] );
+
+		$this->assertSame( 1, $code );
+		$this->assertStringContainsString( 'No such notes file', $output );
+	}
+
 	public function testModelOptionOverridesTheConfig(): void {
 		$ollama = new StubSummaryOllama( [ 'SUMMARY_MODEL' => 'configured' ] );
 
@@ -145,6 +164,7 @@ final class LocalLlmSummarizeCommandTest extends TestCase {
 		$this->assertStringContainsString( '[--session]', $output );
 		$this->assertStringContainsString( '[--model=<model>]', $output );
 		$this->assertStringContainsString( '[--json]', $output );
+		$this->assertStringContainsString( '[--notes=<file>]', $output );
 	}
 
 	public function testCompletionCompletesFilesAndFlags(): void {

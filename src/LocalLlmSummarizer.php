@@ -39,6 +39,7 @@ class LocalLlmSummarizer {
 	const TAIL_REPLIES     = 3;
 	const ACTION_CHARS     = 100;
 	const TAIL_ACTIONS     = 12;
+	const NOTES_CHARS      = 4000;
 
 	const SESSION_PROMPT = <<<'PROMPT'
 You summarize a finished software engineering session between a person and an AI coding agent, for an archive of past sessions.
@@ -62,6 +63,9 @@ Then 2 sentences, maximum 50 words total, in plain direct English:
 Rules: no preamble, no "this session", no bullet points, no markdown, no em
 dashes. Name concrete things (files, features, branches) over generic phrases.
 Always write both using whatever evidence is present, even if it is thin.
+If the person's own notes appear, they are the most reliable account
+of what the session was for: let them decide the TITLE and sentence 1, and use
+the transcript only to fill in the rest.
 
 Session data follows.
 PROMPT;
@@ -98,17 +102,32 @@ PROMPT;
 	 * shape: `**You:**` / `**Claude:**` / `**Codex:**` turns) as a TITLE plus
 	 * two sentences.
 	 *
+	 * $notes are the person's own notes on the session, placed both before and
+	 * after the digest under a heading that says what to use them for. Measured
+	 * 2026-09-28 on a note the transcript never states: at temperature 0.7,
+	 * qwen3.5:9b used it 0/3 times with the notes last, 1/3 first, 3/3 at both
+	 * ends; at temperature 0 it needed the directive heading too. gemma4:26b-nvfp4
+	 * used it in every placement.
+	 *
 	 * @return array{title:?string, text:?string, model:string, durationMs:int, error:?string, errorType:?string}
 	 */
-	public function summarizeSession( string $markdown, ?string $model = null ): array {
+	public function summarizeSession( string $markdown, ?string $model = null, string $notes = '' ): array {
 		$model  = $this->resolveModel( $model );
 		$digest = $this->digestTranscript( $markdown );
+		$notes  = trim( $notes );
 
-		if ( '' === $digest ) {
+		if ( '' === $digest && '' === $notes ) {
 			return $this->failure( $model, 'the transcript has no conversation to summarize', 'input' );
 		}
 
-		return $this->run( $model, '', self::SESSION_PROMPT . "\n\n" . $digest . "\n", self::SESSION_NUM_CTX );
+		$section = '' === $notes ? '' : "## What this session was for, in the person's own words (base the TITLE and sentence 1 on this)\n"
+			. $this->clip( $notes, self::NOTES_CHARS ) . "\n";
+		$prompt  = self::SESSION_PROMPT . "\n\n"
+			. ( '' === $section ? '' : $section . "\n" )
+			. ( '' === $digest ? '' : $digest . "\n" )
+			. ( '' === $section ? '' : "\n" . $section );
+
+		return $this->run( $model, '', $prompt, self::SESSION_NUM_CTX );
 	}
 
 	/**
@@ -313,6 +332,11 @@ PROMPT;
 		$ctx    = (int) ( ceil( $tokens / 2048 ) * 2048 );
 
 		return max( self::TEXT_MIN_CTX, min( self::TEXT_MAX_CTX, $ctx ) );
+	}
+
+	/** Cut without squashing whitespace, so markdown notes keep their lines. */
+	private function clip( string $text, int $max ): string {
+		return mb_strlen( $text ) > $max ? rtrim( mb_substr( $text, 0, $max - 1 ) ) . '…' : $text;
 	}
 
 	private function squash( string $text, int $max ): string {

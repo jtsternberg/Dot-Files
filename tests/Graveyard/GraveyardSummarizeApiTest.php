@@ -62,6 +62,26 @@ final class GraveyardSummarizeApiTest extends TestCase
 		$this->assertStringContainsString('fix the login test', $this->ollama->chats[0]['user']);
 	}
 
+	public function testTheSessionAndPlotNotesReachTheModel(): void
+	{
+		$gy = $this->graveyard();
+		$idx = $gy->readIndex();
+		$idx['tombstones'][0]['group_id'] = 'grp-1';
+		$gy->writeIndex($idx);
+		@mkdir(dirname($gy->noteSessionPath('sess1234-full')), 0755, true);
+		file_put_contents($gy->noteSessionPath('sess1234-full'), 'This built the cookie-jar reset.');
+		@mkdir(dirname($gy->noteGroupPath('grp-1')), 0755, true);
+		file_put_contents($gy->noteGroupPath('grp-1'), 'The login overhaul plot.');
+
+		$gy->handleApi('POST', '/api/summarize', ['scope' => 'session', 'id' => 'sess1234']);
+		$user = $this->ollama->chats[0]['user'];
+
+		$this->assertStringContainsString('This built the cookie-jar reset.', $user);
+		$this->assertStringContainsString('The login overhaul plot.', $user);
+		// The session's own note is the more specific one, so it goes last, where it weighs most.
+		$this->assertLessThan(strpos($user, 'This built the cookie-jar reset.'), strpos($user, 'The login overhaul plot.'));
+	}
+
 	public function testTheDescriptionRendersOnTheStoneForTheModal(): void
 	{
 		$gy = $this->graveyard();
