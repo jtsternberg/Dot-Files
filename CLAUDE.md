@@ -237,6 +237,18 @@ Tests use PHPUnit (`composer require --dev phpunit/phpunit`). Run the suite with
 composer test
 ```
 
+**A fast suite matters almost as much as TDD itself.** A slow suite gets run
+less, and a suite that isn't run pins nothing. So:
+
+- **While developing a feature, run only the involved tests** — the test files
+  for the classes you are changing (`vendor/bin/phpunit tests/Graveyard/GraveyardSummarizeApiTest.php`,
+  or `--filter`). Run the full `composer test` once, when the work is done, as
+  the final smoke/sanity check before committing — not after every edit.
+- **Treat a new slow test as a defect.** Real sleeps, real servers, real model
+  or network calls, and wide filesystem walks belong behind an injected seam
+  (a stub binary, a stubbed callable, a fake clock), not in the default run.
+  If a test genuinely has to be slow, say why in it.
+
 Test files live in `tests/`, are named `*Test.php`, and extend `JT\Tests\TestCase`
 (base class in `tests/TestCase.php`, which hands each test a fresh `$this->cli`,
 `$this->cmux`, and `$this->gy`). Config is `phpunit.xml.dist`; bootstrap is
