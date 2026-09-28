@@ -312,25 +312,74 @@ dialog#plotmodal .card { overflow: auto; }
    innerHTML sink — see loadNote), so unlike the transcript <pre> it gets real
    block/inline flow. Pinned paper look to read as a hand-left note, not machine output. */
 .note-pane {
-	margin: .5rem 0 0; padding: .75rem 1rem; overflow: auto; max-height: 30vh; overscroll-behavior: contain;
+	margin: 0; padding: .75rem 1rem; overflow: auto; max-height: 30vh; overscroll-behavior: contain;
 	background: color-mix(in srgb, var(--moss) 9%, var(--crypt)); border: 1px solid #2a331f;
 	border-left: 3px solid var(--moss); border-radius: 8px;
 	font: .82rem/1.55 var(--body, var(--mono)); color: #cdd4bf; animation: exhume .25s ease-out;
 }
 .note-pane :first-child { margin-top: 0; }
-/* The local model's two-sentence description: an epitaph, not a note, so it
-   reads as carved text rather than a pinned paper. */
-.epitaph-pane { margin: .55rem 0 0; font: italic .88rem/1.55 var(--serif); color: #cdd4bf; animation: exhume .25s ease-out; }
-.epitaph-pane .epitaph-by { display: block; margin-top: .2rem; font: normal .62rem var(--mono); color: #6b7263; letter-spacing: .06em; }
-.summarize-btn[disabled] { cursor: progress; color: var(--weathered); }
-.summarize-btn.summoning .dgr-glyph { display: inline-block; animation: summon 1.6s ease-in-out infinite; }
+/* Session modal: one scrolling column by default (nothing competes for a fixed
+   height, so the note pane can't be squeezed), and on a wide screen the
+   transcript takes the left at full height while the sidebar scrolls alone. */
+dialog#plot:has(.grave-card) { width: min(760px, 92vw); }
+dialog#plot .card.grave-card { overflow: auto; }
+.grave-grid { flex: none; display: grid; grid-template-areas: "top" "main" "bottom"; gap: .9rem; }
+.grave-side { display: contents; }
+.side-top { grid-area: top; }
+.grave-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
+.side-bottom { grid-area: bottom; padding-top: .85rem; border-top: 1px solid rgba(233,228,214,.09); }
+.grave-main #m-body pre { height: 55vh; flex: none; }
+@media (min-width: 1000px) {
+	dialog#plot:has(.grave-card) { width: min(1240px, 94vw); }
+	dialog#plot .card.grave-card { overflow: hidden; height: 86vh; }
+	.grave-grid { flex: 1 1 auto; min-height: 0; grid-template-areas: none; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 1.4rem; }
+	.grave-main { grid-area: auto; min-height: 0; }
+	.grave-main #m-body pre { height: auto; flex: 1 1 auto; }
+	.grave-side {
+		display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;
+		min-height: 0; overflow: auto; overscroll-behavior: contain;
+		padding: 0 .35rem .2rem 1.4rem; margin-right: -.35rem; border-left: 1px solid rgba(233,228,214,.07);
+	}
+	.side-top, .side-bottom { grid-area: auto; }
+	.grave-side .meta:first-child { margin-top: 0; }
+	.note-pane { max-height: none; }
+}
+.grave-main .crypt-cap:first-child { margin-top: 0; }
+.side-block { margin-top: 1.05rem; }
+.side-block .crypt-cap { margin: 0 0 .4rem; }
+.block-head { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; }
+.action.primary-action {
+	display: flex; align-items: center; justify-content: center; gap: .45rem; width: 100%; margin-top: .85rem;
+	color: #10140e; background: var(--moss); border-color: var(--moss); font-weight: 600;
+}
+.action.primary-action:hover, .action.primary-action:focus-visible { color: #10140e; background: #bcd3aa; border-color: #bcd3aa; }
+.mini-action {
+	appearance: none; -webkit-appearance: none; cursor: pointer; background: none; border: 1px solid transparent;
+	border-radius: 6px; padding: .12rem .4rem; font: .68rem var(--mono); letter-spacing: .04em; color: var(--weathered);
+	transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+.mini-action:hover, .mini-action:focus-visible { color: var(--moss); border-color: rgba(168,193,150,.4); outline: none; }
+.mini-action[disabled] { cursor: progress; color: #6b7263; border-color: transparent; }
+.mini-action.accept { color: #10140e; background: var(--moss); }
+.mini-action.accept:hover, .mini-action.accept:focus-visible { color: #10140e; background: #bcd3aa; }
+/* The local model's description: carved text, not a pinned paper like the note. */
+.epitaph-pane { margin: 0; font: italic .92rem/1.6 var(--serif); color: #d6dccb; animation: exhume .25s ease-out; }
+.epitaph-pane .epitaph-by { display: block; margin-top: .3rem; font: normal .62rem var(--mono); color: #6b7263; letter-spacing: .06em; }
+.epitaph-wait { margin: 0; font: italic .85rem/1.55 var(--serif); color: var(--weathered); }
+.summon-glyph { display: inline-block; animation: summon 1.6s ease-in-out infinite; }
 @keyframes summon { 50% { opacity: .35; transform: scale(.85); } }
-.summary-err { margin: .1rem 0 .6rem; font: .72rem/1.5 var(--mono); color: #c98a8a; letter-spacing: .02em; }
-.suggest { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem; margin: 0 0 .45rem; font: .74rem var(--mono); color: var(--weathered); letter-spacing: .03em; }
-.suggest b { font: 600 .86rem var(--serif); color: var(--inscription); letter-spacing: 0; }
-.suggest .action { padding: .25rem .6rem; font-size: .7rem; }
+.action.summarize-empty { display: block; width: 100%; text-align: left; border-style: dashed; }
+.btn-sub { display: block; margin-top: .2rem; font-size: .64rem; color: #6b7263; letter-spacing: .03em; }
+.summary-err { margin: .45rem 0 0; font: .72rem/1.5 var(--mono); color: #c98a8a; letter-spacing: .02em; }
+.suggest {
+	margin: 0 0 .5rem; padding: .55rem .7rem; border: 1px solid rgba(168,193,150,.3); border-radius: 8px;
+	background: rgba(168,193,150,.06); animation: exhume .25s ease-out;
+}
+.suggest-label { display: block; font: .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--moss); }
+.suggest b { display: block; margin: .2rem 0 .45rem; font: 600 .95rem/1.35 var(--serif); color: var(--inscription); }
+.suggest-actions { display: flex; gap: .4rem; }
 .note-pane :last-child { margin-bottom: 0; }
-.note-pane h1, .note-pane h2, .note-pane h3 { font-size: .95rem; margin: .7rem 0 .3rem; color: var(--inscription); }
+.note-pane h1, .note-pane h2, .note-pane h3 { font: 600 .95rem/1.35 var(--serif); letter-spacing: normal; text-transform: none; margin: .7rem 0 .3rem; color: var(--inscription); }
 .note-pane a { color: var(--moss); }
 .note-pane pre { padding: .5rem .7rem; background: var(--crypt); border-radius: 6px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note-pane code { font: .78rem var(--mono); }
@@ -530,28 +579,57 @@ footer .epitaph { color: #6b7263; font-size: 2.5rem; line-height: 1; }
   <p class="epitaph">❦</p>
 </footer>
 <dialog id="plot" x-ref="dlg" @close="onClose()" @click.self="$refs.dlg.close()">
-  <article class="card" :style="item.crownShape ? ('corner-shape:' + item.crownShape) : ''">
+  <article class="card grave-card" :style="item.crownShape ? ('corner-shape:' + item.crownShape) : ''">
     <form method="dialog"><button id="m-close" class="medallion" aria-label="Close">✕</button></form>
     <header>
       <h2 id="m-title" x-text="item.title"></h2>
       <button type="button" id="m-id" class="idcopy" :class="{ ok: copied.id }" @click="copy(item.id, 'id')" x-text="copied.id ? 'copied ✓' : item.sid8" title="copy full session id"></button>
     </header>
-    <p class="meta" id="m-where" x-text="item.where"></p>
-    <p class="meta" id="m-dates" x-text="item.dates"></p>
-    <button type="button" class="plot-backlink" x-cloak x-show="item.plotTitle" @click="backToPlot()">⤴ part of the “<span x-text="item.plotTitle"></span>” plot</button>
-    <div id="m-note" class="note-pane" x-ref="note" x-cloak x-show="item.hasNote"></div>
-    <p id="m-epitaph" class="epitaph-pane" x-cloak x-show="item.description"><span x-text="item.description"></span><span class="epitaph-by" x-show="item.descriptionModel" x-text="'— summarized by ' + item.descriptionModel"></span></p>
-    <div id="m-body" x-ref="body"></div>
-    <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
-    <div class="actions">
-      <button type="button" class="action resurrect-btn" @click="openRitual('graveyard resurrect ' + (item.sid8 || ''))"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
-      <button type="button" class="action resurrect-btn summarize-btn" :class="{ summoning: summarizing }" :disabled="summarizing" @click="apiSummarize()" title="summarize with a local model"><span class="dgr-glyph">🔮</span> <span x-text="summarizing ? 'consulting the local oracle… (a cold model takes ~30s)' : (item.description ? 're-summarize' : 'summarize')"></span></button>
-      <p class="summary-err" x-cloak x-show="summaryError" x-text="summaryError"></p>
-      <p class="crypt-cap">✎ rename this session<span class="save-hint" x-cloak x-show="saved.rn"> — saved ✓</span></p>
-      <div class="suggest" x-cloak x-show="suggestion">suggested: <b x-text="suggestion"></b><button type="button" class="action" @click="acceptSuggestion()">use this name</button><button type="button" class="action" @click="suggestion = ''">dismiss</button></div>
-      <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
-      <p class="save-note">changes save automatically</p>
-      <button type="button" class="danger-btn" @click="apiDeleteStone()"><span class="dgr-glyph">☠</span> delete this session…</button>
+    <div class="grave-grid">
+      <section class="grave-main" aria-label="Transcript">
+        <div id="m-body" x-ref="body"></div>
+        <button type="button" id="m-tpath" class="tpath" :class="{ ok: copied.path }" @click="copy(item.tpath, 'path')" x-text="copied.path ? 'copied ✓' : item.tpathShort" title="copy full transcript path"></button>
+      </section>
+      <aside class="grave-side">
+        <div class="side-top">
+          <p class="meta" id="m-where" x-text="item.where"></p>
+          <p class="meta" id="m-dates" x-text="item.dates"></p>
+          <button type="button" class="plot-backlink" x-cloak x-show="item.plotTitle" @click="backToPlot()">⤴ part of the “<span x-text="item.plotTitle"></span>” plot</button>
+          <button type="button" class="action primary-action" @click="openRitual('graveyard resurrect ' + (item.sid8 || ''))"><span class="dgr-glyph">🪦</span> prepare resurrection</button>
+
+          <section class="side-block" aria-labelledby="m-epitaph-cap">
+            <div class="block-head">
+              <p class="crypt-cap" id="m-epitaph-cap">🔮 epitaph</p>
+              <button type="button" class="mini-action summarize-btn" :class="{ summoning: summarizing }" :disabled="summarizing" x-show="item.description || summarizing" @click="apiSummarize()" title="re-summarize with a local model" x-text="summarizing ? 'summoning…' : '↻ re-summarize'"></button>
+            </div>
+            <template x-if="item.description && !summarizing">
+              <p id="m-epitaph" class="epitaph-pane"><span x-text="item.description"></span><span class="epitaph-by" x-show="item.descriptionModel" x-text="'— ' + item.descriptionModel"></span></p>
+            </template>
+            <p class="epitaph-wait" x-cloak x-show="summarizing"><span class="summon-glyph" aria-hidden="true">🔮</span> consulting the local oracle… a cold model can take ~30s.</p>
+            <button type="button" class="action summarize-empty summarize-btn" x-cloak x-show="!item.description && !summarizing" @click="apiSummarize()">summarize this session<span class="btn-sub">with a local model — nothing leaves this machine</span></button>
+            <p class="summary-err" x-cloak x-show="summaryError" x-text="summaryError"></p>
+          </section>
+
+          <section class="side-block" x-cloak x-show="item.hasNote" aria-labelledby="m-note-cap">
+            <p class="crypt-cap" id="m-note-cap">📝 notes</p>
+            <div id="m-note" class="note-pane" x-ref="note"></div>
+          </section>
+        </div>
+
+        <div class="side-bottom">
+          <section class="side-block" aria-labelledby="m-rename-cap">
+            <p class="crypt-cap" id="m-rename-cap">✎ name<span class="save-hint" x-cloak x-show="saved.rn"> — saved ✓</span></p>
+            <div class="suggest" x-cloak x-show="suggestion">
+              <span class="suggest-label">🔮 suggested</span>
+              <b x-text="suggestion"></b>
+              <span class="suggest-actions"><button type="button" class="mini-action accept" @click="acceptSuggestion()">use this name</button><button type="button" class="mini-action" @click="suggestion = ''">dismiss</button></span>
+            </div>
+            <input class="namefield" type="text" x-model="renameName" @input.debounce.600ms="apiRenameStone()" spellcheck="false" autocomplete="off" aria-label="Session name">
+            <p class="save-note">changes save automatically</p>
+          </section>
+          <button type="button" class="danger-btn" @click="apiDeleteStone()"><span class="dgr-glyph">☠</span> delete this session…</button>
+        </div>
+      </aside>
     </div>
   </article>
 </dialog>
