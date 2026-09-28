@@ -4,28 +4,24 @@
 # several LLM backends ("forks"), or let it pick automatically by file size.
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 1.0.0
+# Version 2.0.0
 #
 # Forks:
-#   ollama  — fully local, zero API cost (default model chosen by size)
+#   ollama  — fully local, zero API cost, via local-llm-summarize (model per store
+#             from SUMMARY_MODEL_SD / SUMMARY_MODEL_LOCAL in the shared config)
 #   claude  — cloud: Claude Code headless (default model haiku, overrideable; lean --safe-mode)
 #   agy     — cloud: agy (Antigravity) on gemini-3.6-flash-low
 #
 # Auto routing (no fork given) is size-based, per benchmarks on this machine:
 #   local cold summarization is ~O(input) — a ~35K-token file is ~2 min on any
-#   local model — so tiny files go to a lean local model, normal/large files to
-#   the best local prefill+context model, and huge files fall back to the cloud
-#   claude fork (default haiku) — local's ~2-min floor defeats the point of "fast".
+#   local model — so files up to ~50K tokens stay local, and huge files fall back
+#   to the cloud claude fork (default haiku), since local's ~2-min floor defeats
+#   the point of "fast". --local keeps a huge file local anyway.
 #
-#   tiny   (< ~8K tokens)  -> ollama gemma4:e4b        (lean, quick to load)
-#   normal (< ~50K tokens) -> ollama gemma4:26b-nvfp4  (fastest measured prefill, 262K ctx)
-#   huge   (>= ~50K tokens)-> claude (cloud, haiku)    (warns; --local to force local)
-#
-# The ollama fork uses the /api/generate endpoint (NOT `ollama run`) so it can
-# set a system role, temperature 0, num_predict, num_ctx, and think:false — none
-# of which the CLI exposes. num_ctx is sized to the file (capped at the model's
-# max context) so long files are NOT silently truncated. See ~/.claude/skills/
-# ollama-model-picker for the footguns this encodes.
+# The local fork is local-llm-summarize's text mode: a system role, the
+# instruction after the content, temperature 0, think:false, and num_ctx sized
+# to the file so long files are NOT silently truncated. See the local-models
+# skill for the footguns this encodes.
 #
 # Usage:
 #   llmsummarize <file>                 # auto: pick fork by size
@@ -35,26 +31,19 @@
 #   llmsummarize agy <file>             # force cloud agy/gemini
 #   llmsummarize -h | --help
 #
-#   Flags: --local (with auto: never fall back to cloud, use gemma4:26b-nvfp4)
+#   Flags: --local (with auto: never fall back to cloud)
 # =============================================================================
 
 set -euo pipefail
 
-OLLAMA_URL="http://localhost:11434"
-TINY_MODEL="gemma4:e4b"
-BIG_MODEL="gemma4:26b-nvfp4"
-
-# Size tiers in bytes (~4 bytes/token for prose).
-TINY_MAX=32000     # < ~8K tokens
+# Size tier in bytes (~4 bytes/token for prose).
 HUGE_MIN=200000    # >= ~50K tokens -> cloud fallback in auto mode
 
-SYS='You are a summarization engine. You describe documents in neutral third-person prose. You never reproduce a document'"'"'s formatting, and you never address the reader.'
-TASK='TASK: In one short paragraph of 2 to 4 sentences, describe what the document above is and what it contains. Write plain prose sentences only. Do not use headings, bullets, tables, bold, or emoji. Refer to it as "the document" or "the file"; never say "you" or "we".'
 # Prompt for the cloud forks (they read the file themselves via their own tools).
 CLOUD_PROMPT_PREFIX='Can you summarize in a few sentences the contents of this file: '
 CLOUD_PROMPT_SUFFIX='. Respond in plaintext only.'
 
-usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "llmsummarize: $*" >&2; exit 1; }
 
@@ -63,38 +52,23 @@ need_file() {
 	[ -f "$1" ] || die "no such file: $1"
 }
 
-# Max context the model supports (falls back to 32768 if it can't be read).
-model_max_ctx() {
-	curl -s "$OLLAMA_URL/api/show" -d "{\"name\":\"$1\"}" \
-		| python3 -c "import json,sys
-d=json.load(sys.stdin); mi=d.get('model_info',{})
-print(next((v for k,v in mi.items() if 'context_length' in k and v), 32768))" 2>/dev/null || echo 32768
-}
-
 summarize_ollama() { # $1=file  $2=model(optional)
 	need_file "${1:-}"
-	local file="$1" model="${2:-$BIG_MODEL}"
+	local file="$1" model="${2:-}"
 	local start=$SECONDS
-	local bytes est_tokens nctx maxctx resp
-	bytes=$(wc -c < "$file")
-	# Size num_ctx to the file so it isn't truncated: est tokens + overhead, +30%
-	# headroom, rounded to 2048, floored at 8192, capped at the model's max.
-	est_tokens=$(( bytes / 4 + 600 ))
-	nctx=$(( est_tokens * 13 / 10 ))
-	nctx=$(( (nctx + 2047) / 2048 * 2048 ))
-	[ "$nctx" -lt 8192 ] && nctx=8192
-	maxctx=$(model_max_ctx "$model")
-	[ "$nctx" -gt "$maxctx" ] && nctx=$maxctx
-	echo "→ ollama $model (num_ctx=$nctx, ~$((bytes/1024))KB)" >&2
-
-	resp="$(mktemp)"
-	jq -n --rawfile content "$file" --arg system "$SYS" --arg task "$TASK" \
-		--arg model "$model" --argjson nctx "$nctx" \
-		'{model:$model, system:$system, prompt:($content+"\n\n----------\n"+$task),
-		  think:false, stream:false, options:{temperature:0, num_predict:200, num_ctx:$nctx}}' \
-		| curl -s "$OLLAMA_URL/api/generate" -d @- > "$resp"
-	jq -r '.response // ("ERROR: " + (.error // "no response"))' "$resp"
-	rm -f "$resp"
+	local out rc
+	out="$(mktemp)"
+	# --json so the chosen model can be reported; the summary is the result.
+	rc=0
+	local-llm-summarize "$file" --json ${model:+"--model=$model"} > "$out" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		echo "llmsummarize: $(jq -r '.error // "local-llm-summarize failed"' "$out" 2>/dev/null || cat "$out")" >&2
+		rm -f "$out"
+		return "$rc"
+	fi
+	echo "→ ollama $(jq -r '.model' "$out") (~$(( $(wc -c < "$file") / 1024 ))KB)" >&2
+	jq -r '.summary' "$out"
+	rm -f "$out"
 	printf '\nTook %ds\n' $((SECONDS - start))
 }
 
@@ -121,10 +95,8 @@ route_auto() { # $1=file  ($2 present => --local)
 	need_file "${1:-}"
 	local file="$1" local_only="${2:-}"
 	local bytes; bytes=$(wc -c < "$file")
-	if [ "$bytes" -lt "$TINY_MAX" ]; then
-		summarize_ollama "$file" "$TINY_MODEL"
-	elif [ "$bytes" -lt "$HUGE_MIN" ] || [ -n "$local_only" ]; then
-		summarize_ollama "$file" "$BIG_MODEL"
+	if [ "$bytes" -lt "$HUGE_MIN" ] || [ -n "$local_only" ]; then
+		summarize_ollama "$file"
 	else
 		echo "→ file is ~$((bytes/1024))KB; local would take minutes — using cloud claude/haiku (--local to override)." >&2
 		summarize_claude "$file"

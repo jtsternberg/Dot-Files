@@ -135,6 +135,7 @@ MD;
 		$chat = $ollama->chats[0];
 
 		$this->assertFalse( $chat['request']['think'] );
+		$this->assertSame( LocalLlmSummarizer::NUM_PREDICT, $chat['request']['options']['num_predict'] );
 		$this->assertSame( LocalLlmSummarizer::TIMEOUT_SECONDS, $chat['timeout'] );
 		$this->assertStringContainsString( 'TITLE:', $chat['user'] );
 		$this->assertStringContainsString( 'ok fix it and commit', $chat['user'] );

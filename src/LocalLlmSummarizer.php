@@ -40,6 +40,7 @@ class LocalLlmSummarizer {
 	const ACTION_CHARS     = 100;
 	const TAIL_ACTIONS     = 12;
 	const NOTES_CHARS      = 4000;
+	const NUM_PREDICT      = 400;
 
 	const SESSION_PROMPT = <<<'PROMPT'
 You summarize a finished software engineering session between a person and an AI coding agent, for an archive of past sessions.
@@ -286,7 +287,8 @@ PROMPT;
 		$reply   = $this->ollama()->chat( $model, $system, $user, Ollama::DEFAULT_URL, self::TIMEOUT_SECONDS, [
 			// Thinking models spend a minute reasoning about a 50-word summary and can leak it into the reply.
 			'think'   => false,
-			'options' => [ 'temperature' => 0, 'num_ctx' => $numCtx ],
+			// num_predict caps a model that ignores the length rule and keeps going.
+			'options' => [ 'temperature' => 0, 'num_ctx' => $numCtx, 'num_predict' => self::NUM_PREDICT ],
 		] );
 		$ms = (int) round( ( microtime( true ) - $started ) * 1000 );
 

@@ -219,8 +219,9 @@ cap with `num_predict`; `think:false` on reasoning models. Working references:
   from `SUMMARY_MODEL_SD` / `SUMMARY_MODEL_LOCAL` in the shared config — kept apart
   from the commit tool's `MODEL*` keys because code models copy the input title
   back instead of summarizing.
-- `~/.dotfiles/bin/llmsummarize` — a size-routed wrapper across hardcoded local
-  tiers plus cloud forks (claude, agy).
+- `~/.dotfiles/bin/llmsummarize` — a wrapper that runs `local-llm-summarize`
+  locally and sends files past ~50K tokens to cloud claude (`--local` keeps them
+  local), plus explicit claude/agy forks.
 
 ## Clean benchmarking method (when measured data is missing/stale)
 
