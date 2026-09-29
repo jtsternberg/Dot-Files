@@ -1,6 +1,6 @@
 ---
 name: setup-obsidian-vault
-description: Use when JT wants a folder set up as an Obsidian vault with his shared dotfiles Obsidian config (theme, snippets, hotkeys, appearance) — "set up an obsidian vault at <path>", "link my obsidian config into <path>", "make <path> a vault". Runs `setup-obsidian-vault`, verifies the links, and opens the vault in Obsidian.
+description: Use when JT wants a folder set up as an Obsidian vault with his shared dotfiles Obsidian config (theme, snippets, hotkeys, appearance) — "set up an obsidian vault at <path>", "link my obsidian config into <path>", "make <path> a vault", "give this vault a better name". Runs `setup-obsidian-vault`, verifies the links, and opens the vault in Obsidian.
 ---
 
 # Set Up an Obsidian Vault
@@ -9,7 +9,9 @@ Drives `~/.dotfiles/bin/setup-obsidian-vault`, which symlinks each top-level
 entry of `~/.dotfiles/obsidian/` into the vault's `.obsidian/`. Read its header
 (`setup-obsidian-vault --help`) for how it picks the `.obsidian/` dir.
 
-Input: one path. Missing → ask for it. Resolve it to an absolute path (`VAULT`).
+Input: one path, or the name of a vault Obsidian already knows (its path is in
+`obsidian vaults verbose`, name TAB path). Missing → ask for it. Resolve it to
+an absolute path (`VAULT`).
 The dir doesn't exist → confirm with JT, `mkdir -p` it, and use `--new` below.
 
 `obsidian-vault-chat <path>` starts a Sonnet session here that runs this skill.
@@ -53,14 +55,17 @@ files (`workspace.json`, `plugins/`, ...) are expected and fine.
 ## 4. Open and verify in Obsidian
 
 ```bash
-open-obsidian-vault "$VAULT"
+open-obsidian-vault "$VAULT"                      # or: --name "<display name>" "$VAULT"
 ```
+
+Offer `--name` when the folder's basename is generic (`docs`, `notes`) or
+another known vault already has it; see Footguns for what it does.
 
 It starts Obsidian if needed, opens the vault by path (registered or not),
 reloads a window that predates the links, and checks the loaded theme and
 snippets against the vault's `appearance.json`. Exit 0 prints `Verified:`.
 On failure, report its message; if it says `vault-open` failed, tell JT to
-use "Open folder as vault" in the vault switcher, then re-run the script.
+use "Open folder as vault" in the vault switcher, then re-run it.
 
 Needs the Obsidian CLI: Settings → General → Command line interface.
 
@@ -78,7 +83,8 @@ Report: vault path, linked entries, and the `Verified:` line.
   being the vault's key in `~/Library/Application Support/obsidian/obsidian.json`.
   A name is the folder's basename, two vaults can share it, and a name-targeted
   call then reads the wrong window. A call with no `vault=` hits whichever
-  window was last active.
+  window was last active, and `vault=<id>` of a closed vault opens a window
+  for it.
 - **Renaming a vault in Obsidian renames its folder.** For a different display
   name (or to fix two vaults sharing one), use
   `open-obsidian-vault --name "<name>" "$VAULT"`: it opens the vault through a
