@@ -368,7 +368,47 @@ _init_obsidian_vault() {
 	_arguments \
 		'(-h --help)'{-h,--help}'[display help]' \
 		'--name[name Obsidian shows instead of the folder name]:display name:' \
-		'1:vault directory (default: current dir):_directories'
+		'1:vault directory (defaults to the current dir):_directories'
+}
+
+# Vaults Obsidian already knows, from its own registry. Candidates are the
+# registered paths with $HOME shown as ~, listed with the vault's name.
+_obsidian_known_vaults() {
+	local cfg="$HOME/Library/Application Support/obsidian/obsidian.json"
+	[[ -r $cfg ]] || cfg="$HOME/.config/obsidian/obsidian.json"
+	[[ -r $cfg ]] || return 1
+
+	local -a paths words displays
+	paths=( ${(f)"$(python3 -c 'import json, sys
+for v in json.load(open(sys.argv[1])).get("vaults", {}).values():
+    print(v.get("path", ""))' "$cfg" 2>/dev/null)"} )
+	(( $#paths )) || return 1
+
+	local p
+	for p in $paths; do
+		[[ -d $p ]] || continue
+		if [[ $p == $HOME/* ]]; then
+			words+=( "~/${(q)p#$HOME/}" )
+		else
+			words+=( "${(q)p}" )
+		fi
+		displays+=( "${p:t}  (${p/#$HOME/~})" )
+	done
+	(( $#words )) || return 1
+	compadd "$@" -Q -d displays -a words
+}
+
+_obsidian_vault_targets() {
+	_alternative \
+		'vaults:known vault:_obsidian_known_vaults' \
+		'dirs:directory:_directories'
+}
+
+_open_obsidian_vault() {
+	_arguments \
+		'(-h --help)'{-h,--help}'[display help]' \
+		'--name[name Obsidian shows instead of the folder name]:display name:' \
+		'1: :_obsidian_vault_targets'
 }
 
 compdef _graveyard graveyard
@@ -384,4 +424,5 @@ compdef _herdr_lazy herdr
 compdef _op_lazy op
 compdef _setup_obsidian_vault setup-obsidian-vault
 compdef _obsidian_vault_chat obsidian-vault-chat
-compdef _init_obsidian_vault init-obsidian-vault open-obsidian-vault
+compdef _init_obsidian_vault init-obsidian-vault
+compdef _open_obsidian_vault open-obsidian-vault
