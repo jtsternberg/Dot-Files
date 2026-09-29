@@ -70,3 +70,4 @@ HANDOFF*.md
 
 .phpunit.cache
 /.beads.gate.lock
+/agent-skills/.obsidian
