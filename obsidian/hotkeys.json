@@ -14,6 +14,15 @@
       "key": "P"
     }
   ],
+  "app:open-vault": [
+    {
+      "modifiers": [
+        "Mod",
+        "Shift"
+      ],
+      "key": "O"
+    }
+  ],
   "app:go-back": [],
   "app:go-forward": [],
   "workspace:next-tab": [
