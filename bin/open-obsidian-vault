@@ -80,11 +80,13 @@ $(printf '%s\n' "$matches" | sed 's/^/  /')" ;;
 fi
 [ -d "$DIR/.obsidian" ] || die "no .obsidian dir in $DIR; run setup-obsidian-vault or init-obsidian-vault first"
 VAULT="$(cd "$DIR" && pwd -P)"
-command -v obsidian >/dev/null || die "obsidian CLI not on PATH (Settings → General → Command line interface)"
+command -v obsidian-cli >/dev/null || die "obsidian-cli not on PATH (Settings → General → Command line interface)"
 
-# The CLI exits 0 even for "Vault not found.", so callers check the output.
+# obsidian-cli, not `obsidian`: the latter is the app binary itself, so it
+# launches Obsidian when it isn't running, where obsidian-cli fails fast.
+# Either one exits 0 for "Vault not found.", so callers check the output.
 # eval results come back prefixed with "=> ".
-cli() { timeout "$CLI_TIMEOUT" obsidian "$@" 2>&1 || true; }
+cli() { timeout "$CLI_TIMEOUT" obsidian-cli "$@" 2>&1 || true; }
 eval_in() {
 	local out
 	out="$(cli vault="$1" eval code="$2")"
@@ -128,13 +130,14 @@ else
 	OPEN_PATH="${OPEN_PATH:-$VAULT}"
 fi
 
-# The CLI blocks while the app is still booting, so wait for it to answer.
+# obsidian-cli fails until the app is up, so wait for it to answer.
 pgrep -xq Obsidian || open -a Obsidian
+ready=
 for _ in $(seq 30); do
-	[ -n "$(cli version)" ] && break
+	timeout "$CLI_TIMEOUT" obsidian-cli version >/dev/null 2>&1 && { ready=1; break; }
 	sleep 1
 done
-[ -n "$(cli version)" ] || die "Obsidian CLI never answered; is the app running?"
+[ -n "$ready" ] || die "obsidian-cli never reached Obsidian; is the app running?"
 
 opened="$(cli eval code="window.electron.ipcRenderer.sendSync('vault-open', $(js_str "$OPEN_PATH"), false)")"
 if [ "$opened" != "=> true" ]; then

@@ -10,7 +10,7 @@ entry of `~/.dotfiles/obsidian/` into the vault's `.obsidian/`. Read its header
 (`setup-obsidian-vault --help`) for how it picks the `.obsidian/` dir.
 
 Input: one path, or the name of a vault Obsidian already knows (its path is in
-`obsidian vaults verbose`, name TAB path). Missing → ask for it. Resolve it to
+`obsidian-cli vaults verbose`, name TAB path). Missing → ask for it. Resolve it to
 an absolute path (`VAULT`).
 The dir doesn't exist → confirm with JT, `mkdir -p` it, and use `--new` below.
 
@@ -67,7 +67,8 @@ snippets against the vault's `appearance.json`. Exit 0 prints `Verified:`.
 On failure, report its message; if it says `vault-open` failed, tell JT to
 use "Open folder as vault" in the vault switcher, then re-run it.
 
-Needs the Obsidian CLI: Settings → General → Command line interface.
+Needs the Obsidian CLI (`obsidian-cli`): Settings → General → Command line
+interface.
 
 Report: vault path, linked entries, and the `Verified:` line.
 
@@ -76,10 +77,14 @@ Report: vault path, linked entries, and the `Verified:` line.
 - **Link before opening.** Opening a folder in Obsidian writes default
   `app.json`, `appearance.json`, `core-plugins.json` at once, and those then
   conflict with the links (step 1).
-- **`obsidian help`, not `obsidian --help`.** The CLI's commands are bare words.
-- **The CLI exits 0 on failure** (`Vault not found.`) and blocks while the app
-  is still booting. Wrap calls in `timeout`; check output, not exit code.
-- **Target vaults by id, never by name**: `obsidian vault=<id> ...`, the id
+- **Call `obsidian-cli`, never `obsidian`.** `obsidian` on PATH is the app
+  binary itself: it launches Obsidian when it isn't running and hangs while it
+  boots. `obsidian-cli` talks to the running app and exits 1 at once if it
+  can't reach it.
+- **`obsidian-cli help`, not `--help`.** The CLI's commands are bare words.
+- **It still exits 0 on failure** (`Vault not found.`, `Error:` from `eval`).
+  Check the output, not the exit code.
+- **Target vaults by id, never by name**: `obsidian-cli vault=<id> ...`, the id
   being the vault's key in `~/Library/Application Support/obsidian/obsidian.json`.
   A name is the folder's basename, two vaults can share it, and a name-targeted
   call then reads the wrong window. A call with no `vault=` hits whichever
