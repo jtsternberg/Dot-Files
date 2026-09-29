@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# open-vault.sh — open VAULT in Obsidian and verify it loaded the linked config.
+# open-obsidian-vault
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Opens DIR (default: the current dir) in Obsidian and verifies the loaded
+# theme and CSS snippets match DIR/.obsidian/appearance.json, reloading a
+# window that was open before its config changed.
 #
 # Opens by path through the `vault-open` IPC call behind Obsidian's own "Open
 # folder as vault". That call registers an unknown folder, opens a closed
@@ -14,19 +21,27 @@
 # `vault=` at all hits whichever window was last active.
 #
 # Usage:
-#   open-vault.sh VAULT_ROOT
+# open-obsidian-vault [DIR]
 # =============================================================================
 set -euo pipefail
 
 VAULTS_JSON="$HOME/Library/Application Support/obsidian/obsidian.json"
 CLI_TIMEOUT=10
 
-die() { echo "open-vault: $*" >&2; exit 1; }
+die() { echo "open-obsidian-vault: $*" >&2; exit 1; }
+usage() {
+	sed -n 's/^# \{0,1\}//; /^Usage:/,/^=/p' "$0" | sed '$d'
+}
 
-[ $# -eq 1 ] || die "usage: open-vault.sh VAULT_ROOT"
+case "${1:-}" in
+	-h|--help) usage; exit 0 ;;
+	-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+esac
+[ $# -le 1 ] || { usage >&2; exit 1; }
+DIR="${1:-$PWD}"
 [ "$(uname -s)" = Darwin ] || die "macOS only"
-[ -d "$1/.obsidian" ] || die "no .obsidian dir in $1; run setup-obsidian-vault first"
-VAULT="$(cd "$1" && pwd -P)"
+[ -d "$DIR/.obsidian" ] || die "no .obsidian dir in $DIR; run setup-obsidian-vault or init-obsidian-vault first"
+VAULT="$(cd "$DIR" && pwd -P)"
 command -v obsidian >/dev/null || die "obsidian CLI not on PATH (Settings → General → Command line interface)"
 
 # The CLI exits 0 even for "Vault not found.", so callers check the output.

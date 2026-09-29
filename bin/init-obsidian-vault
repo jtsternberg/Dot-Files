@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# =============================================================================
+# init-obsidian-vault
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 1.0.0
+#
+# Makes DIR (default: the current dir, created if missing) an Obsidian vault
+# with the shared dotfiles config: `setup-obsidian-vault --new DIR` links the
+# config, then `open-obsidian-vault DIR` opens it and verifies it loaded.
+#
+# Linking comes first on purpose: opening a folder in Obsidian writes default
+# app.json/appearance.json/core-plugins.json, which then block the links.
+#
+# DIR is always the vault root. A .obsidian found deeper instead means DIR
+# probably isn't the vault you meant, so that refuses rather than nesting one.
+#
+# Usage:
+# init-obsidian-vault [DIR]
+# =============================================================================
+set -euo pipefail
+
+usage() {
+	sed -n 's/^# \{0,1\}//; /^Usage:/,/^=/p' "$0" | sed '$d'
+}
+
+case "${1:-}" in
+	-h|--help) usage; exit 0 ;;
+	-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+esac
+[ $# -le 1 ] || { usage >&2; exit 1; }
+
+BIN="$(cd "$(dirname "$0")" && pwd -P)"
+DIR="${1:-$PWD}"
+mkdir -p "$DIR"
+DIR="$(cd "$DIR" && pwd -P)"
+
+if [ ! -d "$DIR/.obsidian" ]; then
+	nested="$(find "$DIR" \( -name .git -o -name node_modules -o -name vendor \) -prune -o \
+		-type d -name .obsidian -print -quit 2>/dev/null)"
+	if [ -n "$nested" ]; then
+		echo "Found an existing vault below $DIR:" >&2
+		echo "  ${nested%/.obsidian}" >&2
+		echo "Pass that dir to set it up instead, or remove it first." >&2
+		exit 1
+	fi
+fi
+
+if ! "$BIN/setup-obsidian-vault" --new "$DIR"; then
+	echo "If those files are Obsidian's first-open defaults (e.g. appearance.json is {}), move them aside and re-run." >&2
+	exit 1
+fi
+exec "$BIN/open-obsidian-vault" "$DIR"

@@ -364,6 +364,12 @@ _obsidian_vault_chat() {
 		'*::claude arguments:_default'
 }
 
+_init_obsidian_vault() {
+	_arguments \
+		'(-h --help)'{-h,--help}'[display help]' \
+		'1:vault directory (default: current dir):_directories'
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
@@ -377,3 +383,4 @@ compdef _herdr_lazy herdr
 compdef _op_lazy op
 compdef _setup_obsidian_vault setup-obsidian-vault
 compdef _obsidian_vault_chat obsidian-vault-chat
+compdef _init_obsidian_vault init-obsidian-vault open-obsidian-vault

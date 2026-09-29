@@ -13,6 +13,8 @@ Input: one path. Missing → ask for it. Resolve it to an absolute path (`VAULT`
 The dir doesn't exist → confirm with JT, `mkdir -p` it, and use `--new` below.
 
 `obsidian-vault-chat <path>` starts a Sonnet session here that runs this skill.
+`init-obsidian-vault [DIR]` is the non-interactive version (steps 2 and 4 in one
+command); this skill exists for the judgment calls around conflicts.
 
 ## 1. Dry run
 
@@ -51,7 +53,7 @@ files (`workspace.json`, `plugins/`, ...) are expected and fine.
 ## 4. Open and verify in Obsidian
 
 ```bash
-~/.dotfiles/obsidian/.claude/skills/setup-obsidian-vault/scripts/open-vault.sh "$VAULT"
+open-obsidian-vault "$VAULT"
 ```
 
 It starts Obsidian if needed, opens the vault by path (registered or not),
