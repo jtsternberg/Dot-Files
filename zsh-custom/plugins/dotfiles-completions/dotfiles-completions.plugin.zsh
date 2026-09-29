@@ -357,6 +357,13 @@ _setup_obsidian_vault() {
 		'1:directory to search for a .obsidian dir:_directories'
 }
 
+_obsidian_vault_chat() {
+	_arguments \
+		'(-h --help)'{-h,--help}'[display help]' \
+		'1:vault directory:_directories' \
+		'*::claude arguments:_default'
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
@@ -369,3 +376,4 @@ compdef _local_llm_summarize_lazy local-llm-summarize
 compdef _herdr_lazy herdr
 compdef _op_lazy op
 compdef _setup_obsidian_vault setup-obsidian-vault
+compdef _obsidian_vault_chat obsidian-vault-chat

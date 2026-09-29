@@ -10,6 +10,9 @@ entry of `~/.dotfiles/obsidian/` into the vault's `.obsidian/`. Read its header
 (`setup-obsidian-vault --help`) for how it picks the `.obsidian/` dir.
 
 Input: one path. Missing → ask for it. Resolve it to an absolute path (`VAULT`).
+The dir doesn't exist → confirm with JT, `mkdir -p` it, and use `--new` below.
+
+`obsidian-vault-chat <path>` starts a Sonnet session here that runs this skill.
 
 ## 1. Dry run
 

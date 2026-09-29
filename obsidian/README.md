@@ -13,6 +13,7 @@ graveyard resurrect f651445f
 `setup-obsidian-vault -n` - validates the current Obsidian vault configuration.
 `setup-obsidian-vault` - symlink the items in this dir to the current Obsidian vault (looks for `.obsidian/` dir recursively)
 `setup-obsidian-vault --new` - create a new Obsidian vault `.obsidian/` dir, and symlink the items in this dir to it.
+`obsidian-vault-chat <path>` - agent-guided setup: runs the `setup-obsidian-vault` skill (`.claude/skills/`), verifies, and opens the vault in Obsidian.
 
 ## hotkeys.json
 

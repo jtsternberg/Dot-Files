@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# =============================================================================
+# obsidian-vault-chat — set up an Obsidian vault via an interactive agent chat.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Launches Claude Code (Sonnet) in the dotfiles `obsidian/` dir and runs the
+# /setup-obsidian-vault skill for VAULT_PATH: it runs setup-obsidian-vault,
+# verifies the links, opens the vault in Obsidian, and checks the config loaded.
+#
+# The cd matters: that skill lives in obsidian/.claude/skills/, which Claude
+# Code only discovers when the session starts at or below obsidian/.
+#
+# Shell, not PHP, on purpose: this hands an interactive TTY to `claude`.
+#
+# Usage:
+#   obsidian-vault-chat <VAULT_PATH> [claude args...]
+# =============================================================================
+set -euo pipefail
+
+usage() {
+	sed -n 's/^# \{0,1\}//; /^Usage:/,/^=/p' "$0" | sed '$d'
+}
+
+case "${1:-}" in
+	-h|--help) usage; exit 0 ;;
+	'') echo "Missing VAULT_PATH" >&2; usage >&2; exit 1 ;;
+esac
+
+if ! command -v claude >/dev/null 2>&1; then
+	echo "Error: 'claude' (Claude Code CLI) not found on PATH." >&2
+	exit 1
+fi
+
+VAULT_PATH="$1"
+shift
+case "$VAULT_PATH" in
+	"~") VAULT_PATH="$HOME" ;;
+	"~/"*) VAULT_PATH="$HOME/${VAULT_PATH#\~/}" ;;
+esac
+# Resolve before the cd below changes what a relative path means. The dir may
+# not exist yet (a brand-new vault); the skill confirms before creating it.
+if [ -d "$VAULT_PATH" ]; then
+	VAULT_PATH="$(cd "$VAULT_PATH" && pwd -P)"
+elif [ "${VAULT_PATH#/}" = "$VAULT_PATH" ]; then
+	VAULT_PATH="$PWD/$VAULT_PATH"
+fi
+
+cd "$(cd "$(dirname "$0")/.." && pwd -P)/obsidian"
+
+exec claude --dangerously-skip-permissions --model sonnet "$@" "/setup-obsidian-vault \"$VAULT_PATH\""
