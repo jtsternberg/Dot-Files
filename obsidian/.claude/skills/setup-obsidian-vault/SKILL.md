@@ -79,5 +79,8 @@ Report: vault path, linked entries, and the `Verified:` line.
   A name is the folder's basename, two vaults can share it, and a name-targeted
   call then reads the wrong window. A call with no `vault=` hits whichever
   window was last active.
-- **Renaming a vault renames its folder** (the switcher's rename moves it on
-  disk). To fix a name collision, rename the folder with JT's OK.
+- **Renaming a vault in Obsidian renames its folder.** For a different display
+  name (or to fix two vaults sharing one), use
+  `open-obsidian-vault --name "<name>" "$VAULT"`: it opens the vault through a
+  `~/.obsidian-vaults/<name>` symlink and drops the old vault-list entry. Ask JT
+  for the name; it closes that vault's open window.

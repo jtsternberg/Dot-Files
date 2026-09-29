@@ -12,11 +12,14 @@
 # Linking comes first on purpose: opening a folder in Obsidian writes default
 # app.json/appearance.json/core-plugins.json, which then block the links.
 #
+# --name NAME is passed to open-obsidian-vault: it sets the name Obsidian shows
+# instead of the folder's basename.
+#
 # DIR is always the vault root. A .obsidian found deeper instead means DIR
 # probably isn't the vault you meant, so that refuses rather than nesting one.
 #
 # Usage:
-# init-obsidian-vault [DIR]
+# init-obsidian-vault [--name NAME] [DIR]
 # =============================================================================
 set -euo pipefail
 
@@ -24,14 +27,21 @@ usage() {
 	sed -n 's/^# \{0,1\}//; /^Usage:/,/^=/p' "$0" | sed '$d'
 }
 
-case "${1:-}" in
-	-h|--help) usage; exit 0 ;;
-	-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
-esac
-[ $# -le 1 ] || { usage >&2; exit 1; }
+OPEN_ARGS=()
+DIR=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-h|--help) usage; exit 0 ;;
+		--name) [ $# -ge 2 ] || { echo "--name needs a value" >&2; exit 1; }; OPEN_ARGS+=(--name "$2"); shift ;;
+		--name=*) OPEN_ARGS+=("$1") ;;
+		-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+		*) [ -z "$DIR" ] || { echo "Only one DIR allowed" >&2; exit 1; }; DIR="$1" ;;
+	esac
+	shift
+done
 
 BIN="$(cd "$(dirname "$0")" && pwd -P)"
-DIR="${1:-$PWD}"
+DIR="${DIR:-$PWD}"
 mkdir -p "$DIR"
 DIR="$(cd "$DIR" && pwd -P)"
 
@@ -50,4 +60,4 @@ if ! "$BIN/setup-obsidian-vault" --new "$DIR"; then
 	echo "If those files are Obsidian's first-open defaults (e.g. appearance.json is {}), move them aside and re-run." >&2
 	exit 1
 fi
-exec "$BIN/open-obsidian-vault" "$DIR"
+exec "$BIN/open-obsidian-vault" ${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"} "$DIR"

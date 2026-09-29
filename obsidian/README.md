@@ -15,6 +15,7 @@ graveyard resurrect f651445f
 `setup-obsidian-vault --new` - create a new Obsidian vault `.obsidian/` dir, and symlink the items in this dir to it.
 `init-obsidian-vault [DIR]` - make DIR (default: current dir) a vault: link the config, then open and verify it in Obsidian.
 `open-obsidian-vault [DIR]` - open DIR in Obsidian and verify its theme/snippets loaded.
+`--name "Display Name"` (either command) - show that name instead of the folder name, via a symlink in `~/.obsidian-vaults/`.
 `obsidian-vault-chat <path>` - agent-guided setup: runs the `setup-obsidian-vault` skill (`.claude/skills/`), verifies, and opens the vault in Obsidian.
 
 ## hotkeys.json

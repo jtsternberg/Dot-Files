@@ -367,6 +367,7 @@ _obsidian_vault_chat() {
 _init_obsidian_vault() {
 	_arguments \
 		'(-h --help)'{-h,--help}'[display help]' \
+		'--name[name Obsidian shows instead of the folder name]:display name:' \
 		'1:vault directory (default: current dir):_directories'
 }
 

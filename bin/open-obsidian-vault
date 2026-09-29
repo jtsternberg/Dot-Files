@@ -9,19 +9,27 @@
 # theme and CSS snippets match DIR/.obsidian/appearance.json, reloading a
 # window that was open before its config changed.
 #
-# Opens by path through the `vault-open` IPC call behind Obsidian's own "Open
-# folder as vault". That call registers an unknown folder, opens a closed
-# vault, and focuses an open one, so there is one path for every case. It is an
-# internal API (checked against Obsidian 1.14.2); if it stops returning `true`,
-# this fails loudly rather than guessing.
+# --name NAME sets the name Obsidian shows (sidebar, vault switcher, window
+# title), which is otherwise the folder's basename. Obsidian keeps the path it
+# was opened with, symlinks unresolved, so this opens DIR through the symlink
+# ~/.obsidian-vaults/NAME (override the dir with OBSIDIAN_VAULT_ALIASES) and
+# removes DIR's other vault-list entries, closing their windows first. Without
+# --name, an existing registration of DIR (e.g. an earlier --name) is reused.
+#
+# Opens through the `vault-open` IPC call behind Obsidian's own "Open folder as
+# vault". That call registers an unknown folder, opens a closed vault, and
+# focuses an open one, so there is one path for every case. It is an internal
+# API (checked against Obsidian 1.14.2); if it stops returning `true`, this
+# fails loudly rather than guessing.
 #
 # Every CLI call after opening targets the vault by its obsidian.json id, never
 # by name: names are folder basenames, two vaults can share one, and a
 # name-targeted call then silently reads the wrong window. A call with no
-# `vault=` at all hits whichever window was last active.
+# `vault=` at all hits whichever window was last active, and `vault=<id>` of a
+# closed vault opens it.
 #
 # Usage:
-# open-obsidian-vault [DIR]
+# open-obsidian-vault [--name NAME] [DIR]
 # =============================================================================
 set -euo pipefail
 
@@ -33,12 +41,19 @@ usage() {
 	sed -n 's/^# \{0,1\}//; /^Usage:/,/^=/p' "$0" | sed '$d'
 }
 
-case "${1:-}" in
-	-h|--help) usage; exit 0 ;;
-	-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
-esac
-[ $# -le 1 ] || { usage >&2; exit 1; }
-DIR="${1:-$PWD}"
+NAME=
+DIR=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-h|--help) usage; exit 0 ;;
+		--name) [ $# -ge 2 ] || die "--name needs a value"; NAME="$2"; shift ;;
+		--name=*) NAME="${1#--name=}" ;;
+		-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+		*) [ -z "$DIR" ] || die "only one DIR allowed"; DIR="$1" ;;
+	esac
+	shift
+done
+DIR="${DIR:-$PWD}"
 [ "$(uname -s)" = Darwin ] || die "macOS only"
 [ -d "$DIR/.obsidian" ] || die "no .obsidian dir in $DIR; run setup-obsidian-vault or init-obsidian-vault first"
 VAULT="$(cd "$DIR" && pwd -P)"
@@ -53,8 +68,10 @@ eval_in() {
 	[ "${out#=> }" != "$out" ] || return 1
 	printf '%s\n' "${out#=> }"
 }
+js_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
 
-vault_id() {
+# Registered vaults that resolve to VAULT: "id<TAB>open(0|1)<TAB>path" lines.
+entries() {
 	python3 - "$VAULTS_JSON" "$VAULT" <<-'EOF'
 	import json, os, sys
 	try:
@@ -63,10 +80,30 @@ vault_id() {
 	    sys.exit(0)
 	for vid, v in vaults.items():
 	    if os.path.realpath(v.get("path", "")) == sys.argv[2]:
-	        print(vid)
-	        break
+	        print("%s\t%d\t%s" % (vid, bool(v.get("open")), v["path"]))
 	EOF
 }
+
+if [ -n "$NAME" ]; then
+	case "$NAME" in
+		*/*|.|..) die "--name can't contain / or be . or .." ;;
+	esac
+	ALIASES="${OBSIDIAN_VAULT_ALIASES:-$HOME/.obsidian-vaults}"
+	OPEN_PATH="$ALIASES/$NAME"
+	if [ -L "$OPEN_PATH" ]; then
+		[ "$(cd "$OPEN_PATH" 2>/dev/null && pwd -P)" = "$VAULT" ] ||
+			die "$OPEN_PATH already links to $(readlink "$OPEN_PATH")"
+	elif [ -e "$OPEN_PATH" ]; then
+		die "$OPEN_PATH exists and is not a symlink"
+	else
+		mkdir -p "$ALIASES"
+		ln -s "$VAULT" "$OPEN_PATH"
+		echo "Named: $OPEN_PATH -> $VAULT"
+	fi
+else
+	OPEN_PATH="$(entries | head -1 | cut -f3)"
+	OPEN_PATH="${OPEN_PATH:-$VAULT}"
+fi
 
 # The CLI blocks while the app is still booting, so wait for it to answer.
 pgrep -xq Obsidian || open -a Obsidian
@@ -76,25 +113,41 @@ for _ in $(seq 30); do
 done
 [ -n "$(cli version)" ] || die "Obsidian CLI never answered; is the app running?"
 
-path_js="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$VAULT")"
-opened="$(cli eval code="window.electron.ipcRenderer.sendSync('vault-open', $path_js, false)")"
+opened="$(cli eval code="window.electron.ipcRenderer.sendSync('vault-open', $(js_str "$OPEN_PATH"), false)")"
 if [ "$opened" != "=> true" ]; then
 	die "vault-open returned: ${opened:-nothing}
-  No vault window may be open for the CLI to run in. Open $VAULT with
+  No vault window may be open for the CLI to run in. Open $OPEN_PATH with
   \"Open folder as vault\" in Obsidian's vault switcher, then re-run."
 fi
 
 ID=
 for _ in $(seq 20); do
-	ID="$(vault_id)"
-	if [ -n "$ID" ] && [ "$(eval_in "$ID" 'app.vault.adapter.basePath' || true)" = "$VAULT" ]; then
+	ID="$(entries | awk -F'\t' -v p="$OPEN_PATH" '$3 == p { print $1; exit }')"
+	if [ -n "$ID" ] && [ "$(eval_in "$ID" 'app.vault.adapter.basePath' || true)" = "$OPEN_PATH" ]; then
 		break
 	fi
 	ID=
 	sleep 1
 done
-[ -n "$ID" ] || die "$VAULT never showed up as a loaded vault"
-echo "Opened: $VAULT (vault id $ID)"
+[ -n "$ID" ] || die "$OPEN_PATH never showed up as a loaded vault"
+echo "Opened: $OPEN_PATH (vault id $ID)"
+
+if [ -n "$NAME" ]; then
+	while IFS="$(printf '\t')" read -r old_id old_open old_path; do
+		[ -n "$old_id" ] && [ "$old_id" != "$ID" ] || continue
+		if [ "$old_open" = 1 ]; then
+			cli vault="$old_id" eval code="setTimeout(() => window.close(), 200); 'closing'" >/dev/null
+			sleep 2
+		fi
+		if [ "$(eval_in "$ID" "window.electron.ipcRenderer.sendSync('vault-remove', $(js_str "$old_path"))" || true)" = true ]; then
+			echo "Removed old vault entry: $old_path"
+		else
+			echo "Couldn't remove old vault entry $old_path; remove it in the vault switcher." >&2
+		fi
+	done <<-EOF
+	$(entries)
+	EOF
+fi
 
 # Expected values come from the vault's own (linked) appearance.json, so this
 # checks what Obsidian loaded against what is on disk.
