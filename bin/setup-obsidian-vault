@@ -126,6 +126,8 @@ echo "Vault config: $VAULT_CONFIG"
 
 LINK_NAMES=()
 CONFLICTS=()
+# `*` skips dotfiles on purpose: obsidian/.claude/ (the agent skill) must never
+# land in a vault's config. Don't enable dotglob here.
 for src in "$SOURCE_ROOT"/*; do
 	[ -e "$src" ] || continue
 	name="$(basename "$src")"
