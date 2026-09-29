@@ -202,6 +202,7 @@ class GitUserLogger {
 			if ('' === $gitDirCheck) {
 				$this->cli->msg("{$reponame} cache broken, re-cloning...", 'yellow', false);
 				`rm -rf "$repodir"`;
+				clearstatcache(true, $repodir);
 			}
 		}
 
