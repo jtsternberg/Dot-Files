@@ -398,7 +398,12 @@ for v in json.load(open(sys.argv[1])).get("vaults", {}).values():
 	compadd "$@" -Q -d displays -a words
 }
 
+# An empty word offers only the known vaults; every folder under the cwd would
+# bury them. Typing anything widens it to directories too.
 _obsidian_vault_targets() {
+	if [[ -z $PREFIX$SUFFIX ]]; then
+		_wanted vaults expl 'known vault' _obsidian_known_vaults && return 0
+	fi
 	_alternative \
 		'vaults:known vault:_obsidian_known_vaults' \
 		'dirs:directory:_directories'
@@ -426,3 +431,7 @@ compdef _setup_obsidian_vault setup-obsidian-vault
 compdef _obsidian_vault_chat obsidian-vault-chat
 compdef _init_obsidian_vault init-obsidian-vault
 compdef _open_obsidian_vault open-obsidian-vault
+# Headers keep the known vaults apart from plain directories, scoped to this
+# command so the shell's other completions keep their own look.
+zstyle ':completion:*:*:open-obsidian-vault:*' group-name ''
+zstyle ':completion:*:*:open-obsidian-vault:*:descriptions' format '%F{yellow}-- %d --%f'
