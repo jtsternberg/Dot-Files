@@ -80,7 +80,8 @@ Report: vault path, linked entries, and the `Verified:` line.
 - **Call `obsidian-cli`, never `obsidian`.** `obsidian` on PATH is the app
   binary itself: it launches Obsidian when it isn't running and hangs while it
   boots. `obsidian-cli` talks to the running app and exits 1 at once if it
-  can't reach it.
+  can't reach it. Wrapped in `timeout` from a terminal, give it `</dev/null`:
+  it touches a terminal stdin and gets stopped (prints, then hangs).
 - **`obsidian-cli help`, not `--help`.** The CLI's commands are bare words.
 - **It still exits 0 on failure** (`Vault not found.`, `Error:` from `eval`).
   Check the output, not the exit code.
