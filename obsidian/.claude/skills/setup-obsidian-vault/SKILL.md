@@ -25,8 +25,11 @@ setup-obsidian-vault -n "$VAULT"
   the real run.
 - `Multiple .obsidian dirs at the same depth` → show the list, ask which one.
 - `Aborting; nothing changed` → the vault already has its own config there.
-  **Stop and show JT the conflicts.** Never delete or move them to make room;
-  that config may be the only copy.
+  **Stop and show JT the conflicts** (with contents — `{}` or a few default
+  keys means Obsidian wrote them on first open). There is no force flag. Only on
+  JT's OK, move them aside, never `rm`:
+  `mkdir "$VAULT/.obsidian.bak-$(date +%Y%m%d%H%M%S)"` and `mv` the conflicting
+  entries into it, then re-run.
 - The printed `Vault config:` dir may be below `$VAULT`. From here on, `VAULT`
   is its parent (the real vault root).
 
@@ -45,37 +48,34 @@ Every entry of `~/.dotfiles/obsidian/` except dotfiles and OS junk must be a
 symlink into it, and none may dangle (`test -e` on each). A vault's own extra
 files (`workspace.json`, `plugins/`, ...) are expected and fine.
 
-## 4. Open in Obsidian
-
-Needs the Obsidian CLI (`obsidian`, Settings → General → Command line interface)
-and the app running (`open -a Obsidian`, then wait a few seconds).
-
-Registered vaults are listed by `obsidian vaults verbose` (name, tab, path).
-
-- **Already registered** → `open "obsidian://open?path=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$VAULT")"`.
-  If that vault window was already open, reload it so it rereads the config:
-  `obsidian vault="<name>" command id=app:reload`.
-- **Not registered** → the `obsidian://` URI can't open it. Use the IPC call
-  behind Obsidian's own "Open folder as vault" (internal API; `true` = opened):
-
-  ```bash
-  obsidian eval code="window.electron.ipcRenderer.sendSync('vault-open', '$VAULT', false)"
-  ```
-
-  If it returns anything but `true`, or `eval` isn't available, tell JT to use
-  "Open folder as vault" in Obsidian's vault switcher and pick `$VAULT`.
-
-## 5. Verify Obsidian loaded the config
-
-`<name>` = the vault's name in `obsidian vaults verbose`.
+## 4. Open and verify in Obsidian
 
 ```bash
-obsidian vault="<name>" theme
-obsidian vault="<name>" snippets:enabled
+~/.dotfiles/obsidian/.claude/skills/setup-obsidian-vault/scripts/open-vault.sh "$VAULT"
 ```
 
-Theme must equal `cssTheme` in `~/.dotfiles/obsidian/appearance.json`, and the
-enabled snippets must match its `enabledCssSnippets`. Mismatch → reload
-(step 4) and check again; still wrong → report both values.
+It starts Obsidian if needed, opens the vault by path (registered or not),
+reloads a window that predates the links, and checks the loaded theme and
+snippets against the vault's `appearance.json`. Exit 0 prints `Verified:`.
+On failure, report its message; if it says `vault-open` failed, tell JT to
+use "Open folder as vault" in the vault switcher, then re-run the script.
 
-Report: vault path, linked entries, and the theme/snippet check result.
+Needs the Obsidian CLI: Settings → General → Command line interface.
+
+Report: vault path, linked entries, and the `Verified:` line.
+
+## Footguns
+
+- **Link before opening.** Opening a folder in Obsidian writes default
+  `app.json`, `appearance.json`, `core-plugins.json` at once, and those then
+  conflict with the links (step 1).
+- **`obsidian help`, not `obsidian --help`.** The CLI's commands are bare words.
+- **The CLI exits 0 on failure** (`Vault not found.`) and blocks while the app
+  is still booting. Wrap calls in `timeout`; check output, not exit code.
+- **Target vaults by id, never by name**: `obsidian vault=<id> ...`, the id
+  being the vault's key in `~/Library/Application Support/obsidian/obsidian.json`.
+  A name is the folder's basename, two vaults can share it, and a name-targeted
+  call then reads the wrong window. A call with no `vault=` hits whichever
+  window was last active.
+- **Renaming a vault renames its folder** (the switcher's rename moves it on
+  disk). To fix a name collision, rename the folder with JT's OK.
