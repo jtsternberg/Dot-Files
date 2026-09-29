@@ -9,6 +9,9 @@
 # theme and CSS snippets match DIR/.obsidian/appearance.json, reloading a
 # window that was open before its config changed.
 #
+# DIR may also be the name of a vault Obsidian already knows (what its vault
+# switcher shows), when no directory by that name exists here.
+#
 # --name NAME sets the name Obsidian shows (sidebar, vault switcher, window
 # title), which is otherwise the folder's basename. Obsidian keeps the path it
 # was opened with, symlinks unresolved, so this opens DIR through the symlink
@@ -29,7 +32,7 @@
 # closed vault opens it.
 #
 # Usage:
-# open-obsidian-vault [--name NAME] [DIR]
+# open-obsidian-vault [--name NAME] [DIR|VAULT_NAME]
 # =============================================================================
 set -euo pipefail
 
@@ -55,6 +58,26 @@ while [ $# -gt 0 ]; do
 done
 DIR="${DIR:-$PWD}"
 [ "$(uname -s)" = Darwin ] || die "macOS only"
+
+if [ ! -d "$DIR" ] && [ "${DIR#*/}" = "$DIR" ]; then
+	matches="$(python3 - "$VAULTS_JSON" "$DIR" <<-'EOF'
+	import json, os, sys
+	try:
+	    vaults = json.load(open(sys.argv[1]))["vaults"]
+	except (OSError, ValueError, KeyError):
+	    sys.exit(0)
+	for v in vaults.values():
+	    if os.path.basename(v.get("path", "").rstrip("/")) == sys.argv[2]:
+	        print(v["path"])
+	EOF
+	)"
+	case "$(printf '%s' "$matches" | grep -c '^')" in
+		0) die "no directory or known vault named $DIR" ;;
+		1) DIR="$matches" ;;
+		*) die "several known vaults are named $DIR; pass one's path:
+$(printf '%s\n' "$matches" | sed 's/^/  /')" ;;
+	esac
+fi
 [ -d "$DIR/.obsidian" ] || die "no .obsidian dir in $DIR; run setup-obsidian-vault or init-obsidian-vault first"
 VAULT="$(cd "$DIR" && pwd -P)"
 command -v obsidian >/dev/null || die "obsidian CLI not on PATH (Settings → General → Command line interface)"

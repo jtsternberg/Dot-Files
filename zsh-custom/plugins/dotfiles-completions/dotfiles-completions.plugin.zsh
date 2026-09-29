@@ -371,31 +371,27 @@ _init_obsidian_vault() {
 		'1:vault directory (defaults to the current dir):_directories'
 }
 
-# Vaults Obsidian already knows, from its own registry. Candidates are the
-# registered paths with $HOME shown as ~, listed with the vault's name.
+# Vaults Obsidian already knows, from its own registry, offered by the name its
+# vault switcher shows (open-obsidian-vault accepts a name), with the path
+# alongside. Names, not paths, so substring matchers match what JT types.
 _obsidian_known_vaults() {
 	local cfg="$HOME/Library/Application Support/obsidian/obsidian.json"
 	[[ -r $cfg ]] || cfg="$HOME/.config/obsidian/obsidian.json"
 	[[ -r $cfg ]] || return 1
 
-	local -a paths words displays
+	local -a paths names displays
 	paths=( ${(f)"$(python3 -c 'import json, sys
 for v in json.load(open(sys.argv[1])).get("vaults", {}).values():
     print(v.get("path", ""))' "$cfg" 2>/dev/null)"} )
-	(( $#paths )) || return 1
 
 	local p
 	for p in $paths; do
 		[[ -d $p ]] || continue
-		if [[ $p == $HOME/* ]]; then
-			words+=( "~/${(q)p#$HOME/}" )
-		else
-			words+=( "${(q)p}" )
-		fi
+		names+=( "${p:t}" )
 		displays+=( "${p:t}  (${p/#$HOME/~})" )
 	done
-	(( $#words )) || return 1
-	compadd "$@" -Q -d displays -a words
+	(( $#names )) || return 1
+	compadd "$@" -d displays -a names
 }
 
 # An empty word offers only the known vaults; every folder under the cwd would
