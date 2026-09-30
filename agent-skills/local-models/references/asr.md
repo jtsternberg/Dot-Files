@@ -156,8 +156,9 @@ a store flip (see [stores.md](stores.md) footgun 6).
 5. **`.en` models on non-English audio fail silently** — fluent, wrong English.
 6. **A running MacWhisper caches its list at launch.** After a store flip,
    relaunch before concluding a model is missing. "WhisperKit Model was not
-   found" after a flip means the selected model isn't in that store; see
-   `WHISPER_MODEL_LOCAL` in [stores.md](stores.md).
+   found" (or any model failing) after a flip means the selected model isn't in
+   that store; the flip warns per mode. See `WHISPER_MODEL_LOCAL` in
+   [stores.md](stores.md).
 7. **Size is not speed across runtimes.** A 1.2 GB CoreML bundle can beat a 500 MB
    GGML one on this hardware. Only a measurement settles it.
 

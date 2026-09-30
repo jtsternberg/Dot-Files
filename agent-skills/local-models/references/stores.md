@@ -149,19 +149,21 @@ ever restarts an app.
    job). `AIMODELS_NO_RESTART=1` disables it. Ollama needs no equivalent: it
    resolves new loads through the symlink, and `eject` unloads what is cached.
 6. **MacWhisper remembers a model id, not a store.** Flipping to a store that
-   lacks the selected model fails in the app with "WhisperKit Model was not found
-   at expected location". Set `WHISPER_MODEL_LOCAL` / `WHISPER_MODEL_EXTERNAL` in
-   `~/.config/auto-commit-ollama/config` (the shared local-model config) and a
-   real switch rewrites the file-transcription and dictation model while the app
-   is quit (a running app overwrites the pref). Live transcription keeps its own
-   choice. The model must be a WhisperKit bundle in the target store, or the
-   switch leaves the selection alone and warns. The same busy vetoes skip the
-   write; every flip warns about any runner whose WhisperKit model the store
-   lacks. A non-WhisperKit selection (Qwen3-ASR, Parakeet) is neither
-   re-selected nor checked: a flip to local replaces it with
-   `WHISPER_MODEL_LOCAL` for file and dictation, leaves live transcription on a
-   model the local store lacks without warning, and the next flip to AI-LAB
-   selects `WHISPER_MODEL_EXTERNAL` rather than restoring it.
+   lacks the selected model fails in the app ("WhisperKit Model was not found at
+   expected location" for WhisperKit). Set `WHISPER_MODEL_LOCAL` /
+   `WHISPER_MODEL_EXTERNAL` in `~/.config/auto-commit-ollama/config` (the shared
+   local-model config) to an `mw models list` id of any engine
+   (`qwen3-asr:qwen3-asr-1.7b`, `whisperkit:openai_whisper-small`; a bare id means
+   WhisperKit), and a real switch selects it for file transcription, dictation
+   and live transcription. A running app gets `mw models select` after its
+   restart, since mw validates against the list the app cached at launch; a quit
+   app gets a direct prefs write instead, because `mw models select` would launch
+   it — except whisper-cpp, whose runner config only the app can write, so that
+   case warns. The model must be in the target store, or the switch leaves the
+   selection alone and warns; the busy vetoes skip the selection too. Every flip
+   then warns about any mode, of any engine, whose model the store lacks — e.g.
+   live transcription after selecting a whisper-cpp model, which `mw` does not
+   apply to live.
 7. **A diarization bundle downloaded while on AI-LAB is drive-bound.** The app
    fetches `speakerkit`/`speakerkit-pro` into whichever store is active and
    chooses between them itself, so one that is `·X` breaks `--speakers` after an

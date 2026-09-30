@@ -131,7 +131,7 @@
             "location": "external"
         },
         "qwen3-asr:qwen3-asr-1.7b": {
-            "when": "Qwen3-ASR 1.7B (Pro): accuracy-oriented, 30 languages plus 22 Chinese dialects, supports speaker recognition; the pick for Chinese. Drive-bound: 1.77 GB per the app, 1384 MB on disk. Active in MacWhisper for file, dictation and live since 2026-09-30, but a store flip does not preserve it.",
+            "when": "Qwen3-ASR 1.7B (Pro): accuracy-oriented, 30 languages plus 22 Chinese dialects, supports speaker recognition; the pick for Chinese. Drive-bound: 1.77 GB per the app, 1384 MB on disk. WHISPER_MODEL_EXTERNAL: selected for file, dictation and live on a flip to AI-LAB.",
             "tested": "Vendor-positioned as accuracy-oriented and slower; not yet measured here.",
             "tags": [
                 "asr",
@@ -174,7 +174,7 @@
             "location": "both"
         },
         "whisperkit:openai_whisper-large-v3-v20240930": {
-            "when": "Large v3 Turbo: accuracy-oriented multilingual WhisperKit, 1.5 GB, drive-bound (gone when AI-LAB is ejected). WHISPER_MODEL_EXTERNAL, re-selected on a flip to AI-LAB.",
+            "when": "Large v3 Turbo: accuracy-oriented multilingual WhisperKit, 1.5 GB, drive-bound (gone when AI-LAB is ejected).",
             "tested": "Not measured against Qwen3-ASR here; compare on the actual audio when accuracy decides it.",
             "tags": [
                 "asr",
