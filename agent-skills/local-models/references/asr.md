@@ -70,8 +70,8 @@ mw models select            # change the app's active default
 - **English-only vs multilingual.** `*.en` (`ggml-model-whisper-*.en`) are
   English-only — a non-English clip through one produces confident garbage.
   WhisperKit `openai_whisper-*` are multilingual; Parakeet v3 covers a European
-  language set, not all of Whisper's; Qwen3-ASR covers 22 languages including
-  Chinese dialects (per the app's model description).
+  language set, not all of Whisper's; Qwen3-ASR covers 30 languages plus 22
+  Chinese dialects (Qwen model card; MacWhisper's "22 languages" undercounts).
 - **Offline-safe or drive-bound.** From `aimodels status`, not from size.
 - **Runtime.** WhisperKit/Parakeet/Qwen3-ASR are CoreML (`*.mlmodelc`, Neural Engine);
   whisper-cpp `.bin` are CPU/GGML. Different performance regimes; do not compare
@@ -127,7 +127,7 @@ Installed, and which store holds them:
 | `whisper-cpp:ggml-model-whisper-{tiny,base,small}.en` | local + AI-LAB | English-only, offline-safe |
 | `whisperkit:openai_whisper-large-v3-v20240930` | **AI-LAB only** | 1.5 GB, gone when ejected; `WHISPER_MODEL_EXTERNAL`, re-selected on a flip to AI-LAB |
 | `parakeet-pro:nvidia_parakeet-v3` | **AI-LAB only** | 1.2 GB, gone when ejected |
-| `qwen3-asr:qwen3-asr-1.7b` | **AI-LAB only** | 1.77 GB per the app, 1384 MB on disk; Pro; 22 languages incl. Chinese dialects; vendor-positioned as accuracy-oriented and slower; supports speaker recognition. Active in MacWhisper for file, dictation and live since 2026-09-30, but a flip does not preserve it (see [stores.md](stores.md) footgun 6) |
+| `qwen3-asr:qwen3-asr-1.7b` | **AI-LAB only** | 1.77 GB per the app, 1384 MB on disk; Pro; 30 languages + 22 Chinese dialects; vendor-positioned as accuracy-oriented and slower; supports speaker recognition. Active in MacWhisper for file, dictation and live since 2026-09-30, but a flip does not preserve it (see [stores.md](stores.md) footgun 6) |
 | `speakerkit` | local + AI-LAB | pyannote diarization support (segmenter/embedder v3, clusterer v4), 32 MB |
 | `speakerkit-pro` | local + AI-LAB | NVIDIA Nemotron 3 diarization (sortformer), up to 8 speakers, 74 MB |
 
