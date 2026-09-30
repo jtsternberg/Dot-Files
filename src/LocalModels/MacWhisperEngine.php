@@ -549,6 +549,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 
 			foreach ( $this->modelsIn( $store ) as $key => $model ) {
 				$rows[ $key ] ??= [
+					'id'        => $this->modelId( $model ),
 					'engine'    => $this->name(),
 					'name'      => $model['name'],
 					'framework' => $model['framework'],
@@ -572,6 +573,31 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 		}
 
 		return array_values( $rows );
+	}
+
+	/**
+	 * The ID `mw models list` prints for a bundle, which is what `aimodels why`
+	 * keys notes by. `mw` only lists the active store, so the ID is derived from
+	 * the bundle's path to cover the store that is not active (or not mounted).
+	 * Qwen3-ASR is the exception to "<prefix>:<leaf>": its leaf is the size.
+	 * Support bundles have no mw ID, so they take the engine's own prefix.
+	 *
+	 * @param array<string, mixed> $model
+	 */
+	private function modelId( array $model ): string {
+		$relative = (string) $model['relative'];
+		$name     = (string) $model['name'];
+
+		if ( 'support' === $model['kind'] ) {
+			return $this->name() . ':' . $name;
+		}
+
+		return match ( true ) {
+			'whisper-cpp' === $model['framework']              => 'whisper-cpp:' . $name,
+			str_contains( $relative, '/qwenasrkit-pro/qwen3-asr/' ) => 'qwen3-asr:qwen3-asr-' . $name,
+			str_contains( $relative, '/parakeetkit-pro/' )    => 'parakeet-pro:' . $name,
+			default                                           => $model['framework'] . ':' . $name,
+		};
 	}
 
 	/**

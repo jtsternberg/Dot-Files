@@ -112,6 +112,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 		foreach ( [ self::LOCAL, self::EXTERNAL ] as $location ) {
 			foreach ( $this->tagsIn( $this->storePath( $location ) ) as $tag ) {
 				$rows[ $tag ] ??= [
+					'id'        => $this->name() . ':' . $tag,
 					'engine'    => $this->name(),
 					'name'      => $tag,
 					'framework' => 'ollama',

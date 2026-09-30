@@ -101,6 +101,28 @@ final class MacWhisperStoreTest extends TestCase {
 		$this->assertNotContains( 'whisperkit-coreml', $names, 'registry catalog is not a model' );
 	}
 
+	/**
+	 * `aimodels why` keys MacWhisper notes by the ID `mw models list` prints, so
+	 * residency must carry that ID. Qwen3-ASR is the one whose leaf ('1.7b') is
+	 * not the ID's name.
+	 */
+	public function testResidencyRowsCarryTheMwModelId(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		$this->weights( $this->external, 'whisperkit/models/argmaxinc/whisperkit-coreml/openai_whisper-large-v3-v20240930' );
+		$this->weights( $this->external, 'whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr/text_decoder/1.7b' );
+		$this->weights( $this->external, 'whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr/audio_encoder/1.7b' );
+
+		$ids = array_column( $this->engine()->residency(), 'id', 'name' );
+
+		$this->assertSame( 'whisperkit:openai_whisper-small', $ids['openai_whisper-small'] );
+		$this->assertSame( 'whisperkit:openai_whisper-large-v3-v20240930', $ids['openai_whisper-large-v3-v20240930'] );
+		$this->assertSame( 'parakeet-pro:nvidia_parakeet-v3', $ids['nvidia_parakeet-v3'] );
+		$this->assertSame( 'qwen3-asr:qwen3-asr-1.7b', $ids['1.7b'] );
+		$this->assertSame( 'whisper-cpp:ggml-model-whisper-small.en', $ids['ggml-model-whisper-small.en'] );
+		$this->assertSame( 'macwhisper:speakerkit', $ids['speakerkit'] );
+	}
+
 	public function testResidencyReportsWhisperCppBinsAsModels(): void {
 		$this->seedLocal();
 		$this->seedExternalAsSuperset();

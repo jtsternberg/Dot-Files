@@ -63,6 +63,15 @@ final class OllamaStoreTest extends TestCase {
 		$this->assertFalse( $rows['qwen3.5:35b']['available'] );
 	}
 
+	/** `aimodels why` keys notes by this id, so it must be engine-qualified. */
+	public function testResidencyRowsCarryAnEngineQualifiedId(): void {
+		$this->seedModel( $this->home . '/.ollama-local-models', 'qwen3.5', '9b' );
+
+		$rows = ( new OllamaEngine( $this->home, $this->volumes ) )->residency();
+
+		$this->assertSame( 'ollama:qwen3.5:9b', $rows[0]['id'] );
+	}
+
 	public function testResidencyIsEmptyWhenNoStoreHasManifests(): void {
 		mkdir( $this->home . '/.ollama-local-models', 0777, true );
 
