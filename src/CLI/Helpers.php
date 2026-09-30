@@ -259,8 +259,9 @@ class Helpers {
 			if ( 0 === strpos( $flag, '-' ) ) {
 
 				if ( 0 === strpos( $flag, '--' ) ) {
-					$parts = explode( '=', $flag );
-					$this->flags[ substr( $parts[0], 2 ) ] = ! empty( $parts[1] ) ? $parts[1] : '';
+					// Limit 2: the value may itself contain '='.
+					$parts = explode( '=', $flag, 2 );
+					$this->flags[ substr( $parts[0], 2 ) ] = $parts[1] ?? '';
 				} else {
 					$short = substr( $flag, 1 );
 					$this->shortFlags[ $short ] = $short;

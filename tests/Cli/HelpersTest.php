@@ -66,6 +66,35 @@ class HelpersTest extends TestCase
 	}
 
 	/**
+	 * A value is everything after the FIRST '=': splitting on every '=' stored
+	 * `--speed="num_ctx=65536 ..."` as just "num_ctx" and silently truncated
+	 * saved notes.
+	 */
+	public function testLongFlagValueKeepsEveryEqualsSignAfterTheFirst(): void
+	{
+		$cli = Helpers::getInstance()->setArgs(['tool', '--speed=num_ctx=65536 fits, a=b', '--eq==']);
+
+		$this->assertSame('num_ctx=65536 fits, a=b', $cli->getFlag('speed'));
+		$this->assertSame('=', $cli->getFlag('eq'));
+	}
+
+	/**
+	 * '0' is a real value (a count, a port, a boolean-ish "off"); an empty()
+	 * check used to turn it into ''. A bare `--flag` and `--flag=` both stay ''
+	 * — callers such as the extractTitle / optionalValue paths read '' as
+	 * "present without a value".
+	 */
+	public function testLongFlagZeroValueIsPreservedWhileEmptyAndBareStayEmptyString(): void
+	{
+		$cli = Helpers::getInstance()->setArgs(['tool', '--n=0', '--blank=', '--bare']);
+
+		$this->assertSame('0', $cli->getFlag('n'));
+		$this->assertSame('', $cli->getFlag('blank'));
+		$this->assertSame('', $cli->getFlag('bare'));
+		$this->assertTrue($cli->hasFlag('bare'));
+	}
+
+	/**
 	 * isYes/isNo are a matched pair: both lowercase the answer, so both word
 	 * forms must be listed lowercase. isNo listed 'No' (capital N) — unreachable
 	 * after strtolower — so "no"/"No"/"NO" all read as NOT-no. That is not

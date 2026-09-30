@@ -138,6 +138,20 @@ final class CommandFrameworkTest extends TestCase {
 		$this->assertSame( [ [ 'run', 'dotfiles', 'git status' ] ], $handler->calls );
 	}
 
+	public function testDispatcherBindsAnOptionValueContainingEqualsSignsAndZeroVerbatim(): void {
+		$handler = new DemoCommand();
+		$this->cli->setArgs( [ 'demo', 'dotfiles', '--fallback=FOO=1 BAR=0 make' ] );
+		( new Dispatcher( $this->cli, $handler ) )->run();
+
+		$this->cli->setArgs( [ 'demo', 'dotfiles', '--fallback=0' ] );
+		( new Dispatcher( $this->cli, $handler ) )->run();
+
+		$this->assertSame(
+			[ [ 'run', 'dotfiles', 'FOO=1 BAR=0 make' ], [ 'run', 'dotfiles', '0' ] ],
+			$handler->calls
+		);
+	}
+
 	public function testDispatcherReportsAMissingRequiredArgumentWithoutCallingTheHandler(): void {
 		$handler = new DemoCommand();
 		$this->cli->setArgs( [ 'demo', 'greet' ] );
