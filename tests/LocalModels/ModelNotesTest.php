@@ -200,7 +200,7 @@ final class ModelNotesTest extends TestCase {
 		$this->assertSame( [], $notes->data()['graveyard'] );
 	}
 
-	/** `ollamodels reconcile` calls this after linking a local model into AI-LAB. */
+	/** `aimodels ollama reconcile` calls this after linking a local model into AI-LAB. */
 	public function testPromoteLocalToBoth(): void {
 		$this->writeLegacy( $this->legacy() );
 		$notes = new ModelNotes( $this->file );

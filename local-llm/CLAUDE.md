@@ -29,7 +29,7 @@ coding model). Meanwhile **aider** is the primary offline coding tool; **pi** is
 the secondary for ambiguous/exploratory work; plain `ollama run` for quick Q&A. **MLX acceleration is model-specific and hardware-specific**:
 it helps some Gemma models but is a net loss for the qwen3.5 NVFP4
 family on M2 (the advertised 2× is M5-only). Model bookkeeping lives in two
-custom CLIs (`aimodels why`, `ollamodels`) plus `llmfit` for hardware-aware
+custom CLIs (`aimodels why`, `aimodels ollama`) plus `llmfit` for hardware-aware
 benchmarking.
 
 ---
@@ -123,10 +123,13 @@ results so we never re-pull a known-bad model. Covers Ollama and MacWhisper;
 - `aimodels why rm <model> --delete-model [--tested=…]` — archive note + `ollama rm`.
 - `aimodels why history` — the graveyard. `aimodels why locate <model> <loc>`.
 
-### `ollamodels` — dual-store reconcile (`~/.dotfiles/bin/ollamodels`)
+### `aimodels ollama` — store flip + dual-store reconcile
 Manages models split across the internal SSD and a Thunderbolt SD card.
-- `ollamodels reconcile [--dry-run] [-y]` — symlinks local-primary models into
-  the SD tree (**strictly local → SD**; reverse would dangle on eject).
+`ollamodels` is a backward-compatible shim for it (`-y` accepted, ignored).
+- `aimodels ollama local|sd|auto` — point `~/.ollama-models` at a store.
+- `aimodels ollama reconcile [--dry-run]` — symlinks local-primary models into
+  the SD tree (**strictly local → SD**; reverse would dangle on eject), and
+  promotes a `local` note to `both`.
 - ⚠️ **UNVERIFIED DANGER:** it is *not yet tested* whether `ollama rm` on the SD
   store follows symlinks and deletes the local originals. Until verified, do
   `ollamodels local && ollama rm <model>`. Loud warnings ship in the tool.
@@ -134,7 +137,7 @@ Manages models split across the internal SSD and a Thunderbolt SD card.
 **Storage layout:**
 - Local store: `~/.ollama-local-models/`
 - SD store: `/Volumes/AI-LAB/ollama/models/`
-- Active store: `~/.ollama-models` → symlink (managed by `ollamodels`), currently
+- Active store: `~/.ollama-models` → symlink (managed by `aimodels`), currently
   pointing at the SD store.
 
 ### `llmfit` — hardware-aware model picker + real benchmarker (installed via brew)

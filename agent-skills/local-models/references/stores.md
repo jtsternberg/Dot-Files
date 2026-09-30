@@ -108,7 +108,8 @@ ever restarts an app.
   model whose bundle is a symlink; it becomes loadable only by explicit
   `--model <id>` and invisible everywhere else. This is why relocation is a
   whole-directory store flip and why MacWhisper's `reconcile` **copies**. Ollama
-  has no such problem, and its `reconcile` symlinks local→SD as it always has.
+  has no such problem, and its `reconcile` symlinks local→SD (`ollamodels` is
+  now just a shim for `aimodels ollama`).
 - **Never point a store symlink at a real directory that holds data, and never
   delete one.** `aimodels` refuses by design; keep it that way.
 - **`reconcile` is additive.** Everything flows local → external, because the

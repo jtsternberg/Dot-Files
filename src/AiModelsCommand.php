@@ -133,7 +133,7 @@ final class AiModelsCommand {
 	public function ollama(
 		#[Argument( description: 'local | sd | external | auto (default) | reconcile' )]
 		string $action = 'auto',
-		#[Option( name: 'dry-run', aliases: [ 'n' ], description: 'Report the flip without making it.' )]
+		#[Option( name: 'dry-run', aliases: [ 'n' ], description: 'Report the flip or reconcile without making it.' )]
 		bool $dryRun = false
 	): int {
 		return $this->engineAction( 'ollama', $action, $dryRun );
@@ -145,7 +145,7 @@ final class AiModelsCommand {
 	public function whisper(
 		#[Argument( description: 'local | external | auto (default) | reconcile' )]
 		string $action = 'auto',
-		#[Option( name: 'dry-run', aliases: [ 'n' ], description: 'Report the flip without making it.' )]
+		#[Option( name: 'dry-run', aliases: [ 'n' ], description: 'Report the flip or reconcile without making it.' )]
 		bool $dryRun = false
 	): int {
 		return $this->engineAction( 'macwhisper', $action, $dryRun );
@@ -691,6 +691,38 @@ final class AiModelsCommand {
 		return array_merge( [ 'aimodels', 'why' ], $rest, $scoped ? [] : [ '--engine=ollama' ] );
 	}
 
+	/**
+	 * `bin/ollamodels` argv as the equivalent `aimodels` argv, or null for the
+	 * watcher verbs: the LaunchAgent now follows AI-LAB for every engine, so an
+	 * Ollama-only install/remove must not be mistaken for managing it.
+	 *
+	 * -y/--yes is dropped: `aimodels ollama reconcile` never prompts, because it
+	 * only ever adds symlinks.
+	 *
+	 * @param string[] $argv
+	 * @return string[]|null
+	 */
+	public static function ollamodelsArgv( array $argv ): ?array {
+		$action = null;
+		$flags  = [];
+		foreach ( array_slice( $argv, 1 ) as $arg ) {
+			if ( in_array( $arg, [ '-h', '--help' ], true ) ) {
+				return [ 'aimodels', 'help', 'ollama' ];
+			}
+			if ( in_array( $arg, [ '--dry-run', '-n' ], true ) ) {
+				$flags[] = '--dry-run';
+			} elseif ( ! str_starts_with( $arg, '-' ) ) {
+				$action ??= strtolower( $arg );
+			}
+		}
+
+		return match ( $action ) {
+			'help'                             => [ 'aimodels', 'help', 'ollama' ],
+			'installwatcher', 'removewatcher'  => null,
+			default                            => array_merge( [ 'aimodels', 'ollama', $action ?? 'auto' ], $flags ),
+		};
+	}
+
 	private function notes(): ModelNotes {
 		return $this->notes ??= new ModelNotes( ModelNotes::defaultPath( $this->home ) );
 	}
@@ -736,6 +768,10 @@ final class AiModelsCommand {
 			$this->cli->err( $label . $result->message );
 		} else {
 			$this->cli->output( $label . $result->message );
+		}
+
+		foreach ( $result->details as $detail ) {
+			$this->cli->output( '  ' . $detail );
 		}
 
 		foreach ( $result->warnings as $warning ) {
