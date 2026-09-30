@@ -36,12 +36,21 @@ class AppControl {
 			return null;
 		}
 
-		exec( 'pgrep -x ' . escapeshellarg( $app ) . ' 2>/dev/null', $out, $code );
+		exec( self::pgrep() . ' -x ' . escapeshellarg( $app ) . ' 2>/dev/null', $out, $code );
 		if ( 0 !== $code || empty( $out ) ) {
 			return null;
 		}
 
 		return (int) trim( (string) $out[0] );
+	}
+
+	/**
+	 * AIMODELS_PGREP_BIN is the test seam: every test stubs it to "nothing
+	 * running", so no engine built without a FakeAppControl can find, and then
+	 * quit, the developer's real app.
+	 */
+	public static function pgrep(): string {
+		return escapeshellarg( getenv( 'AIMODELS_PGREP_BIN' ) ?: 'pgrep' );
 	}
 
 	/**
@@ -121,7 +130,7 @@ class AppControl {
 				return true;
 			}
 
-			usleep( $sleepMicroseconds );
+			Sleeper::usleep( $sleepMicroseconds );
 		}
 
 		return ! $this->isRunning( $app );

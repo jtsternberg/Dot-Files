@@ -273,10 +273,7 @@ final class AiModelsWhyTest extends TestCase {
 	public function testDeleteModelRunsOllamaRmForOllamaModels(): void {
 		$this->seedMounted();
 		$log  = $this->graveyardRoot . '/ollama-calls';
-		$stub = $this->graveyardRoot . '/ollama';
-		file_put_contents( $stub, "#!/bin/sh\necho \"\$@\" >> " . escapeshellarg( $log ) . "\n" );
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_OLLAMA_BIN=' . $stub );
+		putenv( 'AIMODELS_OLLAMA_BIN=' . self::sharedStub( 'ollama', "#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/ollama-calls\"\n" ) );
 		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:gemma4:26b', [ 'when' => 'Big' ] );
 
 		[ $code ] = $this->dispatch( [ 'aimodels', 'why', 'rm', 'gemma4:26b', '--delete-model' ] );

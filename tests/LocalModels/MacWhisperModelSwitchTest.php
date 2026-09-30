@@ -288,10 +288,10 @@ final class MacWhisperModelSwitchTest extends TestCase {
 	/** The real client passes the id through and reports mw's exit status. */
 	public function testTheCliRunsMwModelsSelect(): void {
 		$log = $this->graveyardRoot . '/mw.log';
-		$bin = $this->graveyardRoot . '/mw';
-		file_put_contents( $bin, "#!/bin/sh\necho \"\$@\" >> " . escapeshellarg( $log ) . "\n[ \"\$3\" = bad:id ] && exit 1\nexit 0\n" );
-		chmod( $bin, 0755 );
-		putenv( 'AIMODELS_MW_BIN=' . $bin );
+		putenv( 'AIMODELS_MW_BIN=' . self::sharedStub(
+			'mw',
+			"#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/mw.log\"\n[ \"\$3\" = bad:id ] && exit 1\nexit 0\n"
+		) );
 
 		$mw = new MacWhisperCli( retries: 2, retrySleepMicroseconds: 0 );
 

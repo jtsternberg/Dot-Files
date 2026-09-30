@@ -170,7 +170,7 @@ abstract class AbstractStoreEngine implements StoreEngine {
 			return false;
 		}
 
-		exec( 'pgrep -x ' . escapeshellarg( $processName ) . ' 2>/dev/null', $out, $code );
+		exec( AppControl::pgrep() . ' -x ' . escapeshellarg( $processName ) . ' 2>/dev/null', $out, $code );
 
 		return 0 === $code && ! empty( $out );
 	}

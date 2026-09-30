@@ -147,14 +147,9 @@ final class AiModelsCommandTest extends TestCase {
 	 * drive is gone — e.g. diarization that exists only on AI-LAB.
 	 */
 	public function testEjectPrintsTheWarningsTheReleaseFlipReturned(): void {
-		$bin = $this->graveyardRoot . '/bin';
-		mkdir( $bin, 0777, true );
 		foreach ( [ 'diskutil' => "echo 'Volume AI-LAB ejected'", 'lsof' => ':', 'ollama' => ':' ] as $tool => $body ) {
-			file_put_contents( "{$bin}/{$tool}", "#!/bin/sh\n{$body}\nexit 0\n" );
-			chmod( "{$bin}/{$tool}", 0755 );
-			putenv( 'AIMODELS_' . strtoupper( $tool ) . "_BIN={$bin}/{$tool}" );
+			putenv( 'AIMODELS_' . strtoupper( $tool ) . '_BIN=' . self::sharedStub( $tool, "#!/bin/sh\n{$body}\nexit 0\n" ) );
 		}
-		putenv( 'AIMODELS_NO_RESTART=1' );
 
 		mkdir( $this->home . '/.ollama-local-models', 0777, true );
 		mkdir( $this->home . '/.macwhisper-local-models', 0777, true );
@@ -166,7 +161,6 @@ final class AiModelsCommandTest extends TestCase {
 		putenv( 'AIMODELS_DISKUTIL_BIN' );
 		putenv( 'AIMODELS_LSOF_BIN' );
 		putenv( 'AIMODELS_OLLAMA_BIN' );
-		putenv( 'AIMODELS_NO_RESTART' );
 
 		$this->assertSame( 0, $code );
 		$this->assertStringContainsString( 'diarization support only on AI-LAB (speakerkit-pro)', $out );

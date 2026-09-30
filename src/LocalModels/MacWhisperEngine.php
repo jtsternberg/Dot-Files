@@ -338,7 +338,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 			}
 
 			if ( $attempt < $tries - 1 ) {
-				usleep( 700000 );
+				Sleeper::usleep( 700000 );
 			}
 		}
 

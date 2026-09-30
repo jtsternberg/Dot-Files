@@ -50,33 +50,24 @@ final class EjectorTest extends TestCase {
 	}
 
 	private function stubDiskutil( int $exit, string $output ): void {
-		$stub = $this->graveyardRoot . '/diskutil-stub';
-		file_put_contents(
-			$stub,
-			"#!/bin/sh\necho \"\$@\" >> '{$this->calls}'\ncat <<'OUT'\n{$output}\nOUT\nexit {$exit}\n"
-		);
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_DISKUTIL_BIN=' . $stub );
+		putenv( 'AIMODELS_DISKUTIL_BIN=' . self::sharedStub(
+			'diskutil',
+			"#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/diskutil-calls\"\ncat <<'OUT'\n{$output}\nOUT\nexit {$exit}\n"
+		) );
 	}
 
 	private function stubDiskutilFailingThenSucceeding(): void {
-		$stub = $this->graveyardRoot . '/diskutil-stub';
-		file_put_contents(
-			$stub,
-			"#!/bin/sh\necho \"\$@\" >> '{$this->calls}'\n"
-			. "if [ \"\$(wc -l < '{$this->calls}')\" -le 1 ]; then\n"
+		putenv( 'AIMODELS_DISKUTIL_BIN=' . self::sharedStub(
+			'diskutil',
+			"#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/diskutil-calls\"\n"
+			. "if [ \"\$(wc -l < \"\$GRAVEYARD_ROOT/diskutil-calls\")\" -le 1 ]; then\n"
 			. "  echo 'Unmount failed - Resource busy'; exit 1\nfi\n"
 			. "echo 'Volume AI-LAB ejected'; exit 0\n"
-		);
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_DISKUTIL_BIN=' . $stub );
+		) );
 	}
 
 	private function stubLsof( string $output ): void {
-		$stub = $this->graveyardRoot . '/lsof-stub';
-		file_put_contents( $stub, "#!/bin/sh\ncat <<'OUT'\n{$output}\nOUT\nexit 0\n" );
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_LSOF_BIN=' . $stub );
+		putenv( 'AIMODELS_LSOF_BIN=' . self::sharedStub( 'lsof', "#!/bin/sh\ncat <<'OUT'\n{$output}\nOUT\nexit 0\n" ) );
 	}
 
 	/**
@@ -84,18 +75,14 @@ final class EjectorTest extends TestCase {
 	 * be exercised as easily as a cooperative one.
 	 */
 	private function stubOllama( int $stopExit, string $psModel = 'qwen2.5-coder:1.5b' ): void {
-		$stub = $this->graveyardRoot . '/ollama-stub';
-		$log  = $this->graveyardRoot . '/ollama-calls';
-		file_put_contents(
-			$stub,
-			"#!/bin/sh\necho \"\$@\" >> '{$log}'\n"
+		putenv( 'AIMODELS_OLLAMA_BIN=' . self::sharedStub(
+			'ollama',
+			"#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/ollama-calls\"\n"
 			. "case \"\$1\" in\n"
 			. "  ps) printf 'NAME  ID  SIZE  PROCESSOR  UNTIL\\n{$psModel}  abc123  1.9 GB  100%% GPU  4 minutes from now\\n' ;;\n"
 			. "  stop) exit {$stopExit} ;;\n"
 			. "esac\nexit 0\n"
-		);
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_OLLAMA_BIN=' . $stub );
+		) );
 	}
 
 	private function ollamaCalls(): string {

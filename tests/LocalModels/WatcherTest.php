@@ -26,10 +26,10 @@ final class WatcherTest extends TestCase {
 		mkdir( $this->home . '/Library/LaunchAgents', 0777, true );
 		mkdir( $this->volumes, 0777, true );
 
-		$stub = $this->graveyardRoot . '/launchctl-stub';
-		file_put_contents( $stub, "#!/bin/sh\necho \"\$@\" >> '{$this->calls}'\nexit 0\n" );
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_LAUNCHCTL_BIN=' . $stub );
+		putenv( 'AIMODELS_LAUNCHCTL_BIN=' . self::sharedStub(
+			'launchctl',
+			"#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/launchctl-calls\"\nexit 0\n"
+		) );
 	}
 
 	protected function tearDown(): void {
@@ -122,6 +122,17 @@ final class WatcherTest extends TestCase {
 		$results = $this->watcher()->applyAll();
 
 		$this->assertSame( 'local', $results['ollama']->location );
+	}
+
+	/**
+	 * "Not mounted" is only believed after the settle window, but that window is
+	 * the fake clock's in tests — a real 0.9s wait per watcher test was most of
+	 * this directory's runtime.
+	 */
+	public function testApplyAllSettlesAnAbsentDriveOnTheInjectedSleeper(): void {
+		$this->watcher()->applyAll();
+
+		$this->assertSame( [ 300000, 300000, 300000 ], $this->sleeps );
 	}
 
 	public function testStatusReportsInstalledStateWithoutMutating(): void {

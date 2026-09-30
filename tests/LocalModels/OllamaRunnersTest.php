@@ -29,13 +29,10 @@ class OllamaRunnersTest extends TestCase
 	/** Stub `ollama` so `ps` prints exactly $psOutput. */
 	private function stubOllama(string $psOutput): void
 	{
-		$stub = $this->graveyardRoot . '/ollama-ps-stub';
-		file_put_contents(
-			$stub,
+		putenv('AIMODELS_OLLAMA_BIN=' . self::sharedStub(
+			'ollama',
 			"#!/bin/sh\ncase \"\$1\" in\n  ps) cat <<'OUT'\n{$psOutput}\nOUT\n  ;;\nesac\nexit 0\n"
-		);
-		chmod($stub, 0755);
-		putenv('AIMODELS_OLLAMA_BIN=' . $stub);
+		));
 	}
 
 	// --- parsing --------------------------------------------------------------
@@ -142,14 +139,12 @@ class OllamaRunnersTest extends TestCase
 	 */
 	public function testResidentIsMemoisedPerInstance(): void
 	{
-		$stub = $this->graveyardRoot . '/ollama-counting-stub';
 		$log  = $this->graveyardRoot . '/ollama-ps-count';
-		file_put_contents(
-			$stub,
-			"#!/bin/sh\necho x >> '{$log}'\n"
+		$stub = self::sharedStub(
+			'ollama',
+			"#!/bin/sh\necho x >> \"\$GRAVEYARD_ROOT/ollama-ps-count\"\n"
 			. "printf 'NAME  ID  SIZE  PROCESSOR  UNTIL\\nm:1b  abc123  1.0 GB  100%% GPU  4 minutes from now\\n'\n"
 		);
-		chmod($stub, 0755);
 		putenv('AIMODELS_OLLAMA_BIN=' . $stub);
 
 		$runners = new OllamaRunners();
@@ -174,11 +169,10 @@ class OllamaRunnersTest extends TestCase
 	 */
 	public function testTheEjectorAndTheWatchdogReadTheSameLoadedModels(): void
 	{
-		$stub = $this->graveyardRoot . '/ollama-noisy-stub';
 		$log  = $this->graveyardRoot . '/ollama-noisy-calls';
-		file_put_contents(
-			$stub,
-			"#!/bin/sh\necho \"\$@\" >> '{$log}'\n"
+		$stub = self::sharedStub(
+			'ollama',
+			"#!/bin/sh\necho \"\$@\" >> \"\$GRAVEYARD_ROOT/ollama-noisy-calls\"\n"
 			. "case \"\$1\" in\n"
 			. "  ps) printf 'Warning: server version mismatch\\n"
 			. "NAME  ID  SIZE  PROCESSOR  UNTIL\\n"
@@ -186,7 +180,6 @@ class OllamaRunnersTest extends TestCase
 			. "\\n' ;;\n"
 			. "esac\nexit 0\n"
 		);
-		chmod($stub, 0755);
 		putenv('AIMODELS_OLLAMA_BIN=' . $stub);
 
 		$home    = $this->graveyardRoot . '/home';

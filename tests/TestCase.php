@@ -6,6 +6,7 @@ use JT\CLI\Helpers;
 use JT\Helpers\Cmux;
 use JT\Transport\CmuxTransport;
 use JT\Graveyard;
+use JT\LocalModels\Sleeper;
 
 /**
  * Base test case: hands every test a clean CLI helper, a Cmux, and a Graveyard.
@@ -28,6 +29,8 @@ abstract class TestCase extends BaseTestCase
 	protected CmuxTransport $transport;
 	protected Graveyard $gy;
 	protected string $graveyardRoot;
+	/** @var int[] microseconds the model-store code asked to sleep */
+	protected array $sleeps = [];
 
 	protected function setUp(): void
 	{
@@ -83,6 +86,17 @@ abstract class TestCase extends BaseTestCase
 		// launches MacWhisper if it is quit. Failing reads as "could not select".
 		putenv('AIMODELS_MW_BIN=' . self::sharedStub('mw', "#!/bin/sh\nexit 1\n"));
 
+		// And for `pgrep`: engines the registry builds use the REAL AppControl, so an
+		// unstubbed MacWhisper flip found the developer's running app and quit and
+		// reopened it. Exit 1 reads as "not running". Tests needing a running app
+		// inject a FakeAppControl.
+		putenv('AIMODELS_PGREP_BIN=' . self::sharedStub('pgrep', "#!/bin/sh\nexit 1\n"));
+
+		// Every model-store wait (drive settle, app teardown, retries) runs on a
+		// fake clock; $this->sleeps records what would have been slept.
+		$this->sleeps = [];
+		Sleeper::fake(function (int $microseconds): void { $this->sleeps[] = $microseconds; });
+
 		// Router-specific coverage constructs a Graveyard with NullTransport; see
 		// Graveyard/GraveyardPageServerContractTest.php. $this->gy is not that shape.
 		$this->gy = new Graveyard($this->cli, $this->transport);
@@ -97,6 +111,8 @@ abstract class TestCase extends BaseTestCase
 		putenv('AIMODELS_LAUNCHCTL_BIN');
 		putenv('AIMODELS_DEFAULTS_BIN');
 		putenv('AIMODELS_MW_BIN');
+		putenv('AIMODELS_PGREP_BIN');
+		Sleeper::fake(null);
 		if (isset($this->graveyardRoot) && is_dir($this->graveyardRoot)) {
 			$this->rmrf($this->graveyardRoot);
 		}

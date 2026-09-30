@@ -89,10 +89,7 @@ final class WatcherLogTest extends TestCase {
 	}
 
 	public function testInstallAndRemoveAreRecorded(): void {
-		$stub = $this->graveyardRoot . '/launchctl-noop';
-		file_put_contents( $stub, "#!/bin/sh\nexit 0\n" );
-		chmod( $stub, 0755 );
-		putenv( 'AIMODELS_LAUNCHCTL_BIN=' . $stub );
+		putenv( 'AIMODELS_LAUNCHCTL_BIN=' . self::sharedStub( 'launchctl', "#!/bin/sh\nexit 0\n" ) );
 
 		$watcher = $this->watcher();
 		$watcher->install();

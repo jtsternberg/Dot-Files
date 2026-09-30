@@ -40,7 +40,7 @@ final class Drive {
 			}
 
 			if ( $attempt < $tries - 1 ) {
-				usleep( $sleepMicroseconds );
+				Sleeper::usleep( $sleepMicroseconds );
 			}
 		}
 

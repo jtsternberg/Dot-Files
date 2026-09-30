@@ -159,6 +159,27 @@ final class MacWhisperRestartTest extends TestCase {
 		$this->assertStringContainsString( 'restarted MacWhisper', implode( ' ', $result->warnings ) );
 	}
 
+	public function testAReopenRetryWaitsOnTheInjectedSleeper(): void {
+		$this->engine( new FakeAppControl( running: true, cpu: 0.1, reopenFailures: 1 ) )->apply( 'local' );
+
+		$this->assertSame( [ 700000 ], $this->sleeps );
+	}
+
+	/**
+	 * Engines built by EngineRegistry get the REAL AppControl. Unstubbed, any
+	 * test flipping MacWhisper found the developer's running app, quit it and
+	 * reopened it. Every test therefore sees no app running unless it says so.
+	 */
+	public function testTheRealAppControlSeesNoRunningAppUnderTest(): void {
+		$this->assertFalse( ( new AppControl() )->isRunning( 'MacWhisper' ) );
+	}
+
+	public function testTheRealAppControlReadsPidsThroughThePgrepSeam(): void {
+		putenv( 'AIMODELS_PGREP_BIN=' . self::sharedStub( 'pgrep', "#!/bin/sh\necho 4242\n" ) );
+
+		$this->assertSame( 'Darwin' === PHP_OS_FAMILY ? 4242 : null, ( new AppControl() )->pid( 'MacWhisper' ) );
+	}
+
 	public function testAFailedQuitIsNotReportedAsARestart(): void {
 		$apps = new FakeAppControl( running: true, cpu: 0.1, quitSucceeds: false );
 

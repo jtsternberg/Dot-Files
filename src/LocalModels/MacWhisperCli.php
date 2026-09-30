@@ -35,7 +35,7 @@ class MacWhisperCli {
 			}
 
 			if ( $attempt < $this->retries - 1 && $this->retrySleepMicroseconds > 0 ) {
-				usleep( $this->retrySleepMicroseconds );
+				Sleeper::usleep( $this->retrySleepMicroseconds );
 			}
 		}
 
