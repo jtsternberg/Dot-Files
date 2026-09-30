@@ -233,6 +233,14 @@
             "removed_at": "2026-04-24",
             "tested": "Superseded by gemma4:26b-nvfp4 (MLX): 558 tok/s prompt eval (5x this) at similar decode speed. Same underlying 26B-a4b-it model; MLX quant is strictly faster on M2."
         },
+        "ollama:jt-voice-gemma-test:latest": {
+            "removed_at": "2026-09-30",
+            "tested": "Test alias of gemma4:26b-nvfp4 (num_ctx 49152, temperature 0) for JT voice tests; weights fully shared with the base. Removed 2026-09-30, tests done."
+        },
+        "ollama:jt-voice-muse-test:latest": {
+            "removed_at": "2026-09-30",
+            "tested": "Test alias of muse-glimmer:latest (num_ctx 49152) for JT voice tests; weights fully shared with the base. Removed 2026-09-30, tests done."
+        },
         "ollama:nemotron-3.5-lightning:30b-mlx": {
             "when": "Removed \u2014 too big for always-on setup; re-pull + bench if re-added (tail lost to a CLI truncation bug)",
             "speed": "never cleanly benched \u2014 OOM'd before measurement; MLX nvfp4 prefill path unknown",
