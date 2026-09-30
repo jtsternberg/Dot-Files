@@ -29,7 +29,7 @@ coding model). Meanwhile **aider** is the primary offline coding tool; **pi** is
 the secondary for ambiguous/exploratory work; plain `ollama run` for quick Q&A. **MLX acceleration is model-specific and hardware-specific**:
 it helps some Gemma models but is a net loss for the qwen3.5 NVFP4
 family on M2 (the advertised 2× is M5-only). Model bookkeeping lives in two
-custom CLIs (`ollama-why`, `ollamodels`) plus `llmfit` for hardware-aware
+custom CLIs (`aimodels why`, `ollamodels`) plus `llmfit` for hardware-aware
 benchmarking.
 
 ---
@@ -64,7 +64,7 @@ benchmarking.
    works*, but MLX is broken for qwen3.5-NVFP4 on M2 (see below). Validate per
    model; never trust a blog's headline number for your hardware.
 5. **`gemma4:31b` GGUF is a trap** — a thinking model at 6.5 tok/s. Avoid in any
-   harness. (Already removed; archived in `ollama-why` graveyard.)
+   harness. (Already removed; archived in the `aimodels why` graveyard.)
 6. **Rejected tools:** `crush` (charmbracelet — tool-calling bugs with local
    Ollama, issue #1828), `cline` (heaviest harness), and the cloud-tuned
    `hermes`/`openclaw`/`codex`/`kimi`/`droid`. `qwen3-coder-next` (52 GB) skipped
@@ -74,7 +74,7 @@ benchmarking.
 
 ## Model inventory & when to use each
 
-Current install (per `ollama list`; locations tracked by `ollama-why`):
+Current install (per `ollama list`; locations from `aimodels why`):
 
 | Model | Size | Format | Role / when to use | Speed (M2) |
 |-------|------|--------|--------------------|------------|
@@ -113,14 +113,15 @@ used to adopt a new reference machine), `--quiet` (exit code only). Cross-platfo
 (macOS + Linux).
 
 
-### `ollama-why` — model annotation + graveyard (`~/.dotfiles/bin/ollama-why`)
-PHP (JT namespace). Annotates `ollama list` with when/why/speed/location notes,
-and keeps a **graveyard** of removed models with test results so we never re-pull
-a known-bad model. Data: `~/.ollama-why.json`.
-- `ollama-why` — annotated list (WHEN column, location badges).
-- `ollama-why set <model> --when=… --speed=… --tested=… --location=local|sd|both`
-- `ollama-why rm <model> --delete-model [--tested=…]` — archive note + `ollama rm`.
-- `ollama-why history` — the graveyard. `ollama-why locate <model> <loc>`.
+### `aimodels why` — model annotation + graveyard (`~/.dotfiles/bin/aimodels`)
+Notes on when/why/speed per model, with each model's location from the same
+inventory as `aimodels status`, and a **graveyard** of removed models with test
+results so we never re-pull a known-bad model. Covers Ollama and MacWhisper;
+`ollama-why` is a shim for `aimodels why --engine=ollama`. Data: `~/.ollama-why.json`.
+- `aimodels why` — annotated list (location badges, when/speed/tested/tags).
+- `aimodels why set <model> --when=… --speed=… --tested=… --location=local|external|both`
+- `aimodels why rm <model> --delete-model [--tested=…]` — archive note + `ollama rm`.
+- `aimodels why history` — the graveyard. `aimodels why locate <model> <loc>`.
 
 ### `ollamodels` — dual-store reconcile (`~/.dotfiles/bin/ollamodels`)
 Manages models split across the internal SSD and a Thunderbolt SD card.

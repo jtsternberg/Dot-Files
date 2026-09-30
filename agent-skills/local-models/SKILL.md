@@ -29,8 +29,11 @@ an ejected AI-LAB drive is not a candidate, however good its model card looks.
 
 Run `aimodels status` before recommending or operating on a model. It reports
 both the internal and AI-LAB stores even when the external drive is absent.
-Treat recorded inventory and benchmark numbers as dated evidence to re-check,
-not permanent facts.
+Then read `aimodels why`: per-model notes (when to use it, measured speed, test
+results) for Ollama and MacWhisper alike, with each model's location from the
+same inventory, plus the graveyard of models tried and removed. Treat recorded
+inventory and benchmark numbers as dated evidence to re-check, not permanent
+facts.
 
 ## Availability moves on its own
 
@@ -62,7 +65,7 @@ request crosses domains.
 
 - **Local text, reasoning, code, summarization, fit, context, or Ollama
   benchmarking:** read [references/ollama.md](references/ollama.md). It owns live
-  capability checks, `ollama-why`, `llmfit`, and clean performance measurement.
+  capability checks, `llmfit`, and clean performance measurement.
 - **Transcription, language coverage, diarization, WhisperKit, Parakeet, ASR
   benchmarking, or comparing transcript quality:** read
   [references/asr.md](references/asr.md). It owns exact `mw` model IDs,

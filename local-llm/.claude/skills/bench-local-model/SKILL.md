@@ -8,7 +8,7 @@ description: Use when benchmarking a local Ollama model or comparing coding harn
 Repeatable methodology for testing local models on JT's M2 Max. Read
 `../../CLAUDE.md` (the `local-llm/` context file) first for hardware constraints,
 prior findings, and the decisions this builds on. **Record new results back into
-that file** (and update `ollama-why`) when you finish — that's the whole point.
+that file** (and update `aimodels why`) when you finish — that's the whole point.
 
 ## Three levels of test
 
@@ -102,6 +102,6 @@ follow-up nudge.
 ## After the run
 
 1. Update the table in `../../CLAUDE.md` (model inventory / MLX findings).
-2. `ollama-why set <model> --tested="<result>" --speed="<numbers>"` — or, if the
-   model is bad, `ollama-why rm <model> --delete-model --tested="<why>"` to
+2. `aimodels why set <model> --tested="<result>" --speed="<numbers>"` — or, if the
+   model is bad, `aimodels why rm <model> --delete-model --tested="<why>"` to
    archive it in the graveyard so it's never re-pulled blindly.

@@ -51,6 +51,8 @@ The two sources use different names. Map them by leaf name, except Qwen:
 | `whisperkit:` | `whisperkit/models/argmaxinc/whisperkit-coreml/<name>` |
 | `parakeet-pro:` | `whisperkitpro/models/argmaxinc/parakeetkit-pro/<name>` |
 | `qwen3-asr:` | `whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr/{audio_encoder,text_decoder}/<size>` — `aimodels status` shows it by leaf as `1.7b` |
+
+`aimodels status --json` and `aimodels why` carry this mapping as each row's `id`.
 | `whisper-cpp:` | top-level `<name>.bin` |
 
 Diarization bundles have no `mw` ID; `aimodels status` shows each as a
@@ -117,28 +119,25 @@ Audio in a language none of the installed multilingual models covers well; a
 correctness bar where a human check is required anyway; or the file is enormous
 and JT needs it now — say so rather than starting a 40-minute local run.
 
-## Verified machine facts (2026-09-30 — re-verify, don't trust)
+## Per-model notes live in `aimodels why`
 
-Installed, and which store holds them:
+```bash
+aimodels why --engine=macwhisper      # every ASR model and diarization bundle: location, when, tested, tags
+aimodels why history --engine=macwhisper
+```
 
-| model | store | notes |
-|---|---|---|
-| `whisperkit:openai_whisper-small` | local + AI-LAB | offline-safe, 464 MB; `WHISPER_MODEL_LOCAL`, selected on a flip to local |
-| `whisper-cpp:ggml-model-whisper-{tiny,base,small}.en` | local + AI-LAB | English-only, offline-safe |
-| `whisperkit:openai_whisper-large-v3-v20240930` | **AI-LAB only** | 1.5 GB, gone when ejected; `WHISPER_MODEL_EXTERNAL`, re-selected on a flip to AI-LAB |
-| `parakeet-pro:nvidia_parakeet-v3` | **AI-LAB only** | 1.2 GB, gone when ejected |
-| `qwen3-asr:qwen3-asr-1.7b` | **AI-LAB only** | 1.77 GB per the app, 1384 MB on disk; Pro; 30 languages + 22 Chinese dialects; vendor-positioned as accuracy-oriented and slower; supports speaker recognition. Active in MacWhisper for file, dictation and live since 2026-09-30, but a flip does not preserve it (see [stores.md](stores.md) footgun 6) |
-| `speakerkit` | local + AI-LAB | pyannote diarization support (segmenter/embedder v3, clusterer v4), 32 MB |
-| `speakerkit-pro` | local + AI-LAB | NVIDIA Nemotron 3 diarization (sortformer), up to 8 speakers, 74 MB |
+Notes are keyed by the `mw` ID (`qwen3-asr:qwen3-asr-1.7b`); diarization bundles are
+`macwhisper:speakerkit` and `macwhisper:speakerkit-pro`. The location badge comes from
+the same inventory as `aimodels status`, so it is current; the notes are dated
+evidence — re-verify, don't trust. **No throughput numbers are recorded yet.** Do not
+invent any. If speed drives the decision, measure (below) and record the result.
 
 Verified by live test (2026-08-24): with the local store active, `mw models list`
 shows only small + the three `.en` models — large-v3 and Parakeet are cleanly
 *not* advertised, and diarization still detected 2 speakers on a 120 s clip.
 That predates the second diarization bundle; offline `--speakers` with both
-bundles local has not been re-tested.
-
-**No throughput numbers are recorded yet.** Do not invent any. If speed drives the
-decision, measure (below) and add the result here.
+bundles local has not been re-tested. Qwen3-ASR's selection is not preserved by
+a store flip (see [stores.md](stores.md) footgun 6).
 
 ## Footguns
 
@@ -174,7 +173,8 @@ decision, measure (below) and add the result here.
    adds its own pass.
 5. Report as `audio-seconds / wall-seconds` (a realtime factor), not raw seconds —
    it transfers to other files.
-6. Write the result into the table above so the next session inherits it.
+6. Record it with `aimodels why set <id> --speed="…" --tested="<date>: …"` so the
+   next session inherits it.
 
 ## Comparing transcription quality cleanly
 

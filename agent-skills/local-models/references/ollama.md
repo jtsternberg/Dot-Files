@@ -57,13 +57,16 @@ done
 
 `ollama show <model>` gives the same in human form (Capabilities / Parameters / context).
 
-### 1c. `ollama-why` — the compounding log of PRIOR measurements + graveyard
+### 1c. `aimodels why` — the compounding log of PRIOR measurements + graveyard
 
 ```bash
-ollama-why            # annotated `ollama list`: when / speed / tags / location per model
-ollama-why history    # the graveyard: models already tested & removed, with the reason
-ollama-why notes      # raw JSON (for parsing)
+aimodels why --engine=ollama          # every Ollama model: location badge, when / speed / tested / tags
+aimodels why history --engine=ollama  # the graveyard: models already tested & removed, with the reason
+aimodels why --json                   # same rows, for parsing (all engines unless --engine)
 ```
+
+`ollama-why` still works as a shim for `aimodels why --engine=ollama`. Ollama models
+take their bare tag (`qwen3.5:9b`) or `ollama:qwen3.5:9b`.
 
 This is a persistent, machine-specific record of what past sessions found: tok/s numbers,
 what each model was used for, and a **graveyard** of models tried and removed. It is how
@@ -80,8 +83,9 @@ and don't cite it as authority. The graveyard is more durably useful (a model th
 a role probably still fails it), but even its numbers deserve the same skepticism.
 
 After any clean benchmark, **write the result back** with
-`ollama-why set <model> --speed="…" --tested="…" --when="…"` (date the `--tested` note),
-so the log improves rather than ossifies.
+`aimodels why set <model> --speed="…" --tested="…" --when="…"` (date the `--tested` note),
+so the log improves rather than ossifies. A flag value is cut off at its first `=`
+(`--speed="num_ctx=65536 …"` saves `num_ctx`), so write `num_ctx 65536`.
 
 ### 1d. `aimodels status` — storage location (affects availability + load time)
 
@@ -90,8 +94,9 @@ aimodels status       # both local and AI-LAB stores, even when the drive is abs
 ```
 
 Models shown only in the `X` store are unavailable when AI-LAB is unmounted
-(`ollama-why` flags these "Offline") and cold-load slower than local-disk models.
-`location` in `ollama-why` notes records where each lives. Read
+(`aimodels why` lists these under "Offline") and cold-load slower than local-disk models.
+`aimodels why` badges each model `[local]`, `[external]` or `[both]` from the same
+inventory. Read
 [stores.md](stores.md) before changing stores or ejecting the drive.
 
 ### 1e. `llmfit` — hardware fit + candidates you haven't installed + real bench
@@ -108,7 +113,7 @@ this machine diverges from generic (a prior note has `qwen3.5:35b-nvfp4` at "3 t
 prompt eval, catastrophic" — no DB predicts that; verify it if it matters). Trust order
 for speed on this box:
 **fresh clean measurement (a `llmfit bench` or `/api/generate` run you just did, following
-the method below) > a dated prior `ollama-why` measurement (verify if it drives the
+the method below) > a dated prior `aimodels why` measurement (verify if it drives the
 decision) > `llmfit` estimate > guessing (never)**.
 Note llmfit's model names are HuggingFace-style, not Ollama tags — map via `llmfit search`.
 
@@ -147,7 +152,7 @@ These are the mistakes we keep re-making. Each has a one-line detector.
 4. **MLX/nvfp4 vs GGUF prompt-eval.** On M2 this swings prefill 100×+ (gemma nvfp4 fast;
    some qwen3.5 nvfp4 catastrophic — see graveyard). Param count is a poor speed proxy;
    **prompt-eval tok/s** is the real driver for big inputs. **Detect:** `quant` field +
-   `ollama-why` measured tok/s.
+   `aimodels why` measured tok/s.
 
 5. **First-run kernel compile.** The first inference after the server starts compiles
    Metal shaders and skews that one timing. **Fix:** one throwaway `generate` before
@@ -165,7 +170,7 @@ These are the mistakes we keep re-making. Each has a one-line detector.
    regardless of model — because prefill is O(input). If the user needs a fast summary of
    a large *new* file, the honest answer is often a cloud model, not a local one.
 
-9. **Recorded numbers can carry the same contamination.** A prior `ollama-why` / graveyard
+9. **Recorded numbers can carry the same contamination.** A prior `aimodels why` / graveyard
    tok/s figure was measured by a past session with this same harness — it may be a cache
    hit, a short-prompt result, or a different quant path. A prompt-eval number that seems
    implausibly high is the tell (caching inflates it). **Detect:** it conflicts with a
@@ -182,7 +187,7 @@ fit), then:
 CODE task?
   → prefer a code-specialized model; size to complexity; check it fits.
 LONG input (say >8–10K tokens) and speed matters?
-  → prefer highest measured PROMPT-EVAL tok/s (ollama-why), not smallest params.
+  → prefer highest measured PROMPT-EVAL tok/s (aimodels why), not smallest params.
     Confirm num_ctx will hold the input. If cold latency is unacceptable, say so and
     offer a cloud path — don't pretend a 2-min local run is "fast".
 NEEDS reasoning (multi-step logic, math, design trade-offs)?
@@ -235,7 +240,7 @@ Either use `llmfit bench <model> --json`, or roll a clean `/api/generate` run:
    `prompt_eval_count/prompt_eval_duration` → prefill tok/s (the big-input driver);
    `eval_count/eval_duration` → decode tok/s; `load_duration` → load cost.
 5. For quality, **read the source** and check the summary against it.
-6. **Write results back to `ollama-why`** (`set … --speed --tested --when`) so the next
+6. **Write results back to `aimodels why`** (`set … --speed --tested --when`) so the next
    session inherits the learning instead of re-measuring.
 
 Estimate cold latency as: `input_tok / prompt_eval_tok_s + output_tok / decode_tok_s + load_s`.

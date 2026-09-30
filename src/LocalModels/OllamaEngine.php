@@ -100,7 +100,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 	 *
 	 * Deliberately not /api/tags: the API only ever describes the store Ollama is
 	 * pointed at right now, so it cannot answer "what is on the drive I ejected".
-	 * Sizes are left out — they need blob arithmetic, and `ollama-why` already
+	 * Sizes are left out — they need blob arithmetic, and `aimodels why` already
 	 * carries measured size and speed notes per model.
 	 *
 	 * @return array<int, array<string, mixed>>
