@@ -35,6 +35,14 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 		MacWhisperPrefs::DICTATION => 'dictation',
 	];
 
+	/**
+	 * Diarization bundles, by top-level dir. The app chooses between them itself
+	 * (pyannote in speakerkit, Nemotron in speakerkit-pro), so `--speakers` is
+	 * offline-safe only while the local store holds every one AI-LAB does. They
+	 * are small, unlike the ASR models, which is why these alone flow to local.
+	 */
+	private const SUPPORT_BUNDLES = [ 'speakerkit', 'speakerkit-pro' ];
+
 	private AppControl $apps;
 
 	private MacWhisperPrefs $prefs;
@@ -266,26 +274,69 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 	 * @return string[]
 	 */
 	public function advisories( string $location ): array {
-		if ( self::LOCAL !== $location ) {
-			return [];
-		}
+		$advisories = [];
 
 		// Says nothing about the drive's mount state: the local store is also
 		// active after a deliberate flip with AI-LAB still plugged in, and this
 		// used to claim "AI-LAB not mounted" while it plainly was.
-		return [
-			'on the local store — new MacWhisper model downloads land there, and need'
-				. ' `aimodels whisper reconcile` to reach the AI-LAB superset.',
-		];
+		if ( self::LOCAL === $location ) {
+			$advisories[] = 'on the local store — new MacWhisper model downloads land there, and need'
+				. ' `aimodels whisper reconcile` to reach the AI-LAB superset.';
+		}
+
+		$stranded = array_column( $this->supportMissingLocally(), 'relative' );
+		if ( ! empty( $stranded ) ) {
+			$advisories[] = 'diarization support only on AI-LAB (' . implode( ', ', $stranded )
+				. ') — --speakers can fail once it is ejected; run `aimodels whisper reconcile` while it is mounted.';
+		}
+
+		return $advisories;
 	}
 
 	/**
-	 * Copy anything the local store has and the external superset lacks.
+	 * Support-bundle entries AI-LAB holds and the local store lacks. Empty when
+	 * the drive is not mounted: there is nothing to compare against.
 	 *
-	 * Strictly additive and strictly local -> external: the external store is the
-	 * authoritative superset, so an entry it already holds is never overwritten
-	 * and nothing is ever deleted. Copies, never symlinks — a symlinked bundle is
-	 * invisible to the app, which is the whole reason this engine exists.
+	 * @return array<int, array{from: string, to: string, relative: string}>
+	 */
+	private function supportMissingLocally(): array {
+		$local    = $this->storePath( self::LOCAL );
+		$external = $this->storePath( self::EXTERNAL );
+		$plan     = [];
+
+		if ( ! is_dir( $local ) || ! is_dir( $external ) ) {
+			return [];
+		}
+
+		foreach ( self::SUPPORT_BUNDLES as $bundle ) {
+			$from = $external . '/' . $bundle;
+			$to   = $local . '/' . $bundle;
+
+			if ( ! is_dir( $from ) ) {
+				continue;
+			}
+
+			if ( ! file_exists( $to ) ) {
+				$plan[] = [ 'from' => $from, 'to' => $to, 'relative' => $bundle ];
+				continue;
+			}
+
+			$plan = array_merge( $plan, $this->absentFrom( $from, $to, $bundle ) );
+		}
+
+		return $plan;
+	}
+
+	/**
+	 * Copy anything the local store has and the external superset lacks, then
+	 * any diarization support AI-LAB has and the local store lacks.
+	 *
+	 * Strictly additive: an entry the destination already holds is never
+	 * overwritten and nothing is ever deleted. Local -> external for everything,
+	 * because the external store is the authoritative superset; external -> local
+	 * for SUPPORT_BUNDLES alone, because the app can download those onto AI-LAB
+	 * and they must survive an eject. Copies, never symlinks — a symlinked bundle
+	 * is invisible to the app, which is the whole reason this engine exists.
 	 *
 	 * @param array<string, mixed> $options
 	 */
@@ -305,23 +356,34 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 			);
 		}
 
-		$plan = $this->missingFromExternal( $local, $target );
+		$plan = [];
+		foreach ( $this->absentFrom( $local, $target ) as $item ) {
+			$plan[] = $item + [ 'direction' => 'local -> external' ];
+		}
+		foreach ( $this->supportMissingLocally() as $item ) {
+			$plan[] = $item + [ 'direction' => 'external -> local' ];
+		}
 
 		if ( empty( $plan ) ) {
 			return new ApplyResult(
 				ApplyResult::NOOP,
-				'external store already holds everything in the local store.'
+				'external store already holds everything in the local store, and the local store every diarization bundle.'
 			);
 		}
+
+		$count = count( $plan ) . ' entr' . ( 1 === count( $plan ) ? 'y' : 'ies' );
 
 		if ( $dryRun ) {
 			return new ApplyResult(
 				ApplyResult::WOULD_APPLY,
-				count( $plan ) . ' entr' . ( 1 === count( $plan ) ? 'y' : 'ies' ) . ' to copy local -> external',
+				$count . ' to copy',
 				self::EXTERNAL,
 				$target,
 				[],
-				array_map( static fn( array $item ): string => 'would copy: ' . $item['relative'], $plan )
+				array_map(
+					static fn( array $item ): string => 'would copy ' . $item['direction'] . ': ' . $item['relative'],
+					$plan
+				)
 			);
 		}
 
@@ -329,11 +391,11 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 		$failed  = 0;
 		foreach ( $plan as $item ) {
 			if ( $this->copyEntry( $item['from'], $item['to'] ) ) {
-				$details[] = 'copied: ' . $item['relative'];
+				$details[] = 'copied ' . $item['direction'] . ': ' . $item['relative'];
 				continue;
 			}
 
-			$details[] = 'FAILED: ' . $item['relative'];
+			$details[] = 'FAILED ' . $item['direction'] . ': ' . $item['relative'];
 			$failed++;
 		}
 
@@ -341,7 +403,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 			$failed > 0 ? ApplyResult::FAILED : ApplyResult::APPLIED,
 			$failed > 0
 				? $failed . ' of ' . count( $plan ) . ' entries failed to copy'
-				: count( $plan ) . ' entr' . ( 1 === count( $plan ) ? 'y' : 'ies' ) . ' copied local -> external',
+				: $count . ' copied',
 			self::EXTERNAL,
 			$target,
 			[],
@@ -350,23 +412,23 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 	}
 
 	/**
-	 * Recursive additive diff: the shallowest entries present in $local and
-	 * absent from $external. Descends only where both sides have a directory, so
+	 * Recursive additive diff: the shallowest entries present in $source and
+	 * absent from $target. Descends only where both sides have a directory, so
 	 * a whole new bundle is copied once rather than file by file.
 	 *
 	 * @return array<int, array{from: string, to: string, relative: string}>
 	 */
-	private function missingFromExternal( string $local, string $external, string $prefix = '' ): array {
+	private function absentFrom( string $source, string $target, string $prefix = '' ): array {
 		$plan    = [];
-		$entries = @scandir( $local ) ?: [];
+		$entries = @scandir( $source ) ?: [];
 
 		foreach ( $entries as $entry ) {
 			if ( '.' === $entry || '..' === $entry || '.DS_Store' === $entry ) {
 				continue;
 			}
 
-			$from     = $local . '/' . $entry;
-			$to       = $external . '/' . $entry;
+			$from     = $source . '/' . $entry;
+			$to       = $target . '/' . $entry;
 			$relative = ( '' === $prefix ? '' : $prefix . '/' ) . $entry;
 
 			if ( ! file_exists( $to ) ) {
@@ -376,7 +438,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 
 			// Present on both sides: descend into directories, never touch files.
 			if ( is_dir( $from ) && is_dir( $to ) ) {
-				$plan = array_merge( $plan, $this->missingFromExternal( $from, $to, $relative ) );
+				$plan = array_merge( $plan, $this->absentFrom( $from, $to, $relative ) );
 			}
 		}
 
@@ -554,13 +616,17 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 
 		// Diarization is support, not a listed model, but it decides whether
 		// --speakers works offline, so status must show whether it is present.
-		if ( is_dir( $store . '/speakerkit' ) ) {
-			$found['speakerkit'] = [
-				'name'      => 'speakerkit',
-				'framework' => 'speakerkit',
+		foreach ( self::SUPPORT_BUNDLES as $bundle ) {
+			if ( ! is_dir( $store . '/' . $bundle ) ) {
+				continue;
+			}
+
+			$found[ $bundle ] = [
+				'name'      => $bundle,
+				'framework' => $bundle,
 				'kind'      => 'support',
-				'relative'  => 'speakerkit',
-				'sizeMb'    => (int) round( $this->treeSize( $store . '/speakerkit' ) / 1048576 ),
+				'relative'  => $bundle,
+				'sizeMb'    => (int) round( $this->treeSize( $store . '/' . $bundle ) / 1048576 ),
 			];
 		}
 
@@ -574,8 +640,9 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 	 * being models:
 	 *
 	 *   .cache/huggingface/download/<model>/  download scaffolding, often empty
-	 *   speakerkit/...                        diarization internals (W8A16 etc),
-	 *                                         reported once as a support row
+	 *   speakerkit/..., speakerkit-pro/...    diarization internals (W8A16,
+	 *                                         684_74MB etc), reported once per
+	 *                                         bundle as a support row
 	 *
 	 * The cache exclusion is the important one — a local store with a large-v3
 	 * download stub and none of its weights would otherwise be reported as
@@ -602,7 +669,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 				continue;
 			}
 
-			if ( 'speakerkit' === strtok( $relative, '/' ) ) {
+			if ( in_array( strtok( $relative, '/' ), self::SUPPORT_BUNDLES, true ) ) {
 				continue;
 			}
 

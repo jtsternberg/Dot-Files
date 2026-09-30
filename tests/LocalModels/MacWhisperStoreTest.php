@@ -294,6 +294,106 @@ final class MacWhisperStoreTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->external . '/.DS_Store' );
 	}
 
+	// --- diarization support bundles ------------------------------------------
+
+	/**
+	 * The app downloads diarization bundles into whichever store is active, and
+	 * picks between them itself, so one landing on AI-LAB alone breaks
+	 * `--speakers` the moment the drive is ejected.
+	 */
+	public function testReconcileCopiesASupportBundleTheLocalStoreLacks(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		$this->weights( $this->external, 'speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB' );
+
+		$result = $this->engine()->reconcile();
+
+		$this->assertSame( ApplyResult::APPLIED, $result->status );
+		$this->assertFileExists(
+			$this->local . '/speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB/AudioEncoder.mlmodelc/model.bin'
+		);
+	}
+
+	public function testReconcileCopiesAMissingPartOfASupportBundleBothStoresHold(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		mkdir( $this->external . '/speakerkit/speaker_clusterer', 0777, true );
+		file_put_contents( $this->external . '/speakerkit/speaker_clusterer/model', 'x' );
+
+		$this->engine()->reconcile();
+
+		$this->assertFileExists( $this->local . '/speakerkit/speaker_clusterer/model' );
+	}
+
+	/** Large ASR models stay drive-bound; only support bundles flow to local. */
+	public function testReconcileNeverCopiesAnAsrModelToTheLocalStore(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		$this->weights( $this->external, 'speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB' );
+
+		$this->engine()->reconcile();
+
+		$this->assertDirectoryDoesNotExist(
+			$this->local . '/whisperkitpro/models/argmaxinc/parakeetkit-pro/nvidia_parakeet-v3'
+		);
+	}
+
+	public function testReconcileNeverOverwritesASupportFileTheLocalStoreHas(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		file_put_contents( $this->local . '/speakerkit/speaker_embedder/model', 'LOCAL' );
+		file_put_contents( $this->external . '/speakerkit/speaker_embedder/model', 'newer' );
+
+		$this->engine()->reconcile();
+
+		$this->assertSame( 'LOCAL', file_get_contents( $this->local . '/speakerkit/speaker_embedder/model' ) );
+	}
+
+	public function testReconcileDryRunNamesTheSupportCopyWithoutMakingIt(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		$this->weights( $this->external, 'speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB' );
+
+		$result = $this->engine()->reconcile( [ 'dry-run' => true ] );
+
+		$this->assertSame( ApplyResult::WOULD_APPLY, $result->status );
+		$this->assertContains( 'would copy external -> local: speakerkit-pro', $result->details );
+		$this->assertDirectoryDoesNotExist( $this->local . '/speakerkit-pro' );
+	}
+
+	public function testAdvisoriesFlagASupportBundleOnlyOnTheDrive(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		$this->weights( $this->external, 'speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB' );
+
+		foreach ( [ 'local', 'external' ] as $location ) {
+			$advisories = implode( ' ', $this->engine()->advisories( $location ) );
+
+			$this->assertStringContainsString( 'speakerkit-pro', $advisories, $location );
+			$this->assertStringContainsString( 'aimodels whisper reconcile', $advisories, $location );
+		}
+	}
+
+	public function testAdvisoriesAreQuietWhenSupportBundlesAreLocal(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+
+		$this->assertSame( [], $this->engine()->advisories( 'external' ) );
+	}
+
+	/** Nemotron diarization is support, not an ASR model named "684_74MB". */
+	public function testResidencyReportsSpeakerkitProAsOneSupportRow(): void {
+		$this->seedLocal();
+		$this->seedExternalAsSuperset();
+		$this->weights( $this->local, 'speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB' );
+		$this->weights( $this->external, 'speakerkit-pro/sortformer/nemotron-3-diarization/684_74MB' );
+
+		$names = array_column( $this->engine()->residency(), 'name' );
+
+		$this->assertNotContains( '684_74MB', $names );
+		$this->assertSame( 'support', $this->rowFor( 'speakerkit-pro' )['kind'] );
+	}
+
 	/**
 	 * ditto preserves macOS metadata; Linux has no ditto, and this repo runs on both.
 	 */
