@@ -41,7 +41,8 @@ Finder and `diskutil eject` report "Resource busy" on AI-LAB because at eject
 time the model symlinks still resolve into the volume — and the watcher only
 flips them back to local *after* the eject event fires, far too late to help.
 `aimodels eject` inverts the order: release every engine to its local store,
-then unmount.
+then unmount. It prints each engine's flip warnings (`! macwhisper: ...`) —
+e.g. diarization that exists only on AI-LAB — so read them before unplugging.
 
 If the volume is still busy after that, the holder is a loaded **model**, not the
 app. Observed live: `Ollama.app -> ollama serve -> llama-server`, where the

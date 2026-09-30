@@ -172,6 +172,11 @@ final class AiModelsCommand {
 			if ( ApplyResult::NOOP !== $result->status ) {
 				$this->cli->msg( '  ' . $name . ': ' . $result->message, 'cyan' );
 			}
+			// Even a noop's: advice like "diarization only on AI-LAB" matters most
+			// in the moment before the drive goes away.
+			foreach ( $result->warnings as $warning ) {
+				$this->cli->msg( '  ! ' . $name . ': ' . $warning, 'yellow' );
+			}
 		}
 
 		foreach ( $report['released'] as $engine => $items ) {
