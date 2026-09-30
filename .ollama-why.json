@@ -19,7 +19,7 @@
         },
         "ollama:gemma4:26b-nvfp4": {
             "when": "Fast-context chat model (MLX works for gemma). Use when you want to paste big text and get quick answers. NOT a coding-agent replacement.",
-            "speed": "~314 tok/s prompt-eval, ~27 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx",
+            "speed": "~314 tok/s prompt-eval, ~27 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx=262144) (num_ctx re-checked 2026-09-30)",
             "tags": [
                 "chat",
                 "mlx",
@@ -37,7 +37,7 @@
                 "untested"
             ],
             "location": "external",
-            "speed": "~269 tok/s prompt-eval, ~33 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx",
+            "speed": "~269 tok/s prompt-eval, ~33 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx=131072) (num_ctx re-checked 2026-09-30)",
             "tested": "2026-07-24: good plain-prose summaries, fastest decode of the 4 general models. Silently truncated 34K-tok input to 16K until num_ctx raised. | 2026-09-25: weak on short structured summaries (claude-sessions-board): dropped the required TITLE: label once, broke a 'no \"The session\"' rule. Use gemma4:26b-nvfp4 instead when docked."
         },
         "ollama:llama3.1:8b": {
@@ -53,9 +53,9 @@
             "tested": "2026-07-24: worst prefill (~4min for 33K tokens). Summary accurate but no reason to pick over gemma for summarization."
         },
         "ollama:muse-glimmer:30b-mlx": {
-            "when": "UNTESTED MLX variant, kept alongside :latest. Bench later with clean/available memory (close cmux; num_ctx<",
+            "when": "UNTESTED MLX variant, kept alongside :latest. Bench later with clean/available memory (close cmux; num_ctx < 131072 model max, start low given 30B MLX RAM footprint) (num_ctx re-checked 2026-09-30)",
             "speed": "UNTESTED on M2 Max. nvfp4/MLX prefill is a coin-flip here (gemma nvfp4 ~314 tok/s vs qwen3.5 nvfp4 collapsed to 3 tok/s) \u2014 MUST measure, do not assume.",
-            "tested": "2026-08-13: NOT yet cleanly benched. Earlier load at num_ctx",
+            "tested": "2026-08-13: NOT yet cleanly benched. Earlier load at num_ctx=131072 (model max, per ollama show) (num_ctx re-checked 2026-09-30)",
             "tags": [
                 "mlx",
                 "nvfp4",
@@ -234,9 +234,9 @@
             "tested": "Superseded by gemma4:26b-nvfp4 (MLX): 558 tok/s prompt eval (5x this) at similar decode speed. Same underlying 26B-a4b-it model; MLX quant is strictly faster on M2."
         },
         "ollama:nemotron-3.5-lightning:30b-mlx": {
-            "when": "Removed \u2014 too big for always-on setup; re-pull + bench (num_ctx<",
+            "when": "Removed \u2014 too big for always-on setup; re-pull + bench if re-added (tail lost to a CLI truncation bug)",
             "speed": "never cleanly benched \u2014 OOM'd before measurement; MLX nvfp4 prefill path unknown",
-            "tested": "2026-08-12: 32.9B nvfp4/MLX (nemotron_h hybrid), thinking+tools, 262K ctx. num_ctx",
+            "tested": "2026-08-12: 32.9B nvfp4/MLX (nemotron_h hybrid), thinking+tools, 262K ctx (tail lost to a CLI truncation bug)",
             "tags": [
                 "mlx",
                 "nvfp4",
