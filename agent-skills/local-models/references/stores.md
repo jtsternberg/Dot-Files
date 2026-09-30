@@ -110,9 +110,11 @@ ever restarts an app.
   has no such problem, and its `reconcile` symlinks local→SD as it always has.
 - **Never point a store symlink at a real directory that holds data, and never
   delete one.** `aimodels` refuses by design; keep it that way.
-- **`reconcile` is additive and one-way (local → external).** The external store
-  is the authoritative superset; nothing it already holds is overwritten and
-  nothing is ever deleted.
+- **`reconcile` is additive.** Everything flows local → external, because the
+  external store is the authoritative superset. MacWhisper's diarization bundles
+  (`speakerkit`, `speakerkit-pro`) also flow external → local, because
+  `--speakers` must survive an eject; ASR models never do. Nothing the
+  destination already holds is overwritten and nothing is ever deleted.
 - **Never quit or kill an app to win an eject.** Release the model instead
   (`releaseHolds`), or report the holder and let JT decide. The one place an app
   IS restarted is MacWhisper after a real store switch — see below.
@@ -154,7 +156,17 @@ ever restarts an app.
    is quit (a running app overwrites the pref). Live transcription keeps its own
    choice. The model must be a WhisperKit bundle in the target store, or the
    switch leaves the selection alone and warns. The same busy vetoes skip the
-   write; every flip warns about any runner whose model the store lacks.
+   write; every flip warns about any runner whose WhisperKit model the store
+   lacks. A non-WhisperKit selection (Qwen3-ASR, Parakeet) is neither
+   re-selected nor checked: a flip to local replaces it with
+   `WHISPER_MODEL_LOCAL` for file and dictation, leaves live transcription on a
+   model the local store lacks without warning, and the next flip to AI-LAB
+   selects `WHISPER_MODEL_EXTERNAL` rather than restoring it.
+7. **A diarization bundle downloaded while on AI-LAB is drive-bound.** The app
+   fetches `speakerkit`/`speakerkit-pro` into whichever store is active and
+   chooses between them itself, so one that is `·X` breaks `--speakers` after an
+   eject. Every MacWhisper flip warns about it; `aimodels whisper reconcile`
+   while mounted copies it to local.
 
 ## Continue to model choice
 

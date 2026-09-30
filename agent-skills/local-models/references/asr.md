@@ -24,9 +24,10 @@ Authoritative for the **active store only**, and the source of the exact `--mode
 IDs. `▸` marks the active default. Example shape:
 
 ```
-▸ whisperkit:openai_whisper-small               Small           483 MB
   whisperkit:openai_whisper-large-v3-v20240930  Large v3 Turbo  -
+  whisperkit:openai_whisper-small               Small           483 MB
   parakeet-pro:nvidia_parakeet-v3               Parakeet v3     1.24 GB
+▸ qwen3-asr:qwen3-asr-1.7b                      Qwen3-ASR 1.7B  1.77 GB
   whisper-cpp:ggml-model-whisper-small.en       Small (English Only)  500 MB
 ```
 
@@ -43,13 +44,17 @@ AI-LAB is ejected**; an `L·` model is stranded local-only and needs
 `aimodels whisper reconcile`. This is the only way to answer "will this still work
 offline" — `mw models list` cannot, because it only ever sees the active store.
 
-The two sources use different names. Map them by leaf name:
+The two sources use different names. Map them by leaf name, except Qwen:
 
 | `mw` ID prefix | where the bundle lives |
 |---|---|
 | `whisperkit:` | `whisperkit/models/argmaxinc/whisperkit-coreml/<name>` |
 | `parakeet-pro:` | `whisperkitpro/models/argmaxinc/parakeetkit-pro/<name>` |
+| `qwen3-asr:` | `whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr/{audio_encoder,text_decoder}/<size>` — `aimodels status` shows it by leaf as `1.7b` |
 | `whisper-cpp:` | top-level `<name>.bin` |
+
+Diarization bundles have no `mw` ID; `aimodels status` shows each as a
+`(support)` row: `speakerkit` (pyannote) and `speakerkit-pro` (NVIDIA Nemotron).
 
 Take **IDs from `mw`**, never synthesized from a path.
 
@@ -65,14 +70,17 @@ mw models select            # change the app's active default
 - **English-only vs multilingual.** `*.en` (`ggml-model-whisper-*.en`) are
   English-only — a non-English clip through one produces confident garbage.
   WhisperKit `openai_whisper-*` are multilingual; Parakeet v3 covers a European
-  language set, not all of Whisper's.
+  language set, not all of Whisper's; Qwen3-ASR covers 22 languages including
+  Chinese dialects (per the app's model description).
 - **Offline-safe or drive-bound.** From `aimodels status`, not from size.
-- **Runtime.** WhisperKit/Parakeet are CoreML (`*.mlmodelc`, Neural Engine);
+- **Runtime.** WhisperKit/Parakeet/Qwen3-ASR are CoreML (`*.mlmodelc`, Neural Engine);
   whisper-cpp `.bin` are CPU/GGML. Different performance regimes; do not compare
   their sizes as if they were the same thing.
-- **Diarization.** `--speakers` needs the `speakerkit` support bundle. Check it is
-  present (`aimodels status` lists it as `(support)`); it is kept in the local
-  store precisely so `--speakers` survives an eject.
+- **Diarization.** `--speakers` needs a diarization support bundle, and the app
+  picks which one itself: `speakerkit` (pyannote) or `speakerkit-pro` (Nemotron 3,
+  up to 8 speakers). Both must be `L` in `aimodels status` for `--speakers` to
+  survive an eject. The app can download one onto AI-LAB only; `aimodels` then
+  warns on every flip, and `aimodels whisper reconcile` copies it to local.
 
 ## Step 3 — Match & recommend
 
@@ -83,17 +91,21 @@ accuracy-vs-speed.
 AI-LAB unplugged (or might be, mid-task)?
   → only L models are candidates. Today that is small + the .en whisper-cpp set.
 NON-ENGLISH audio?
-  → a multilingual WhisperKit model; never a .en bin. Check Parakeet's language
-    list before offering it.
+  → a multilingual WhisperKit model or Qwen3-ASR; never a .en bin. Check
+    Parakeet's language list before offering it. Chinese / Chinese dialects
+    → Qwen3-ASR (drive-bound).
 NEEDS speaker labels?
-  → any model + --speakers, provided speakerkit is present.
+  → any model + --speakers, provided both diarization bundles are present.
 LONG recording, throughput matters?
   → Parakeet v3 is the throughput-oriented CoreML option; large-v3 turbo is the
     accuracy-oriented one. MEASURE before claiming which is faster here.
 HIGHEST accuracy, drive plugged in, English or not?
-  → whisperkit large-v3-v20240930.
+  → Qwen3-ASR 1.7B or whisperkit large-v3-v20240930. The vendor positions Qwen
+    as the accuracy option and slower; neither has been measured against the
+    other here, so compare on the actual audio when accuracy decides it.
 SHORT English clip, want it now?
-  → the active default (small) is almost always the right answer. Don't upsell.
+  → the active default (▸ in mw models list) is almost always the right answer.
+    Don't upsell.
 ```
 
 **Tie-breakers:** availability beats accuracy; the active default beats a flip
@@ -105,21 +117,25 @@ Audio in a language none of the installed multilingual models covers well; a
 correctness bar where a human check is required anyway; or the file is enormous
 and JT needs it now — say so rather than starting a 40-minute local run.
 
-## Verified machine facts (2026-08-24 — re-verify, don't trust)
+## Verified machine facts (2026-09-30 — re-verify, don't trust)
 
 Installed, and which store holds them:
 
 | model | store | notes |
 |---|---|---|
-| `whisperkit:openai_whisper-small` | local + AI-LAB | **active default**, offline-safe, 464 MB |
+| `whisperkit:openai_whisper-small` | local + AI-LAB | offline-safe, 464 MB; `WHISPER_MODEL_LOCAL`, selected on a flip to local |
 | `whisper-cpp:ggml-model-whisper-{tiny,base,small}.en` | local + AI-LAB | English-only, offline-safe |
-| `whisperkit:openai_whisper-large-v3-v20240930` | **AI-LAB only** | 1.5 GB, gone when ejected |
+| `whisperkit:openai_whisper-large-v3-v20240930` | **AI-LAB only** | 1.5 GB, gone when ejected; `WHISPER_MODEL_EXTERNAL`, re-selected on a flip to AI-LAB |
 | `parakeet-pro:nvidia_parakeet-v3` | **AI-LAB only** | 1.2 GB, gone when ejected |
-| `speakerkit` | local + AI-LAB | diarization support; verified working offline |
+| `qwen3-asr:qwen3-asr-1.7b` | **AI-LAB only** | 1.77 GB per the app, 1384 MB on disk; Pro; 22 languages incl. Chinese dialects; vendor-positioned as accuracy-oriented and slower; supports speaker recognition. Active in MacWhisper for file, dictation and live since 2026-09-30, but a flip does not preserve it (see [stores.md](stores.md) footgun 6) |
+| `speakerkit` | local + AI-LAB | pyannote diarization support (segmenter/embedder v3, clusterer v4), 32 MB |
+| `speakerkit-pro` | local + AI-LAB | NVIDIA Nemotron 3 diarization (sortformer), up to 8 speakers, 74 MB |
 
-Verified by live test: with the local store active, `mw models list` shows only
-small + the three `.en` models — large-v3 and Parakeet are cleanly *not*
-advertised, and diarization still detected 2 speakers on a 120 s clip.
+Verified by live test (2026-08-24): with the local store active, `mw models list`
+shows only small + the three `.en` models — large-v3 and Parakeet are cleanly
+*not* advertised, and diarization still detected 2 speakers on a 120 s clip.
+That predates the second diarization bundle; offline `--speakers` with both
+bundles local has not been re-tested.
 
 **No throughput numbers are recorded yet.** Do not invent any. If speed drives the
 decision, measure (below) and add the result here.
@@ -176,7 +192,7 @@ hold everything except the model constant:
    names, and numbers against it. Without one, listen to every section where the
    candidates disagree; fluent prose is not evidence that the words are right.
 5. Judge transcription and diarization separately. A model can recognize the
-   words better while `speakerkit` assigns speakers worse, or vice versa.
+   words better while diarization assigns speakers worse, or vice versa.
 6. Report concrete disagreements and their audio positions, then recommend the
    model that best satisfies this recording's accuracy, language, speaker, and
    latency constraints. Do not rank outputs by polish or length.
@@ -186,8 +202,8 @@ hold everything except the model constant:
 ```
 **Recommendation:** `mw transcribe <file> --model <id> [flags]`
 
-<one sentence citing a checked fact: "small is the active default and the only
-multilingual model that survives an AI-LAB eject — 464 MB, offline-verified.">
+<one sentence citing a checked fact: "small is the only multilingual model that
+survives an AI-LAB eject — 464 MB, offline-verified.">
 
 <if relevant: the better-but-drive-bound alternative, with its trade-off.>
 ```
