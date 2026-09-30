@@ -129,7 +129,8 @@ Manages models split across the internal SSD and a Thunderbolt SD card.
 - `aimodels ollama local|sd|auto` — point `~/.ollama-models` at a store.
 - `aimodels ollama reconcile [--dry-run]` — symlinks local-primary models into
   the SD tree (**strictly local → SD**; reverse would dangle on eject), and
-  promotes a `local` note to `both`.
+  promotes a `local` note to `both`. Runs automatically on every flip onto the
+  SD store, including the `aimodels` watcher's mount edge.
 - `ollama rm` on the SD store after a reconcile only unlinks the symlinks; local
   originals survive (verified on Ollama 0.35.0 with a throwaway server + store).
   `ollama rm` on the local store deletes the originals, so the SD symlinks
@@ -208,9 +209,7 @@ lists. See `~/.dotfiles/CLAUDE.md` for the full workflow. For local-LLM work:
 2. Benchmark `gemma4:12b-mlx` (MTP) vs `qwen3-coder:latest` for coding once on 0.31.
 3. Run `llmfit bench --all` and compare its measured numbers against our by-hand
    benchmarks; reconcile any gaps.
-5. Auto-reconcile on SD mount via LaunchAgent watcher (`ollamodels installwatcher`
-   exists; deferred — reconcile is opt-in for now).
-6. Keep the external Notes docs in sync (they predate some MLX findings).
+4. Keep the external Notes docs in sync (they predate some MLX findings).
 
 ---
 

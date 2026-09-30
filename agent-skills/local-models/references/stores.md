@@ -19,6 +19,12 @@ expect, and the big bytes live on the SSD.
 Watcher: `com.jt.aimodels-watcher` (`WatchPaths: /Volumes` → `aimodels watch
 apply --silent`). It is idempotent — most firings are a no-op.
 
+Every Ollama flip onto AI-LAB (the mount edge, or `aimodels ollama sd`) also
+runs `aimodels ollama reconcile`, so a model pulled while the drive was ejected
+shows up on AI-LAB without a manual step; the watcher log records it. MacWhisper
+does not auto-reconcile — its reconcile copies gigabytes — so run
+`aimodels whisper reconcile` yourself after remounting.
+
 ## Commands
 
 ```bash

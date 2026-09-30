@@ -62,6 +62,18 @@ final class OllamaEngine extends AbstractStoreEngine {
 			$warnings[] = 'Ollama.app is running — quit and relaunch it for OLLAMA_MODELS to take effect.';
 		}
 
+		// Arriving on AI-LAB (the watcher's mount edge, or a manual flip) is when a
+		// model pulled during an ejected spell should become visible there. Only
+		// symlinks are added, which is why this is automatic for Ollama and not
+		// for MacWhisper, whose reconcile copies gigabytes.
+		if ( self::EXTERNAL === $location && is_dir( $this->storePath( self::LOCAL ) . '/manifests/registry.ollama.ai/library' ) ) {
+			$reconciled = $this->reconcile();
+			if ( ApplyResult::NOOP !== $reconciled->status ) {
+				$warnings[] = ( $reconciled->ok() ? 'reconciled local models into AI-LAB: ' : 'reconcile failed: ' ) . $reconciled->message;
+			}
+			$warnings = array_merge( $warnings, $reconciled->warnings );
+		}
+
 		return $warnings;
 	}
 

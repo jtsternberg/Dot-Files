@@ -174,6 +174,54 @@ final class OllamaReconcileTest extends TestCase {
 		$this->assertSame( 'local', ( new ModelNotes( ModelNotes::defaultPath( $this->home ) ) )->note( 'ollama:qwen3.5:9b' )['location'] );
 	}
 
+	// --- auto-reconcile on the flip to AI-LAB ------------------------------------
+
+	/**
+	 * A model pulled while the drive was ejected is local-only. The flip back to
+	 * AI-LAB — the watcher's mount edge, or a manual `aimodels ollama sd` — is
+	 * when the external store should start seeing it.
+	 */
+	public function testTheFlipToExternalReconcilesLocalOnlyModels(): void {
+		$this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$this->engine()->apply( 'local' );
+
+		$result = $this->engine()->apply( 'external' );
+
+		$this->assertSame( ApplyResult::APPLIED, $result->status );
+		$this->assertTrue( is_link( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) ) );
+		$this->assertStringContainsString( 'reconciled', implode( "\n", $result->warnings ) );
+	}
+
+	public function testTheWatcherMountEdgeReconciles(): void {
+		$this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$this->engine()->apply( 'local' );
+
+		( new \JT\LocalModels\Watcher( $this->home, $this->volumes ) )->applyAll();
+
+		$this->assertTrue( is_link( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) ) );
+	}
+
+	public function testANoopOrDryRunFlipDoesNotReconcile(): void {
+		$this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$this->engine()->apply( 'local' );
+		$this->engine()->apply( 'external', true );
+		$this->assertFileDoesNotExist( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
+
+		// Already external: the flip is a noop, so nothing new to reconcile against.
+		symlink( $this->external, $this->home . '/.ollama-models.tmp' );
+		rename( $this->home . '/.ollama-models.tmp', $this->home . '/.ollama-models' );
+		$this->engine()->apply( 'external' );
+		$this->assertFileDoesNotExist( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
+	}
+
+	public function testAFlipWithNothingToReconcileSaysNothingAboutIt(): void {
+		$this->engine()->apply( 'local' );
+
+		$result = $this->engine()->apply( 'external' );
+
+		$this->assertStringNotContainsString( 'reconcil', implode( "\n", $result->warnings ) );
+	}
+
 	// --- bin/ollamodels shim ------------------------------------------------------
 
 	/**
