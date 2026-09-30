@@ -84,8 +84,8 @@ a role probably still fails it), but even its numbers deserve the same skepticis
 
 After any clean benchmark, **write the result back** with
 `aimodels why set <model> --speed="…" --tested="…" --when="…"` (date the `--tested` note),
-so the log improves rather than ossifies. A flag value is cut off at its first `=`
-(`--speed="num_ctx=65536 …"` saves `num_ctx`), so write `num_ctx 65536`.
+so the log improves rather than ossifies. A few older notes stop mid-phrase at `num_ctx`
+or `num_ctx<` (text after an `=` was lost at write time); replace them on the next bench.
 
 ### 1d. `aimodels status` — storage location (affects availability + load time)
 
