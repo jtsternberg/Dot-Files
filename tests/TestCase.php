@@ -79,6 +79,10 @@ abstract class TestCase extends BaseTestCase
 		// Exit 1 reads as "key not set", so an un-faked engine never touches it.
 		putenv('AIMODELS_DEFAULTS_BIN=' . self::sharedStub('defaults', "#!/bin/sh\nexit 1\n"));
 
+		// And for `mw`: `mw models select` rewrites the real app's selection, and
+		// launches MacWhisper if it is quit. Failing reads as "could not select".
+		putenv('AIMODELS_MW_BIN=' . self::sharedStub('mw', "#!/bin/sh\nexit 1\n"));
+
 		// Router-specific coverage constructs a Graveyard with NullTransport; see
 		// Graveyard/GraveyardPageServerContractTest.php. $this->gy is not that shape.
 		$this->gy = new Graveyard($this->cli, $this->transport);
@@ -92,6 +96,7 @@ abstract class TestCase extends BaseTestCase
 		putenv('PROC_PS_BIN');
 		putenv('AIMODELS_LAUNCHCTL_BIN');
 		putenv('AIMODELS_DEFAULTS_BIN');
+		putenv('AIMODELS_MW_BIN');
 		if (isset($this->graveyardRoot) && is_dir($this->graveyardRoot)) {
 			$this->rmrf($this->graveyardRoot);
 		}
