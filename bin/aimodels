@@ -24,6 +24,7 @@ namespace JT;
 # aimodels ollama [local|sd|auto|reconcile] [--dry-run]
 # aimodels whisper [local|external|auto|reconcile] [--dry-run]
 # aimodels watch [status|install|remove|apply]
+# aimodels why [list|set|rm|locate|history|forget|notes|path] [<model>] [<text>] [--json]
 # aimodels completion zsh
 # =============================================================================
 

@@ -337,28 +337,15 @@ function reconcile(\JT\CLI\Helpers $cli, string $localPath, string $sdPath): boo
 }
 
 /**
- * If ~/.ollama-why.json has a note for this model tagged location "local",
- * promote it to "both". Silent no-op otherwise.
+ * If the model's note (see `aimodels why`) is tagged location "local", promote
+ * it to "both". Silent no-op otherwise. Goes through the notes store so the
+ * engine-qualified keys and legacy migration stay in one place.
  */
 function promoteLocationToBoth(\JT\CLI\Helpers $cli, string $tag): void {
-	$file = getenv('HOME') . '/.ollama-why.json';
-	if (!file_exists($file)) {
-		return;
+	$notes = new \JT\LocalModels\ModelNotes(\JT\LocalModels\ModelNotes::defaultPath());
+	if ($notes->promoteLocalToBoth('ollama:' . $tag)) {
+		$cli->msg("  aimodels why: {$tag} location promoted local → both", 'cyan');
 	}
-	$data = json_decode((string) file_get_contents($file), true);
-	if (!is_array($data) || !isset($data['models']) || !is_array($data['models'])) {
-		return; // old/unknown shape — leave it to ollama-why
-	}
-	if (($data['models'][$tag]['location'] ?? '') !== 'local') {
-		return;
-	}
-	$data['models'][$tag]['location'] = 'both';
-	$out = [
-		'models'    => (object) $data['models'],
-		'graveyard' => (object) ($data['graveyard'] ?? []),
-	];
-	file_put_contents($file, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-	$cli->msg("  ollama-why: {$tag} location promoted local → both", 'cyan');
 }
 
 $ok = true;

@@ -11,6 +11,7 @@ use JT\LocalModels\AbstractStoreEngine;
 use JT\LocalModels\ApplyResult;
 use JT\LocalModels\Ejector;
 use JT\LocalModels\EngineRegistry;
+use JT\LocalModels\ModelNotes;
 use JT\LocalModels\StoreEngine;
 use JT\LocalModels\Watcher;
 
@@ -22,6 +23,7 @@ final class AiModelsCommand {
 
 	private ?Watcher $watcher = null;
 	private ?EngineRegistry $registry = null;
+	private ?ModelNotes $notes = null;
 
 	public function __construct(
 		private readonly Helpers $cli,
@@ -271,6 +273,421 @@ final class AiModelsCommand {
 
 				return 1;
 		}
+	}
+
+	#[Command(
+		description: 'Notes on when to use each local model, joined to where it lives, plus a graveyard of models tried and removed.',
+	)]
+	public function why(
+		#[Argument( description: 'list (default) | set | rm | locate | history | forget | notes | path | keys' )]
+		string $action = 'list',
+		#[Argument(
+			description: 'An mw ID for MacWhisper (whisperkit:openai_whisper-small), or an Ollama tag, bare or ollama:-prefixed.',
+			completionCommand: 'aimodels why keys',
+		)]
+		?string $model = null,
+		#[Argument( description: 'set: the when-text. locate: local | external | both.' )]
+		?string $text = null,
+		#[Option( description: 'When/why to use this model.' )]
+		?string $when = null,
+		#[Option( description: 'Speed note, e.g. "~40 tok/s gen".' )]
+		?string $speed = null,
+		#[Option( description: 'Comma-separated tags.' )]
+		?string $tags = null,
+		#[Option( description: 'Test result (on set, or recorded in the graveyard by rm --delete-model).' )]
+		?string $tested = null,
+		#[Option( description: 'Where it lives: local | external | both (sd = external). Recorded from the inventory on set.' )]
+		?string $location = null,
+		#[Option( description: 'Alias for --location.' )]
+		?string $loc = null,
+		#[Option( name: 'delete-model', description: 'rm: archive the note to the graveyard; for Ollama also `ollama rm` the model.' )]
+		bool $deleteModel = false,
+		#[Option( description: 'Only this engine: ollama | macwhisper (whisper).' )]
+		?string $engine = null,
+		#[Option( description: 'Machine-readable output (list, history, notes).' )]
+		bool $json = false
+	): int {
+		$engineFilter = match ( $engine ) {
+			null                    => null,
+			'ollama'                => 'ollama',
+			'macwhisper', 'whisper' => 'macwhisper',
+			default                 => false,
+		};
+		if ( false === $engineFilter ) {
+			$this->cli->err( "Unknown engine: {$engine}. Use ollama or macwhisper." );
+
+			return 1;
+		}
+
+		$locationValue = $location ?? $loc;
+		if ( null !== $locationValue && null === ModelNotes::normalizeLocation( $locationValue ) ) {
+			$this->cli->err( "Invalid location \"{$locationValue}\". Use one of: local, external, both." );
+
+			return 1;
+		}
+
+		if ( in_array( $action, [ 'set', 'rm', 'locate', 'forget' ], true ) && ( null === $model || '' === $model ) ) {
+			$this->cli->err( "Missing <model>. Usage: aimodels why {$action} <model>" );
+
+			return 1;
+		}
+
+		switch ( $action ) {
+			case 'list':
+				return $this->whyList( $engineFilter, $json );
+
+			case 'set':
+				$fields = [];
+				if ( null !== $text && null === $when ) {
+					$fields['when'] = $text;
+				}
+				foreach ( [ 'when' => $when, 'speed' => $speed, 'tested' => $tested ] as $field => $value ) {
+					if ( null !== $value ) {
+						$fields[ $field ] = $value;
+					}
+				}
+				if ( null !== $tags ) {
+					$fields['tags'] = array_values( array_filter( array_map( 'trim', explode( ',', $tags ) ), 'strlen' ) );
+				}
+				if ( null !== $locationValue ) {
+					$fields['location'] = ModelNotes::normalizeLocation( $locationValue );
+				}
+
+				return $this->whySet( $this->whyKey( $model ), $fields );
+
+			case 'rm':
+				return $this->whyRemove( $this->whyKey( $model ), $deleteModel, $tested );
+
+			case 'locate':
+				$value = ModelNotes::normalizeLocation( (string) $text );
+				if ( null === $value ) {
+					$this->cli->err( 'Usage: aimodels why locate <model> <local|external|both>' );
+
+					return 1;
+				}
+				$key = $this->whyKey( $model );
+				$this->notes()->set( $key, [ 'location' => $value ] );
+				$this->cli->successMsg( "Set location for {$key}: {$value}" );
+
+				return 0;
+
+			case 'history':
+				return $this->whyHistory( $engineFilter, $json );
+
+			case 'forget':
+				$key = $this->whyKey( $model );
+				if ( ! $this->notes()->forget( $key ) ) {
+					$this->cli->err( "No graveyard entry for {$key}" );
+
+					return 1;
+				}
+				$this->cli->successMsg( "Forgot graveyard entry for {$key}" );
+
+				return 0;
+
+			case 'notes':
+				$data = $this->notes()->data();
+				$this->cli->output( (string) json_encode(
+					[ 'version' => ModelNotes::VERSION, 'models' => (object) $data['models'], 'graveyard' => (object) $data['graveyard'] ],
+					JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+				) );
+
+				return 0;
+
+			case 'path':
+				$this->cli->output( $this->notes()->path() );
+
+				return 0;
+
+			// Machine-facing: the completion value provider for <model>.
+			case 'keys':
+				$keys = array_merge(
+					array_column( $this->whyInventory( null )['models'], 'id' ),
+					array_keys( $this->notes()->data()['graveyard'] )
+				);
+				foreach ( array_unique( array_map( [ ModelNotes::class, 'engineName' ], $keys ) ) as $key ) {
+					$this->cli->output( $key );
+				}
+
+				return 0;
+
+			default:
+				$this->cli->err( "Unknown why action: {$action}" );
+
+				return 1;
+		}
+	}
+
+	/**
+	 * @param array<string, mixed> $fields
+	 */
+	private function whySet( string $key, array $fields ): int {
+		$note = $this->notes()->note( $key );
+
+		// Last-known location, for when the drive holding it is not mounted.
+		if ( ! isset( $fields['location'] ) && empty( $note['location'] ) ) {
+			foreach ( $this->whyInventory( null )['models'] as $row ) {
+				if ( $row['id'] === $key && null !== $row['location'] ) {
+					$fields['location'] = $row['location'];
+					$this->cli->msg( "Recorded location from the inventory: {$row['location']}", 'yellow' );
+				}
+			}
+		}
+
+		if ( empty( $fields ) ) {
+			$this->cli->err( 'Nothing to set. Provide a when-text or --when/--speed/--tags/--tested/--location.' );
+
+			return 1;
+		}
+
+		$buried = $this->notes()->buried( $key );
+		if ( null === $note && null !== $buried ) {
+			$this->cli->msg(
+				"Note: {$key} is in the graveyard (removed " . ( $buried['removed_at'] ?? '?' ) . '). Creating a fresh note;'
+					. " `aimodels why forget {$key}` clears the graveyard entry.",
+				'yellow'
+			);
+		}
+
+		$saved = $this->notes()->set( $key, $fields );
+		$this->cli->successMsg( "Saved note for {$key}" );
+		foreach ( $saved as $field => $value ) {
+			$this->cli->msg( "  {$field}: " . ( is_array( $value ) ? implode( ',', $value ) : $value ), 'cyan' );
+		}
+
+		return 0;
+	}
+
+	private function whyRemove( string $key, bool $deleteModel, ?string $tested ): int {
+		$had = $this->notes()->remove( $key, $deleteModel, $tested );
+
+		if ( $had ) {
+			$this->cli->successMsg( $deleteModel ? "Archived note for {$key} to the graveyard" : "Removed note for {$key}" );
+		} else {
+			$this->cli->msg( "No note found for {$key}", 'yellow' );
+			if ( ! $deleteModel ) {
+				return 1;
+			}
+			$this->cli->msg( "Added graveyard tombstone for {$key}", 'yellow' );
+		}
+
+		if ( ! $deleteModel ) {
+			return 0;
+		}
+
+		if ( 'ollama' !== ModelNotes::engineOf( $key ) ) {
+			// No CLI deletes a MacWhisper bundle safely, and removing one from under
+			// a store replica is exactly what reconcile would then "fix" back.
+			$this->cli->msg( 'Model files left in place: delete MacWhisper models from the app\'s settings.', 'yellow' );
+
+			return 0;
+		}
+
+		$tag = ModelNotes::engineName( $key );
+		$bin = getenv( 'AIMODELS_OLLAMA_BIN' ) ?: 'ollama';
+		$this->cli->msg( "Running: ollama rm {$tag}", 'cyan' );
+		exec( escapeshellarg( $bin ) . ' rm ' . escapeshellarg( $tag ) . ' 2>&1', $out, $code );
+		foreach ( $out as $line ) {
+			$this->cli->output( $line );
+		}
+
+		if ( 0 !== $code ) {
+			$this->cli->err( "`ollama rm` failed with exit code {$code}" );
+
+			return 1;
+		}
+		$this->cli->successMsg( "Deleted model {$tag}" );
+
+		return 0;
+	}
+
+	private function whyList( ?string $engine, bool $json ): int {
+		$inventory = $this->whyInventory( $engine );
+
+		if ( $json ) {
+			$this->cli->output( (string) json_encode( $inventory, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+
+			return 0;
+		}
+
+		$groups = [];
+		foreach ( $inventory['models'] as $row ) {
+			$groups[ $row['state'] ][] = $row;
+		}
+
+		$width = 0;
+		foreach ( $inventory['models'] as $row ) {
+			$width = max( $width, strlen( $this->whyLabel( $row ) ) );
+		}
+		foreach ( $inventory['graveyard'] as $entry ) {
+			$width = max( $width, strlen( $entry['name'] ) );
+		}
+		$width += 2;
+
+		$lastEngine = null;
+		foreach ( $groups['available'] ?? [] as $row ) {
+			if ( $row['engine'] !== $lastEngine ) {
+				$this->cli->msg( ( null === $lastEngine ? '' : "\n" ) . $row['engine'], 'white' );
+				$lastEngine = $row['engine'];
+			}
+			$this->whyRow( $row, $width );
+		}
+
+		$sections = [
+			'stranded' => [ 'Not in the active store (`aimodels <engine> reconcile`):', null ],
+			'offline'  => [ 'Offline (AI-LAB not mounted):', 'Tip: mount the drive; the watcher flips the stores back.' ],
+			'orphaned' => [ 'Orphaned notes (models no longer installed):', 'Tip: `aimodels why rm <model>` to clean up.' ],
+		];
+		foreach ( $sections as $state => [ $heading, $tip ] ) {
+			if ( empty( $groups[ $state ] ) ) {
+				continue;
+			}
+			$this->cli->msg( "\n" . $heading, 'yellow' );
+			foreach ( $groups[ $state ] as $row ) {
+				$this->whyRow( $row, $width );
+			}
+			if ( $tip ) {
+				$this->cli->msg( $tip, 'yellow' );
+			}
+		}
+
+		if ( ! empty( $inventory['graveyard'] ) ) {
+			$this->cli->msg( "\nPreviously tested & removed (see `aimodels why history`):", 'yellow' );
+			foreach ( $inventory['graveyard'] as $entry ) {
+				$this->cli->output(
+					'  ' . $this->cli->color( 'red' ) . str_pad( $entry['name'], $width ) . $this->cli->color( 'none' )
+						. str_pad( (string) ( $entry['removed_at'] ?? '?' ), 12 )
+						. ( $entry['tested'] ?? ( $entry['when'] ?? '' ) )
+				);
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * @param array<string, mixed> $row
+	 */
+	private function whyRow( array $row, int $width ): void {
+		$note  = $row['note'];
+		$label = $this->whyLabel( $row );
+		$badge = $this->whyBadge( $row['location'] );
+		$line  = '  ' . str_pad( $label, $width ) . $badge . ' ';
+
+		if ( null === $note ) {
+			// Support bundles are not something anyone picks, so they are never nagged.
+			$this->cli->output(
+				$line . ( 'support' === $row['kind']
+					? $this->cli->color( 'dark_gray' ) . '(support)' . $this->cli->color( 'none' )
+					: $this->cli->color( 'yellow' ) . '(no note — run: aimodels why set ' . $label . ' "...")' . $this->cli->color( 'none' ) )
+			);
+
+			return;
+		}
+
+		$this->cli->output( $line . $this->cli->color( 'green' ) . ( $note['when'] ?? '' ) . $this->cli->color( 'none' ) );
+		$indent = str_repeat( ' ', $width + 13 );
+		foreach ( [ 'speed' => 'cyan', 'tested' => 'cyan', 'tags' => 'magenta' ] as $field => $color ) {
+			if ( ! empty( $note[ $field ] ) ) {
+				$value = is_array( $note[ $field ] ) ? implode( ', ', $note[ $field ] ) : $note[ $field ];
+				$this->cli->msg( $indent . $field . ': ' . $value, $color );
+			}
+		}
+	}
+
+	/**
+	 * Ollama rows show the bare tag (what `ollama run` takes); MacWhisper rows the
+	 * mw ID (what `mw transcribe --model` takes).
+	 *
+	 * @param array<string, mixed> $row
+	 */
+	private function whyLabel( array $row ): string {
+		return ModelNotes::engineName( $row['id'] );
+	}
+
+	private function whyBadge( ?string $location ): string {
+		$colors = [ 'local' => 'cyan', 'external' => 'magenta', 'both' => 'green' ];
+
+		return $this->cli->color( $colors[ $location ] ?? 'dark_gray' )
+			. str_pad( '[' . ( $location ?? '?' ) . ']', 10 )
+			. $this->cli->color( 'none' );
+	}
+
+	private function whyHistory( ?string $engine, bool $json ): int {
+		$graveyard = $this->notes()->graveyard( $engine );
+
+		if ( $json ) {
+			$this->cli->output( (string) json_encode( [ 'graveyard' => $graveyard ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+
+			return 0;
+		}
+
+		if ( empty( $graveyard ) ) {
+			$this->cli->msg( 'Graveyard is empty — no models tested & removed yet.', 'yellow' );
+
+			return 0;
+		}
+
+		$this->cli->msg( 'Previously tested & removed:', 'white' );
+		foreach ( $graveyard as $entry ) {
+			$this->cli->output(
+				'  ' . $this->cli->color( 'red' ) . $entry['name'] . $this->cli->color( 'none' )
+					. ( empty( $entry['location'] ) ? '' : ' ' . trim( $this->whyBadge( $entry['location'] ) ) )
+					. $this->cli->color( 'yellow' ) . '  (removed ' . ( $entry['removed_at'] ?? '?' ) . ')' . $this->cli->color( 'none' )
+			);
+			foreach ( [ 'tested' => 'cyan', 'when' => 'green', 'speed' => 'cyan', 'tags' => 'magenta' ] as $field => $color ) {
+				if ( ! empty( $entry[ $field ] ) ) {
+					$value = is_array( $entry[ $field ] ) ? implode( ', ', $entry[ $field ] ) : $entry[ $field ];
+					$this->cli->msg( '      ' . $field . ': ' . $value, $color );
+				}
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Residency comes from Watcher::status(), the accessor `aimodels status`
+	 * renders — never from a second list of store paths.
+	 *
+	 * @return array{mounted: bool, models: array<int, array<string, mixed>>, graveyard: array<int, array<string, mixed>>}
+	 */
+	private function whyInventory( ?string $engine ): array {
+		return $this->notes()->inventory( $this->watcher()->status(), $engine );
+	}
+
+	private function whyKey( string $input ): string {
+		$ids = [];
+		foreach ( $this->watcher()->status()['engines'] as $engine ) {
+			$ids = array_merge( $ids, array_column( $engine['models'], 'id' ) );
+		}
+
+		return ModelNotes::resolveKey( $input, $ids );
+	}
+
+	/**
+	 * `bin/ollama-why` argv as the equivalent `aimodels why` argv. Scoped to
+	 * Ollama, as ollama-why always was, unless the caller picked an engine.
+	 *
+	 * @param string[] $argv
+	 * @return string[]
+	 */
+	public static function ollamaWhyArgv( array $argv ): array {
+		$rest = array_slice( $argv, 1 );
+		if ( 'help' === ( $rest[0] ?? null ) ) {
+			$rest[0] = '-h';
+		}
+
+		$scoped = false;
+		foreach ( $rest as $arg ) {
+			$scoped = $scoped || str_starts_with( $arg, '--engine=' );
+		}
+
+		return array_merge( [ 'aimodels', 'why' ], $rest, $scoped ? [] : [ '--engine=ollama' ] );
+	}
+
+	private function notes(): ModelNotes {
+		return $this->notes ??= new ModelNotes( ModelNotes::defaultPath( $this->home ) );
 	}
 
 	private function engineAction( string $engineName, string $action, bool $dryRun ): int {
