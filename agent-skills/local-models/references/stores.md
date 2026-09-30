@@ -120,9 +120,11 @@ ever restarts an app.
 - **Never quit or kill an app to win an eject.** Release the model instead
   (`releaseHolds`), or report the holder and let JT decide. The one place an app
   IS restarted is MacWhisper after a real store switch — see below.
-- **After `ollama rm` while on SD:** don't. Ollama's reconcile leaves symlinks,
-  and `ollama rm` may follow them and delete local originals. Switch to local
-  first (`aimodels ollama local`), then remove.
+- **`ollama rm` on SD is safe after a reconcile.** It unlinks the SD symlinks
+  and leaves the local originals alone (verified on Ollama 0.35.0 against a
+  throwaway server and store). The reverse is the one to know: `ollama rm` on
+  the local store deletes the originals, so that model's SD symlinks dangle and
+  it disappears from SD too — it is removed everywhere, as asked.
 
 ## Footguns
 
