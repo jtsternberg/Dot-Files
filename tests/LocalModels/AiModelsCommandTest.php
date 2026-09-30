@@ -172,6 +172,34 @@ final class AiModelsCommandTest extends TestCase {
 		$this->assertStringContainsString( 'diarization support only on AI-LAB (speakerkit-pro)', $out );
 	}
 
+	/**
+	 * `status --json` and `why --json` are two views of one residency accessor:
+	 * the multi-part Qwen row must read identically in both.
+	 */
+	public function testStatusAndWhyShowTheSameMultiPartQwenRow(): void {
+		$base = $this->volumes . '/AI-LAB/macwhisper/models/whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr';
+		foreach ( [ 'audio_encoder' => 1, 'text_decoder' => 2 ] as $part => $mb ) {
+			mkdir( "{$base}/{$part}/1.7b/M.mlmodelc", 0777, true );
+			file_put_contents( "{$base}/{$part}/1.7b/M.mlmodelc/w.bin", str_repeat( 'w', $mb * 1048576 ) );
+		}
+
+		[ , $status ] = $this->dispatch( [ 'aimodels', '--json' ] );
+		[ , $why ]    = $this->dispatch( [ 'aimodels', 'why', 'list', '--json', '--engine=macwhisper' ] );
+
+		$pick = static function ( array $rows ): array {
+			foreach ( $rows as $row ) {
+				if ( 'qwen3-asr:qwen3-asr-1.7b' === $row['id'] ) {
+					return [ $row['name'], $row['sizeMb'] ];
+				}
+			}
+
+			return [];
+		};
+
+		$this->assertSame( [ 'qwen3-asr-1.7b', 3 ], $pick( json_decode( $status, true )['engines']['macwhisper']['models'] ) );
+		$this->assertSame( [ 'qwen3-asr-1.7b', 3 ], $pick( json_decode( $why, true )['models'] ) );
+	}
+
 	public function testUnknownActionIsAUsageFailure(): void {
 		[ $code ] = $this->dispatch( [ 'aimodels', 'ollama', 'sideways' ] );
 

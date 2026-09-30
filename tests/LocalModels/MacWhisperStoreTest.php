@@ -118,7 +118,8 @@ final class MacWhisperStoreTest extends TestCase {
 		$this->assertSame( 'whisperkit:openai_whisper-small', $ids['openai_whisper-small'] );
 		$this->assertSame( 'whisperkit:openai_whisper-large-v3-v20240930', $ids['openai_whisper-large-v3-v20240930'] );
 		$this->assertSame( 'parakeet-pro:nvidia_parakeet-v3', $ids['nvidia_parakeet-v3'] );
-		$this->assertSame( 'qwen3-asr:qwen3-asr-1.7b', $ids['1.7b'] );
+		$this->assertSame( 'qwen3-asr:qwen3-asr-1.7b', $ids['qwen3-asr-1.7b'] );
+		$this->assertArrayNotHasKey( '1.7b', $ids, 'the size leaf is not a model name' );
 		$this->assertSame( 'whisper-cpp:ggml-model-whisper-small.en', $ids['ggml-model-whisper-small.en'] );
 		$this->assertSame( 'macwhisper:speakerkit', $ids['speakerkit'] );
 	}
@@ -223,6 +224,32 @@ final class MacWhisperStoreTest extends TestCase {
 		);
 
 		$this->assertSame( 3, $this->rowFor( 'nvidia_parakeet-v3' )['sizeMb'] );
+	}
+
+	/**
+	 * Qwen3-ASR is one model split across two leaf dirs that share the size as
+	 * their name: …/qwen3-asr/{audio_encoder,text_decoder}/1.7b. It is one row,
+	 * named like its mw ID, sized as both halves together.
+	 */
+	public function testMultiPartQwenBundleIsOneRowWithTheSummedSize(): void {
+		$base = 'whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr';
+		$this->weights( $this->external, $base . '/audio_encoder/1.7b' );
+		$this->weights( $this->external, $base . '/text_decoder/1.7b' );
+		file_put_contents( $this->external . '/' . $base . '/audio_encoder/1.7b/AudioEncoder.mlmodelc/model.bin', str_repeat( 'a', 1 * 1048576 ) );
+		file_put_contents( $this->external . '/' . $base . '/text_decoder/1.7b/AudioEncoder.mlmodelc/model.bin', str_repeat( 't', 3 * 1048576 ) );
+		// The download cache mirrors the same shape and must not add to it.
+		$this->weights( $this->external, 'whisperkitpro/models/argmaxinc/qwenasrkit-pro/.cache/huggingface/download/qwen3-asr/text_decoder/1.7b' );
+
+		$rows = array_values( array_filter(
+			$this->engine()->residency(),
+			static fn( array $row ): bool => str_starts_with( $row['id'], 'qwen3-asr:' )
+		) );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'qwen3-asr-1.7b', $rows[0]['name'] );
+		$this->assertSame( 'qwen3-asr:qwen3-asr-1.7b', $rows[0]['id'] );
+		$this->assertSame( 4, $rows[0]['sizeMb'] );
+		$this->assertSame( $base, $rows[0]['path'] );
 	}
 
 	private function rowFor( string $name ): array {

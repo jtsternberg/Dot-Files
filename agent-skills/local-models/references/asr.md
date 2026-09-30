@@ -50,7 +50,7 @@ The two sources use different names. Map them by leaf name, except Qwen:
 |---|---|
 | `whisperkit:` | `whisperkit/models/argmaxinc/whisperkit-coreml/<name>` |
 | `parakeet-pro:` | `whisperkitpro/models/argmaxinc/parakeetkit-pro/<name>` |
-| `qwen3-asr:` | `whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr/{audio_encoder,text_decoder}/<size>` — `aimodels status` shows it by leaf as `1.7b` |
+| `qwen3-asr:` | `whisperkitpro/models/argmaxinc/qwenasrkit-pro/qwen3-asr/{audio_encoder,text_decoder}/<size>` — two parts, shown by `aimodels status` as one row (`qwen3-asr-1.7b`) sized as both together |
 
 `aimodels status --json` and `aimodels why` carry this mapping as each row's `id`.
 | `whisper-cpp:` | top-level `<name>.bin` |

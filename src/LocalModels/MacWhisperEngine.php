@@ -676,7 +676,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 	 * The ID `mw models list` prints for a bundle, which is what `aimodels why`
 	 * keys notes by. `mw` only lists the active store, so the ID is derived from
 	 * the bundle's path to cover the store that is not active (or not mounted).
-	 * Qwen3-ASR is the exception to "<prefix>:<leaf>": its leaf is the size.
+	 * Qwen3-ASR's name is already the mw ID's (modelsIn() builds it from parts).
 	 * Support bundles have no mw ID, so they take the engine's own prefix.
 	 *
 	 * @param array<string, mixed> $model
@@ -691,7 +691,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 
 		return match ( true ) {
 			'whisper-cpp' === $model['framework']              => 'whisper-cpp:' . $name,
-			str_contains( $relative, '/qwenasrkit-pro/qwen3-asr/' ) => 'qwen3-asr:qwen3-asr-' . $name,
+			str_ends_with( $relative, '/qwenasrkit-pro/qwen3-asr' ) => 'qwen3-asr:' . $name,
 			str_contains( $relative, '/parakeetkit-pro/' )    => 'parakeet-pro:' . $name,
 			default                                           => $model['framework'] . ':' . $name,
 		};
@@ -716,8 +716,19 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 		}
 
 		// CoreML bundles, at whatever depth their framework nests them.
+		$parts = [];
 		foreach ( $this->bundleDirs( $store ) as $dir ) {
 			$relative = ltrim( substr( $dir, strlen( $store ) ), '/' );
+
+			// Qwen3-ASR splits one model across …/qwen3-asr/<part>/<size>, and every
+			// part's leaf is just the size ('1.7b'). Collected here, emitted below
+			// as one model; keyed by leaf they would collide and keep one half.
+			if ( preg_match( '#^(.*/qwenasrkit-pro/qwen3-asr)/[^/]+/([^/]+)$#', $relative, $match ) ) {
+				$parts[ 'qwen3-asr-' . $match[2] ]['relative'] = $match[1];
+				$parts[ 'qwen3-asr-' . $match[2] ]['bytes']    = ( $parts[ 'qwen3-asr-' . $match[2] ]['bytes'] ?? 0 ) + $this->treeSize( $dir );
+				continue;
+			}
+
 			$name     = basename( $dir );
 			$sizeMb   = (int) round( $this->treeSize( $dir ) / 1048576 );
 
@@ -734,6 +745,16 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 				'kind'      => 'asr',
 				'relative'  => $relative,
 				'sizeMb'    => $sizeMb,
+			];
+		}
+
+		foreach ( $parts as $name => $part ) {
+			$found[ $name ] = [
+				'name'      => $name,
+				'framework' => strtok( $part['relative'], '/' ) ?: 'unknown',
+				'kind'      => 'asr',
+				'relative'  => $part['relative'],
+				'sizeMb'    => (int) round( $part['bytes'] / 1048576 ),
 			];
 		}
 
