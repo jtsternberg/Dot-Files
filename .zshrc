@@ -81,6 +81,7 @@ alias claudecreateissue='claude "/create-github-issue"'
 alias claudecommitstaged='claude --model sonnet "/commit-staged"'
 alias weeklylog='goto monorepo && claude --dangerously-skip-permissions "/weeklylog"'
 alias agyolo='agy --dangerously-skip-permissions'
+alias claudecommitsig='sed -n '\''s/^AUTO_COMMIT_CLAUDE_SIGNATURE="\(.*\)"$/\1/p'\'' ~/.config/ai-tooling/config 2>/dev/null || true'
 # The board writes only to the log, never to this terminal: a pipe to `tee` here
 # would die with the tab and take the board down on its next write (SIGPIPE).
 csbstart() {
