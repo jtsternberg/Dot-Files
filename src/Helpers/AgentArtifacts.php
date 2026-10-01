@@ -402,6 +402,33 @@ class AgentArtifacts {
 	}
 
 	/**
+	 * The text of a claude session's last assistant message that HAS text, raw — what
+	 * the bury-candidate verdict classifies. Newlines are kept because the bench that
+	 * measured the classifier fed it raw text. Tool-only and synthetic turns are skipped.
+	 */
+	public function lastAssistantText(string $sessionId, ?string $cwd): ?string {
+		$jsonlPath = $this->resolveJsonlPath($sessionId, $cwd);
+		if ($jsonlPath === null) { return null; }
+
+		$found = null;
+		$this->eachLineReverse($jsonlPath, function (string $line) use (&$found) {
+			$entry = json_decode($line, true);
+			if (!$entry || ($entry['type'] ?? '') !== 'assistant' || $this->isSyntheticEntry($entry)) { return true; }
+			$parts = [];
+			foreach ((array) ($entry['message']['content'] ?? []) as $c) {
+				if (is_array($c) && ($c['type'] ?? '') === 'text' && trim((string) ($c['text'] ?? '')) !== '') {
+					$parts[] = (string) $c['text'];
+				}
+			}
+			if (!$parts) { return true; }
+			$found = trim(implode("\n", $parts));
+			return false;
+		});
+
+		return $found;
+	}
+
+	/**
 	 * Idle clock for a codex session: the timestamp of the last complete record in
 	 * its rollout. Scanned backward, because rollouts run to megabytes.
 	 *

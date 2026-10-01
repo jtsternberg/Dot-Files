@@ -23,8 +23,8 @@ namespace JT\Helpers;
  * AgentArtifacts does — path encoding, resume command construction, title
  * normalisation — is pure or archive-only and is inherited unchanged.
  *
- * Two of them are belt-and-braces and cannot be pinned by a test: readSessionJsonl and
- * lastRealActivity both resolve their file through the resolvers below, so those
+ * Three of them are belt-and-braces and cannot be pinned by a test: readSessionJsonl,
+ * lastRealActivity and lastAssistantText all resolve their file through the resolvers below, so those
  * overrides already force them to their empty answers, and dropping them changes no
  * observable behavior TODAY. They are here because that is an implementation detail of
  * the parent, not a promise — a future resolver that no longer routes through this
@@ -52,4 +52,6 @@ class NullAgentArtifacts extends AgentArtifacts
 
 	/** Idle time is a live-session question; the page shows buried_at/last_active. */
 	public function lastRealActivity(string $sessionId, string $cwd): ?int { return null; }
+
+	public function lastAssistantText(string $sessionId, ?string $cwd): ?string { return null; }
 }
