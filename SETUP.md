@@ -111,7 +111,7 @@ sudo apt install xclip espeak
 Private/machine-specific config (not synced to git) goes in:
 
 ```
-~/.dotfiles/private/additonal_aliases.sh
+~/.dotfiles/private/additional_aliases.sh
 ```
 
 This file is sourced automatically if it exists.

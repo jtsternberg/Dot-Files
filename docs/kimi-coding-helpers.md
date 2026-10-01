@@ -19,7 +19,7 @@ helper that sends prompts outside trusted providers.
 
 1. **API key** — get one at <https://platform.moonshot.ai>, then:
    ```sh
-   # private/additonal_aliases.sh (sourced by .zshrc, NOT synced to git)
+   # private/additional_aliases.sh (sourced by .zshrc, NOT synced to git)
    export MOONSHOT_API_KEY="sk-..."
    ```
    (Yes, the filename is really misspelled `additonal`.)
@@ -136,7 +136,7 @@ Every helper is the same five lines of anatomy:
 # <Tool> powered by <Provider> (<endpoint style>).
 <helper-name>() {
 	if [[ -z "$PROVIDER_API_KEY" ]]; then
-		echo "PROVIDER_API_KEY not set — get a key at <url> and export it in private/additonal_aliases.sh" >&2
+		echo "PROVIDER_API_KEY not set — get a key at <url> and export it in private/additional_aliases.sh" >&2
 		return 1
 	fi
 	echo "\033[1;33m⚠️  <PROVIDER> MODE — prompts go to <who/where>. Personal/public work ONLY.\033[0m"
@@ -163,7 +163,7 @@ Tips for future implementations:
    `export` inside the function. The override applies to that one invocation
    only, so your default (Anthropic/OpenAI) setup is never polluted.
 3. **Guard the key.** Fail fast: message to stderr + `return 1`, telling the
-   user exactly where to set it. Keys live in `private/additonal_aliases.sh`
+   user exactly where to set it. Keys live in `private/additional_aliases.sh`
    (git-ignored, unsynced) — never in the function itself.
 4. **Make the model an overridable default**: `${<PROVIDER>_MODEL:-default}`.
    Trying a new model should be an env var, not an edit.

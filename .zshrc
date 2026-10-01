@@ -13,7 +13,7 @@ dwlog="$HOME/Sites/dsgnwrks.pro/wp-content/debug.log"
 # Iterm commands
 source ~/.dotfiles/.iterm-commands
 
-test -f "$HOME/.dotfiles/private/additonal_aliases.sh" && source "$HOME/.dotfiles/private/additonal_aliases.sh"
+test -f "$HOME/.dotfiles/private/additional_aliases.sh" && source "$HOME/.dotfiles/private/additional_aliases.sh"
 # alias subl="/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl"
 alias zshconfig="subl ~/.dotfiles/.zshrc"
 alias ohmyzsh="subl ~/.dotfiles/.oh-my-zsh"
