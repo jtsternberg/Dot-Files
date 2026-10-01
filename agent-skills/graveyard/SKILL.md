@@ -40,7 +40,7 @@ or rank.
 Discovery is a **union**: `candidates`, `ls`, `search` and `page` see sessions
 under cmux AND herdr in one list, and every row says which hosts it.
 
-`candidates` carries a **kind column** between the state and the description,
+`candidates` carries a **kind column** between the verdict badge and the description,
 naming only what departs from the default — blank for Claude-under-cmux,
 otherwise `herdr`, `codex`, or `codex/herdr`. Agent and transport are two
 separate axes sharing one column. The column is omitted entirely when every row
@@ -61,8 +61,15 @@ refuses rather than dropping surfaces silently).
 ## The four things JT asks for
 
 **Candidates worth burying** — `graveyard candidates` (live, sorted by idle
-time). Present the most-idle ones (idle duration, workspace/tab, cwd) and let
-him pick. Don't bury without a nod.
+time). Each row carries a badge from a local model's read of the session's last
+message: `done 93%`, `waiting` (blocked on JT's reply), `working`, or `?`
+(unknown: codex, no transcript, model down). Rows at p(done) >= 85% sort first.
+`--json` carries it as `verdict`, `p_done`, `verdict_source`; `--porcelain` as
+columns 10-12. It is
+a ranking hint, wrong roughly 1 time in 20 ("nudge me when X and I'll do Y" reads
+as done). Present the top rows (badge, idle duration, workspace/tab, cwd) and
+let him pick. Don't bury without a nod, whatever the badge says. A cold cache
+classifies every session (~1.5 s each); `--no-verdict` skips it.
 
 **Bury the thing JT points at** — he can copy an id from cmux's ⌘P menu ("Copy
 Surface Id" or "Copy Ids") and paste it; `graveyard bury <pasted>` takes it

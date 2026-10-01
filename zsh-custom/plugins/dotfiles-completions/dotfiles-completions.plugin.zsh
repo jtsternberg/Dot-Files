@@ -64,13 +64,15 @@ _graveyard() {
 						'--group[add one session to an existing buried group]:group id:' \
 						'--force[bury even when a session looks busy or is untargetable]' \
 						'-y[skip confirmations]' \
+						'--no-verdict[picker: skip the done/waiting/working classification]' \
 						'*:session id, surface ref, or title:'
 					;;
 				candidates)
 					_arguments \
 						'(-h --help)'{-h,--help}'[display help]' \
 						'--porcelain[emit tab-separated output]' \
-						'--json[emit structured JSON]'
+						'--json[emit structured JSON]' \
+						'--no-verdict[skip the done/waiting/working classification]'
 					;;
 				peek)
 					_arguments \

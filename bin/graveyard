@@ -11,7 +11,7 @@ namespace JT;
 # metadata) and frees their RAM, then lists / opens / resurrects them.
 #
 # Usage:
-# graveyard bury  (no args: interactive picker — fzf if available, else numbered REPL)
+# graveyard bury [--no-verdict]  (no args: interactive picker — fzf if available, else numbered REPL)
 # graveyard bury <identifier> [--force] [-y]
 #   identifier: cmux surface ref (surface:N), surface UUID, session-id (or
 #   prefix), or a workspace/tab title substring. Also accepts cmux's ⌘P ids
@@ -29,7 +29,7 @@ namespace JT;
 #   After burying a SINGLE target (one session, or a workspace/pane group), bury offers to
 #   open that target's NOTES.md — the same note `graveyard note` writes. Skipped under
 #   -y, --silent/--porcelain, or with no tty.
-# graveyard candidates [--porcelain]
+# graveyard candidates [--porcelain] [--json] [--no-verdict]
 # graveyard peek <id> [--turns=N]   (preview a live session's recent turns; default 6)
 # graveyard ls
 # graveyard search <term> [--full-text] [--json]  (search buried sessions)
@@ -47,7 +47,7 @@ $helpyHelperton
 	->setDescription('Demote, browse, and resurrect Claude Code sessions via cmux or herdr.')
 	->setSampleUsage('<bury|ls|search|show|note|rename|delete|resurrect|page> [args]')
 	->buildDocs([
-		'bury' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection',
+		'bury [--no-verdict]' => 'No args: interactive picker over live candidates (fzf --multi with a read-screen preview if fzf is on PATH, else a numbered REPL), then bury the selection. Rows carry the same verdict badge and order as `candidates`; --no-verdict skips classification',
 		'bury <identifier>' => 'Bury a single live session, resolved (in order) by exact cmux surface ref, exact surface UUID (bare, or the "surface_id=<uuid>" form cmux\'s ⌘P copies), session-id exact-or-prefix, or a workspace/tab title substring (case-insensitive). Ambiguous matches are rejected — narrow it or pass a full session-id. A "pane_id=/pane_ref=" paste buries that pane (one agent session → a plain bury, several → a group into a new workspace named at bury time); a "workspace_id=/workspace_ref=" paste routes to the whole-workspace group bury (same as --workspace).',
 		'bury <id> <id> [<id>...]' => 'Bury multiple live sessions by session-id (TOCTOU-safe re-resolve before each)',
 		'bury --idle=<d>' => 'Bury all sessions idle longer than <d> (e.g. 2d, 48h, 90m; space form "--idle <d>" also works)',
@@ -56,7 +56,7 @@ $helpyHelperton
 		'bury (note follow-up)' => 'After burying a SINGLE note target — one session, or a workspace/pane group — bury offers to open that target\'s NOTES.md, creating and seeding it exactly as `graveyard note` does. A multi-session bury (several ids, --idle, or a multi-pick) has no one note to write, so it never asks; nor does `bury <id> --group <gid>`, since the group\'s original bury already offered its plot note. Skipped entirely under -y, --silent/--porcelain, or with no tty — an unattended bury must never end up blocked on an editor.',
 		'--force'         => 'bury <ref>: bury even if the session looks busy. bury --workspace: also skip untargetable Claude members instead of aborting (they stay alive; the workspace is not fully closed).',
 		'-y'              => 'Skip confirmations (and, with them, bury\'s post-bury note offer — see "bury (note follow-up)")',
-		'candidates [--porcelain] [--json]' => 'List live agent sessions sorted by idle time; codex rows are marked [codex]. --porcelain: tab-separated; --json: structured rows (adds agent + buryable) — both agent-readable',
+		'candidates [--porcelain] [--json] [--no-verdict]' => 'List live agent sessions sorted by idle time; codex rows are marked [codex]. Each row gets a verdict on its last assistant message from a local model (DECISION_MODEL* keys in ~/.config/auto-commit-ollama/config): "done 93%", "waiting" (on your reply), "working", or "?" when unknown (codex, no transcript, model unreachable). Rows with p(done) >= 85% sort first. A RANKING HINT only: it never buries or skips a confirmation. Verdicts are cached per message in the store\'s verdicts.json. --porcelain: tab-separated (verdict, p_done, verdict_source appended); --json: structured rows (adds agent, buryable, verdict, p_done, verdict_source) — both agent-readable. --no-verdict: skip classification (fast path, today\'s idle order)',
 		'peek <id>'       => 'Preview a LIVE session\'s recent genuine turns (from its JSONL, skipping synthetic/command noise) before deciding to bury — no export, no bury',
 		'ls'              => 'List buried sessions. A ↑ marks one whose session is running again — resurrect keeps the tombstone so it can be resurrected later, so archived does not always mean down. (--json: structured {workspaces,sessions}, each row carrying live + live_agent)',
 		'search <term>'   => 'Search buried sessions on workspace/tab/cwd/summary + the title of the workspace they were buried with (case-insensitive, newest-first). A hit inside a buried workspace prints the whole plot — header, resurrect command, every member, with ✱ on the ones that matched. --full-text also greps rendered transcripts; --json emits the same {workspaces,sessions} shape as ls, plus a per-session matched flag',
@@ -163,7 +163,7 @@ switch ($sub) {
 			$rest = [];
 			for ($i = 2; ($v = $cli->getArg($i)) !== null; $i++) { $rest[] = $v; }
 			if (!$rest) {
-				$buryOutcome = $gy->pickAndBury($cli->isAutoconfirm());
+				$buryOutcome = $gy->pickAndBury($cli->isAutoconfirm(), !$cli->hasFlag('no-verdict'));
 			} elseif (count($rest) === 1) {
 				$buryOutcome = $gy->buryByRef($rest[0], $cli->hasFlag('force'), $cli->isAutoconfirm());
 			} else {
@@ -183,7 +183,7 @@ switch ($sub) {
 			}
 		}
 		break;
-	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain'), $cli->hasFlag('json')); break;
+	case 'candidates': $gy->printCandidates($cli->hasFlag('porcelain'), $cli->hasFlag('json'), !$cli->hasFlag('no-verdict')); break;
 	case 'peek':
 		$turns = $cli->hasFlag('turns') ? max(1, (int) $cli->getFlag('turns')) : 6;
 		$gy->peekSession((string) $cli->getArg(2), $turns);
