@@ -112,9 +112,16 @@
             "location": "external"
         },
         "ollama:qwen3.5:9b": {
-            "when": "General, thinking-capable summarizer (GGUF Q4). Mid-pack prefill. think:false REQUIRED for plain tasks (else ~80s internal monologue).",
+            "when": "General, thinking-capable summarizer (GGUF Q4). Mid-pack prefill. think:false REQUIRED for plain tasks (else ~80s internal monologue). Also the local Jev / TypeSafe System One stand-in for typed decisions (classify, route, yes/no, triage) with confidence: chat + think:false + temperature 0 + one-word labels with distinct first tokens, read top_logprobs. Tied the dedicated Jev-style decision model nimble:9b (removed), faster.",
             "tags": [
-                "unknown"
+                "summarize",
+                "general",
+                "jev",
+                "decision",
+                "classification",
+                "routing",
+                "triage",
+                "offline-safe"
             ],
             "location": "both",
             "speed": "~225 tok/s prompt-eval, ~21 tok/s decode (measured 2026-07-24, 34K-tok file, COLD, think:false)",
