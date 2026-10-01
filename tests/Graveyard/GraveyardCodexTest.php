@@ -299,8 +299,10 @@ final class GraveyardCodexTest extends TestCase
 		], false);
 
 		$cols = explode("\t", $this->gy->formatCandidatePorcelain($row));
-		$this->assertCount(9, $cols);
+		$this->assertCount(12, $cols);
 		$this->assertSame(['abc', '100', 'idle', 'targetable', 'w', '/x', ''], array_slice($cols, 0, 7));
 		$this->assertSame(['codex', 'cmux'], array_slice($cols, 7, 2));
+		// verdict / p_done / verdict_source, appended after them and empty when unknown.
+		$this->assertSame(['', '', ''], array_slice($cols, 9, 3));
 	}
 }

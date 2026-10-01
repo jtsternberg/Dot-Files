@@ -90,6 +90,18 @@ class Graveyard {
 
 	protected function summarizer(): LocalLlmSummarizer { return $this->summarizer ??= new LocalLlmSummarizer(); }
 
+	/** Local-model reader of a candidate's last message (done/waiting/working); built on first use. */
+	protected ?SessionStateClassifier $stateClassifier = null;
+
+	public function setStateClassifier(SessionStateClassifier $classifier): void { $this->stateClassifier = $classifier; }
+
+	protected function stateClassifier(): SessionStateClassifier { return $this->stateClassifier ??= new SessionStateClassifier(); }
+
+	/** null = show classification progress only when stderr is a tty. */
+	protected ?bool $verdictProgress = null;
+
+	public function setVerdictProgress(?bool $enabled): void { $this->verdictProgress = $enabled; }
+
 	public function __construct(
 		$cli,
 		Transport\SessionTransport $transport,
@@ -4863,7 +4875,12 @@ class Graveyard {
 		return $this->buryIds([$match['session_id']], $autoConfirm, $force);
 	}
 
-	public function candidates(): array {
+	/**
+	 * Live candidate rows: the ONE source text, --porcelain, --json and the bury picker
+	 * all read. With $withVerdict each row is annotated here (annotateVerdicts) and
+	 * confident-done rows sort first — so no view can show a verdict another lacks.
+	 */
+	public function candidates(bool $withVerdict = false): array {
 		$rows = $this->filterSelf($this->liveSessions(), $this->selfSurfaceId(), $this->selfSessionId());
 		$rows = array_values(array_filter($rows, fn($r) => $r['idle_seconds'] !== PHP_INT_MAX));
 		usort($rows, function ($a, $b) {
@@ -4872,20 +4889,139 @@ class Graveyard {
 		});
 
 		$out = [];
+		$busyReasons = [];
 		foreach ($rows as $r) {
 			// The busy probe is a screen read, so it goes to the transport that reported
 			// the row — a herdr pane ref means nothing to cmux, and the wrong screen
 			// would answer "busy?" about somebody else's session. The null a failed read
 			// returns is passed through, not coalesced: this column has to agree with
 			// what bury will actually do, and bury refuses a surface it cannot read.
-			$busy = $this->isBusy(
+			$reason = $this->busyReason(
 				(int) $r['idle_seconds'],
 				self::IDLE_FLOOR_DEFAULT,
 				$this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref']))
 			);
-			$out[] = $this->candidateRowFor($r, $busy);
+			$busyReasons[] = $reason;
+			$out[] = $this->candidateRowFor($r, $reason !== null);
 		}
-		return $out;
+		return $withVerdict ? $this->rankByVerdict($this->annotateVerdicts($out, $busyReasons)) : $out;
+	}
+
+	/** p(done) at or above this sorts a row into the "probably safe to bury" band. */
+	const VERDICT_DONE_BAND = 0.85;
+
+	public function verdictCachePath(): string { return $this->storeRoot() . '/verdicts.json'; }
+
+	/**
+	 * Annotate each candidate with verdict / p_done / verdict_source. A RANKING HINT
+	 * only — nothing gates a bury on it.
+	 *
+	 * Cheap answers first, model last: an 'active' busy read is working, a codex row or
+	 * a transcript with no assistant text has no verdict, a hotline STATUS line is done,
+	 * and an unchanged message reuses its cached verdict. Only what is left reaches the
+	 * model, and the first failure stops asking — a down server would otherwise cost one
+	 * timeout per row. The cache stores verdicts and hashes, never message text.
+	 *
+	 * @param array<int,?string> $busyReasons busyReason() per row, same order.
+	 */
+	public function annotateVerdicts(array $rows, array $busyReasons): array {
+		$classifier = $this->stateClassifier();
+		$none  = ['verdict' => null, 'p_done' => null, 'verdict_source' => 'unavailable'];
+		$cache = $this->readVerdictCache();
+		$fresh = [];
+		$pending = [];
+
+		foreach ($rows as $i => $r) {
+			$sid = (string) $r['session_id'];
+			if (($busyReasons[$i] ?? null) === 'active') {
+				$rows[$i] += ['verdict' => 'working', 'p_done' => null, 'verdict_source' => 'busy'];
+				continue;
+			}
+			$text = ($r['agent'] ?? 'claude') === 'claude'
+				? $this->artifacts->lastAssistantText($sid, $r['cwd'] ?? null)
+				: null;
+			if ($text === null || $text === '') { $rows[$i] += $none; continue; }
+
+			if ($hit = $classifier->statusLineVerdict($text)) { $rows[$i] += $hit; continue; }
+
+			$fp = $classifier->fingerprint($text);
+			$c  = $cache[$sid] ?? null;
+			if ($c && ($c['fp'] ?? '') === $fp && ($c['model'] ?? '') === $classifier->resolveModel()) {
+				$fresh[$sid] = $c;
+				$rows[$i] += ['verdict' => $c['verdict'], 'p_done' => (float) $c['p_done'], 'verdict_source' => 'cache'];
+				continue;
+			}
+			$pending[$i] = [$text, $fp];
+		}
+
+		$failed = false;
+		$n = 0;
+		foreach ($pending as $i => [$text, $fp]) {
+			if ($failed) { $rows[$i] += $none; continue; }
+			$this->verdictProgress(++$n, count($pending));
+			$v = $classifier->classify($text);
+			if ($v['verdict'] === null) {
+				$failed = true;
+				$rows[$i] += $none;
+				$this->verdictProgress(0, 0);
+				$this->cli->errStderr("graveyard: no bury-candidate verdicts from {$classifier->resolveModel()}: {$v['error']}");
+				continue;
+			}
+			$fresh[(string) $rows[$i]['session_id']] = ['fp' => $fp, 'model' => $classifier->resolveModel(), 'verdict' => $v['verdict'], 'p_done' => $v['p_done']];
+			$rows[$i] += ['verdict' => $v['verdict'], 'p_done' => $v['p_done'], 'verdict_source' => 'model'];
+		}
+		if ($n && !$failed) { $this->verdictProgress(0, 0); }
+
+		// Rewritten to this run's sessions only, so it never outgrows the live set.
+		if ($fresh != $cache) { $this->writeVerdictCache($fresh); }
+
+		return $rows;
+	}
+
+	/** PURE. Confident-done rows first (idle-desc), then the rest in their existing idle order. */
+	public function rankByVerdict(array $rows): array {
+		$band = fn($r) => ($r['p_done'] ?? null) !== null && $r['p_done'] >= self::VERDICT_DONE_BAND;
+		$top  = array_values(array_filter($rows, $band));
+		$rest = array_values(array_filter($rows, fn($r) => !$band($r)));
+		return array_merge($top, $rest);
+	}
+
+	protected function readVerdictCache(): array {
+		$raw = @file_get_contents($this->verdictCachePath());
+		$data = $raw === false ? null : json_decode($raw, true);
+		return is_array($data) ? $data : [];
+	}
+
+	protected function writeVerdictCache(array $cache): void {
+		$path = $this->verdictCachePath();
+		if (!is_dir(dirname($path))) { @mkdir(dirname($path), 0755, true); }
+		$tmp = $path . '.' . getmypid() . '.tmp';
+		if (@file_put_contents($tmp, json_encode($cache, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") !== false) {
+			@rename($tmp, $path);
+		}
+	}
+
+	/** Progress on stderr, tty only, so captured --json/--porcelain stdout stays clean. ($done=0 clears.) */
+	protected function verdictProgress(int $done, int $total): void {
+		$on = $this->verdictProgress ?? (defined('STDERR') && stream_isatty(STDERR));
+		if (!$on) { return; }
+		$this->cli->msgStderr($done ? "\r  classifying {$done}/{$total}…" : "\r\033[K", '', false);
+	}
+
+	/** PURE. The verdict as a short badge: 'done 93%', 'waiting', 'working', '?' — '' when none was asked for. */
+	public function verdictBadge(array $r): string {
+		if (!array_key_exists('verdict_source', $r) || $r['verdict_source'] === null) { return ''; }
+		if (($r['verdict'] ?? null) === null) { return '?'; }
+		return $r['verdict'] === 'done' && ($r['p_done'] ?? null) !== null
+			? 'done ' . (int) round($r['p_done'] * 100) . '%'
+			: (string) $r['verdict'];
+	}
+
+	/** PURE. Column width the badges need — 0 when no row was classified, so --no-verdict output is unchanged. */
+	public function verdictBadgeWidth(array $rows): int {
+		$w = 0;
+		foreach ($rows as $r) { $w = max($w, mb_strlen($this->verdictBadge($r))); }
+		return $w;
 	}
 
 	/**
@@ -4927,7 +5063,9 @@ class Graveyard {
 	/**
 	 * PURE: single tab-separated porcelain line for a candidate row. No trailing newline.
 	 * Columns: session_id, idle_seconds, busy|idle, targetable|UNTARGETABLE, workspace_title,
-	 * cwd, reason, agent, transport.
+	 * cwd, reason, agent, transport, verdict, p_done, verdict_source. The verdict columns
+	 * are empty when the row has no verdict (or none was asked for), and are appended for
+	 * the same positional reason agent/transport were.
 	 *
 	 * agent/transport are APPENDED, not slotted in beside the title they describe: these
 	 * columns are positional, so anything already reading fields 1-7 has to keep working.
@@ -4949,6 +5087,9 @@ class Graveyard {
 			$row['reason'] ?? '',
 			(string) ($row['agent'] ?? 'claude'),
 			(string) ($row['transport'] ?? 'cmux'),
+			(string) ($row['verdict'] ?? ''),
+			($row['p_done'] ?? null) === null ? '' : sprintf('%.2f', $row['p_done']),
+			(string) ($row['verdict_source'] ?? ''),
 		]);
 	}
 
@@ -4975,6 +5116,10 @@ class Graveyard {
 			'workspace_title' => $r['workspace_title'] ?? '',
 			'tab_title'       => $r['tab_title'] ?? '',
 			'cwd'             => $r['cwd'] ?? '',
+			// A ranking hint, null when unknown or not asked for (--no-verdict).
+			'verdict'         => $r['verdict'] ?? null,
+			'p_done'          => $r['p_done'] ?? null,
+			'verdict_source'  => $r['verdict_source'] ?? null,
 		], $rows);
 	}
 
@@ -5001,8 +5146,8 @@ class Graveyard {
 		];
 	}
 
-	public function printCandidates(bool $porcelain, bool $json = false): void {
-		$rows = $this->candidates();
+	public function printCandidates(bool $porcelain, bool $json = false, bool $withVerdict = true): void {
+		$rows = $this->candidates($withVerdict);
 		if ($json) { echo json_encode($this->candidatesJson($rows), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"; return; }
 		if ($porcelain) {
 			foreach ($rows as $r) { echo $this->formatCandidatePorcelain($r) . "\n"; }
@@ -5013,10 +5158,11 @@ class Graveyard {
 		$home = getenv('HOME') ?: '';
 		// Once for the whole list, not per row: the column has to be the same width on
 		// every line to line the descriptions up, and 0 means don't reserve it at all.
-		$kindW = $this->candidateKindWidth($rows);
+		$kindW    = $this->candidateKindWidth($rows);
+		$verdictW = $this->verdictBadgeWidth($rows);
 		foreach ($rows as $r) {
 			$targetable = $r['targetable'] ?? true;
-			$this->cli->msg($this->candidateLine($r, $w, $home, $kindW), $targetable ? '' : 'yellow');
+			$this->cli->msg($this->candidateLine($r, $w, $home, $kindW, $verdictW), $targetable ? '' : 'yellow');
 			if (!$targetable) {
 				$this->cli->msg($this->ellipsizeText('          ⚠ ' . $r['reason'], $w), 'yellow');
 			}
@@ -5069,8 +5215,8 @@ class Graveyard {
 		return $text . str_repeat(' ', max(0, $width - mb_strlen($text)));
 	}
 
-	/** PURE. One width-bounded candidate line: id · idle · state · [kind ·] title · cwd (· ⚠ if untargetable). */
-	public function candidateLine(array $r, int $width, string $home, int $kindWidth = 0): string {
+	/** PURE. One width-bounded candidate line: id · idle · state · [verdict ·] [kind ·] title · cwd (· ⚠ if untargetable). */
+	public function candidateLine(array $r, int $width, string $home, int $kindWidth = 0, int $verdictWidth = 0): string {
 		$id    = substr((string) $r['session_id'], 0, 8);
 		$idle  = $this->idleHuman((int) $r['idle_seconds']);
 		$state = ($r['busy'] ?? false) ? 'busy' : 'idle';
@@ -5079,6 +5225,9 @@ class Graveyard {
 		if ($title === '' || $title === 'Terminal') { $title = (string) ($r['workspace_title'] ?? ''); }
 		if ($title === '') { $title = '(untitled)'; }
 		$left = sprintf('%s  %-4s %-4s', $id, $idle, $state);
+		if ($verdictWidth > 0) {
+			$left .= ' ' . $this->padTo($this->verdictBadge($r), $verdictWidth);
+		}
 		// Padded even when this row's label is empty, so the descriptions line up down
 		// the list instead of stepping in and out around the marked rows.
 		if ($kindWidth > 0) {
@@ -5180,8 +5329,8 @@ class Graveyard {
 		$this->cli->successMsg("Buried {$n} of " . count($ids) . ' session(s).');
 	}
 
-	public function pickAndBury(bool $autoConfirm): array {
-		$cands = $this->candidates();
+	public function pickAndBury(bool $autoConfirm, bool $withVerdict = true): array {
+		$cands = $this->candidates($withVerdict);
 		if (!$cands) { $this->cli->msg('No buryable sessions.', 'yellow'); return self::NO_NOTE_TARGET; }
 
 		if (trim((string) shell_exec('command -v fzf 2>/dev/null')) !== '') {
@@ -5203,10 +5352,11 @@ class Graveyard {
 
 		$lines = [];
 		foreach ($cands as $r) {
+			$badge = $this->verdictBadge($r);
 			$label = sprintf(
 				'%s  %s  %s%s  %s',
 				$this->idleHuman((int) $r['idle_seconds']),
-				$r['busy'] ? 'busy' : 'idle',
+				($r['busy'] ? 'busy' : 'idle') . ($badge !== '' ? "  {$badge}" : ''),
 				$r['workspace_title'] ?: '',
 				$r['tab_title'] ? ' / ' . $r['tab_title'] : '',
 				$r['cwd']
@@ -5233,13 +5383,15 @@ class Graveyard {
 	}
 
 	public function pickWithRepl(array $cands): array {
+		$verdictW = $this->verdictBadgeWidth($cands);
 		foreach ($cands as $i => $r) {
 			$this->cli->msg(sprintf(
-				'%2d) %s  idle=%-5.5s  %-5.5s  %-20.20s  %s',
+				'%2d) %s  idle=%-5.5s  %-5.5s %s %-20.20s  %s',
 				$i + 1,
 				substr($r['session_id'], 0, 8),
 				$this->idleHuman((int) $r['idle_seconds']),
 				$r['busy'] ? 'busy' : 'idle',
+				$this->padTo($this->verdictBadge($r), $verdictW),
 				($r['workspace_title'] ?: '') . ($r['tab_title'] ? ' / ' . $r['tab_title'] : ''),
 				$r['cwd']
 			));

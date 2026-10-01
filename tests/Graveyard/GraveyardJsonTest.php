@@ -40,10 +40,11 @@ final class GraveyardJsonTest extends TestCase
 		// bury them (dotfiles-nvf) — a consumer that offers a bury needs to know
 		// which rows would be refused. `transport` was added when discovery became a
 		// union over cmux + herdr, for the same reason the text view marks it: a
-		// consumer needs to know where the session actually is. Additive; every
-		// pre-existing key kept.
+		// consumer needs to know where the session actually is. `verdict`, `p_done`
+		// and `verdict_source` carry the bury-candidate ranking hint (dotfiles-0enr.1).
+		// Additive; every pre-existing key kept.
 		$this->assertSame(
-			['session_id', 'agent', 'transport', 'idle_seconds', 'busy', 'buryable', 'targetable', 'reason', 'workspace_title', 'tab_title', 'cwd'],
+			['session_id', 'agent', 'transport', 'idle_seconds', 'busy', 'buryable', 'targetable', 'reason', 'workspace_title', 'tab_title', 'cwd', 'verdict', 'p_done', 'verdict_source'],
 			array_keys($j[0])
 		);
 	}
