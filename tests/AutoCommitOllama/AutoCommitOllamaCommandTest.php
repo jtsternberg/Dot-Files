@@ -140,6 +140,41 @@ final class AutoCommitOllamaCommandTest extends TestCase {
 		$this->assertStringContainsString( 'fix a thing', $output );
 	}
 
+	public function testAppendsTheConfiguredSignatureAfterABlankLineWithTheModelFilledIn(): void {
+		$ollama = new StubOllama( [ 'AUTO_COMMIT_OLLAMA_SIGNATURE' => 'Co-Authored-By: bot (<model>) / {model}' ] );
+
+		[ $code ] = $this->dispatch( [ '--model=qwen3-coder' ], $ollama );
+
+		$this->assertSame( 0, $code );
+		$this->assertStringContainsString(
+			escapeshellarg( "fix a thing\n\nCo-Authored-By: bot (qwen3-coder) / qwen3-coder" ),
+			$this->runs[0]
+		);
+	}
+
+	public function testAppendsNothingWithoutASignatureSetting(): void {
+		$this->dispatch( [] );
+
+		$this->assertSame( "git commit -m 'fix a thing'", $this->runs[0] );
+	}
+
+	public function testRetryAmendCarriesTheSignatureToo(): void {
+		$this->retryShellMap( 'fullhash', 'fullhash' );
+		$ollama = new StubOllama(
+			[ 'AUTO_COMMIT_OLLAMA_SIGNATURE' => 'Co-Authored-By: bot ({model})' ],
+			null,
+			[ 'content' => 'too vague', 'error' => null, 'errorType' => null ],
+			[ 'content' => 'fix the parser', 'error' => null, 'errorType' => null ]
+		);
+
+		$this->dispatch( [ '--model=m1', '--retry' ], $ollama );
+
+		$this->assertStringContainsString(
+			escapeshellarg( "fix the parser\n\nCo-Authored-By: bot (m1)" ),
+			$this->runs[0]
+		);
+	}
+
 	public function testRefusesToRunWithoutStagedChanges(): void {
 		$this->shellMap['diff --cached --name-only'] = '';
 		$ollama = new StubOllama();

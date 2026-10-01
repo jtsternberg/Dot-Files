@@ -234,7 +234,23 @@ final class AutoCommitOllamaCommand {
 			return null;
 		}
 
-		return $commitMsg;
+		return $this->withSignature( $commitMsg, $model );
+	}
+
+	/**
+	 * Appended here, not requested from the model: a prompted trailer is
+	 * unreliable and would be missing from some commits.
+	 */
+	private function withSignature( string $commitMsg, string $model ): string {
+		$signature = trim( (string) ( $this->ollama()->config()['AUTO_COMMIT_OLLAMA_SIGNATURE'] ?? '' ) );
+		if ( '' === $signature ) {
+			return $commitMsg;
+		}
+
+		// Both spellings: the config file's own example uses <model>.
+		$signature = str_replace( [ '{model}', '<model>' ], $model, $signature );
+
+		return rtrim( $commitMsg ) . "\n\n" . $signature;
 	}
 
 	private function commit( string $commitMsg, bool $print, bool $say ): int {
