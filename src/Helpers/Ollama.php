@@ -98,10 +98,13 @@ class Ollama {
 	 *
 	 * An empty $systemPrompt sends no system message at all.
 	 *
+	 * `logprobs` is present only when the response carried it (a request with
+	 * `logprobs: true`), so callers that never ask see the same three keys.
+	 *
 	 * @param array<string,mixed> $request Extra top-level request fields, e.g.
 	 *                                     `think`, `options.num_ctx`, `keep_alive`.
 	 *
-	 * @return array{content:?string, error:?string, errorType:?string}
+	 * @return array{content:?string, error:?string, errorType:?string, logprobs?:array}
 	 */
 	public function chat(
 		string $model,
@@ -138,11 +141,16 @@ class Ollama {
 			];
 		}
 
-		return [
+		$out = [
 			'content'   => $data['message']['content'] ?? null,
 			'error'     => null,
 			'errorType' => null,
 		];
+		if ( isset( $data['logprobs'] ) && is_array( $data['logprobs'] ) ) {
+			$out['logprobs'] = $data['logprobs'];
+		}
+
+		return $out;
 	}
 
 	/** @return array{0:?string, 1:string} [response body, curl error] */

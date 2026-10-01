@@ -160,6 +160,20 @@ final class OllamaTest extends TestCase {
 		);
 	}
 
+	/** A typed-decision caller reads its confidence off the first token's alternatives. */
+	public function testChatReturnsTheLogprobsWhenTheResponseCarriesThem(): void {
+		$logprobs = [ [ 'token' => 'done', 'logprob' => -0.1, 'top_logprobs' => [ [ 'token' => 'done', 'logprob' => -0.1 ] ] ] ];
+		$ollama   = new Ollama(
+			null,
+			static fn( string $url, string $payload, int $timeout ): array => [
+				json_encode( [ 'message' => [ 'content' => 'done' ], 'logprobs' => $logprobs ] ),
+				'',
+			]
+		);
+
+		$this->assertSame( $logprobs, $ollama->chat( 'a-model', 'system', 'user' )['logprobs'] );
+	}
+
 	public function testStoragePathReturnsTheSymlinkTarget(): void {
 		$ollama = new Ollama( static fn( string $path ): string => '/Volumes/AI-LAB/ollama/models' );
 
