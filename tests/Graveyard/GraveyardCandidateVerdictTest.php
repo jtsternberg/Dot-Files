@@ -29,7 +29,7 @@ final class GraveyardCandidateVerdictTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		mkdir($this->graveyardRoot . '/xdg/auto-commit-ollama', 0777, true);
+		mkdir($this->graveyardRoot . '/xdg/ai-tooling', 0777, true);
 		putenv('XDG_CONFIG_HOME=' . $this->graveyardRoot . '/xdg');
 	}
 

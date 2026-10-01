@@ -107,7 +107,7 @@ final class LocalLlmSummarizeCommand {
 		if ( 'transport' === $type ) {
 			$this->cli->err( 'Is Ollama running?' );
 		} elseif ( 'api' === $type && null !== $model ) {
-			$this->cli->err( "Model: {$model}. Check `aimodels status`, or set SUMMARY_MODEL_SD / SUMMARY_MODEL_LOCAL in ~/.config/auto-commit-ollama/config." );
+			$this->cli->err( "Model: {$model}. Check `aimodels status`, or set SUMMARY_MODEL_SD / SUMMARY_MODEL_LOCAL in ~/.config/ai-tooling/config." );
 		}
 
 		return 1;

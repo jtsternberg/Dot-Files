@@ -12,7 +12,7 @@ use JT\Helpers\Ollama;
  * code models copied the input title verbatim. The generic prompt is the one
  * bin/llmsummarize uses.
  *
- * The model resolves through the shared ~/.config/auto-commit-ollama/config under
+ * The model resolves through the shared ~/.config/ai-tooling/config under
  * its own SUMMARY_MODEL* keys, because the commit tool's MODEL* keys name code models.
  */
 class LocalLlmSummarizer {

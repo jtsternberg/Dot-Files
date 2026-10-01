@@ -341,7 +341,7 @@ final class AutoCommitOllamaCommand {
 		$this->cli->err( "\nTo fix:" );
 		$this->cli->err( "  1. Pull the model:   ollama pull {$model}" );
 		$this->cli->err( '  2. Use a different model: auto-commit-ollama --model=<name>' );
-		$this->cli->err( '  3. Update config:    ~/.config/auto-commit-ollama/config' );
+		$this->cli->err( '  3. Update config:    ~/.config/ai-tooling/config' );
 		$this->cli->err( '     (MODEL, MODEL_LOCAL, MODEL_SD)' );
 	}
 

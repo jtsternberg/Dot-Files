@@ -161,7 +161,7 @@ ever restarts an app.
 6. **MacWhisper remembers a model id, not a store.** Flipping to a store that
    lacks the selected model fails in the app ("WhisperKit Model was not found at
    expected location" for WhisperKit). Set `WHISPER_MODEL_LOCAL` /
-   `WHISPER_MODEL_EXTERNAL` in `~/.config/auto-commit-ollama/config` (the shared
+   `WHISPER_MODEL_EXTERNAL` in `~/.config/ai-tooling/config` (the shared
    local-model config) to an `mw models list` id of any engine
    (`qwen3-asr:qwen3-asr-1.7b`, `whisperkit:openai_whisper-small`; a bare id means
    WhisperKit), and a real switch selects it for file transcription, dictation

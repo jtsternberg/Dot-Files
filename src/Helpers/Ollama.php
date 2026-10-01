@@ -5,11 +5,10 @@ namespace JT\Helpers;
  * Ollama — resolve which local model to use, and talk to its chat API.
  *
  * Model resolution follows bin/auto-commit-ollama's storage-aware scheme:
- * which ~/.config/auto-commit-ollama/config key applies depends on where the
- * ~/.ollama-models symlink currently points (an SD card vs. local disk). That
- * config file predates this class and isn't commit-specific despite its
- * directory name — it's "which local model to use," so every local-model
- * tool in this repo reads the same one rather than each keeping its own.
+ * which ~/.config/ai-tooling/config key applies depends on where the
+ * ~/.ollama-models symlink currently points (an SD card vs. local disk). The
+ * config is "which local model to use," so every local-model tool in this repo
+ * reads the same one rather than each keeping its own.
  */
 class Ollama {
 
@@ -37,7 +36,7 @@ class Ollama {
 	}
 
 	/**
-	 * @param array<string,string> $config Parsed ~/.config/auto-commit-ollama/config.
+	 * @param array<string,string> $config Parsed ~/.config/ai-tooling/config.
 	 * @param string               $prefix Key family to read: `<prefix>`, `<prefix>_SD`,
 	 *                                     `<prefix>_LOCAL`. Each tool with its own model
 	 *                                     needs gets its own family, so a summarizer never
@@ -74,7 +73,7 @@ class Ollama {
 	 */
 	public function config( ?string $configDir = null ): array {
 		$dir  = $configDir ?: ( getenv( 'XDG_CONFIG_HOME' ) ?: ( ( getenv( 'HOME' ) ?: '' ) . '/.config' ) );
-		$file = $dir . '/auto-commit-ollama/config';
+		$file = $dir . '/ai-tooling/config';
 
 		if ( ! is_file( $file ) ) {
 			return [];

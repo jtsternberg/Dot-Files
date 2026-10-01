@@ -270,7 +270,7 @@ final class AutoCommitOllamaCommandTest extends TestCase {
 		$this->assertStringContainsString( 'Models storage: ' . Ollama::SD_PATH, $output );
 		$this->assertStringContainsString( 'Switch with: ollamodels [local|sd]', $output );
 		$this->assertStringContainsString( 'ollama pull bogus', $output );
-		$this->assertStringContainsString( '~/.config/auto-commit-ollama/config', $output );
+		$this->assertStringContainsString( '~/.config/ai-tooling/config', $output );
 	}
 
 	public function testSuggestsPullingAModelWhenNoneAreInstalled(): void {

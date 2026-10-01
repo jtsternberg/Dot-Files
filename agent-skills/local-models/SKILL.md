@@ -47,8 +47,7 @@ current store. Never assume a model you see is always available.
   `L` model survives an eject.
 - **Never hardcode a model name** into a script, command, config, or skill.
   Resolve it per location from the shared config
-  `~/.config/auto-commit-ollama/config` (dotenv `KEY=value`, not
-  commit-specific despite the path): `MODEL`, `MODEL_LOCAL`, `MODEL_SD` for
+  `~/.config/ai-tooling/config` (dotenv `KEY=value`): `MODEL`, `MODEL_LOCAL`, `MODEL_SD` for
   Ollama, and `WHISPER_MODEL_LOCAL`, `WHISPER_MODEL_EXTERNAL` for MacWhisper.
 - **PHP code reads it through `JT\Helpers\Ollama::config()`**, and Ollama picks
   the key with `resolveModel()`. A new tool that picks a local model reuses

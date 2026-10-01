@@ -51,8 +51,8 @@ final class MacWhisperModelSwitchTest extends TestCase {
 	}
 
 	private function config( string $body ): void {
-		mkdir( $this->home . '/.config/auto-commit-ollama', 0777, true );
-		file_put_contents( $this->home . '/.config/auto-commit-ollama/config', $body );
+		mkdir( $this->home . '/.config/ai-tooling', 0777, true );
+		file_put_contents( $this->home . '/.config/ai-tooling/config', $body );
 	}
 
 	private static function runner( string $engineKey, string $id ): string {

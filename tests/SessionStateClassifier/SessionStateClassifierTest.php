@@ -23,7 +23,7 @@ final class SessionStateClassifierTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		$this->xdg = $this->graveyardRoot . '/xdg';
-		mkdir( $this->xdg . '/auto-commit-ollama', 0777, true );
+		mkdir( $this->xdg . '/ai-tooling', 0777, true );
 		putenv( 'XDG_CONFIG_HOME=' . $this->xdg );
 	}
 
@@ -135,7 +135,7 @@ final class SessionStateClassifierTest extends TestCase {
 	}
 
 	public function test_the_model_comes_from_the_decision_model_config_keys(): void {
-		file_put_contents( $this->xdg . '/auto-commit-ollama/config', "MODEL=commit-model\nDECISION_MODEL=decider:1b\n" );
+		file_put_contents( $this->xdg . '/ai-tooling/config', "MODEL=commit-model\nDECISION_MODEL=decider:1b\n" );
 
 		$this->classifier( self::first( [ self::alt( 'done', 0.9 ) ] ) )->classify( 'x' );
 

@@ -10,7 +10,7 @@ namespace JT;
 # Text mode describes the input in 2 to 4 sentences. --session reads a
 # graveyard transcript.md and returns a TITLE plus two sentences (the engine
 # behind the graveyard page's summarize button). The model resolves per store
-# from SUMMARY_MODEL_SD / SUMMARY_MODEL_LOCAL in ~/.config/auto-commit-ollama/config.
+# from SUMMARY_MODEL_SD / SUMMARY_MODEL_LOCAL in ~/.config/ai-tooling/config.
 #
 # Usage:
 # local-llm-summarize [<file>] [--session] [--model=<model>] [--json]

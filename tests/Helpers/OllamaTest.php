@@ -188,16 +188,16 @@ final class OllamaTest extends TestCase {
 
 	public function testConfigParsesTheModelConfigFileFromAGivenDirectory(): void {
 		$dir = sys_get_temp_dir() . '/ollama-config-' . uniqid();
-		mkdir( $dir . '/auto-commit-ollama', 0777, true );
+		mkdir( $dir . '/ai-tooling', 0777, true );
 		file_put_contents(
-			$dir . '/auto-commit-ollama/config',
+			$dir . '/ai-tooling/config',
 			"MODEL=default-model\nMODEL_SD=sd-model\n"
 		);
 
 		$config = ( new Ollama() )->config( $dir );
 
-		unlink( $dir . '/auto-commit-ollama/config' );
-		rmdir( $dir . '/auto-commit-ollama' );
+		unlink( $dir . '/ai-tooling/config' );
+		rmdir( $dir . '/ai-tooling' );
 		rmdir( $dir );
 
 		$this->assertSame(
@@ -215,8 +215,8 @@ final class OllamaTest extends TestCase {
 
 	private function configFrom( string $body ): array {
 		$dir = $this->graveyardRoot . '/xdg';
-		mkdir( $dir . '/auto-commit-ollama', 0777, true );
-		file_put_contents( $dir . '/auto-commit-ollama/config', $body );
+		mkdir( $dir . '/ai-tooling', 0777, true );
+		file_put_contents( $dir . '/ai-tooling/config', $body );
 
 		return ( new Ollama() )->config( $dir );
 	}

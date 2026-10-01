@@ -267,7 +267,7 @@ final class MacWhisperEngine extends AbstractStoreEngine {
 		foreach ( $missing as $id => $labels ) {
 			$warnings[] = 'MacWhisper\'s ' . self::labelList( $labels ) . ' model ' . $id . ' is not in the '
 				. $location . ' store — set ' . self::configKey( $location )
-				. ' in ~/.config/auto-commit-ollama/config, or pick another model in MacWhisper.';
+				. ' in ~/.config/ai-tooling/config, or pick another model in MacWhisper.';
 		}
 		foreach ( $unverified as $engine => $labels ) {
 			$warnings[] = 'MacWhisper\'s ' . self::labelList( $labels ) . ' uses engine ' . $engine
