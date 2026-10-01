@@ -62,8 +62,10 @@ refuses rather than dropping surfaces silently).
 
 **Candidates worth burying** — `graveyard candidates` (live, sorted by idle
 time). Each row carries a badge from a local model's read of the session's last
-message: `done 93%`, `waiting` (blocked on JT's reply), `working`, or `?`
-(unknown: codex, no transcript, model down). Rows at p(done) >= 85% sort first.
+message: `done 93%`, `done? 42%` (done, but under 85% so not sorted first),
+`waiting` (blocked on JT's reply), `working`, or `?` (unknown: codex, no
+transcript, model down, or JT's last prompt never got a reply — the turn died on
+a usage limit, API error, or Esc). Rows at p(done) >= 85% sort first.
 `--json` carries it as `verdict`, `p_done`, `verdict_source`; `--porcelain` as
 columns 10-12. It is
 a ranking hint, wrong roughly 1 time in 20 ("nudge me when X and I'll do Y" reads

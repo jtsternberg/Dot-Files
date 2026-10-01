@@ -114,7 +114,7 @@ final class SessionStateClassifierTest extends TestCase {
 	public function test_a_hotline_completion_status_line_is_done_without_a_model_call(): void {
 		$c = $this->classifier( self::first( [ self::alt( 'waiting', 0.9 ) ] ) );
 
-		foreach ( [ "Report.\n\nSTATUS: WORK_COMPLETE call_id=abc", "Answer.\nSTATUS: DONE" ] as $text ) {
+		foreach ( [ "Report.\n\nSTATUS: WORK_COMPLETE call_id=abc", "Answer.\nSTATUS: DONE", "Report.\nSTATUS: WORK_COMPLETE call_id=abc\n\nHOTLINE_NOTE: one.\nTwo." ] as $text ) {
 			$this->assertSame(
 				[ 'verdict' => 'done', 'p_done' => 1.0, 'verdict_source' => 'status-line' ],
 				$c->statusLineVerdict( $text )
@@ -128,6 +128,10 @@ final class SessionStateClassifierTest extends TestCase {
 
 		$this->assertNull( $c->statusLineVerdict( "Step 1 done.\nSTATUS: AWAITING_REVIEW call_id=abc" ) );
 		$this->assertNull( $c->statusLineVerdict( 'End with a STATUS: DONE line when finished?' ) );
+		$this->assertNull(
+			$c->statusLineVerdict( "The callee replied:\n\nSTATUS: WORK_COMPLETE call_id=x\n\nNow I'll wire it in.\nRunning tests.\nThen the docs." ),
+			'a quoted STATUS line above the last 3 non-blank lines'
+		);
 	}
 
 	public function test_the_model_comes_from_the_decision_model_config_keys(): void {

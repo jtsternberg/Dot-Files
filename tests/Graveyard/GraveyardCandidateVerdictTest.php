@@ -273,6 +273,7 @@ final class GraveyardCandidateVerdictTest extends TestCase {
 
 	public function test_the_badge_reads_verdict_and_confidence(): void {
 		$this->assertSame('done 93%', $this->gy->verdictBadge(['verdict' => 'done', 'p_done' => 0.934, 'verdict_source' => 'model']));
+		$this->assertSame('done? 42%', $this->gy->verdictBadge(['verdict' => 'done', 'p_done' => 0.42, 'verdict_source' => 'model']), 'done below the band');
 		$this->assertSame('waiting', $this->gy->verdictBadge(['verdict' => 'waiting', 'p_done' => 0.05, 'verdict_source' => 'cache']));
 		$this->assertSame('working', $this->gy->verdictBadge(['verdict' => 'working', 'p_done' => null, 'verdict_source' => 'busy']));
 		$this->assertSame('?', $this->gy->verdictBadge(['verdict' => null, 'p_done' => null, 'verdict_source' => 'unavailable']));

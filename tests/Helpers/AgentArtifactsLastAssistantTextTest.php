@@ -60,6 +60,32 @@ final class AgentArtifactsLastAssistantTextTest extends TestCase {
 		$this->assertSame('Running the suite now.', $this->art()->lastAssistantText($sid, $this->cwd()));
 	}
 
+	public function test_an_unanswered_user_prompt_last_means_no_text(): void {
+		// The turn died (usage limit, API error, Esc) before the agent answered: its
+		// older reply describes a conversation that has since moved on.
+		foreach ([
+			'plain string'  => 'that tab completion is wrong, right?',
+			'text block'    => [['type' => 'text', 'text' => 'that tab completion is wrong, right?']],
+		] as $label => $content) {
+			$sid = $this->write([
+				self::assistant([['type' => 'text', 'text' => 'Shipped.']]),
+				['type' => 'user', 'message' => ['content' => $content]],
+				['type' => 'attachment'],
+			]);
+			$this->assertNull($this->art()->lastAssistantText($sid, $this->cwd()), $label);
+		}
+	}
+
+	public function test_meta_and_slash_command_user_turns_last_still_read_the_reply(): void {
+		$sid = $this->write([
+			self::assistant([['type' => 'text', 'text' => 'Shipped.']]),
+			['type' => 'user', 'isMeta' => true, 'message' => ['content' => 'Caveat: local command output follows.']],
+			['type' => 'user', 'message' => ['content' => '<command-name>/model</command-name>']],
+		]);
+
+		$this->assertSame('Shipped.', $this->art()->lastAssistantText($sid, $this->cwd()));
+	}
+
 	public function test_a_session_with_no_transcript_or_no_text_has_none(): void {
 		$this->assertNull($this->art()->lastAssistantText('lat-missing-' . getmypid(), $this->cwd()));
 

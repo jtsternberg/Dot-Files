@@ -31,7 +31,10 @@ final class SessionStateClassifier {
 	const TIMEOUT_SECONDS = 60;
 
 	/** A hotline callee that ended its call. Line-anchored, so prose mentioning one doesn't count. */
-	const STATUS_DONE_RE = '/^STATUS: (?:WORK_COMPLETE|DONE)\b/m';
+	const STATUS_DONE_RE = '/^STATUS: (?:WORK_COMPLETE|DONE)\b/';
+
+	/** Only a STATUS line this near the end is the message's own; one higher up is a quoted callee reply. */
+	const STATUS_TAIL_LINES = 3;
 
 	private ?Ollama $ollama;
 
@@ -56,9 +59,13 @@ final class SessionStateClassifier {
 	 * @return ?array{verdict:string, p_done:float, verdict_source:string}
 	 */
 	public function statusLineVerdict( string $text ): ?array {
-		return preg_match( self::STATUS_DONE_RE, $text )
-			? [ 'verdict' => 'done', 'p_done' => 1.0, 'verdict_source' => 'status-line' ]
-			: null;
+		$lines = array_values( array_filter( preg_split( '/\R/', $text ), fn( $l ) => trim( $l ) !== '' ) );
+		foreach ( array_slice( $lines, -self::STATUS_TAIL_LINES ) as $line ) {
+			if ( preg_match( self::STATUS_DONE_RE, $line ) ) {
+				return [ 'verdict' => 'done', 'p_done' => 1.0, 'verdict_source' => 'status-line' ];
+			}
+		}
+		return null;
 	}
 
 	/** PURE. Cache key for a message: an unchanged message keeps its verdict. */

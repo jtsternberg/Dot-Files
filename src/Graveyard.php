@@ -5008,13 +5008,15 @@ class Graveyard {
 		$this->cli->msgStderr($done ? "\r  classifying {$done}/{$total}…" : "\r\033[K", '', false);
 	}
 
-	/** PURE. The verdict as a short badge: 'done 93%', 'waiting', 'working', '?' — '' when none was asked for. */
+	/**
+	 * PURE. The verdict as a short badge: 'done 93%', 'done? 42%' (done, but below the
+	 * sort-first band), 'waiting', 'working', '?' — '' when none was asked for.
+	 */
 	public function verdictBadge(array $r): string {
 		if (!array_key_exists('verdict_source', $r) || $r['verdict_source'] === null) { return ''; }
 		if (($r['verdict'] ?? null) === null) { return '?'; }
-		return $r['verdict'] === 'done' && ($r['p_done'] ?? null) !== null
-			? 'done ' . (int) round($r['p_done'] * 100) . '%'
-			: (string) $r['verdict'];
+		if ($r['verdict'] !== 'done' || ($r['p_done'] ?? null) === null) { return (string) $r['verdict']; }
+		return ($r['p_done'] >= self::VERDICT_DONE_BAND ? 'done ' : 'done? ') . (int) round($r['p_done'] * 100) . '%';
 	}
 
 	/** PURE. Column width the badges need — 0 when no row was classified, so --no-verdict output is unchanged. */

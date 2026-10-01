@@ -405,6 +405,10 @@ class AgentArtifacts {
 	 * The text of a claude session's last assistant message that HAS text, raw — what
 	 * the bury-candidate verdict classifies. Newlines are kept because the bench that
 	 * measured the classifier fed it raw text. Tool-only and synthetic turns are skipped.
+	 *
+	 * Null when a real user prompt comes after the last reply: the turn died (usage
+	 * limit, API error, Esc) unanswered, so the older reply no longer says where the
+	 * session stands.
 	 */
 	public function lastAssistantText(string $sessionId, ?string $cwd): ?string {
 		$jsonlPath = $this->resolveJsonlPath($sessionId, $cwd);
@@ -413,7 +417,9 @@ class AgentArtifacts {
 		$found = null;
 		$this->eachLineReverse($jsonlPath, function (string $line) use (&$found) {
 			$entry = json_decode($line, true);
-			if (!$entry || ($entry['type'] ?? '') !== 'assistant' || $this->isSyntheticEntry($entry)) { return true; }
+			if (!$entry || $this->isSyntheticEntry($entry)) { return true; }
+			if (($entry['type'] ?? '') === 'user') { return !$this->isUserPrompt($entry); }
+			if (($entry['type'] ?? '') !== 'assistant') { return true; }
 			$parts = [];
 			foreach ((array) ($entry['message']['content'] ?? []) as $c) {
 				if (is_array($c) && ($c['type'] ?? '') === 'text' && trim((string) ($c['text'] ?? '')) !== '') {
@@ -426,6 +432,17 @@ class AgentArtifacts {
 		});
 
 		return $found;
+	}
+
+	/** A user turn JT typed — not meta, and carrying text rather than only tool results. */
+	private function isUserPrompt(array $entry): bool {
+		if (!empty($entry['isMeta'])) { return false; }
+		$content = $entry['message']['content'] ?? null;
+		if (is_string($content)) { return trim($content) !== ''; }
+		foreach ((array) $content as $c) {
+			if (is_array($c) && ($c['type'] ?? '') === 'text' && trim((string) ($c['text'] ?? '')) !== '') { return true; }
+		}
+		return false;
 	}
 
 	/**
