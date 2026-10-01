@@ -80,6 +80,18 @@
             ],
             "location": "external"
         },
+        "ollama:nimble:9b-q4_K_M": {
+            "when": "Decision model for typed choice/yes-no/score via /v1/systemone only (not chat). Returns per-option probabilities, its one edge over qwen3.5:9b. Prompt (state+questions) HARD-capped at 8,192 tokens despite the 256K tag.",
+            "speed": "~2.0s per 1-question call at ~500 tok prompt, ~250 tok/s prefill, M2 Max warm (not the vendor's 100ms M5 Max figure); each extra question re-reads the prompt",
+            "tested": "2026-09-30 session-state (done/needs_jt/in_progress) on last agent message: 87% holdout (33/38), 92% dev (49/53, wording tuned there). qwen3.5:9b chat: 89%/87%, faster (1.3s). Both miss 'nudge me when X and I'll Y' as done. Thresholding p(done)>=0.85: 3 of 91 wrongly flagged, 88% of done found. Its noul 'safe to bury?' question was useless (inverted). Bench + data: private/decision-model-bench/",
+            "tags": [
+                "decision",
+                "systemone",
+                "classification",
+                "gguf"
+            ],
+            "location": "local"
+        },
         "ollama:qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
             "speed": "152 tok/s GGUF (best prompt-eval: 276 tok/s)",
