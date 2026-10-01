@@ -80,18 +80,6 @@
             ],
             "location": "external"
         },
-        "ollama:nimble:9b-q4_K_M": {
-            "when": "Decision model for typed choice/yes-no/score via /v1/systemone only (not chat). Returns per-option probabilities, its one edge over qwen3.5:9b. Prompt (state+questions) HARD-capped at 8,192 tokens despite the 256K tag.",
-            "speed": "~2.0s per 1-question call at ~500 tok prompt, ~250 tok/s prefill, M2 Max warm (not the vendor's 100ms M5 Max figure); each extra question re-reads the prompt",
-            "tested": "2026-09-30 session-state (done/needs_jt/in_progress) on last agent message: 87% holdout (33/38), 92% dev (49/53, wording tuned there). qwen3.5:9b chat: 89%/87%, faster (1.3s). Both miss 'nudge me when X and I'll Y' as done. Thresholding p(done)>=0.85: 3 of 91 wrongly flagged, 88% of done found. Its noul 'safe to bury?' question was useless (inverted). Bench + data: private/decision-model-bench/",
-            "tags": [
-                "decision",
-                "systemone",
-                "classification",
-                "gguf"
-            ],
-            "location": "local"
-        },
         "ollama:qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
             "speed": "152 tok/s GGUF (best prompt-eval: 276 tok/s)",
@@ -130,7 +118,7 @@
             ],
             "location": "both",
             "speed": "~225 tok/s prompt-eval, ~21 tok/s decode (measured 2026-07-24, 34K-tok file, COLD, think:false)",
-            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF. | 2026-09-25: runner-up for short structured dashboard summaries (claude-sessions-board, think:false): format OK, titles sometimes vague, once broke a 'no \"The session\"' rule. 29s cold, 0.7s warm. On both stores, so the undocked fallback."
+            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF. | 2026-09-25: runner-up for short structured dashboard summaries (claude-sessions-board, think:false): format OK, titles sometimes vague, once broke a 'no \"The session\"' rule. 29s cold, 0.7s warm. On both stores, so the undocked fallback. | 2026-09-30: session-state classifier (done/waiting/working, last agent message, think:false, chat logprobs for confidence): 92% holdout (35/38), 87% dev; 1.2-1.5s. p(done)>=0.85 wrongly flagged 4/91, found 61/68 done. Tied with nimble:9b decision model, which was removed. Labels must start with distinct single-token words for logprobs. Bench: private/decision-model-bench/"
         },
         "parakeet-pro:nvidia_parakeet-v3": {
             "when": "Parakeet v3: throughput-oriented CoreML option for long recordings, 1.2 GB, drive-bound. Covers a European language set, not all of Whisper's; check before offering it for non-English.",
@@ -266,6 +254,19 @@
                 "agent"
             ],
             "removed_at": "2026-08-13"
+        },
+        "ollama:nimble:9b-q4_K_M": {
+            "when": "Decision model for typed choice/yes-no/score via /v1/systemone only (not chat). Returns per-option probabilities, its one edge over qwen3.5:9b. Prompt (state+questions) HARD-capped at 8,192 tokens despite the 256K tag.",
+            "speed": "~2.0s per 1-question call at ~500 tok prompt, ~250 tok/s prefill, M2 Max warm (not the vendor's 100ms M5 Max figure); each extra question re-reads the prompt",
+            "tested": "2026-09-30: tied with qwen3.5:9b on session-state (91 ex): holdout 87% vs qwen 92%; at p(done)>=0.85 wrongly flagged 3/91 vs qwen 4/91, done found 60/68 vs 61/68. qwen via chat logprobs is faster (1.2-1.5s vs 2.0-2.3s) and already on both stores. No reason to keep 5.6GB. Bench: private/decision-model-bench/",
+            "tags": [
+                "decision",
+                "systemone",
+                "classification",
+                "gguf"
+            ],
+            "location": "local",
+            "removed_at": "2026-10-01"
         },
         "ollama:qwen2.5-coder:1.5b-base": {
             "when": "Base model (not chat-tuned). Pulled by mistake for cron use.",
