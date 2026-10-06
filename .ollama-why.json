@@ -80,6 +80,18 @@
             ],
             "location": "external"
         },
+        "ollama:nimble:9b-q4_K_M": {
+            "when": "Jev-style System One decision model (/v1/systemone). Best local pick for score/rubric primitives; too slow and low-confidence for interactive use. Prompt hard-capped (8,192 tok per JT's earlier run).",
+            "speed": "~3.3s mean on 1-3 question cases, ~12-15s on 15-question score cases (M2 Max, warm, 2026-10-06)",
+            "tested": "2026-10-06 jev:compare, 17 fixtures vs human labels: 74% overall (score 63%, choice 73%, noul 90%); beats qwen3.5:9b on score (63 vs 23%), loses on choice (73 vs 80%); confidence poorly calibrated (79% acc at conf>=0.66, n=57). Apache 2.0. Re-pulled for this bench; AI-LAB only. | 2026-10-06 cold start (spotlight-0, all models unloaded first, Ollama 0.40): first request 6.2s / 4.6s, warm ~0.14s, so load ~4.4-6.0s.",
+            "tags": [
+                "jev",
+                "decision",
+                "system-one",
+                "drive-bound"
+            ],
+            "location": "external"
+        },
         "ollama:qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
             "speed": "152 tok/s GGUF (best prompt-eval: 276 tok/s)",
@@ -125,7 +137,33 @@
             ],
             "location": "both",
             "speed": "~225 tok/s prompt-eval, ~21 tok/s decode (measured 2026-07-24, 34K-tok file, COLD, think:false)",
-            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF. | 2026-09-25: runner-up for short structured dashboard summaries (claude-sessions-board, think:false): format OK, titles sometimes vague, once broke a 'no \"The session\"' rule. 29s cold, 0.7s warm. On both stores, so the undocked fallback. | 2026-09-30: session-state classifier (done/waiting/working, last agent message, think:false, chat logprobs for confidence): 92% holdout (35/38), 87% dev; 1.2-1.5s. p(done)>=0.85 wrongly flagged 4/91, found 61/68 done. Tied with nimble:9b decision model, which was removed. Labels must start with distinct single-token words for logprobs. Bench: private/decision-model-bench/"
+            "tested": "2026-07-24: most-detailed/accurate summary of the 4, but ~1.4x slower prefill than gemma4:26b. Not 'catastrophic' \u2014 that graveyard note was the nvfp4 variant, not this GGUF. | 2026-09-25: runner-up for short structured dashboard summaries (claude-sessions-board, think:false): format OK, titles sometimes vague, once broke a 'no \"The session\"' rule. 29s cold, 0.7s warm. On both stores, so the undocked fallback. | 2026-09-30: session-state classifier (done/waiting/working, last agent message, think:false, chat logprobs for confidence): 92% holdout (35/38), 87% dev; 1.2-1.5s. p(done)>=0.85 wrongly flagged 4/91, found 61/68 done. Tied with nimble:9b decision model, which was removed. Labels must start with distinct single-token words for logprobs. Bench: private/decision-model-bench/ | 2026-10-05: PR review judgments (bench private/decision-model-bench/pr-threads/). Thread state: content-only addressed/declined/open + code-derived waiting = 98% holdout (43/44), OPEN->ADDRESSED 0/14; asking it for waiting directly = 73%. Feedback actionable/question/fyi 78-94% holdout depending on prompt; errors sit at conf<0.66 (stale-nudge comments flip to question at ~0.5). 3.4s warm per thread, 1.4-2s per comment, 6-13s cold. | 2026-10-06 cold start via chat logprobs (Jev stand-in, spotlight-0, local store): first request 9.5s / 7.5s, warm 0.12-0.14s. WARNING: Ollama 0.40.0 cannot load it from the AI-LAB store ('manifest symlink target ... is not a sha256 blob'); only works against the local store (~/.ollama-local-models). | 2026-10-06: AI-LAB load fixed \u2014 aimodels reconcile now copies manifests instead of symlinking them; verified ollama show/run on the AI-LAB store, Ollama 0.40.0."
+        },
+        "ollama:tev1:0.8b": {
+            "when": "Smallest System One decision model (0.8B, 811 MB). Fastest local Jev stand-in (~0.26s/case); same 2,050-token prompt cap as tev1:4b. Fine for low-stakes yes/no and short routing, with worse calibration.",
+            "speed": "~0.26s mean/case, p95 0.32s (M2 Max warm, 2026-10-06)",
+            "tested": "2026-10-06 jev:compare vs human labels, 28 accepted questions: 89% (choice 88%, noul 90%) but Brier 0.25 vs 0.11 for tev1:4b; errors at conf 0.48-0.57 plus one confident miss (spotlight-5 said 'none'). Skipped same 3 cases as 4b. AI-LAB only. | 2026-10-06 cold start (spotlight-0): first request 1.6s / 1.1s, warm ~0.05s. Cheapest cold start.",
+            "tags": [
+                "jev",
+                "decision",
+                "system-one",
+                "tiny",
+                "fast",
+                "drive-bound"
+            ],
+            "location": "external"
+        },
+        "ollama:tev1:4b": {
+            "when": "Together AI tev1 System One decision model, 4B. Credible fast Jev stand-in for choice and yes/no primitives in short prompts; cannot take a prompt over 2,050 tokens (HTTP 400), so no score/rubric batches or large state.",
+            "speed": "~1.5s mean/case (0.9-1.8s on 1-4 question cases), M2 Max warm, 2026-10-06",
+            "tested": "2026-10-06 jev:compare vs human labels, on the 28 questions it accepted: 89% (choice 8/8, noul 85%), conf>=0.66 96%; Jev 27/28, qwen3.5:9b 27/28, nimble 26/28 on the same set. Skipped 3 of 17 cases (prompt >2050 tok: both templates cases, import-columns). Model license not stated on library page (scripts MIT); AI-LAB only. | 2026-10-06 cold start: first request 4.3s / 2.2s (spotlight-0), 3.9s / 1.9s (triage-0); warm 0.08-0.24s.",
+            "tags": [
+                "jev",
+                "decision",
+                "system-one",
+                "drive-bound"
+            ],
+            "location": "external"
         },
         "parakeet-pro:nvidia_parakeet-v3": {
             "when": "Parakeet v3: throughput-oriented CoreML option for long recordings, 1.2 GB, drive-bound. Covers a European language set, not all of Whisper's; check before offering it for non-English.",
@@ -262,6 +300,20 @@
             ],
             "removed_at": "2026-08-13"
         },
+        "ollama:nimble:9b-mlx-bf16": {
+            "when": "MLX bf16 build of nimble (17 GB on disk, needs Ollama >= 0.40). ~20% faster than nimble:9b-q4_K_M but 3x the disk and no accuracy gain. Prefer the q4_K_M GGUF.",
+            "speed": "~4.2s mean/case vs 5.2s for q4_K_M (M2 Max warm, 17 fixtures, 2026-10-06); 13.7s cold warm-up",
+            "tested": "2026-10-06 jev:compare vs human labels, 65 q: 72% (score 60%, choice 73%, noul 90%) vs q4_K_M 74% (63/73/90); same pick as q4_K_M on 63/65. Confident-subset accuracy 85% (n=47) vs 78% (n=59). AI-LAB only. | 2026-10-06 cold start (spotlight-0): first request 14.0s / 12.8s (load ~12.7-14.0s), warm ~0.02s. Slowest cold start of any Jev backend; 24 GB resident. | MLX build: ~same warm speed/accuracy as GGUF on Lindris jev:compare (2026-10-06), cold start 6\u201314s, 3x disk \u2014 removed.",
+            "tags": [
+                "jev",
+                "decision",
+                "system-one",
+                "mlx",
+                "drive-bound"
+            ],
+            "location": "external",
+            "removed_at": "2026-10-06"
+        },
         "ollama:nimble:9b-q4_K_M": {
             "when": "Decision model for typed choice/yes-no/score via /v1/systemone only (not chat). Returns per-option probabilities, its one edge over qwen3.5:9b. Prompt (state+questions) HARD-capped at 8,192 tokens despite the 256K tag.",
             "speed": "~2.0s per 1-question call at ~500 tok prompt, ~250 tok/s prefill, M2 Max warm (not the vendor's 100ms M5 Max figure); each extra question re-reads the prompt",
@@ -322,6 +374,20 @@
             ],
             "removed_at": "2026-04-24",
             "tested": "qwen3.5+NVFP4+MLX combo hits a broken slow path on M2 \u2014 prompt eval 3 tok/s vs qwen3-coder GGUF's 110. Thinking-model verbosity compounds it (362-832 tokens per response). Blog's 2x speedup is M5-only (GPU Neural Accelerators). Reclaimed 22 GB."
+        },
+        "ollama:tev1:4b-mlx-bf16": {
+            "when": "MLX bf16 build of tev1:4b (8.4 GB, needs Ollama >= 0.40). No gain over tev1:4b GGUF: same speed, no 2,050-token prompt cap but rejects choice questions with more than 24 candidates (Spotlight page picker). Prefer tev1:4b GGUF.",
+            "speed": "~0.8s mean on the 6 cases both builds run (GGUF 0.80s), 0.6-5.2s overall; M2 Max warm, Ollama 0.40.0, 2026-10-06",
+            "tested": "2026-10-06 jev:compare vs human labels: 72% on 57 accepted questions (noul 95%, choice 4/7, score 60%); 8 spotlight cases HTTP 400 'Tev1 supports at most 24 candidates'. Score questions run (GGUF skips them) but are poor (60%, Jev 53%). On the 20 shared questions: 17 same pick, GGUF 18 correct vs MLX 19. AI-LAB only. | 2026-10-06 cold start (triage-0; spotlight-0 rejected, >24 candidates): first request 7.5s / 6.2s, warm ~0.01s. Cold start 2-3x the GGUF build. | MLX build: ~same warm speed/accuracy as GGUF on Lindris jev:compare (2026-10-06), cold start 6\u201314s, 3x disk \u2014 removed.",
+            "tags": [
+                "jev",
+                "decision",
+                "system-one",
+                "mlx",
+                "drive-bound"
+            ],
+            "location": "external",
+            "removed_at": "2026-10-06"
         }
     }
 }
