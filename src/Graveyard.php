@@ -5050,6 +5050,11 @@ class Graveyard {
 			'buryable'        => in_array($agent, ['claude', 'codex'], true),
 			'surface_ref'     => $r['surface_ref'],
 			'workspace_ref'   => $r['workspace_ref'],
+			// Locators for --json: a consumer joins a candidate to the live multiplexer
+			// on these without a second lookup.
+			'surface_id'      => $r['surface_id'] ?? null,
+			'pane_ref'        => $r['pane_ref'] ?? null,
+			'window_ref'      => $r['window_ref'] ?? null,
 			'pid'             => $r['pid'],
 			'model'           => $r['model'],
 			'skip_perms'      => $r['skip_perms'],
@@ -5104,25 +5109,38 @@ class Graveyard {
 
 	/** PURE: a candidate row reduced to the stable JSON-friendly field set (idle_seconds stays numeric). */
 	public function candidatesJson(array $rows): array {
-		return array_map(fn($r) => [
-			'session_id'      => $r['session_id'] ?? '',
-			'agent'           => $r['agent'] ?? 'claude',
-			// Which multiplexer hosts it. An agent reading this needs it for the same
-			// reason the text view marks it: it says where the session actually is.
-			'transport'       => $r['transport'] ?? 'cmux',
-			'idle_seconds'    => (int) ($r['idle_seconds'] ?? 0),
-			'busy'            => (bool) ($r['busy'] ?? false),
-			'buryable'        => (bool) ($r['buryable'] ?? (($r['agent'] ?? 'claude') === 'claude')),
-			'targetable'      => (bool) ($r['targetable'] ?? true),
-			'reason'          => $r['reason'] ?? '',
-			'workspace_title' => $r['workspace_title'] ?? '',
-			'tab_title'       => $r['tab_title'] ?? '',
-			'cwd'             => $r['cwd'] ?? '',
-			// A ranking hint, null when unknown or not asked for (--no-verdict).
-			'verdict'         => $r['verdict'] ?? null,
-			'p_done'          => $r['p_done'] ?? null,
-			'verdict_source'  => $r['verdict_source'] ?? null,
-		], $rows);
+		return array_map(function ($r) {
+			$isHerdr = ($r['transport'] ?? 'cmux') === 'herdr';
+			return [
+				'session_id'      => $r['session_id'] ?? '',
+				'agent'           => $r['agent'] ?? 'claude',
+				// Which multiplexer hosts it. An agent reading this needs it for the same
+				// reason the text view marks it: it says where the session actually is.
+				'transport'       => $r['transport'] ?? 'cmux',
+				'idle_seconds'    => (int) ($r['idle_seconds'] ?? 0),
+				'busy'            => (bool) ($r['busy'] ?? false),
+				'buryable'        => (bool) ($r['buryable'] ?? (($r['agent'] ?? 'claude') === 'claude')),
+				'targetable'      => (bool) ($r['targetable'] ?? true),
+				'reason'          => $r['reason'] ?? '',
+				'workspace_title' => $r['workspace_title'] ?? '',
+				'tab_title'       => $r['tab_title'] ?? '',
+				'cwd'             => $r['cwd'] ?? '',
+				// A ranking hint, null when unknown or not asked for (--no-verdict).
+				'verdict'         => $r['verdict'] ?? null,
+				'p_done'          => $r['p_done'] ?? null,
+				'verdict_source'  => $r['verdict_source'] ?? null,
+				// Locators, null when the row lacks one. Every key on every row: consumers
+				// join on these names.
+				'surface_id'      => $r['surface_id'] ?? null,
+				'surface_ref'     => $r['surface_ref'] ?? null,
+				'pane_ref'        => $r['pane_ref'] ?? null,
+				'workspace_ref'   => $r['workspace_ref'] ?? null,
+				// herdr rows hold their TAB id in window_ref (a cmux window has no herdr
+				// counterpart). Relabelled on the way out so no consumer reads a tab as a window.
+				'window_ref'      => $isHerdr ? null : ($r['window_ref'] ?? null),
+				'tab_ref'         => $isHerdr ? ($r['window_ref'] ?? null) : null,
+			];
+		}, $rows);
 	}
 
 	/** PURE: buried tombstones as {workspaces:[{group_id,title,sessions[]}], sessions:[loose...]}. */
