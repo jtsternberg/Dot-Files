@@ -10,11 +10,13 @@ namespace JT\LocalModels;
  * launchd after a flip — Ollama.app is launchd-spawned and inherits it on next
  * launch, which is also why a flip under a running Ollama.app needs a warning.
  *
- * `reconcile` symlinks local models into the external tree (blob-dedup aware),
- * so the AI-LAB store sees every model. Unlike MacWhisper, Ollama follows
- * symlinked manifests and blobs, and `ollama rm` on the external store unlinks
- * the symlinks without touching the local originals (verified on 0.35.0 against
- * a throwaway server and store; dotfiles-2zh).
+ * `reconcile` mirrors local models into the external tree (blob-dedup aware),
+ * so the AI-LAB store sees every model: each manifest as a copy, each blob as a
+ * symlink. Ollama follows symlinked blobs, and `ollama rm` on the external store
+ * unlinks them without touching the local originals (verified on 0.35.0 against
+ * a throwaway server and store; dotfiles-2zh). Manifests are copied because
+ * Ollama 0.40 rejects a manifest symlink unless it points at a sha256 blob and
+ * drops that model from `ollama list` (verified on 0.40.0 the same way).
  */
 final class OllamaEngine extends AbstractStoreEngine {
 
@@ -64,7 +66,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 
 		// Arriving on AI-LAB (the watcher's mount edge, or a manual flip) is when a
 		// model pulled during an ejected spell should become visible there. Only
-		// symlinks are added, which is why this is automatic for Ollama and not
+		// tiny manifests are copied and blobs symlinked, which is why this is automatic for Ollama and not
 		// for MacWhisper, whose reconcile copies gigabytes.
 		if ( self::EXTERNAL === $location && is_dir( $this->storePath( self::LOCAL ) . '/manifests/registry.ollama.ai/library' ) ) {
 			$reconciled = $this->reconcile();
@@ -112,11 +114,13 @@ final class OllamaEngine extends AbstractStoreEngine {
 	}
 
 	/**
-	 * Symlink every local model the external store lacks into it: the manifest,
-	 * then each blob it names. Strictly local -> external — the reverse would
-	 * dangle when the drive ejects — and strictly additive: a manifest or blob
-	 * the external store holds as a real file (its own copy of the model, or a
-	 * layer shared with another model) is never replaced.
+	 * Mirror every local model the external store lacks into it: copy the
+	 * manifest, then symlink each blob it names. Strictly local -> external — the
+	 * reverse would dangle when the drive ejects — and strictly additive: a
+	 * manifest or blob the external store holds as a real file (its own copy of
+	 * the model, or a layer shared with another model) is never replaced. The
+	 * one thing replaced is a manifest symlink pointing at the matching local
+	 * manifest, the form earlier reconciles wrote and Ollama 0.40 refuses.
 	 *
 	 * A linked model now lives in both stores, so a note that says "local" is
 	 * promoted to "both" through ModelNotes.
@@ -155,11 +159,13 @@ final class OllamaEngine extends AbstractStoreEngine {
 			$details = [];
 			foreach ( $plan as $tag => $links ) {
 				foreach ( $links as $link ) {
-					$details[] = "would link {$tag}: {$link['to']} -> {$link['from']}";
+					$details[] = 'copy' === $link['mode']
+						? "would copy {$tag}: {$link['from']} -> {$link['to']}"
+						: "would link {$tag}: {$link['to']} -> {$link['from']}";
 				}
 			}
 
-			return new ApplyResult( ApplyResult::WOULD_APPLY, $total . ' symlink(s) to create', self::EXTERNAL, $external, $warnings, $details );
+			return new ApplyResult( ApplyResult::WOULD_APPLY, $total . ' file(s) to copy or link', self::EXTERNAL, $external, $warnings, $details );
 		}
 
 		$details = [];
@@ -169,15 +175,17 @@ final class OllamaEngine extends AbstractStoreEngine {
 			$linked = 0;
 			foreach ( $links as $link ) {
 				$dir = dirname( $link['to'] );
-				if ( ( is_dir( $dir ) || @mkdir( $dir, 0755, true ) || is_dir( $dir ) ) && @symlink( $link['from'], $link['to'] ) ) {
+				$ok  = ( is_dir( $dir ) || @mkdir( $dir, 0755, true ) || is_dir( $dir ) )
+					&& ( 'copy' === $link['mode'] ? $this->copyOver( $link['from'], $link['to'] ) : @symlink( $link['from'], $link['to'] ) );
+				if ( $ok ) {
 					$linked++;
 					continue;
 				}
-				$details[] = "FAILED {$tag}: could not link {$link['to']}";
+				$details[] = "FAILED {$tag}: could not {$link['mode']} {$link['to']}";
 				$failed++;
 			}
 			$created   += $linked;
-			$details[] = "{$tag}: {$linked} symlink(s) created";
+			$details[] = "{$tag}: {$linked} file(s) copied or linked";
 
 			if ( $this->notes()->promoteLocalToBoth( $this->name() . ':' . $tag ) ) {
 				$details[] = "{$tag}: note location promoted local -> both";
@@ -186,7 +194,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 
 		return new ApplyResult(
 			$failed > 0 ? ApplyResult::FAILED : ApplyResult::APPLIED,
-			$created . ' symlink(s) created' . ( $failed > 0 ? ", {$failed} FAILED" : '' ),
+			$created . ' file(s) copied or linked' . ( $failed > 0 ? ", {$failed} FAILED" : '' ),
 			self::EXTERNAL,
 			$external,
 			$warnings,
@@ -195,10 +203,28 @@ final class OllamaEngine extends AbstractStoreEngine {
 	}
 
 	/**
-	 * Per model tag, the links to create. Unreadable manifests and blobs missing
+	 * Copy via a sibling temp file and rename, so the swap from an old manifest
+	 * symlink to a real file is atomic and a failed copy leaves the link intact.
+	 */
+	private function copyOver( string $from, string $to ): bool {
+		$tmp = $to . '.aimodels-tmp';
+		if ( ! @copy( $from, $tmp ) ) {
+			@unlink( $tmp );
+			return false;
+		}
+		if ( ! @rename( $tmp, $to ) ) {
+			@unlink( $tmp );
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Per model tag, the files to copy or link. Unreadable manifests and blobs missing
 	 * locally are warnings: one broken model must not block the rest.
 	 *
-	 * @return array{0: array<string, array<int, array{from: string, to: string}>>, 1: string[]}
+	 * @return array{0: array<string, array<int, array{mode: string, from: string, to: string}>>, 1: string[]}
 	 */
 	private function reconcilePlan( string $local, string $external, string $library ): array {
 		$plan     = [];
@@ -208,7 +234,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 		);
 
 		foreach ( $files as $file ) {
-			if ( ! $file->isFile() || '.DS_Store' === $file->getFilename() ) {
+			if ( ! $file->isFile() || '.DS_Store' === $file->getFilename() || self::isRunnerChild( $file->getFilename() ) ) {
 				continue;
 			}
 
@@ -217,11 +243,14 @@ final class OllamaEngine extends AbstractStoreEngine {
 			$target   = $external . '/' . substr( $manifest, strlen( $local ) + 1 );
 			$links    = [];
 
-			if ( ! is_link( $target ) ) {
-				if ( file_exists( $target ) ) {
-					continue; // the external store's own copy of this model
+			if ( is_link( $target ) ) {
+				if ( readlink( $target ) === $manifest ) {
+					$links[] = [ 'mode' => 'copy', 'from' => $manifest, 'to' => $target ];
 				}
-				$links[] = [ 'from' => $manifest, 'to' => $target ];
+			} elseif ( file_exists( $target ) ) {
+				continue; // the external store's own copy of this model
+			} else {
+				$links[] = [ 'mode' => 'copy', 'from' => $manifest, 'to' => $target ];
 			}
 
 			$json = json_decode( (string) file_get_contents( $manifest ), true );
@@ -243,7 +272,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 					$warnings[] = "skipped a blob of {$tag}: missing locally (" . basename( $blob ) . ')';
 					continue;
 				}
-				$links[] = [ 'from' => $local . '/' . $blob, 'to' => $external . '/' . $blob ];
+				$links[] = [ 'mode' => 'link', 'from' => $local . '/' . $blob, 'to' => $external . '/' . $blob ];
 			}
 
 			if ( ! empty( $links ) ) {
@@ -254,6 +283,16 @@ final class OllamaEngine extends AbstractStoreEngine {
 		ksort( $plan );
 
 		return [ $plan, $warnings ];
+	}
+
+	/**
+	 * Ollama 0.40 stores a manifest list's per-runner child at the legacy path
+	 * `library/<runner>/<sha256 hex>`. The parent reaches it by blob digest, so
+	 * it is not a model: never mirror it (it would surface in `ollama list`) and
+	 * never count it in residency.
+	 */
+	private static function isRunnerChild( string $tag ): bool {
+		return 1 === preg_match( '/^[0-9a-f]{64}$/', $tag );
 	}
 
 	private function notes(): ModelNotes {
@@ -315,7 +354,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 			}
 
 			foreach ( scandir( $library . '/' . $model ) ?: [] as $tag ) {
-				if ( '.' === $tag || '..' === $tag || '.DS_Store' === $tag ) {
+				if ( '.' === $tag || '..' === $tag || '.DS_Store' === $tag || self::isRunnerChild( $tag ) ) {
 					continue;
 				}
 

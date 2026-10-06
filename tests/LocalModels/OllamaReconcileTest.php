@@ -8,8 +8,9 @@ use JT\LocalModels\OllamaEngine;
 use JT\Tests\TestCase;
 
 /**
- * Ollama reconcile: symlink local-primary models (manifest + blobs) into the
- * AI-LAB tree so the external store sees every model.
+ * Ollama reconcile: mirror local-primary models into the AI-LAB tree so the
+ * external store sees every model — the manifest as a copy, the blobs as
+ * symlinks.
  *
  * Direction is strictly local -> external; the reverse would dangle the moment
  * the drive ejects. Anything the external store already holds as a real file —
@@ -63,17 +64,92 @@ final class OllamaReconcileTest extends TestCase {
 		return $store . '/manifests/registry.ollama.ai/library/' . $model . '/' . $tag;
 	}
 
-	public function testSymlinksALocalOnlyModelIntoTheExternalStore(): void {
+	private function assertManifestCopied( string $localManifest, string $externalManifest ): void {
+		$this->assertFalse( is_link( $externalManifest ), 'manifest must be a real file, not a symlink' );
+		$this->assertFileExists( $externalManifest );
+		$this->assertSame( file_get_contents( $localManifest ), file_get_contents( $externalManifest ) );
+	}
+
+	public function testMirrorsALocalOnlyModelIntoTheExternalStore(): void {
 		$manifest = $this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa', 'bbb' ] );
 
 		$result = $this->engine()->reconcile();
 
 		$this->assertSame( ApplyResult::APPLIED, $result->status );
-		$this->assertSame( $manifest, readlink( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) ) );
+		$this->assertManifestCopied( $manifest, $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
 		$this->assertSame( $this->local . '/blobs/sha256-aaa', readlink( $this->external . '/blobs/sha256-aaa' ) );
 		$this->assertSame( $this->local . '/blobs/sha256-bbb', readlink( $this->external . '/blobs/sha256-bbb' ) );
 		$this->assertSame( $this->local . '/blobs/sha256-cfgqwen3.5', readlink( $this->external . '/blobs/sha256-cfgqwen3.5' ) );
 		$this->assertStringContainsString( 'qwen3.5:9b', implode( "\n", $result->details ) );
+	}
+
+	/**
+	 * Ollama 0.40 refuses a manifest that is a symlink unless it points at a
+	 * sha256 blob ("manifest symlink target ... is not a sha256 blob") and drops
+	 * the model from `ollama list`. Blob symlinks still load, so only the
+	 * manifest — a few hundred bytes of JSON — has to be a copy.
+	 */
+	public function testReplacesAManifestSymlinkAnEarlierReconcileLeftWithACopy(): void {
+		$manifest = $this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$target   = $this->manifestIn( $this->external, 'qwen3.5', '9b' );
+		mkdir( dirname( $target ), 0777, true );
+		symlink( $manifest, $target );
+		symlink( $this->local . '/blobs/sha256-aaa', $this->external . '/blobs/sha256-aaa' );
+		symlink( $this->local . '/blobs/sha256-cfgqwen3.5', $this->external . '/blobs/sha256-cfgqwen3.5' );
+
+		$result = $this->engine()->reconcile();
+
+		$this->assertSame( ApplyResult::APPLIED, $result->status );
+		$this->assertManifestCopied( $manifest, $target );
+		$this->assertSame( $this->local . '/blobs/sha256-aaa', readlink( $this->external . '/blobs/sha256-aaa' ) );
+		$this->assertStringContainsString( 'qwen3.5:9b', implode( "\n", $result->details ) );
+		$this->assertSame( ApplyResult::NOOP, $this->engine()->reconcile()->status );
+	}
+
+	/** Only a link to the matching local manifest is ours to convert. */
+	public function testLeavesAManifestSymlinkThatPointsElsewhereAlone(): void {
+		$this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$target = $this->manifestIn( $this->external, 'qwen3.5', '9b' );
+		mkdir( dirname( $target ), 0777, true );
+		file_put_contents( $this->external . '/blobs/sha256-elsewhere', '{}' );
+		symlink( $this->external . '/blobs/sha256-elsewhere', $target );
+
+		$this->engine()->reconcile();
+
+		$this->assertSame( $this->external . '/blobs/sha256-elsewhere', readlink( $target ) );
+	}
+
+	public function testDryRunReportsAManifestConversionWithoutMakingIt(): void {
+		$manifest = $this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$target   = $this->manifestIn( $this->external, 'qwen3.5', '9b' );
+		mkdir( dirname( $target ), 0777, true );
+		symlink( $manifest, $target );
+
+		$result = $this->engine()->reconcile( [ 'dry-run' => true ] );
+
+		$this->assertSame( ApplyResult::WOULD_APPLY, $result->status );
+		$this->assertStringContainsString( 'would copy', implode( "\n", $result->details ) );
+		$this->assertTrue( is_link( $target ) );
+	}
+
+	/**
+	 * Ollama 0.40 writes a manifest list's per-runner child under the legacy
+	 * tree as `library/<runner>/<sha256 hex>`. It is not a model — the parent
+	 * reaches it through the blob of the same digest — and mirroring it makes it
+	 * show up in `ollama list` as one. Status must not count it either.
+	 */
+	public function testSkipsARunnerChildManifestNamedByDigest(): void {
+		$digest = str_repeat( 'c9', 32 );
+		$this->seedModel( $this->local, 'llamacpp', $digest, [ 'ccc' ] );
+		$this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+
+		$result = $this->engine()->reconcile();
+
+		$this->assertFileDoesNotExist( $this->manifestIn( $this->external, 'llamacpp', $digest ) );
+		$this->assertStringNotContainsString( 'llamacpp', implode( "\n", $result->details ) );
+		$names = array_column( $this->engine()->residency(), 'name' );
+		$this->assertContains( 'qwen3.5:9b', $names );
+		$this->assertNotContains( 'llamacpp:' . $digest, $names );
 	}
 
 	/** A layer another external model already owns is a real file: never replaced. */
@@ -112,7 +188,9 @@ final class OllamaReconcileTest extends TestCase {
 		$result = $this->engine()->reconcile( [ 'dry-run' => true ] );
 
 		$this->assertSame( ApplyResult::WOULD_APPLY, $result->status );
-		$this->assertStringContainsString( 'would link', implode( "\n", $result->details ) );
+		$details = implode( "\n", $result->details );
+		$this->assertStringContainsString( 'would copy', $details );
+		$this->assertStringContainsString( 'would link', $details );
 		$this->assertFileDoesNotExist( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
 		$this->assertFileDoesNotExist( $this->external . '/blobs/sha256-aaa' );
 	}
@@ -188,7 +266,7 @@ final class OllamaReconcileTest extends TestCase {
 		$result = $this->engine()->apply( 'external' );
 
 		$this->assertSame( ApplyResult::APPLIED, $result->status );
-		$this->assertTrue( is_link( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) ) );
+		$this->assertManifestCopied( $this->manifestIn( $this->local, 'qwen3.5', '9b' ), $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
 		$this->assertStringContainsString( 'reconciled', implode( "\n", $result->warnings ) );
 	}
 
@@ -198,7 +276,7 @@ final class OllamaReconcileTest extends TestCase {
 
 		( new \JT\LocalModels\Watcher( $this->home, $this->volumes ) )->applyAll();
 
-		$this->assertTrue( is_link( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) ) );
+		$this->assertManifestCopied( $this->manifestIn( $this->local, 'qwen3.5', '9b' ), $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
 	}
 
 	public function testANoopOrDryRunFlipDoesNotReconcile(): void {
@@ -266,7 +344,7 @@ final class OllamaReconcileTest extends TestCase {
 		$out = (string) ob_get_clean();
 
 		$this->assertSame( 0, $code );
-		$this->assertTrue( is_link( $this->manifestIn( $this->external, 'qwen3.5', '9b' ) ) );
+		$this->assertManifestCopied( $this->manifestIn( $this->local, 'qwen3.5', '9b' ), $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
 		$this->assertStringContainsString( 'qwen3.5:9b', $out );
 	}
 }

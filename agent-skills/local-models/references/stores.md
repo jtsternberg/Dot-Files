@@ -114,8 +114,17 @@ ever restarts an app.
   model whose bundle is a symlink; it becomes loadable only by explicit
   `--model <id>` and invisible everywhere else. This is why relocation is a
   whole-directory store flip and why MacWhisper's `reconcile` **copies**. Ollama
-  has no such problem, and its `reconcile` symlinks local→SD (`ollamodels` is
-  now just a shim for `aimodels ollama`).
+  follows symlinked blobs, so its `reconcile` symlinks each blob local→SD and
+  copies only the manifest (`ollamodels` is now just a shim for `aimodels
+  ollama`).
+- **An Ollama manifest is never a symlink to another manifest.** Ollama 0.40+
+  accepts a manifest symlink only when it points at a sha256 blob; anything
+  else fails with `manifest symlink target ... is not a sha256 blob` and the
+  model drops out of `ollama list`. `reconcile` copies manifests (a few hundred
+  bytes of JSON) and converts any manifest symlink an older reconcile left.
+  0.40 also writes a manifest list's per-runner child at
+  `library/<runner>/<sha256 hex>`; it is not a model, and `aimodels` neither
+  mirrors nor lists it.
 - **Never point a store symlink at a real directory that holds data, and never
   delete one.** `aimodels` refuses by design; keep it that way.
 - **`reconcile` is additive.** Everything flows local → external, because the
@@ -126,11 +135,12 @@ ever restarts an app.
 - **Never quit or kill an app to win an eject.** Release the model instead
   (`releaseHolds`), or report the holder and let JT decide. The one place an app
   IS restarted is MacWhisper after a real store switch — see below.
-- **`ollama rm` on SD is safe after a reconcile.** It unlinks the SD symlinks
-  and leaves the local originals alone (verified on Ollama 0.35.0 against a
-  throwaway server and store). The reverse is the one to know: `ollama rm` on
-  the local store deletes the originals, so that model's SD symlinks dangle and
-  it disappears from SD too — it is removed everywhere, as asked.
+- **`ollama rm` on SD is safe after a reconcile.** It deletes the SD manifest
+  copy, unlinks the SD blob symlinks, and leaves the local originals alone
+  (verified on Ollama 0.35.0 and 0.40.0 against a throwaway server and store).
+  The reverse is the one to know: `ollama rm` on the local store deletes the
+  originals, so that model's SD blob symlinks dangle while its SD manifest copy
+  stays — `ollama rm` it on SD too to remove it everywhere.
 
 ## Footguns
 
