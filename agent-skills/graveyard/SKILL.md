@@ -47,6 +47,10 @@ separate axes sharing one column. The column is omitted entirely when every row
 is the default pairing, so a cmux-only install's output is unchanged.
 `candidates --json` carries `agent` and `transport` as fields; `--porcelain`
 carries them as columns 8 and 9, appended so fields 1-7 never move.
+`candidates --json` also carries the locators `surface_id`, `surface_ref`,
+`pane_ref`, `workspace_ref`, `window_ref` and `tab_ref` on every row (null when
+unknown). A herdr row's tab id is `tab_ref` and its `window_ref` is null; a cmux
+row's `tab_ref` is null.
 
 `bury` needs no flag: it drives whichever transport reported the session.
 
