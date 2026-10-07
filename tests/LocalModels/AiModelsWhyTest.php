@@ -283,6 +283,78 @@ final class AiModelsWhyTest extends TestCase {
 		$this->assertArrayHasKey( 'ollama:gemma4:26b', ( new ModelNotes( $this->notesFile() ) )->data()['graveyard'] );
 	}
 
+	/**
+	 * `tested` is a dated history, one result per run. Replacing it by default
+	 * once wiped a model's whole history, so --tested appends with ` | `.
+	 */
+	public function testSetTestedAppendsToTheExistingHistory(): void {
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [ 'tested' => '2026-09-30: 92% holdout' ] );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'set', 'qwen3.5:9b', '--tested=2026-10-06: cold 9.5s' ] );
+
+		$this->assertSame( 0, $code, $out );
+		$this->assertSame(
+			'2026-09-30: 92% holdout | 2026-10-06: cold 9.5s',
+			( new ModelNotes( $this->notesFile() ) )->note( 'ollama:qwen3.5:9b' )['tested']
+		);
+	}
+
+	public function testSetTestedOnAnEmptyFieldJustSetsIt(): void {
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [ 'when' => 'Default' ] );
+
+		$this->dispatch( [ 'aimodels', 'why', 'set', 'qwen3.5:9b', '--tested=first run' ] );
+
+		$this->assertSame( 'first run', ( new ModelNotes( $this->notesFile() ) )->note( 'ollama:qwen3.5:9b' )['tested'] );
+	}
+
+	/** Re-running the same command must not stack a duplicate entry. */
+	public function testSetTestedDoesNotAppendAnEntryAlreadyRecorded(): void {
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [ 'tested' => 'a | b' ] );
+
+		$this->dispatch( [ 'aimodels', 'why', 'set', 'qwen3.5:9b', '--tested=b' ] );
+
+		$this->assertSame( 'a | b', ( new ModelNotes( $this->notesFile() ) )->note( 'ollama:qwen3.5:9b' )['tested'] );
+	}
+
+	public function testReplaceTestedOverwritesTheHistory(): void {
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [ 'tested' => 'old' ] );
+
+		$this->dispatch( [ 'aimodels', 'why', 'set', 'qwen3.5:9b', '--tested=new', '--replace-tested' ] );
+
+		$this->assertSame( 'new', ( new ModelNotes( $this->notesFile() ) )->note( 'ollama:qwen3.5:9b' )['tested'] );
+	}
+
+	public function testRmTestedAppendsTheRemovalReasonToTheHistory(): void {
+		$this->seedMounted();
+		putenv( 'AIMODELS_OLLAMA_BIN=' . self::sharedStub( 'ollama', "#!/bin/sh\nexit 0\n" ) );
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:gemma4:26b', [ 'tested' => '2026-10-01: 80%' ] );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'rm', 'gemma4:26b', '--delete-model', '--tested=removed: too slow' ] );
+
+		$this->assertSame( 0, $code, $out );
+		$this->assertSame(
+			'2026-10-01: 80% | removed: too slow',
+			( new ModelNotes( $this->notesFile() ) )->buried( 'ollama:gemma4:26b' )['tested']
+		);
+	}
+
+	public function testRmReplaceTestedOverwritesTheHistory(): void {
+		$this->seedMounted();
+		putenv( 'AIMODELS_OLLAMA_BIN=' . self::sharedStub( 'ollama', "#!/bin/sh\nexit 0\n" ) );
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:gemma4:26b', [ 'tested' => 'old' ] );
+
+		$this->dispatch( [ 'aimodels', 'why', 'rm', 'gemma4:26b', '--delete-model', '--tested=only this', '--replace-tested' ] );
+
+		$this->assertSame( 'only this', ( new ModelNotes( $this->notesFile() ) )->buried( 'ollama:gemma4:26b' )['tested'] );
+	}
+
+	public function testHelpSaysTestedAppends(): void {
+		[ , $out ] = $this->dispatch( [ 'aimodels', 'why', '--help' ] );
+
+		$this->assertStringContainsString( '--replace-tested', $out );
+		$this->assertMatchesRegularExpression( '/--tested=<tested>\]?\s+.*[Aa]ppend/', $out );
+	}
+
 	public function testRmWithoutANoteOrDeleteIsAFailure(): void {
 		[ $code ] = $this->dispatch( [ 'aimodels', 'why', 'rm', 'nothing:1b' ] );
 

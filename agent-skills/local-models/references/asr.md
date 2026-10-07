@@ -175,7 +175,9 @@ a store flip (see [stores.md](stores.md) footgun 6).
 5. Report as `audio-seconds / wall-seconds` (a realtime factor), not raw seconds —
    it transfers to other files.
 6. Record it with `aimodels why set <id> --speed="…" --tested="<date>: …"` so the
-   next session inherits it.
+   next session inherits it. `--tested` appends to the existing history with ` | `
+   (`--replace-tested` overwrites); `why rm --delete-model --tested="…"` appends the
+   removal reason the same way.
 
 ## Comparing transcription quality cleanly
 

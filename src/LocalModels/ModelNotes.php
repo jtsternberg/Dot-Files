@@ -117,11 +117,26 @@ final class ModelNotes {
 	}
 
 	/**
+	 * `tested` is a dated history, one ` | `-joined entry per run, so new results
+	 * append. An entry already recorded verbatim is not added twice.
+	 */
+	public static function appendTested( ?string $existing, string $new ): string {
+		if ( null === $existing || '' === trim( $existing ) ) {
+			return $new;
+		}
+		if ( in_array( trim( $new ), array_map( 'trim', explode( ' | ', $existing ) ), true ) ) {
+			return $existing;
+		}
+
+		return $existing . ' | ' . $new;
+	}
+
+	/**
 	 * Drop a note; with $archive, move it (or a bare tombstone) to the graveyard.
 	 *
 	 * @return bool whether a note existed
 	 */
-	public function remove( string $key, bool $archive = false, ?string $tested = null, ?string $date = null ): bool {
+	public function remove( string $key, bool $archive = false, ?string $tested = null, ?string $date = null, bool $replaceTested = false ): bool {
 		$data = $this->data();
 		$had  = isset( $data['models'][ $key ] );
 
@@ -133,7 +148,7 @@ final class ModelNotes {
 			$entry               = $data['models'][ $key ] ?? [];
 			$entry['removed_at'] = $date ?? date( 'Y-m-d' );
 			if ( null !== $tested ) {
-				$entry['tested'] = $tested;
+				$entry['tested'] = $replaceTested ? $tested : self::appendTested( $entry['tested'] ?? null, $tested );
 			}
 			$this->data['graveyard'][ $key ] = $entry;
 		}

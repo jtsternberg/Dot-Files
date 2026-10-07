@@ -299,8 +299,10 @@ final class AiModelsCommand {
 		?string $speed = null,
 		#[Option( description: 'Comma-separated tags.' )]
 		?string $tags = null,
-		#[Option( description: 'Test result (on set, or recorded in the graveyard by rm --delete-model).' )]
+		#[Option( description: 'Test result, appended to the existing history with " | " (on set, or in the graveyard by rm --delete-model).' )]
 		?string $tested = null,
+		#[Option( name: 'replace-tested', description: 'Overwrite the tested history with --tested instead of appending.' )]
+		bool $replaceTested = false,
 		#[Option( description: 'Where it lives: local | external | both (sd = external). Recorded from the inventory on set.' )]
 		?string $location = null,
 		#[Option( description: 'Alias for --location.' )]
@@ -346,10 +348,15 @@ final class AiModelsCommand {
 				if ( null !== $text && null === $when ) {
 					$fields['when'] = $text;
 				}
-				foreach ( [ 'when' => $when, 'speed' => $speed, 'tested' => $tested ] as $field => $value ) {
+				foreach ( [ 'when' => $when, 'speed' => $speed ] as $field => $value ) {
 					if ( null !== $value ) {
 						$fields[ $field ] = $value;
 					}
+				}
+				if ( null !== $tested ) {
+					$fields['tested'] = $replaceTested
+						? $tested
+						: ModelNotes::appendTested( $this->notes()->note( $this->whyKey( $model ) )['tested'] ?? null, $tested );
 				}
 				if ( null !== $tags ) {
 					$fields['tags'] = array_values( array_filter( array_map( 'trim', explode( ',', $tags ) ), 'strlen' ) );
@@ -361,7 +368,7 @@ final class AiModelsCommand {
 				return $this->whySet( $this->whyKey( $model ), $fields );
 
 			case 'rm':
-				return $this->whyRemove( $this->whyKey( $model ), $deleteModel, $tested );
+				return $this->whyRemove( $this->whyKey( $model ), $deleteModel, $tested, $replaceTested );
 
 			case 'locate':
 				$value = ModelNotes::normalizeLocation( (string) $text );
@@ -463,8 +470,8 @@ final class AiModelsCommand {
 		return 0;
 	}
 
-	private function whyRemove( string $key, bool $deleteModel, ?string $tested ): int {
-		$had = $this->notes()->remove( $key, $deleteModel, $tested );
+	private function whyRemove( string $key, bool $deleteModel, ?string $tested, bool $replaceTested ): int {
+		$had = $this->notes()->remove( $key, $deleteModel, $tested, null, $replaceTested );
 
 		if ( $had ) {
 			$this->cli->successMsg( $deleteModel ? "Archived note for {$key} to the graveyard" : "Removed note for {$key}" );

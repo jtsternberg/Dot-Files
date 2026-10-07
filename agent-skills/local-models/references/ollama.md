@@ -84,8 +84,13 @@ a role probably still fails it), but even its numbers deserve the same skepticis
 
 After any clean benchmark, **write the result back** with
 `aimodels why set <model> --speed="…" --tested="…" --when="…"` (date the `--tested` note),
-so the log improves rather than ossifies. A few older notes stop mid-phrase at `num_ctx`
-or `num_ctx<` (text after an `=` was lost at write time); replace them on the next bench.
+so the log improves rather than ossifies. `--tested` **appends** to the model's history with
+` | `, so pass only the new result; `--when` and `--speed` replace. `--replace-tested`
+overwrites the history, for correcting it rather than adding to it. Retiring a model:
+`aimodels why rm <model> --delete-model --tested="<date>: <reason>"` runs `ollama rm` and
+moves the note to the graveyard with the reason appended the same way. A few older notes stop
+mid-phrase at `num_ctx` or `num_ctx<` (text after an `=` was lost at write time); fix them
+on the next bench.
 
 ### 1d. `aimodels status` — storage location (affects availability + load time)
 
@@ -241,7 +246,8 @@ Either use `llmfit bench <model> --json`, or roll a clean `/api/generate` run:
    `eval_count/eval_duration` → decode tok/s; `load_duration` → load cost.
 5. For quality, **read the source** and check the summary against it.
 6. **Write results back to `aimodels why`** (`set … --speed --tested --when`) so the next
-   session inherits the learning instead of re-measuring.
+   session inherits the learning instead of re-measuring. `--tested` appends the new
+   result to the history; it never needs the old text passed back in.
 
 Estimate cold latency as: `input_tok / prompt_eval_tok_s + output_tok / decode_tok_s + load_s`.
 
