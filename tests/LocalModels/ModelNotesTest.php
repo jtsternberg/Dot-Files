@@ -217,4 +217,18 @@ final class ModelNotesTest extends TestCase {
 
 		$this->assertStringContainsString( '"graveyard": {}', file_get_contents( $this->file ) );
 	}
+
+	/** The ` | `-joined history, split into dated entries, newest (last appended) first. */
+	public function testTestedEntriesSplitTheHistoryNewestFirst(): void {
+		$this->assertSame(
+			[
+				[ 'date' => null, 'text' => 'undated' ],
+				[ 'date' => '2026-10-06', 'text' => 'cold start: 9s' ],
+				[ 'date' => '2026-07-24', 'text' => 'first: ok' ],
+			],
+			ModelNotes::testedEntries( '2026-07-24: first: ok | 2026-10-06 cold start: 9s | undated' )
+		);
+		$this->assertSame( [], ModelNotes::testedEntries( null ) );
+		$this->assertSame( [], ModelNotes::testedEntries( '  ' ) );
+	}
 }

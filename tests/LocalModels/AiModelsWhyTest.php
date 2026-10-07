@@ -17,6 +17,7 @@ final class AiModelsWhyTest extends TestCase {
 
 	private string $home = '';
 	private string $volumes = '';
+	private bool $tty = false;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -25,6 +26,8 @@ final class AiModelsWhyTest extends TestCase {
 		$this->volumes = $this->graveyardRoot . '/Volumes';
 		mkdir( $this->home . '/Library/Application Support/MacWhisper', 0777, true );
 		mkdir( $this->volumes, 0777, true );
+		// A phpunit run from a terminal has a tty stdin; `why` must not open fzf on it.
+		$this->cli->forceInteractive = false;
 	}
 
 	protected function tearDown(): void {
@@ -37,7 +40,7 @@ final class AiModelsWhyTest extends TestCase {
 		ob_start();
 		$code = ( new Dispatcher(
 			$this->cli,
-			new AiModelsCommand( $this->cli, $this->home, $this->volumes )
+			new AiModelsCommand( $this->cli, $this->home, $this->volumes, $this->tty )
 		) )->run();
 
 		return [ $code, (string) ob_get_clean() ];
@@ -464,5 +467,171 @@ final class AiModelsWhyTest extends TestCase {
 		$this->assertSame( 0, $code );
 		$this->assertStringContainsString( 'qwen3.5:9b', $out );
 		$this->assertStringNotContainsString( 'qwen3-asr', $out );
+	}
+
+	private static function plain( string $text ): string {
+		return (string) preg_replace( '/\e\[[0-9;]*m/', '', $text );
+	}
+
+	/** `show` is the one-model detail view: the browse preview and the full dump both render it. */
+	public function testShowPrintsOneNoteWithTestedOneEntryPerLineNewestFirst(): void {
+		$this->seedMounted();
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [
+			'when'   => 'General summarizer',
+			'speed'  => '~21 tok/s',
+			'tags'   => [ 'summarize', 'jev' ],
+			'tested' => '2026-07-24: first run | 2026-10-06 second run | undated note',
+		] );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'show', 'qwen3.5:9b' ] );
+		$lines = explode( "\n", self::plain( $out ) );
+
+		$this->assertSame( 0, $code, $out );
+		$this->assertSame( 'qwen3.5:9b  [both]  ollama', $lines[0] );
+		$this->assertContains( '  when    General summarizer', $lines );
+		$this->assertContains( '  speed   ~21 tok/s', $lines );
+		$this->assertContains( '  tags    summarize, jev', $lines );
+		$tested = array_search( '  tested', $lines, true );
+		$this->assertNotFalse( $tested, $out );
+		$this->assertSame( '                undated note', $lines[ $tested + 1 ] );
+		$this->assertSame( '    2026-10-06  second run', $lines[ $tested + 2 ] );
+		$this->assertSame( '    2026-07-24  first run', $lines[ $tested + 3 ] );
+	}
+
+	/** Continuation lines keep their column instead of wrapping to column 0. */
+	public function testShowWrapsToThePreviewWidthWithAHangingIndent(): void {
+		$this->seedMounted();
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [
+			'when' => 'one two three four five six seven eight nine ten',
+		] );
+		putenv( 'FZF_PREVIEW_COLUMNS=30' );
+
+		[ , $out ] = $this->dispatch( [ 'aimodels', 'why', 'show', 'qwen3.5:9b' ] );
+		putenv( 'FZF_PREVIEW_COLUMNS' );
+		$lines = explode( "\n", self::plain( $out ) );
+
+		$this->assertSame( '  when    one two three four', $lines[1] );
+		$this->assertSame( '          five six seven eight', $lines[2] );
+		$this->assertSame( '          nine ten', $lines[3] );
+	}
+
+	public function testShowFindsGraveyardEntries(): void {
+		( new ModelNotes( $this->notesFile() ) )->remove( 'ollama:gone:1b', true, 'Bad', '2026-09-01' );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'show', 'gone:1b' ] );
+
+		$this->assertSame( 0, $code, $out );
+		$this->assertStringStartsWith( 'gone:1b  [removed 2026-09-01]  ollama', self::plain( $out ) );
+		$this->assertStringContainsString( 'Bad', $out );
+	}
+
+	/** Re-installed after removal: plain show is the live note, --removed the graveyard one. */
+	public function testShowRemovedPicksTheGraveyardEntryOfAReinstalledModel(): void {
+		$this->seedMounted();
+		$notes = new ModelNotes( $this->notesFile() );
+		$notes->set( 'ollama:gemma4:26b', [ 'when' => 'Old take' ] );
+		$notes->remove( 'ollama:gemma4:26b', true, 'Dropped', '2026-09-01' );
+		$notes->set( 'ollama:gemma4:26b', [ 'when' => 'New take' ] );
+
+		[ , $live ] = $this->dispatch( [ 'aimodels', 'why', 'show', 'gemma4:26b' ] );
+		[ , $gone ] = $this->dispatch( [ 'aimodels', 'why', 'show', 'gemma4:26b', '', '--removed' ] );
+
+		$this->assertStringContainsString( 'New take', $live );
+		$this->assertStringContainsString( 'Old take', $gone );
+		$this->assertStringContainsString( '[removed 2026-09-01]', self::plain( $gone ) );
+	}
+
+	public function testShowUnknownModelIsAFailure(): void {
+		[ $code ] = $this->dispatch( [ 'aimodels', 'why', 'show', 'nope:1b' ] );
+
+		$this->assertSame( 1, $code );
+	}
+
+	/**
+	 * Not a terminal (a pipe, an agent's Bash tool): the full dump, every field,
+	 * so nothing is lost when --json was forgotten.
+	 */
+	public function testListOffATerminalIsTheFullDumpOfEveryNote(): void {
+		$this->seedMounted();
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [ 'when' => 'General', 'tested' => 'a | b' ] );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why' ] );
+		$plain = self::plain( $out );
+
+		$this->assertSame( 0, $code );
+		$this->assertStringContainsString( "qwen3.5:9b  [both]  ollama\n  when    General\n", $plain );
+		$this->assertStringContainsString( "    b\n", $plain );
+		$this->assertStringContainsString( 'no note — run: aimodels why set gemma4:26b', $plain );
+	}
+
+	/**
+	 * browse hands fzf one row per model (installed and graveyard), with the
+	 * full key as hidden field 1 so the preview can `show` it, then prints the
+	 * picked model's note.
+	 */
+	public function testBrowseFeedsFzfAndShowsThePick(): void {
+		$this->seedMounted();
+		( new ModelNotes( $this->notesFile() ) )->set( 'ollama:qwen3.5:9b', [ 'when' => 'General', 'tags' => [ 'jev' ] ] );
+		( new ModelNotes( $this->notesFile() ) )->remove( 'ollama:gone:1b', true, 'Bad', '2026-09-01' );
+		putenv( 'AIMODELS_FZF_BIN=' . self::sharedStub( 'fzf', implode( "\n", [
+			'#!/bin/sh',
+			'printf "%s\n" "$@" > "$GRAVEYARD_ROOT/fzf-args"',
+			'cat > "$GRAVEYARD_ROOT/fzf-stdin"',
+			'grep "^ollama:qwen3.5:9b	" "$GRAVEYARD_ROOT/fzf-stdin"',
+			'',
+		] ) ) );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'browse' ] );
+		putenv( 'AIMODELS_FZF_BIN' );
+
+		$this->assertSame( 0, $code, $out );
+		$rows = self::plain( (string) file_get_contents( $this->graveyardRoot . '/fzf-stdin' ) );
+		$this->assertMatchesRegularExpression( '/^ollama:qwen3\.5:9b\t\tqwen3\.5:9b +both +ollama +jev$/m', $rows );
+		$this->assertMatchesRegularExpression( '/^ollama:gone:1b\t--removed\tgone:1b +removed +ollama/m', $rows );
+		$args = (string) file_get_contents( $this->graveyardRoot . '/fzf-args' );
+		$this->assertMatchesRegularExpression( '/why show \{1\} \{2\}/', $args );
+		$this->assertStringContainsString( '--with-nth=3..', $args );
+		$this->assertStringStartsWith( 'qwen3.5:9b  [both]  ollama', self::plain( $out ) );
+	}
+
+	public function testBrowseEscapeIsNotAFailure(): void {
+		$this->seedMounted();
+		putenv( 'AIMODELS_FZF_BIN=' . self::sharedStub( 'fzf-esc', "#!/bin/sh\ncat > /dev/null\nexit 130\n" ) );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'browse' ] );
+		putenv( 'AIMODELS_FZF_BIN' );
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( '', $out );
+	}
+
+	public function testBrowseWithoutFzfSaysHowToGetIt(): void {
+		putenv( 'AIMODELS_FZF_BIN=' . $this->graveyardRoot . '/no-such-fzf' );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'browse' ] );
+		putenv( 'AIMODELS_FZF_BIN' );
+
+		$this->assertSame( 1, $code );
+		$this->assertStringContainsString( 'brew install fzf', $out );
+	}
+
+	/** A human at a terminal gets the browser by default; --full and --json still print. */
+	public function testListBrowsesOnlyForAHumanAtATerminal(): void {
+		$this->seedMounted();
+		putenv( 'AIMODELS_FZF_BIN=' . self::sharedStub( 'fzf-mark', "#!/bin/sh\ncat > /dev/null\necho browsed > \"\$GRAVEYARD_ROOT/fzf-ran\"\nexit 130\n" ) );
+		$this->cli->forceInteractive = true;
+		$this->tty                   = true;
+		$ran                         = $this->graveyardRoot . '/fzf-ran';
+
+		[ , $out ] = $this->dispatch( [ 'aimodels', 'why', '--full' ] );
+		$this->assertFileDoesNotExist( $ran );
+		$this->assertStringContainsString( 'qwen3.5:9b', $out );
+
+		$this->json( [ 'aimodels', 'why', '--json' ] );
+		$this->assertFileDoesNotExist( $ran );
+
+		$this->dispatch( [ 'aimodels', 'why' ] );
+		putenv( 'AIMODELS_FZF_BIN' );
+		$this->assertFileExists( $ran );
 	}
 }

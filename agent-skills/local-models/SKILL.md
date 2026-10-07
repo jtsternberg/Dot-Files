@@ -29,7 +29,7 @@ an ejected AI-LAB drive is not a candidate, however good its model card looks.
 
 Run `aimodels status` before recommending or operating on a model. It reports
 both the internal and AI-LAB stores even when the external drive is absent.
-Then read `aimodels why`: per-model notes (when to use it, measured speed, test
+Then read `aimodels why --json` (`aimodels why show <model>` for one model): per-model notes (when to use it, measured speed, test
 results) for Ollama and MacWhisper alike, with each model's location from the
 same inventory, plus the graveyard of models tried and removed. Treat recorded
 inventory and benchmark numbers as dated evidence to re-check, not permanent

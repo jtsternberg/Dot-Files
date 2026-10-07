@@ -28,7 +28,9 @@ final class AiModelsCommand {
 	public function __construct(
 		private readonly Helpers $cli,
 		private readonly ?string $home = null,
-		private readonly string $volumesRoot = '/Volumes'
+		private readonly string $volumesRoot = '/Volumes',
+		// Null asks the real STDOUT; tests pin it, since phpunit's own may be a tty.
+		private readonly ?bool $stdoutTty = null
 	) {
 	}
 
@@ -284,7 +286,7 @@ final class AiModelsCommand {
 		description: 'Notes on when to use each local model, joined to where it lives, plus a graveyard of models tried and removed.',
 	)]
 	public function why(
-		#[Argument( description: 'list (default) | set | rm | locate | history | forget | notes | path | keys' )]
+		#[Argument( description: 'list (default: browse in a terminal, the full dump otherwise) | show | browse | set | rm | locate | history | forget | notes | path | keys' )]
 		string $action = 'list',
 		#[Argument(
 			description: 'An mw ID for MacWhisper (whisperkit:openai_whisper-small), or an Ollama tag, bare or ollama:-prefixed.',
@@ -312,7 +314,11 @@ final class AiModelsCommand {
 		#[Option( description: 'Only this engine: ollama | macwhisper (whisper).' )]
 		?string $engine = null,
 		#[Option( description: 'Machine-readable output (list, history, notes).' )]
-		bool $json = false
+		bool $json = false,
+		#[Option( description: 'list: print every note instead of browsing, even in a terminal.' )]
+		bool $full = false,
+		#[Option( description: 'show: the graveyard entry, for a model also installed again.' )]
+		bool $removed = false
 	): int {
 		$engineFilter = match ( $engine ) {
 			null                    => null,
@@ -333,7 +339,7 @@ final class AiModelsCommand {
 			return 1;
 		}
 
-		if ( in_array( $action, [ 'set', 'rm', 'locate', 'forget' ], true ) && ( null === $model || '' === $model ) ) {
+		if ( in_array( $action, [ 'show', 'set', 'rm', 'locate', 'forget' ], true ) && ( null === $model || '' === $model ) ) {
 			$this->cli->err( "Missing <model>. Usage: aimodels why {$action} <model>" );
 
 			return 1;
@@ -341,7 +347,17 @@ final class AiModelsCommand {
 
 		switch ( $action ) {
 			case 'list':
+				if ( ! $json && ! $full && $this->cli->isInteractive() && $this->stdoutIsTty() && null !== $this->fzfBin() ) {
+					return $this->whyBrowse( $engineFilter );
+				}
+
 				return $this->whyList( $engineFilter, $json );
+
+			case 'show':
+				return $this->whyShow( $model, $removed );
+
+			case 'browse':
+				return $this->whyBrowse( $engineFilter );
 
 			case 'set':
 				$fields = [];
@@ -527,22 +543,15 @@ final class AiModelsCommand {
 			$groups[ $row['state'] ][] = $row;
 		}
 
-		$width = 0;
-		foreach ( $inventory['models'] as $row ) {
-			$width = max( $width, strlen( $this->whyLabel( $row ) ) );
-		}
-		foreach ( $inventory['graveyard'] as $entry ) {
-			$width = max( $width, strlen( $entry['name'] ) );
-		}
-		$width += 2;
-
+		$width      = $this->terminalWidth();
 		$lastEngine = null;
 		foreach ( $groups['available'] ?? [] as $row ) {
 			if ( $row['engine'] !== $lastEngine ) {
-				$this->cli->msg( ( null === $lastEngine ? '' : "\n" ) . $row['engine'], 'white' );
+				$this->cli->msg( ( null === $lastEngine ? '' : "\n" ) . strtoupper( $row['engine'] ), 'white' );
 				$lastEngine = $row['engine'];
 			}
-			$this->whyRow( $row, $width );
+			$this->cli->output( '' );
+			$this->printLines( $this->whyDetail( $row, $width ) );
 		}
 
 		$sections = [
@@ -556,7 +565,8 @@ final class AiModelsCommand {
 			}
 			$this->cli->msg( "\n" . $heading, 'yellow' );
 			foreach ( $groups[ $state ] as $row ) {
-				$this->whyRow( $row, $width );
+				$this->cli->output( '' );
+				$this->printLines( $this->whyDetail( $row, $width ) );
 			}
 			if ( $tip ) {
 				$this->cli->msg( $tip, 'yellow' );
@@ -566,45 +576,242 @@ final class AiModelsCommand {
 		if ( ! empty( $inventory['graveyard'] ) ) {
 			$this->cli->msg( "\nPreviously tested & removed (see `aimodels why history`):", 'yellow' );
 			foreach ( $inventory['graveyard'] as $entry ) {
-				$this->cli->output(
-					'  ' . $this->cli->color( 'red' ) . str_pad( $entry['name'], $width ) . $this->cli->color( 'none' )
-						. str_pad( (string) ( $entry['removed_at'] ?? '?' ), 12 )
-						. ( $entry['tested'] ?? ( $entry['when'] ?? '' ) )
-				);
+				$this->cli->output( '' );
+				$this->printLines( $this->whyDetail( $entry, $width ) );
 			}
 		}
 
 		return 0;
 	}
 
+	private function whyShow( string $model, bool $removed = false ): int {
+		$key       = $this->whyKey( $model );
+		$inventory = $this->whyInventory( null );
+		$row       = null;
+		$pool      = $removed ? $inventory['graveyard'] : array_merge( $inventory['models'], $inventory['graveyard'] );
+		foreach ( $pool as $candidate ) {
+			if ( $candidate['id'] === $key ) {
+				$row = $candidate;
+				break;
+			}
+		}
+
+		if ( null === $row ) {
+			$this->cli->err( "No model or note for {$key}. `aimodels why keys` lists them." );
+
+			return 1;
+		}
+
+		$this->printLines( $this->whyDetail( $row, $this->terminalWidth() ) );
+
+		return 0;
+	}
+
 	/**
-	 * @param array<string, mixed> $row
+	 * fzf over one row per model; the preview pane runs `why show` on the
+	 * hovered row, and Enter prints that note to stdout.
 	 */
-	private function whyRow( array $row, int $width ): void {
-		$note  = $row['note'];
-		$label = $this->whyLabel( $row );
-		$badge = $this->whyBadge( $row['location'] );
-		$line  = '  ' . str_pad( $label, $width ) . $badge . ' ';
+	private function whyBrowse( ?string $engine ): int {
+		$fzf = $this->fzfBin();
+		if ( null === $fzf ) {
+			$this->cli->err( 'aimodels why browse needs fzf (brew install fzf / apt install fzf). `aimodels why --full` prints every note instead.' );
+
+			return 1;
+		}
+
+		$inventory = $this->whyInventory( $engine );
+		$rows      = array_merge( $inventory['models'], $inventory['graveyard'] );
+		$width     = 0;
+		foreach ( $rows as $row ) {
+			$width = max( $width, strlen( $this->whyLabel( $row ) ) );
+		}
+
+		$input = '';
+		foreach ( $rows as $row ) {
+			$input .= $this->browseRow( $row, $width ) . "\n";
+		}
+
+		$self = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( dirname( __DIR__ ) . '/bin/aimodels' );
+		$args = [
+			'--ansi',
+			'--delimiter=\t',
+			// Fields 1-2 (full key, --removed for graveyard rows) are hidden and handed to `show`.
+			'--with-nth=3..',
+			'--no-sort',
+			'--layout=reverse',
+			'--prompt=why> ',
+			'--header=type to filter (name, location, engine, tags) · enter prints the note · esc quits',
+			'--preview=' . $self . ' why show {1} {2}',
+			'--preview-window=right,65%,wrap',
+		];
+
+		$process = proc_open(
+			array_merge( [ $fzf ], $args ),
+			[ 0 => [ 'pipe', 'r' ], 1 => [ 'pipe', 'w' ], 2 => STDERR ],
+			$pipes
+		);
+		if ( ! is_resource( $process ) ) {
+			$this->cli->err( "Could not start {$fzf}." );
+
+			return 1;
+		}
+
+		fwrite( $pipes[0], $input );
+		fclose( $pipes[0] );
+		$picked = trim( (string) stream_get_contents( $pipes[1] ) );
+		fclose( $pipes[1] );
+		$code = proc_close( $process );
+
+		// 1 = no match, 130 = esc/ctrl-c: both are a normal way to leave.
+		if ( '' === $picked || in_array( $code, [ 1, 130 ], true ) ) {
+			return 0;
+		}
+
+		[ $key, $flag ] = explode( "\t", $picked ) + [ 1 => '' ];
+
+		return $this->whyShow( $key, '--removed' === $flag );
+	}
+
+	/**
+	 * @param array<string, mixed> $row inventory row or graveyard entry
+	 */
+	private function browseRow( array $row, int $width ): string {
+		$graveyard = ! array_key_exists( 'state', $row );
+		$note      = $graveyard ? $row : ( $row['note'] ?? [] );
+		[ $where, $color ] = match ( true ) {
+			$graveyard                    => [ 'removed', 'red' ],
+			'available' !== $row['state'] => [ $row['state'], 'yellow' ],
+			default                       => [ $row['location'] ?? '?', self::LOCATION_COLORS[ $row['location'] ] ?? 'dark_gray' ],
+		};
+		$tags = is_array( $note['tags'] ?? null ) ? implode( ', ', $note['tags'] ) : '';
+
+		return $row['id'] . "\t" . ( $graveyard ? '--removed' : '' ) . "\t"
+			. str_pad( $this->whyLabel( $row ), $width ) . '  '
+			. $this->cli->color( $color ) . str_pad( $where, 10 ) . $this->cli->color( 'none' )
+			. str_pad( $row['engine'], 12 )
+			. $this->cli->color( 'dark_gray' ) . $tags . $this->cli->color( 'none' );
+	}
+
+	private const LOCATION_COLORS = [ 'local' => 'cyan', 'external' => 'magenta', 'both' => 'green' ];
+
+	/**
+	 * One model's note as lines: a heading, then each field with continuation
+	 * lines hung under the field's text, and `tested` one run per line.
+	 *
+	 * @param array<string, mixed> $row inventory row or graveyard entry
+	 * @return string[]
+	 */
+	private function whyDetail( array $row, ?int $width ): array {
+		$graveyard = ! array_key_exists( 'state', $row );
+		$note      = $graveyard ? $row : $row['note'];
+		$badge     = $graveyard
+			? $this->cli->color( 'red' ) . '[removed ' . ( $row['removed_at'] ?? '?' ) . ']' . $this->cli->color( 'none' )
+			: $this->cli->color( self::LOCATION_COLORS[ $row['location'] ] ?? 'dark_gray' ) . '[' . ( $row['location'] ?? '?' ) . ']' . $this->cli->color( 'none' );
+		$lines     = [
+			$this->cli->color( 'white' ) . $this->whyLabel( $row ) . $this->cli->color( 'none' )
+				. '  ' . $badge . '  ' . $this->cli->color( 'dark_gray' ) . $row['engine'] . $this->cli->color( 'none' ),
+		];
 
 		if ( null === $note ) {
 			// Support bundles are not something anyone picks, so they are never nagged.
-			$this->cli->output(
-				$line . ( 'support' === $row['kind']
-					? $this->cli->color( 'dark_gray' ) . '(support)' . $this->cli->color( 'none' )
-					: $this->cli->color( 'yellow' ) . '(no note — run: aimodels why set ' . $label . ' "...")' . $this->cli->color( 'none' ) )
-			);
+			$lines[] = 'support' === $row['kind']
+				? '  ' . $this->cli->color( 'dark_gray' ) . '(support)' . $this->cli->color( 'none' )
+				: '  ' . $this->cli->color( 'yellow' ) . '(no note — run: aimodels why set ' . $this->whyLabel( $row ) . ' "...")' . $this->cli->color( 'none' );
 
-			return;
+			return $lines;
 		}
 
-		$this->cli->output( $line . $this->cli->color( 'green' ) . ( $note['when'] ?? '' ) . $this->cli->color( 'none' ) );
-		$indent = str_repeat( ' ', $width + 13 );
-		foreach ( [ 'speed' => 'cyan', 'tested' => 'cyan', 'tags' => 'magenta' ] as $field => $color ) {
-			if ( ! empty( $note[ $field ] ) ) {
-				$value = is_array( $note[ $field ] ) ? implode( ', ', $note[ $field ] ) : $note[ $field ];
-				$this->cli->msg( $indent . $field . ': ' . $value, $color );
+		$fields = [ 'when' => null, 'speed' => 'cyan', 'tags' => 'dark_gray' ];
+		foreach ( $fields as $field => $color ) {
+			if ( empty( $note[ $field ] ) ) {
+				continue;
+			}
+			$value = is_array( $note[ $field ] ) ? implode( ', ', $note[ $field ] ) : (string) $note[ $field ];
+			foreach ( $this->wrap( $value, 10, $width ) as $i => $text ) {
+				$lines[] = ( 0 === $i ? '  ' . $this->cli->color( 'dark_gray' ) . str_pad( $field, 8 ) . $this->cli->color( 'none' ) : str_repeat( ' ', 10 ) )
+					. ( $color ? $this->cli->color( $color ) . $text . $this->cli->color( 'none' ) : $text );
 			}
 		}
+
+		$tested = ModelNotes::testedEntries( $note['tested'] ?? null );
+		if ( $tested ) {
+			$lines[] = '  ' . $this->cli->color( 'dark_gray' ) . 'tested' . $this->cli->color( 'none' );
+			foreach ( $tested as $entry ) {
+				foreach ( $this->wrap( $entry['text'], 16, $width ) as $i => $text ) {
+					$lines[] = ( 0 === $i && null !== $entry['date']
+						? '    ' . $this->cli->color( 'yellow' ) . $entry['date'] . $this->cli->color( 'none' ) . '  '
+						: str_repeat( ' ', 16 ) ) . $text;
+				}
+			}
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * Word-wrap to $width columns, every line but the first to be printed after
+	 * an $indent-column hang. Null width (no terminal) leaves the text whole.
+	 *
+	 * @return string[]
+	 */
+	private function wrap( string $text, int $indent, ?int $width ): array {
+		$room = null === $width ? 0 : $width - $indent;
+		if ( $room < 20 || mb_strlen( $text ) <= $room ) {
+			return [ $text ];
+		}
+
+		$lines = [];
+		$line  = '';
+		foreach ( preg_split( '/\s+/', trim( $text ) ) as $word ) {
+			if ( '' !== $line && mb_strlen( $line ) + 1 + mb_strlen( $word ) > $room ) {
+				$lines[] = $line;
+				$line    = $word;
+			} else {
+				$line = '' === $line ? $word : $line . ' ' . $word;
+			}
+		}
+		$lines[] = $line;
+
+		return $lines;
+	}
+
+	/**
+	 * @param string[] $lines
+	 */
+	private function printLines( array $lines ): void {
+		foreach ( $lines as $line ) {
+			$this->cli->output( $line );
+		}
+	}
+
+	/** fzf's preview width, else the shell's, else the tty's; null off a terminal. */
+	private function terminalWidth(): ?int {
+		foreach ( [ 'FZF_PREVIEW_COLUMNS', 'COLUMNS' ] as $var ) {
+			$value = (int) getenv( $var );
+			if ( $value > 0 ) {
+				return $value;
+			}
+		}
+		if ( ! $this->stdoutIsTty() ) {
+			return null;
+		}
+		$cols = (int) trim( (string) shell_exec( 'tput cols 2>/dev/null' ) );
+
+		return $cols > 0 ? $cols : null;
+	}
+
+	private function stdoutIsTty(): bool {
+		return $this->stdoutTty ?? ( defined( 'STDOUT' ) && @stream_isatty( STDOUT ) );
+	}
+
+	private function fzfBin(): ?string {
+		$bin = getenv( 'AIMODELS_FZF_BIN' );
+		if ( false !== $bin && '' !== $bin ) {
+			return is_executable( $bin ) ? $bin : null;
+		}
+		$found = trim( (string) shell_exec( 'command -v fzf 2>/dev/null' ) );
+
+		return '' !== $found ? $found : null;
 	}
 
 	/**
@@ -615,14 +822,6 @@ final class AiModelsCommand {
 	 */
 	private function whyLabel( array $row ): string {
 		return ModelNotes::engineName( $row['id'] );
-	}
-
-	private function whyBadge( ?string $location ): string {
-		$colors = [ 'local' => 'cyan', 'external' => 'magenta', 'both' => 'green' ];
-
-		return $this->cli->color( $colors[ $location ] ?? 'dark_gray' )
-			. str_pad( '[' . ( $location ?? '?' ) . ']', 10 )
-			. $this->cli->color( 'none' );
 	}
 
 	private function whyHistory( ?string $engine, bool $json ): int {
@@ -641,18 +840,10 @@ final class AiModelsCommand {
 		}
 
 		$this->cli->msg( 'Previously tested & removed:', 'white' );
+		$width = $this->terminalWidth();
 		foreach ( $graveyard as $entry ) {
-			$this->cli->output(
-				'  ' . $this->cli->color( 'red' ) . $entry['name'] . $this->cli->color( 'none' )
-					. ( empty( $entry['location'] ) ? '' : ' ' . trim( $this->whyBadge( $entry['location'] ) ) )
-					. $this->cli->color( 'yellow' ) . '  (removed ' . ( $entry['removed_at'] ?? '?' ) . ')' . $this->cli->color( 'none' )
-			);
-			foreach ( [ 'tested' => 'cyan', 'when' => 'green', 'speed' => 'cyan', 'tags' => 'magenta' ] as $field => $color ) {
-				if ( ! empty( $entry[ $field ] ) ) {
-					$value = is_array( $entry[ $field ] ) ? implode( ', ', $entry[ $field ] ) : $entry[ $field ];
-					$this->cli->msg( '      ' . $field . ': ' . $value, $color );
-				}
-			}
+			$this->cli->output( '' );
+			$this->printLines( $this->whyDetail( $entry, $width ) );
 		}
 
 		return 0;

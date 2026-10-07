@@ -132,6 +132,27 @@ final class ModelNotes {
 	}
 
 	/**
+	 * The appended history split back into runs, newest first. A leading
+	 * YYYY-MM-DD (with or without a colon) becomes the entry's date.
+	 *
+	 * @return list<array{date: ?string, text: string}>
+	 */
+	public static function testedEntries( ?string $tested ): array {
+		$entries = [];
+		foreach ( explode( ' | ', (string) $tested ) as $entry ) {
+			$entry = trim( $entry );
+			if ( '' === $entry ) {
+				continue;
+			}
+			$entries[] = preg_match( '/^(\d{4}-\d{2}-\d{2}):?\s+(.+)$/s', $entry, $m )
+				? [ 'date' => $m[1], 'text' => $m[2] ]
+				: [ 'date' => null, 'text' => $entry ];
+		}
+
+		return array_reverse( $entries );
+	}
+
+	/**
 	 * Drop a note; with $archive, move it (or a bare tombstone) to the graveyard.
 	 *
 	 * @return bool whether a note existed

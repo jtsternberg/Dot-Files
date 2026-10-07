@@ -60,10 +60,14 @@ done
 ### 1c. `aimodels why` — the compounding log of PRIOR measurements + graveyard
 
 ```bash
-aimodels why --engine=ollama          # every Ollama model: location badge, when / speed / tested / tags
-aimodels why history --engine=ollama  # the graveyard: models already tested & removed, with the reason
-aimodels why --json                   # same rows, for parsing (all engines unless --engine)
+aimodels why --json --engine=ollama   # every Ollama model: location, state, note (when / speed / tested / tags)
+aimodels why show qwen3.5:9b          # one model's note; `tested` one dated run per line, newest first
+aimodels why history --json --engine=ollama  # the graveyard: models already tested & removed, with the reason
 ```
+
+Read with `--json`. Plain `aimodels why` is the human view: in a terminal it opens an
+fzf browser (list + note preview), and off a terminal it prints every note in full.
+`show <model> --removed` reads the graveyard entry of a model that was re-installed.
 
 `ollama-why` still works as a shim for `aimodels why --engine=ollama`. Ollama models
 take their bare tag (`qwen3.5:9b`) or `ollama:qwen3.5:9b`.
@@ -99,9 +103,9 @@ aimodels status       # both local and AI-LAB stores, even when the drive is abs
 ```
 
 Models shown only in the `X` store are unavailable when AI-LAB is unmounted
-(`aimodels why` lists these under "Offline") and cold-load slower than local-disk models.
-`aimodels why` badges each model `[local]`, `[external]` or `[both]` from the same
-inventory. Read
+(`aimodels why --json` gives them `"state": "offline"`) and cold-load slower than
+local-disk models. Each row's `location` (`local`, `external` or `both`) comes from the
+same inventory. Read
 [stores.md](stores.md) before changing stores or ejecting the drive.
 
 ### 1e. `llmfit` — hardware fit + candidates you haven't installed + real bench

@@ -122,8 +122,9 @@ and JT needs it now — say so rather than starting a 40-minute local run.
 ## Per-model notes live in `aimodels why`
 
 ```bash
-aimodels why --engine=macwhisper      # every ASR model and diarization bundle: location, when, tested, tags
-aimodels why history --engine=macwhisper
+aimodels why --json --engine=macwhisper   # every ASR model and diarization bundle: location, when, tested, tags
+aimodels why show whisperkit:openai_whisper-small
+aimodels why history --json --engine=macwhisper
 ```
 
 Notes are keyed by the `mw` ID (`qwen3-asr:qwen3-asr-1.7b`); diarization bundles are
