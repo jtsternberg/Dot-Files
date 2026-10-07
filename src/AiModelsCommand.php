@@ -621,6 +621,11 @@ final class AiModelsCommand {
 
 		$inventory = $this->whyInventory( $engine );
 		$rows      = array_merge( $inventory['models'], $inventory['graveyard'] );
+		if ( empty( $rows ) ) {
+			$this->cli->msg( 'No local models or notes on this machine.', 'yellow' );
+
+			return 0;
+		}
 		$width     = 0;
 		foreach ( $rows as $row ) {
 			$width = max( $width, strlen( $this->whyLabel( $row ) ) );

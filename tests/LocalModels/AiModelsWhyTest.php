@@ -634,4 +634,16 @@ final class AiModelsWhyTest extends TestCase {
 		putenv( 'AIMODELS_FZF_BIN' );
 		$this->assertFileExists( $ran );
 	}
+
+	/** No models and no notes (a fresh box): say so instead of opening an empty fzf. */
+	public function testBrowseWithNothingToShowSkipsFzf(): void {
+		putenv( 'AIMODELS_FZF_BIN=' . self::sharedStub( 'fzf-mark', "#!/bin/sh\ncat > /dev/null\necho browsed > \"\$GRAVEYARD_ROOT/fzf-ran\"\nexit 130\n" ) );
+
+		[ $code, $out ] = $this->dispatch( [ 'aimodels', 'why', 'browse' ] );
+		putenv( 'AIMODELS_FZF_BIN' );
+
+		$this->assertSame( 0, $code );
+		$this->assertStringContainsString( 'No local models or notes', $out );
+		$this->assertFileDoesNotExist( $this->graveyardRoot . '/fzf-ran' );
+	}
 }
