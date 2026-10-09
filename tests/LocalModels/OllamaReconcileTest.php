@@ -64,6 +64,39 @@ final class OllamaReconcileTest extends TestCase {
 		return $store . '/manifests/registry.ollama.ai/library/' . $model . '/' . $tag;
 	}
 
+	/**
+	 * A model in Ollama 0.40's `manifests-v2` layout: the tag is a relative
+	 * symlink to the blob holding the manifest JSON. $json is written to that
+	 * blob and its digest returned via the link target.
+	 *
+	 * @param array<string, mixed> $json
+	 */
+	private function seedV2( string $store, string $model, string $tag, array $json ): string {
+		$blob = $this->seedBlob( $store, (string) json_encode( $json ) );
+		$dir  = $store . '/manifests-v2/ollama.com/library/' . $model;
+		@mkdir( $dir, 0777, true );
+		symlink( '../../../../blobs/' . $blob, $dir . '/' . $tag );
+
+		return $dir . '/' . $tag;
+	}
+
+	/** Write $contents as a content-addressed blob; returns `sha256-<hex>`. */
+	private function seedBlob( string $store, string $contents ): string {
+		$name = 'sha256-' . hash( 'sha256', $contents );
+		@mkdir( $store . '/blobs', 0777, true );
+		file_put_contents( $store . '/blobs/' . $name, $contents );
+
+		return $name;
+	}
+
+	private function v2In( string $store, string $model, string $tag ): string {
+		return $store . '/manifests-v2/ollama.com/library/' . $model . '/' . $tag;
+	}
+
+	private function digestOf( string $blob ): string {
+		return str_replace( 'sha256-', 'sha256:', $blob );
+	}
+
 	private function assertManifestCopied( string $localManifest, string $externalManifest ): void {
 		$this->assertFalse( is_link( $externalManifest ), 'manifest must be a real file, not a symlink' );
 		$this->assertFileExists( $externalManifest );
@@ -346,5 +379,96 @@ final class OllamaReconcileTest extends TestCase {
 		$this->assertSame( 0, $code );
 		$this->assertManifestCopied( $this->manifestIn( $this->local, 'qwen3.5', '9b' ), $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
 		$this->assertStringContainsString( 'qwen3.5:9b', $out );
+	}
+
+	// --- Ollama 0.40 manifests-v2 layout ------------------------------------------
+
+	/**
+	 * A model Ollama 0.40 created (`ollama create`) exists only under
+	 * `manifests-v2/`, where the tag is a relative symlink to the blob holding its
+	 * manifest. Ollama accepts a manifest symlink that points at a sha256 blob, so
+	 * the external entry is the same relative link, resolving into the external
+	 * blobs dir, whose blobs are in turn linked to the local originals.
+	 */
+	public function testMirrorsAV2OnlyModelIntoTheExternalStore(): void {
+		$config = $this->seedBlob( $this->local, 'config' );
+		$layer  = $this->seedBlob( $this->local, 'weights' );
+		$entry  = $this->seedV2( $this->local, 'tev1-0.8b-8k', 'latest', [
+			'config' => [ 'digest' => $this->digestOf( $config ) ],
+			'layers' => [ [ 'digest' => $this->digestOf( $layer ), 'from' => 'tev1:0.8b' ] ],
+		] );
+		$manifestBlob = basename( readlink( $entry ) );
+
+		$result = $this->engine()->reconcile();
+
+		$this->assertSame( ApplyResult::APPLIED, $result->status );
+		$target = $this->v2In( $this->external, 'tev1-0.8b-8k', 'latest' );
+		$this->assertSame( readlink( $entry ), readlink( $target ) );
+		foreach ( [ $manifestBlob, $config, $layer ] as $blob ) {
+			$this->assertSame( $this->local . '/blobs/' . $blob, readlink( $this->external . '/blobs/' . $blob ) );
+		}
+		$this->assertSame( file_get_contents( $entry ), file_get_contents( $target ) );
+		$this->assertStringContainsString( 'tev1-0.8b-8k:latest', implode( "\n", $result->details ) );
+		$this->assertSame( ApplyResult::NOOP, $this->engine()->reconcile()->status );
+	}
+
+	/** A pulled multi-runner model's v2 entry is a manifest list: follow it to every child. */
+	public function testMirrorsEveryChildOfAV2ManifestList(): void {
+		$layer = $this->seedBlob( $this->local, 'gguf weights' );
+		$child = $this->seedBlob( $this->local, (string) json_encode( [ 'layers' => [ [ 'digest' => $this->digestOf( $layer ) ] ] ] ) );
+		$this->seedV2( $this->local, 'qwen3.5', '9b', [
+			'mediaType' => 'application/vnd.ollama.manifest.list.v2+json',
+			'manifests' => [ [ 'digest' => $this->digestOf( $child ), 'runner' => 'llamacpp' ] ],
+		] );
+
+		$this->engine()->reconcile();
+
+		$this->assertSame( $this->local . '/blobs/' . $child, readlink( $this->external . '/blobs/' . $child ) );
+		$this->assertSame( $this->local . '/blobs/' . $layer, readlink( $this->external . '/blobs/' . $layer ) );
+	}
+
+	/** Pulled models carry both layouts; their shared blobs are linked once, not twice. */
+	public function testAModelInBothLayoutsLinksEachBlobOnce(): void {
+		$manifest = $this->seedModel( $this->local, 'qwen3.5', '9b', [ 'aaa' ] );
+		$this->seedV2( $this->local, 'qwen3.5', '9b', (array) json_decode( (string) file_get_contents( $manifest ), true ) );
+
+		$result = $this->engine()->reconcile();
+
+		$this->assertSame( ApplyResult::APPLIED, $result->status, implode( "\n", $result->details ) );
+		$this->assertManifestCopied( $manifest, $this->manifestIn( $this->external, 'qwen3.5', '9b' ) );
+		$this->assertTrue( is_link( $this->v2In( $this->external, 'qwen3.5', '9b' ) ) );
+	}
+
+	public function testLeavesAnExternalV2EntryAlone(): void {
+		$this->seedV2( $this->local, 'tev1', '0.8b', [ 'layers' => [] ] );
+		$own = $this->seedV2( $this->external, 'tev1', '0.8b', [ 'layers' => [], 'own' => true ] );
+		$before = readlink( $own );
+
+		$this->assertSame( ApplyResult::NOOP, $this->engine()->reconcile()->status );
+		$this->assertSame( $before, readlink( $own ) );
+	}
+
+	public function testTheFlipToExternalReconcilesAV2OnlyStore(): void {
+		$this->seedV2( $this->local, 'tev1', '0.8b', [ 'layers' => [] ] );
+		$this->engine()->apply( 'local' );
+
+		$this->engine()->apply( 'external' );
+
+		$this->assertTrue( is_link( $this->v2In( $this->external, 'tev1', '0.8b' ) ) );
+	}
+
+	/**
+	 * A manifest list names a child per runner, but a pull fetches only the one
+	 * this machine runs. The others are absent by design, not broken.
+	 */
+	public function testAnUnpulledRunnerChildIsNotWarnedAbout(): void {
+		$this->seedV2( $this->local, 'tev1', '0.8b', [
+			'manifests' => [ [ 'digest' => 'sha256:' . str_repeat( '8d', 32 ), 'runner' => 'ggml' ] ],
+		] );
+
+		$result = $this->engine()->reconcile();
+
+		$this->assertSame( ApplyResult::APPLIED, $result->status );
+		$this->assertSame( [], $result->warnings );
 	}
 }

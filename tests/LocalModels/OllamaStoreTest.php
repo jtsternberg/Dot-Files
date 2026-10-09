@@ -31,6 +31,38 @@ final class OllamaStoreTest extends TestCase {
 		file_put_contents( $dir . '/' . $tag, '{"layers":[]}' );
 	}
 
+	/** Ollama 0.40's layout: the tag is a symlink to the blob holding the manifest. */
+	private function seedV2Model( string $store, string $model, string $tag ): void {
+		$blob = 'sha256-' . hash( 'sha256', $model . $tag );
+		@mkdir( $store . '/blobs', 0777, true );
+		file_put_contents( $store . '/blobs/' . $blob, '{"layers":[]}' );
+		$dir = $store . '/manifests-v2/ollama.com/library/' . $model;
+		mkdir( $dir, 0777, true );
+		symlink( '../../../../blobs/' . $blob, $dir . '/' . $tag );
+	}
+
+	/** `ollama create` on 0.40 writes only the v2 layout; status must still see it. */
+	public function testResidencyListsAModelOnlyInTheV2Layout(): void {
+		$this->seedV2Model( $this->home . '/.ollama-local-models', 'tev1-0.8b-8k', 'latest' );
+
+		$rows = ( new OllamaEngine( $this->home, $this->volumes ) )->residency();
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'tev1-0.8b-8k:latest', $rows[0]['name'] );
+		$this->assertTrue( $rows[0]['local'] );
+		$this->assertSame( 'manifests-v2/ollama.com/library/tev1-0.8b-8k/latest', $rows[0]['path'] );
+	}
+
+	public function testAModelInBothLayoutsIsOneRow(): void {
+		$this->seedModel( $this->home . '/.ollama-local-models', 'qwen3.5', '9b' );
+		$this->seedV2Model( $this->home . '/.ollama-local-models', 'qwen3.5', '9b' );
+
+		$rows = ( new OllamaEngine( $this->home, $this->volumes ) )->residency();
+
+		$this->assertSame( [ 'qwen3.5:9b' ], array_column( $rows, 'name' ) );
+		$this->assertSame( 'manifests/registry.ollama.ai/library/qwen3.5/9b', $rows[0]['path'] );
+	}
+
 	public function testResidencyListsModelTagsFromBothStores(): void {
 		$this->seedModel( $this->home . '/.ollama-local-models', 'gemma4', '26b' );
 		$this->seedModel( $this->volumes . '/AI-LAB/ollama/models', 'gemma4', '26b' );

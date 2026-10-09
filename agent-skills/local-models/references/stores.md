@@ -125,6 +125,18 @@ ever restarts an app.
   0.40 also writes a manifest list's per-runner child at
   `library/<runner>/<sha256 hex>`; it is not a model, and `aimodels` neither
   mirrors nor lists it.
+- **Ollama 0.40 keeps two manifest layouts, and `aimodels` reads both.** The
+  legacy `manifests/registry.ollama.ai/library/<model>/<tag>` is a JSON file;
+  `manifests-v2/ollama.com/library/<model>/<tag>` is a relative symlink to the
+  blob holding the manifest or manifest list. A pull writes both; `ollama
+  create` writes only v2, so a tool reading just the legacy tree misses every
+  locally created model. `reconcile` mirrors a v2 entry as the same relative
+  symlink, plus links for its manifest blob, each pulled runner child, and
+  their layers (verified on 0.40.1 against a throwaway server and store). A
+  list's children for runners never pulled are skipped, not warned about. A
+  pulled multi-runner model shows in `ollama list` once per child, and its
+  llama.cpp child also as `llamacpp:<sha256>`: Ollama's own display, not
+  duplicates.
 - **Never point a store symlink at a real directory that holds data, and never
   delete one.** `aimodels` refuses by design; keep it that way.
 - **`reconcile` is additive.** Everything flows local → external, because the

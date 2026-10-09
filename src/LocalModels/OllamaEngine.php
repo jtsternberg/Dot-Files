@@ -16,9 +16,21 @@ namespace JT\LocalModels;
  * unlinks them without touching the local originals (verified on 0.35.0 against
  * a throwaway server and store; dotfiles-2zh). Manifests are copied because
  * Ollama 0.40 rejects a manifest symlink unless it points at a sha256 blob and
- * drops that model from `ollama list` (verified on 0.40.0 the same way).
+ * drops that model from `ollama list` (verified on 0.40.0 the same way). A
+ * `manifests-v2` entry is already such a blob symlink, so it is mirrored as the
+ * same relative link (verified on 0.40.1 the same way).
  */
 final class OllamaEngine extends AbstractStoreEngine {
+
+	private const LEGACY_LIBRARY = 'manifests/registry.ollama.ai/library';
+
+	/**
+	 * Ollama 0.40's manifest layout: each tag is a relative symlink to the blob
+	 * holding its manifest (or manifest list). Pulls write both layouts, but
+	 * `ollama create` writes only this one, so reading just the legacy tree hides
+	 * every locally created model.
+	 */
+	private const V2_LIBRARY = 'manifests-v2/ollama.com/library';
 
 	private ?ModelNotes $notes = null;
 
@@ -68,7 +80,7 @@ final class OllamaEngine extends AbstractStoreEngine {
 		// model pulled during an ejected spell should become visible there. Only
 		// tiny manifests are copied and blobs symlinked, which is why this is automatic for Ollama and not
 		// for MacWhisper, whose reconcile copies gigabytes.
-		if ( self::EXTERNAL === $location && is_dir( $this->storePath( self::LOCAL ) . '/manifests/registry.ollama.ai/library' ) ) {
+		if ( self::EXTERNAL === $location && $this->hasManifests( $this->storePath( self::LOCAL ) ) ) {
 			$reconciled = $this->reconcile();
 			if ( ApplyResult::NOOP !== $reconciled->status ) {
 				$warnings[] = ( $reconciled->ok() ? 'reconciled local models into AI-LAB: ' : 'reconcile failed: ' ) . $reconciled->message;
@@ -136,12 +148,11 @@ final class OllamaEngine extends AbstractStoreEngine {
 			return new ApplyResult( ApplyResult::FAILED, 'external store not available (mount AI-LAB and retry): ' . $external );
 		}
 
-		$library = $local . '/manifests/registry.ollama.ai/library';
-		if ( ! is_dir( $library ) ) {
-			return new ApplyResult( ApplyResult::FAILED, 'no local manifests found at ' . $library );
+		if ( ! $this->hasManifests( $local ) ) {
+			return new ApplyResult( ApplyResult::FAILED, 'no local manifests found under ' . $local );
 		}
 
-		[ $plan, $warnings ] = $this->reconcilePlan( $local, $external, $library );
+		[ $plan, $warnings ] = $this->reconcilePlan( $local, $external );
 
 		if ( empty( $plan ) ) {
 			return new ApplyResult(
@@ -226,31 +237,32 @@ final class OllamaEngine extends AbstractStoreEngine {
 	 *
 	 * @return array{0: array<string, array<int, array{mode: string, from: string, to: string}>>, 1: string[]}
 	 */
-	private function reconcilePlan( string $local, string $external, string $library ): array {
+	private function reconcilePlan( string $local, string $external ): array {
 		$plan     = [];
 		$warnings = [];
-		$files    = new \RecursiveIteratorIterator(
-			new \RecursiveDirectoryIterator( $library, \FilesystemIterator::SKIP_DOTS )
-		);
-
-		foreach ( $files as $file ) {
-			if ( ! $file->isFile() || '.DS_Store' === $file->getFilename() || self::isRunnerChild( $file->getFilename() ) ) {
-				continue;
+		// A pulled model is in both layouts and names the same blobs twice; a
+		// second symlink() onto an already-planned path would fail the run.
+		$planned  = [];
+		$add      = static function ( string $tag, array $link ) use ( &$plan, &$planned ): void {
+			if ( isset( $planned[ $link['to'] ] ) ) {
+				return;
 			}
+			$planned[ $link['to'] ] = true;
+			$plan[ $tag ][]         = $link;
+		};
 
-			$manifest = $file->getPathname();
-			$tag      = basename( dirname( $manifest ) ) . ':' . $file->getFilename();
-			$target   = $external . '/' . substr( $manifest, strlen( $local ) + 1 );
-			$links    = [];
+		foreach ( $this->manifestFiles( $local . '/' . self::LEGACY_LIBRARY ) as $manifest ) {
+			$tag    = basename( dirname( $manifest ) ) . ':' . basename( $manifest );
+			$target = $external . '/' . substr( $manifest, strlen( $local ) + 1 );
 
 			if ( is_link( $target ) ) {
 				if ( readlink( $target ) === $manifest ) {
-					$links[] = [ 'mode' => 'copy', 'from' => $manifest, 'to' => $target ];
+					$add( $tag, [ 'mode' => 'copy', 'from' => $manifest, 'to' => $target ] );
 				}
 			} elseif ( file_exists( $target ) ) {
 				continue; // the external store's own copy of this model
 			} else {
-				$links[] = [ 'mode' => 'copy', 'from' => $manifest, 'to' => $target ];
+				$add( $tag, [ 'mode' => 'copy', 'from' => $manifest, 'to' => $target ] );
 			}
 
 			$json = json_decode( (string) file_get_contents( $manifest ), true );
@@ -259,30 +271,146 @@ final class OllamaEngine extends AbstractStoreEngine {
 				continue;
 			}
 
-			$digests = array_filter( array_merge(
-				[ $json['config']['digest'] ?? null ],
-				array_column( $json['layers'] ?? [], 'digest' )
-			) );
-			foreach ( array_unique( $digests ) as $digest ) {
-				$blob = 'blobs/' . str_replace( ':', '-', (string) $digest );
-				if ( is_link( $external . '/' . $blob ) || file_exists( $external . '/' . $blob ) ) {
-					continue;
-				}
-				if ( ! file_exists( $local . '/' . $blob ) ) {
-					$warnings[] = "skipped a blob of {$tag}: missing locally (" . basename( $blob ) . ')';
-					continue;
-				}
-				$links[] = [ 'mode' => 'link', 'from' => $local . '/' . $blob, 'to' => $external . '/' . $blob ];
+			foreach ( $this->blobLinks( $local, $external, self::digestsOf( $json ), $tag, $warnings ) as $link ) {
+				$add( $tag, $link );
+			}
+		}
+
+		foreach ( $this->manifestFiles( $local . '/' . self::V2_LIBRARY ) as $entry ) {
+			$tag    = basename( dirname( $entry ) ) . ':' . basename( $entry );
+			$target = $external . '/' . substr( $entry, strlen( $local ) + 1 );
+			$blob   = is_link( $entry ) ? basename( (string) readlink( $entry ) ) : '';
+
+			if ( is_link( $target ) || file_exists( $target ) ) {
+				continue;
+			}
+			if ( 1 !== preg_match( '/^sha256-[0-9a-f]{64}$/', $blob ) ) {
+				$warnings[] = "skipped {$tag}: v2 manifest is not a symlink to a sha256 blob ({$entry})";
+				continue;
 			}
 
-			if ( ! empty( $links ) ) {
-				$plan[ $tag ] = $links;
+			// Same relative target, so it resolves into the external blobs dir.
+			$add( $tag, [ 'mode' => 'link', 'from' => (string) readlink( $entry ), 'to' => $target ] );
+			foreach ( $this->blobLinks( $local, $external, $this->manifestClosure( $local, $blob ), $tag, $warnings ) as $link ) {
+				$add( $tag, $link );
 			}
 		}
 
 		ksort( $plan );
 
 		return [ $plan, $warnings ];
+	}
+
+	/**
+	 * Every digest a v2 entry needs: its manifest blob, and when that is a
+	 * manifest list, each per-runner child manifest and their config and layers.
+	 *
+	 * @return string[]
+	 */
+	private function manifestClosure( string $local, string $blob ): array {
+		$digests = [];
+		$queue   = [ str_replace( 'sha256-', 'sha256:', $blob ) ];
+
+		while ( null !== ( $digest = array_shift( $queue ) ) ) {
+			if ( isset( $digests[ $digest ] ) ) {
+				continue;
+			}
+			$digests[ $digest ] = true;
+
+			$json = json_decode( (string) @file_get_contents( $local . '/blobs/' . str_replace( ':', '-', $digest ) ), true );
+			if ( ! is_array( $json ) ) {
+				continue;
+			}
+			if ( isset( $json['manifests'] ) ) {
+				// A pull fetches only this machine's runner; the other children are
+				// absent by design, so skipping them is not a missing-blob warning.
+				foreach ( array_filter( array_column( $json['manifests'], 'digest' ) ) as $child ) {
+					if ( file_exists( $local . '/blobs/' . str_replace( ':', '-', $child ) ) ) {
+						$queue[] = $child;
+					}
+				}
+				continue;
+			}
+			foreach ( self::digestsOf( $json ) as $layer ) {
+				$digests[ $layer ] = true;
+			}
+		}
+
+		return array_keys( $digests );
+	}
+
+	/**
+	 * @param array<string, mixed> $manifest
+	 * @return string[]
+	 */
+	private static function digestsOf( array $manifest ): array {
+		return array_values( array_unique( array_filter( array_merge(
+			[ $manifest['config']['digest'] ?? null ],
+			array_column( $manifest['layers'] ?? [], 'digest' )
+		) ) ) );
+	}
+
+	/**
+	 * Links for each blob the external store lacks. A blob it holds in any form
+	 * is left alone; one missing locally is a warning.
+	 *
+	 * @param string[] $digests
+	 * @param string[] $warnings
+	 * @return array<int, array{mode: string, from: string, to: string}>
+	 */
+	private function blobLinks( string $local, string $external, array $digests, string $tag, array &$warnings ): array {
+		$links = [];
+		foreach ( $digests as $digest ) {
+			$blob = 'blobs/' . str_replace( ':', '-', (string) $digest );
+			if ( is_link( $external . '/' . $blob ) || file_exists( $external . '/' . $blob ) ) {
+				continue;
+			}
+			if ( ! file_exists( $local . '/' . $blob ) ) {
+				$warnings[] = "skipped a blob of {$tag}: missing locally (" . basename( $blob ) . ')';
+				continue;
+			}
+			$links[] = [ 'mode' => 'link', 'from' => $local . '/' . $blob, 'to' => $external . '/' . $blob ];
+		}
+
+		return $links;
+	}
+
+	/**
+	 * Tag files under one library root, as `<root>/<model>/<tag>`, runner
+	 * children and Finder litter excluded. Follows symlinks, so a dangling v2
+	 * entry (blob gone) is not a model either.
+	 *
+	 * @return string[]
+	 */
+	private function manifestFiles( string $library ): array {
+		if ( ! is_dir( $library ) ) {
+			return [];
+		}
+
+		$files = [];
+		foreach ( scandir( $library ) ?: [] as $model ) {
+			if ( '.' === $model || '..' === $model || ! is_dir( $library . '/' . $model ) ) {
+				continue;
+			}
+
+			foreach ( scandir( $library . '/' . $model ) ?: [] as $tag ) {
+				if ( '.' === $tag || '..' === $tag || '.DS_Store' === $tag || self::isRunnerChild( $tag ) ) {
+					continue;
+				}
+
+				if ( is_file( $library . '/' . $model . '/' . $tag ) ) {
+					$files[] = $library . '/' . $model . '/' . $tag;
+				}
+			}
+		}
+
+		sort( $files );
+
+		return $files;
+	}
+
+	private function hasManifests( string $store ): bool {
+		return is_dir( $store . '/' . self::LEGACY_LIBRARY ) || is_dir( $store . '/' . self::V2_LIBRARY );
 	}
 
 	/**
@@ -314,14 +442,14 @@ final class OllamaEngine extends AbstractStoreEngine {
 		$rows   = [];
 
 		foreach ( [ self::LOCAL, self::EXTERNAL ] as $location ) {
-			foreach ( $this->tagsIn( $this->storePath( $location ) ) as $tag ) {
+			foreach ( $this->tagsIn( $this->storePath( $location ) ) as $tag => $path ) {
 				$rows[ $tag ] ??= [
 					'id'        => $this->name() . ':' . $tag,
 					'engine'    => $this->name(),
 					'name'      => $tag,
 					'framework' => 'ollama',
 					'kind'      => 'llm',
-					'path'      => 'manifests/registry.ollama.ai/library/' . str_replace( ':', '/', $tag ),
+					'path'      => $path,
 					'sizeMb'    => null,
 					'local'     => false,
 					'external'  => false,
@@ -339,28 +467,16 @@ final class OllamaEngine extends AbstractStoreEngine {
 	}
 
 	/**
-	 * @return string[] model:tag pairs
+	 * Legacy layout first, so a pulled model present in both reports its
+	 * legacy path.
+	 *
+	 * @return array<string, string> model:tag => path relative to the store
 	 */
 	private function tagsIn( string $store ): array {
-		$library = $store . '/manifests/registry.ollama.ai/library';
-		if ( ! is_dir( $library ) ) {
-			return [];
-		}
-
 		$tags = [];
-		foreach ( scandir( $library ) ?: [] as $model ) {
-			if ( '.' === $model || '..' === $model || ! is_dir( $library . '/' . $model ) ) {
-				continue;
-			}
-
-			foreach ( scandir( $library . '/' . $model ) ?: [] as $tag ) {
-				if ( '.' === $tag || '..' === $tag || '.DS_Store' === $tag || self::isRunnerChild( $tag ) ) {
-					continue;
-				}
-
-				if ( is_file( $library . '/' . $model . '/' . $tag ) ) {
-					$tags[] = $model . ':' . $tag;
-				}
+		foreach ( [ self::LEGACY_LIBRARY, self::V2_LIBRARY ] as $library ) {
+			foreach ( $this->manifestFiles( $store . '/' . $library ) as $file ) {
+				$tags[ basename( dirname( $file ) ) . ':' . basename( $file ) ] ??= substr( $file, strlen( $store ) + 1 );
 			}
 		}
 
