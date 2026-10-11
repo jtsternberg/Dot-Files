@@ -230,6 +230,10 @@ wrong place — move it to the class and test it there. Shelling seams (e.g. a
 class method that calls out to another bin) are testable via an injected stub
 binary — see `Godo::resolvePath` and its `GODO_DIRMAP_BIN` hook in
 `tests/Godo/GodoTest.php`.
+A test that needs `bd` semantics (state round-trips, ready/blocked, filters)
+uses [bd-fake](https://github.com/jtsternberg/bd-fake), a contract-tested fake
+`bd` (`npm install -g github:jtsternberg/bd-fake#v0.1.0`, symlinked as `bd`
+first on the test PATH), not a hand-rolled stub.
 
 Tests use PHPUnit (`composer require --dev phpunit/phpunit`). Run the suite with:
 
