@@ -25,7 +25,7 @@ goto() {
 	mapkeys=($(dirmap commands))
 
 	getoutput () {
-		output=`dirmap $1`
+		output=`dirmap "$1"`
 		if [ $? -eq 0 ]
 		then
 			cd "$output"
@@ -33,7 +33,11 @@ goto() {
 			echo "$output"
 		fi
 	}
-	contains $1 $mapkeys && dirmap $1 || getoutput $1
+	if contains "$1" $mapkeys; then
+		dirmap "$@"
+	else
+		getoutput "$1"
+	fi
 }
 
 _goto() {
