@@ -434,6 +434,26 @@ final class GraveyardCodexViewsTest extends TestCase
 		$this->assertStringNotContainsString('rollout.jsonl', $handoff);
 	}
 
+	public function testTranscriptResurrectSendsOneLaunchWithThePromptAndNeverWaitsOnTheScreen(): void
+	{
+		$this->archiveRollout();
+		$fake = new FakeTransport(name: 'cmux', screen: '');
+		$gy = new class($this->cli, $fake) extends Graveyard {
+			public function launchTargetIsSafe(string $surfRef): bool { return true; }
+			public function launch(array $t): string
+			{
+				return $this->launchSessionIntoSurface($t, 'surface:1', 'workspace:1', true);
+			}
+		};
+
+		$gy->launch($this->codexTomb());
+		$sent = array_values(array_filter($fake->calls, fn($c) => $c[0] === 'sendText'));
+		$this->assertCount(1, $sent);
+		$this->assertStringContainsString('codex ', $sent[0][1][2]);
+		$this->assertStringContainsString($gy->transcriptMdPath(self::SID), $sent[0][1][2]);
+		$this->assertSame([], array_filter($fake->calls, fn($c) => $c[0] === 'readScreen'));
+	}
+
 	# =========================================================================
 	# C. peek — the same renderer over already-normalized turns
 	# =========================================================================

@@ -4290,11 +4290,15 @@ class Graveyard {
 	 * defaults. That case is not silent: launchSessionIntoSurface() warns first (see
 	 * agentOptsUnknownWarning()) and proceeds.
 	 */
-	public function buildTombstoneLaunch(array $t, bool $fresh): string {
+	public function buildTombstoneLaunch(array $t, bool $fresh, ?string $prompt = null): string {
+		// A fresh launch takes its first prompt as an argument rather than having it typed
+		// once the REPL is up: nothing waits on the prompt box, and codex's `$` mention
+		// picker never sees a keystroke that could swallow the Enter.
+		$arg = ($fresh && $prompt !== null && $prompt !== '') ? ' ' . escapeshellarg($prompt) : '';
 		if ($this->tombstoneAgent($t) === 'codex') {
 			$opts = is_array($t['agent_opts'] ?? null) ? $t['agent_opts'] : [];
 			return $fresh
-				? 'codex'
+				? 'codex' . $arg
 				: $this->artifacts->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts);
 		}
 
@@ -4304,7 +4308,7 @@ class Graveyard {
 		$launch = 'claude';
 		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
 		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
-		return $launch;
+		return $launch . $arg;
 	}
 
 	/** The still-resumable native session file for a tombstone, or null. */
@@ -4459,10 +4463,8 @@ class Graveyard {
 			return 'resume';
 		}
 
-		$launch = $this->buildTombstoneLaunch($t, true);
+		$launch = $this->buildTombstoneLaunch($t, true, $this->resurrectPreamble($t, $transcript));
 		$this->transport->sendText($surfRef, $wsRef, $prefix . $launch . "\n");
-		$this->waitForReplReady($surfRef, $wsRef);
-		$this->transport->sendText($surfRef, $wsRef, $this->resurrectPreamble($t, $transcript));
 		$this->transport->sendKey($surfRef, $wsRef, 'enter');
 		return 'transcript';
 	}
@@ -4483,27 +4485,12 @@ class Graveyard {
 		if (!is_file($skill)) {
 			return 'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.';
 		}
-		// Codex gets the skill named in prose, not as a `$graveyard-pickup` mention: `$`
-		// opens its mention picker, and the Enter that follows may land in the picker.
-		$cmd = ($isCodex ? 'Use the graveyard-pickup skill: ' : '/graveyard-pickup ') . $transcript;
+		// Codex needs the explicit `$` mention: past its skills context budget it strips
+		// descriptions and drops skills from the model-visible list, so naming the skill in
+		// prose can miss it entirely, while a mention still loads it.
+		$cmd = ($isCodex ? '$' : '/') . 'graveyard-pickup ' . $transcript;
 		if (!empty($t['buried_at'])) { $cmd .= ' --buried-at ' . $t['buried_at']; }
 		return $cmd;
-	}
-
-	/** PURE. A visible interactive Claude prompt means it is safe to type the preamble. */
-	public function replReady(string $screen): bool {
-		return (bool) preg_match('/(?:^|\n)\s*(?:❯|>)\s*$/u', $screen);
-	}
-
-	/** I/O. Wait briefly for a transcript-mode Claude launch to reach its prompt. */
-	protected function waitForReplReady(string $surfRef, string $wsRef): void {
-		$deadline = microtime(true) + 30;
-		do {
-			// Poller: a failed read costs this iteration, not the wait.
-			if ($this->replReady($this->transport->readScreen($surfRef, $wsRef) ?? '')) { return; }
-			usleep(200000);
-		} while (microtime(true) < $deadline);
-		$this->cli->msg('  REPL prompt was not observed before timeout; sending the restore preamble.', 'yellow');
 	}
 
 	/** Resolve a group id by exact or prefix match over stored workspace manifests. */

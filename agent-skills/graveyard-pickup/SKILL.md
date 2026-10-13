@@ -4,9 +4,8 @@ description: |
   Resume a buried graveyard session that could not be natively resumed, from its
   archived transcript. `graveyard resurrect` invokes this itself as the first
   prompt of the fresh agent (`/graveyard-pickup <path> --buried-at <iso>`, or
-  "Use the graveyard-pickup skill: <path> ..." under Codex), so use it whenever
-  a session opens with either, or with "Resuming a buried session. Read
-  <transcript>".
+  `$graveyard-pickup ...` under Codex), so use it whenever a session opens with
+  either, or with "Resuming a buried session. Read <transcript>".
 allowed-tools: [Bash, Read, Grep]
 argument-hint: "<archive-path> [--buried-at <iso-timestamp>]"
 ---
@@ -19,7 +18,7 @@ it.** He resurrected the session to get back to the work, and he expects you to
 tell *him* where it stood, not to quietly carry on as though nothing happened.
 
 Arguments arrive after the invocation (`$ARGUMENTS` under Claude Code; under
-Codex, the text after "Use the graveyard-pickup skill:"):
+Codex, the text following `$graveyard-pickup`):
 
 - `<archive-path>` — the archive. `graveyard` renders every buried session to
   `~/.claude-graveyard/sessions/<session-id>/transcript.md` (older ones:

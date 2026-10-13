@@ -487,6 +487,20 @@ final class GraveyardCodexBuryTest extends TestCase
 		$this->assertStringNotContainsString('claude', $cmd);
 	}
 
+	public function testFreshLaunchCarriesThePickupPromptAsItsArgument(): void
+	{
+		// The prompt rides the launch command rather than being typed once the REPL is up:
+		// no wait on the prompt box, and codex's `$` mention picker never sees a keystroke.
+		$this->assertSame(
+			"codex '\$graveyard-pickup /gy/s/transcript.md'",
+			$this->gy->buildTombstoneLaunch(['kind' => 'codex', 'session_id' => self::SID], true, '$graveyard-pickup /gy/s/transcript.md')
+		);
+		$this->assertSame(
+			"claude --dangerously-skip-permissions --model=opus '/graveyard-pickup /gy/s/transcript.md'",
+			$this->gy->buildTombstoneLaunch(['session_id' => 'a1', 'model' => 'opus', 'skip_perms' => true], true, '/graveyard-pickup /gy/s/transcript.md')
+		);
+	}
+
 	public function testClaudeResurrectLaunchIsUnchanged(): void
 	{
 		$cmd = $this->gy->buildTombstoneLaunch([

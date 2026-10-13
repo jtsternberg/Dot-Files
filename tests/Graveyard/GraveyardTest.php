@@ -44,12 +44,6 @@ final class GraveyardTest extends TestCase
 		$this->assertSame('second', $xs[0]['summary']);
 	}
 
-	public function testReplReadyRecognizesAnInteractivePrompt(): void
-	{
-		$this->assertTrue($this->gy->replReady("Welcome\n❯ "));
-		$this->assertFalse($this->gy->replReady("Starting Claude…\n"));
-	}
-
 	public function testResurrectPreambleInvokesThePickupSkillForEachAgent(): void
 	{
 		$home = sys_get_temp_dir() . '/gy-home-' . getmypid() . '-' . uniqid();
@@ -64,7 +58,7 @@ final class GraveyardTest extends TestCase
 			$this->gy->resurrectPreamble($t, '/gy/s1/transcript.md', $home)
 		);
 		$this->assertSame(
-			'Use the graveyard-pickup skill: /gy/s1/transcript.md --buried-at 2026-10-13T12:00:00Z',
+			'$graveyard-pickup /gy/s1/transcript.md --buried-at 2026-10-13T12:00:00Z',
 			$this->gy->resurrectPreamble($t + ['kind' => 'codex'], '/gy/s1/transcript.md', $home)
 		);
 	}
