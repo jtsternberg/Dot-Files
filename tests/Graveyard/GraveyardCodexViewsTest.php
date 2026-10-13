@@ -434,6 +434,18 @@ final class GraveyardCodexViewsTest extends TestCase
 		$this->assertStringNotContainsString('rollout.jsonl', $handoff);
 	}
 
+	public function testTranscriptResurrectNoteNamesTheTranscriptForBothAgents(): void
+	{
+		// Codex reads the rendered transcript.md, never the raw rollout, so the success
+		// line must not claim otherwise.
+		$gy = new class($this->cli, $this->transport) extends Graveyard {
+			public function note(array $t): string { return $this->resurrectNote($t, 'transcript'); }
+		};
+
+		$this->assertSame('codex is picking up from the transcript', $gy->note(['kind' => 'codex']));
+		$this->assertSame('Claude is picking up from the transcript', $gy->note([]));
+	}
+
 	public function testTranscriptResurrectSendsOneLaunchWithThePromptAndNeverWaitsOnTheScreen(): void
 	{
 		$this->archiveRollout();

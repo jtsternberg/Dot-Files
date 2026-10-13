@@ -4164,7 +4164,7 @@ class Graveyard {
 		if ($mode === 'resume') {
 			return $agent === 'codex' ? 'resumed via `codex resume`' : 'resumed via `claude --resume`';
 		}
-		return $agent === 'codex' ? 'codex is reading the archived rollout' : 'Claude is reading the transcript';
+		return ($agent === 'codex' ? 'codex' : 'Claude') . ' is picking up from the transcript';
 	}
 
 	/**
