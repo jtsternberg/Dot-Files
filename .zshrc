@@ -91,7 +91,7 @@ csbstart() {
 		return 0
 	fi
 	mkdir -p "${log:h}"
-	PROJECT_NAMES=~/.dirmap.json SUMMARY_BACKEND=ollama SUMMARY_MODEL="gemma4:26b-nvfp4,qwen3.5:9b" nohup csb start >"$log" 2>&1 &!
+	PROJECT_NAMES=~/.dirmap.json SUMMARY_BACKEND=ollama SUMMARY_MODEL="qwen3.5:9b,gemma4:26b-nvfp4" nohup csb start >"$log" 2>&1 &!
 	local i
 	for i in {1..60}; do
 		grep -q "sessions board" "$log" 2>/dev/null && break
