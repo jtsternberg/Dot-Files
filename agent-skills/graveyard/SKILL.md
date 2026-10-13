@@ -131,7 +131,10 @@ never guess. `graveyard resurrect --workspace <group>` for a whole buried
 workspace; `graveyard ls` prints each group's exact `resurrect --workspace`
 line. Resurrecting rebuilds a workspace in the target multiplexer and resumes
 the recorded agent, so confirm before running it — and if the target is herdr,
-read out the losses it prints before accepting them.
+read out the losses it prints before accepting them. When the native session
+file is gone (or `--from-transcript` is given), resurrect starts a fresh agent
+whose first prompt invokes the `graveyard-pickup` skill on the archived
+transcript; that agent briefs JT and waits rather than resuming blind.
 
 ## Adding human context — `graveyard note`
 

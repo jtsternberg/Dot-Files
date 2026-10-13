@@ -4462,10 +4462,32 @@ class Graveyard {
 		$launch = $this->buildTombstoneLaunch($t, true);
 		$this->transport->sendText($surfRef, $wsRef, $prefix . $launch . "\n");
 		$this->waitForReplReady($surfRef, $wsRef);
-		$this->transport->sendText($surfRef, $wsRef,
-			'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.');
+		$this->transport->sendText($surfRef, $wsRef, $this->resurrectPreamble($t, $transcript));
 		$this->transport->sendKey($surfRef, $wsRef, 'enter');
 		return 'transcript';
+	}
+
+	/**
+	 * The first prompt typed into a fresh agent resurrected from its transcript.
+	 *
+	 * The graveyard-pickup skill (agent-skills/) carries the instructions — read the
+	 * tail first, reconcile against commits since burial, brief JT and wait — so they
+	 * stay versioned in one place instead of in this string. Falls back to plain prose
+	 * when the skill isn't installed: an unknown slash command is rejected outright,
+	 * and the whole preamble would be lost with it.
+	 */
+	public function resurrectPreamble(array $t, string $transcript, ?string $home = null): string {
+		$home    = $home ?? (getenv('HOME') ?: '');
+		$isCodex = $this->tombstoneAgent($t) === 'codex';
+		$skill   = $home . ($isCodex ? '/.agents' : '/.claude') . '/skills/graveyard-pickup/SKILL.md';
+		if (!is_file($skill)) {
+			return 'Resuming a buried session. Read ' . $transcript . ' — that is a transcript of where we left off. Re-orient from it, then continue.';
+		}
+		// Codex gets the skill named in prose, not as a `$graveyard-pickup` mention: `$`
+		// opens its mention picker, and the Enter that follows may land in the picker.
+		$cmd = ($isCodex ? 'Use the graveyard-pickup skill: ' : '/graveyard-pickup ') . $transcript;
+		if (!empty($t['buried_at'])) { $cmd .= ' --buried-at ' . $t['buried_at']; }
+		return $cmd;
 	}
 
 	/** PURE. A visible interactive Claude prompt means it is safe to type the preamble. */

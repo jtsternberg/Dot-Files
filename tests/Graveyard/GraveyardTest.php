@@ -50,6 +50,36 @@ final class GraveyardTest extends TestCase
 		$this->assertFalse($this->gy->replReady("Starting Claude…\n"));
 	}
 
+	public function testResurrectPreambleInvokesThePickupSkillForEachAgent(): void
+	{
+		$home = sys_get_temp_dir() . '/gy-home-' . getmypid() . '-' . uniqid();
+		@mkdir($home . '/.claude/skills/graveyard-pickup', 0755, true);
+		@mkdir($home . '/.agents/skills/graveyard-pickup', 0755, true);
+		touch($home . '/.claude/skills/graveyard-pickup/SKILL.md');
+		touch($home . '/.agents/skills/graveyard-pickup/SKILL.md');
+		$t = ['session_id' => 's1', 'buried_at' => '2026-10-13T12:00:00Z'];
+
+		$this->assertSame(
+			'/graveyard-pickup /gy/s1/transcript.md --buried-at 2026-10-13T12:00:00Z',
+			$this->gy->resurrectPreamble($t, '/gy/s1/transcript.md', $home)
+		);
+		$this->assertSame(
+			'Use the graveyard-pickup skill: /gy/s1/transcript.md --buried-at 2026-10-13T12:00:00Z',
+			$this->gy->resurrectPreamble($t + ['kind' => 'codex'], '/gy/s1/transcript.md', $home)
+		);
+	}
+
+	public function testResurrectPreambleFallsBackToProseWithoutTheSkill(): void
+	{
+		// An unknown slash command is rejected outright, losing the whole preamble — so a
+		// machine that hasn't run symdotfiles yet gets the plain instruction instead.
+		$home = sys_get_temp_dir() . '/gy-home-empty-' . getmypid() . '-' . uniqid();
+		@mkdir($home, 0755, true);
+
+		$out = $this->gy->resurrectPreamble(['session_id' => 's1'], '/gy/s1/transcript.md', $home);
+		$this->assertStringStartsWith('Resuming a buried session. Read /gy/s1/transcript.md', $out);
+	}
+
 	public function testStableGroupIdReusesPriorGroupElseMintsFresh(): void
 	{
 		$mint = fn() => 'FRESH';
