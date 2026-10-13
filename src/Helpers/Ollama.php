@@ -102,6 +102,8 @@ class Ollama {
 	 *
 	 * @param array<string,mixed> $request Extra top-level request fields, e.g.
 	 *                                     `think`, `options.num_ctx`, `keep_alive`.
+	 * @param string[]            $images  Base64-encoded images for a vision model,
+	 *                                     sent on the user message.
 	 *
 	 * @return array{content:?string, error:?string, errorType:?string, logprobs?:array}
 	 */
@@ -111,13 +113,18 @@ class Ollama {
 		string $userPrompt,
 		string $url = self::DEFAULT_URL,
 		int $timeoutSeconds = 300,
-		array $request = []
+		array $request = [],
+		array $images = []
 	): array {
 		$messages = [];
 		if ( '' !== $systemPrompt ) {
 			$messages[] = [ 'role' => 'system', 'content' => $systemPrompt ];
 		}
-		$messages[] = [ 'role' => 'user', 'content' => $userPrompt ];
+		$user = [ 'role' => 'user', 'content' => $userPrompt ];
+		if ( $images ) {
+			$user['images'] = array_values( $images );
+		}
+		$messages[] = $user;
 
 		$payload = (string) json_encode( array_merge( $request, [
 			'model'    => $model,

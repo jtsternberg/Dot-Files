@@ -233,6 +233,12 @@ cap with `num_predict`; `think:false` on reasoning models. Working references:
   from `SUMMARY_MODEL_SD` / `SUMMARY_MODEL_LOCAL` in the shared config — kept apart
   from the commit tool's `MODEL*` keys because code models copy the input title
   back instead of summarizing.
+- `to-text <image> [--model=<model>] [--json]` (`JT\ImageToText`) — prints the
+  text in an image via a local vision model (`Ollama::chat()` `$images`). Model
+  resolves per store from `OCR_MODEL_SD` / `OCR_MODEL_LOCAL`; it must report
+  `vision` in `ollama show`. The model answers a fixed `NO_TEXT` token for a
+  textless image (told "write nothing", qwen3.5:9b wrote a sentence instead),
+  which the command turns into exit 1.
 - `~/.dotfiles/bin/llmsummarize` — a wrapper that runs `local-llm-summarize`
   locally and sends files past ~50K tokens to cloud claude (`--local` keeps them
   local), plus explicit claude/agy forks.

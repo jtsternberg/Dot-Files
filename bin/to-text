@@ -1,0 +1,25 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Print the text inside an image, read by a local Ollama vision model.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# Sends the image to a local vision model and prints only its transcription,
+# so the output pipes cleanly (`to-text shot.png | pbcopy`). Exits 1 when the
+# image has no text. The model resolves per store from OCR_MODEL_SD /
+# OCR_MODEL_LOCAL in ~/.config/ai-tooling/config.
+#
+# Usage:
+# to-text <image> [--model=<model>] [--json]
+# to-text --help
+# to-text completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new ToTextCommand( $cli ) ) )->run() );

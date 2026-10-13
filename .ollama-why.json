@@ -67,7 +67,7 @@
             "location": "external"
         },
         "ollama:muse-glimmer:latest": {
-            "when": "Primary local vision model \u2014 the ONLY installed model with image input (CLIP 1.9B projector). ~18GB, fits normal headroom. Use for multimodal/vision + agentic tasks.",
+            "when": "Primary local vision model (CLIP 1.9B projector). Not the only one: as of 2026-10-13 qwen3.5:9b, gemma4:e4b, gemma4:26b-nvfp4 and muse-glimmer:30b-mlx also report vision. ~18GB, fits normal headroom. Use for multimodal/vision + agentic tasks.",
             "speed": "Untested here; GGUF Q4_K_M so expect the known-safe prefill path (qwen3-coder GGUF ~110 tok/s analog), NOT the MLX coin-flip. Bench when convenient.",
             "tested": "2026-08-13: 27.9B Q4_K_M GGUF, vision+tools+thinking, 131072 ctx, temp default 1 (override to 0 for bench). Not yet benched on this Mac.",
             "tags": [
@@ -124,7 +124,7 @@
             "location": "external"
         },
         "ollama:qwen3.5:9b": {
-            "when": "General, thinking-capable summarizer (GGUF Q4). Mid-pack prefill. think:false REQUIRED for plain tasks (else ~80s internal monologue). Also the local Jev / TypeSafe System One stand-in for typed decisions (classify, route, yes/no, triage) with confidence: chat + think:false + temperature 0 + one-word labels with distinct first tokens, read top_logprobs. Tied the dedicated Jev-style decision model nimble:9b (removed), faster.",
+            "when": "General, thinking-capable summarizer (GGUF Q4). Mid-pack prefill. think:false REQUIRED for plain tasks (else ~80s internal monologue). Also the local Jev / TypeSafe System One stand-in for typed decisions (classify, route, yes/no, triage) with confidence: chat + think:false + temperature 0 + one-word labels with distinct first tokens, read top_logprobs. Tied the dedicated Jev-style decision model nimble:9b (removed), faster. Also the to-text OCR default (vision): 2026-10-13 transcribed a synthetic 4-line image and a real UI screenshot exactly in ~8-10s, think:false; gemma4:e4b and gemma4:26b-nvfp4 matched on the synthetic image (26b ~23s).",
             "tags": [
                 "summarize",
                 "general",
@@ -133,7 +133,9 @@
                 "classification",
                 "routing",
                 "triage",
-                "offline-safe"
+                "offline-safe",
+                "vision",
+                "ocr"
             ],
             "location": "both",
             "speed": "~225 tok/s prompt-eval, ~21 tok/s decode (measured 2026-07-24, 34K-tok file, COLD, think:false)",

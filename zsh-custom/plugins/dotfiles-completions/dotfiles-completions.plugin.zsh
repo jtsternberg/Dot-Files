@@ -255,6 +255,27 @@ _auto_commit_ollama_lazy() {
 	_auto_commit_ollama "$@"
 }
 
+_to_text_lazy() {
+	local generated
+
+	generated="$(command to-text completion zsh 2>/dev/null)" || {
+		_message 'unable to generate to-text completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load to-text completion'
+		return 1
+	}
+
+	if (( ! $+functions[_to_text] )); then
+		_message 'to-text completion did not define _to_text'
+		return 1
+	fi
+
+	_to_text "$@"
+}
+
 _local_llm_summarize_lazy() {
 	local generated
 
@@ -423,6 +444,7 @@ compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
 compdef _auto_commit_ollama_lazy auto-commit-ollama
 compdef _local_llm_summarize_lazy local-llm-summarize
+compdef _to_text_lazy to-text
 compdef _herdr_lazy herdr
 compdef _op_lazy op
 compdef _setup_obsidian_vault setup-obsidian-vault

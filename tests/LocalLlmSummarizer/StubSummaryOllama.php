@@ -28,7 +28,8 @@ final class StubSummaryOllama extends Ollama {
 		string $userPrompt,
 		string $url = self::DEFAULT_URL,
 		int $timeoutSeconds = 300,
-		array $request = []
+		array $request = [],
+		array $images = []
 	): array {
 		$this->chats[] = [
 			'model'   => $model,

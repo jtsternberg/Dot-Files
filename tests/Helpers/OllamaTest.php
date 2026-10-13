@@ -118,6 +118,23 @@ final class OllamaTest extends TestCase {
 		$this->assertSame( [ [ 'role' => 'user', 'content' => 'user' ] ], $sent['messages'] );
 	}
 
+	public function testChatAttachesImagesToTheUserMessage(): void {
+		$sent   = null;
+		$ollama = new Ollama(
+			null,
+			static function ( string $url, string $payload, int $timeout ) use ( &$sent ): array {
+				$sent = json_decode( $payload, true );
+
+				return [ json_encode( [ 'message' => [ 'content' => 'ok' ] ] ), '' ];
+			}
+		);
+
+		$ollama->chat( 'a-model', 'system', 'user', Ollama::DEFAULT_URL, 90, [], [ 'aW1n' ] );
+
+		$this->assertSame( [ 'role' => 'system', 'content' => 'system' ], $sent['messages'][0] );
+		$this->assertSame( [ 'role' => 'user', 'content' => 'user', 'images' => [ 'aW1n' ] ], $sent['messages'][1] );
+	}
+
 	public function testChatReturnsMessageContentOnSuccess(): void {
 		$ollama = new Ollama(
 			null,
