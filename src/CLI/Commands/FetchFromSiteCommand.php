@@ -28,7 +28,7 @@ class FetchFromSiteCommand extends SiteCommand {
 		$postIdentifier = $cli->getFlag( 'postId' ) ?: $cli->getArg( 1 );
 
 		if ( empty( $postIdentifier ) ) {
-			throw new \Exception( "Error: Post ID or slug is required. Pass as --postId=ID or as first argument." );
+			throw new \Exception( "Error: Post ID, slug, or URL is required. Pass as --postId=ID or as first argument." );
 		}
 
 		// Check if input is a markdown file with frontmatter
@@ -42,6 +42,8 @@ class FetchFromSiteCommand extends SiteCommand {
 			if ( ! $outputFileExplicit ) {
 				$this->outputFile = $this->inputFile;
 			}
+		} elseif ( filter_var( $postIdentifier, FILTER_VALIDATE_URL ) ) {
+			$this->setIdentifierFromUrl( $postIdentifier );
 		} elseif ( is_numeric( $postIdentifier ) ) {
 			$this->postId = (int) $postIdentifier;
 		} else {
@@ -62,6 +64,29 @@ class FetchFromSiteCommand extends SiteCommand {
 		if ( $this->rawBlocks ) {
 			$this->convertToMarkdown = false;
 		}
+	}
+
+	/**
+	 * Take the post ID or slug from a permalink or shortlink.
+	 *
+	 * Resolves the slug against posts (or pages with --page) like a bare slug
+	 * would; it does not probe other post types.
+	 */
+	protected function setIdentifierFromUrl( string $url ): void {
+		parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
+		foreach ( [ 'p', 'page_id' ] as $key ) {
+			if ( isset( $query[ $key ] ) && is_numeric( $query[ $key ] ) ) {
+				$this->postId = (int) $query[ $key ];
+				return;
+			}
+		}
+
+		$slug = basename( rtrim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) );
+		if ( '' === $slug ) {
+			throw new \Exception( "Error: Could not find a post slug in URL: {$url}" );
+		}
+
+		$this->postSlug = $slug;
 	}
 
 	/**
@@ -119,7 +144,7 @@ class FetchFromSiteCommand extends SiteCommand {
 		$posts = $this->executeRequest( $url, 'GET' );
 
 		if ( empty( $posts ) ) {
-			throw new \Exception( "Error: No post found with slug '{$slug}'" );
+			throw new \Exception( "Error: No post found with slug '{$slug}' (for a page, pass --page)" );
 		}
 
 		return (int) $posts[0]['id'];

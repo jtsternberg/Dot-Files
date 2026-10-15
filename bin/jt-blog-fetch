@@ -18,9 +18,9 @@ $helpyHelperton
 	->setScriptName( 'jt-blog-fetch' )
 	->setPrefix( '' )
 	->setDescription( 'Fetches a blog post or page from jtsternberg.com and saves it locally.' )
-	->setSampleUsage( '[post-id|file.md] [--outputFile=FILE] [--raw] [--rawHtml] [--browse] [--page] [--flushCache] [--open]' )
+	->setSampleUsage( '[post-id|slug|url|file.md] [--outputFile=FILE] [--raw] [--rawHtml] [--browse] [--page] [--flushCache] [--open]' )
 	->buildDocs( [
-		'[post-id|slug]'     => 'Post/page ID or slug to fetch (optional if using --browse)',
+		'[post-id|slug|url]' => 'Post/page ID, slug, or permalink URL to fetch (optional if using --browse; pass --page for a page URL)',
 		'[file.md]'          => 'Markdown file with frontmatter id (updates in-place)',
 		'--postId=ID|SLUG'   => 'Post/page ID or slug to fetch (alternative to positional argument)',
 		'--outputFile=FILE'  => 'Path to save content (defaults to input file or /tmp/fetchedpost.md)',
