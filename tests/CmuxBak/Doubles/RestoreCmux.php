@@ -51,6 +51,13 @@ class RestoreCmux extends Cmux {
 		parent::__construct( $cli, false );
 	}
 
+	/** What transcriptPathFor() hands back; null reads as "no transcript". */
+	public ?string $transcriptPath = null;
+
+	public function transcriptPathFor( string $agent, string $sessionId, string $cwd ): ?string {
+		return $this->transcriptPath;
+	}
+
 	public function ping(): bool {
 		return true;
 	}

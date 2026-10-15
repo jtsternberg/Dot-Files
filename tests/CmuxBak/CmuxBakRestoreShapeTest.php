@@ -494,33 +494,6 @@ final class CmuxBakRestoreShapeTest extends TestCase {
 		$this->assertStringContainsString( "cd {$cwd} && resume claude sess-1", $output );
 	}
 
-	public function testSkippedSessionSummaryIsShownForAutoconfirmedSkipsToo(): void {
-		$this->prompts->setArgs( [ 'cmux-bak', 'restore', '--yes' ] );
-		$cwd  = $this->existingDir();
-		$cmux = $this->cmuxWithRetitledSurface();
-		$cmux->joinRows = [
-			[
-				'session_id'    => 'sess-1',
-				'agent'         => 'claude',
-				'surface_ref'   => 'surface:99',
-				'workspace_ref' => 'workspace:9',
-				'cwd'           => $cwd,
-				'model'         => null,
-				'skip_perms'    => false,
-				'opts'          => [],
-				'reason'        => '',
-			],
-		];
-		$bak = $this->bak( $this->backupWithMissingSurface( $cwd ), $cmux );
-
-		ob_start();
-		$bak->restore();
-		$output = (string) ob_get_clean();
-
-		$this->assertStringContainsString( 'Skipped 1 agent session', $output );
-		$this->assertStringContainsString( "cd {$cwd} && resume claude sess-1", $output );
-	}
-
 	public function testNoSkipsMeansNoSummary(): void {
 		$cwd  = $this->existingDir();
 		$cmux = $this->cmuxWithLiveWorkspaces( [

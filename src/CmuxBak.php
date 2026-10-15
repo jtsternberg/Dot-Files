@@ -233,25 +233,20 @@ class CmuxBak {
 		}
 		$this->cli->lineBreak();
 
-		$tree      = $this->cmux->tree();
+		$tree       = $this->cmux->tree();
 		$liveBySurf = $this->agentRowsBySurfaceRef($tree);
-
-		// Map workspace title → workspace data (current)
-		$currentWsByTitle = [];
-		foreach ($tree['windows'] ?? [] as $window) {
-			foreach ($window['workspaces'] ?? [] as $ws) {
-				$currentWsByTitle[$ws['title'] ?? ''] = $ws;
-			}
-		}
+		$liveById   = $this->agentRowsBySessionId($tree);
 
 		foreach ($backup['workspaces'] ?? [] as $bakWs) {
 			$wsTitle = $bakWs['title'] ?? '';
 			$this->cli->msg("Workspace: '{$wsTitle}'");
 
-			if (isset($currentWsByTitle[$wsTitle])) {
-				$currentWs    = $currentWsByTitle[$wsTitle];
+			$currentWs = $this->resolveCurrentWorkspace($tree, $wsTitle, $this->bakWsSessionIds($bakWs), $liveById);
+			if ($currentWs) {
 				$currentWsRef = $currentWs['ref'] ?? '';
-				$this->cli->msg("  ✓ Exists as {$currentWsRef}", 'green');
+				$liveTitle    = $currentWs['title'] ?? '';
+				$renamed      = $liveTitle !== $wsTitle ? " (renamed '{$liveTitle}')" : '';
+				$this->cli->msg("  ✓ Exists as {$currentWsRef}{$renamed}", 'green');
 
 				// Map surface title → surface data within this workspace.
 				// Index by both raw title and normalized title (spinner prefix stripped)
@@ -294,6 +289,19 @@ class CmuxBak {
 						$currentSurf = $currentSurfByTitle[$surfTitle]
 							?? $currentSurfByTitle[$this->normalizeTitle($surfTitle)]
 							?? null;
+
+						// Liveness first, title second: Claude Code retitles its own tabs, so a
+						// live session's surface often no longer carries the backed-up title.
+						if (isset($liveById[$sessionId])) {
+							$liveSurf = $liveById[$sessionId]['surface_ref'] ?? '';
+							if ($currentSurf && $liveSurf === $currentSurf['ref']) {
+								$this->cli->msg("    ✓ Same {$agent} session already running", 'green');
+							} else {
+								$where = $this->liveLocation($liveById[$sessionId]);
+								$this->cli->msg("    ✓ {$agent} session already running in {$where}", 'green');
+							}
+							continue;
+						}
 
 						if (!$currentSurf) {
 							$this->cli->msg('    ✗ Not found in current workspace', 'yellow');
@@ -434,7 +442,10 @@ class CmuxBak {
 							$this->cdToRecordedCwd($targetRef, $targetWsRef, $bakCwd);
 						}
 
-						if ($sessionId) {
+						if ($sessionId && isset($liveById[$sessionId])) {
+							$where = $this->liveLocation($liveById[$sessionId]);
+							$this->cli->msg("    ✓ {$agent} {$sessionId} already running in {$where} — not resuming", 'green');
+						} elseif ($sessionId) {
 							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
@@ -581,6 +592,7 @@ class CmuxBak {
 						$this->cli->msg("  ✗ [{$agent}] {$label} — NOT running ({$short}…, {$note})", 'yellow');
 						$missing[] = [
 							'ws_title'   => $wsTitle,
+							'ws_sids'    => $this->bakWsSessionIds($bakWs),
 							'surf'       => $bakSurf,
 							'session_id' => $sid,
 							'agent'      => $agent,
@@ -625,7 +637,7 @@ class CmuxBak {
 
 	/**
 	 * Resume one missing session into its existing surface, matched by workspace
-	 * title + (normalized) surface title. Skips — pointing at `restore` — when
+	 * (title, else the workspace hosting its live siblings) + (normalized) surface title. Skips — pointing at `restore` — when
 	 * the workspace or surface is gone, and refuses to clobber a surface that
 	 * already hosts a live agent session.
 	 */
@@ -641,7 +653,7 @@ class CmuxBak {
 			return;
 		}
 
-		$currentWs = $this->cmux->findWorkspaceByTitle($tree, $m['ws_title']);
+		$currentWs = $this->resolveCurrentWorkspace($tree, $m['ws_title'], $m['ws_sids'] ?? [], $liveById);
 		if (!$currentWs) {
 			$this->cli->msg("    ✗ Workspace '{$m['ws_title']}' is gone — run `cmux-bak restore` to recreate it.", 'yellow');
 			return;
@@ -920,6 +932,46 @@ class CmuxBak {
 	 * Claude uses spinner chars (⠂⠒⠐…) while active and ✳ when idle — these change
 	 * between backup time and restore time, so we normalize them away for matching.
 	 */
+	/**
+	 * The live workspace a backed-up one now is: same title, or — when it has been
+	 * renamed — the workspace hosting any of its sessions that are still live.
+	 * Matching on title alone recreated a renamed workspace and resumed its live
+	 * sessions a second time.
+	 */
+	protected function resolveCurrentWorkspace(array $tree, string $title, array $sessionIds, array $liveById): ?array {
+		$ws = $this->cmux->findWorkspaceByTitle($tree, $title);
+		if ($ws) {
+			return $ws;
+		}
+		foreach ($sessionIds as $sid) {
+			$wsRef = $liveById[$sid]['workspace_ref'] ?? '';
+			if ($wsRef !== '' && ($ws = $this->cmux->findWorkspaceByRef($tree, $wsRef))) {
+				return $ws;
+			}
+		}
+		return null;
+	}
+
+	/** PURE. Agent session ids recorded anywhere in one backed-up workspace. */
+	protected function bakWsSessionIds(array $bakWs): array {
+		$ids = [];
+		foreach ($bakWs['panes'] ?? [] as $pane) {
+			foreach ($pane['surfaces'] ?? [] as $surf) {
+				$sid = $this->normalizeBakSurface($surf)['session_id'];
+				if ($sid) {
+					$ids[] = $sid;
+				}
+			}
+		}
+		return $ids;
+	}
+
+	/** PURE. Where a live join row sits, for messages. */
+	protected function liveLocation(array $row): string {
+		$parts = array_filter([$row['workspace_ref'] ?? '', $row['surface_ref'] ?? '']);
+		return $parts ? implode(' / ', $parts) : 'somewhere in cmux (surface unbound)';
+	}
+
 	protected function normalizeTitle(string $title): string {
 		// Strip any leading non-ASCII characters (the icon) plus following whitespace
 		return preg_replace('/^[^\x00-\x7F]+\s*/u', '', $title);
@@ -1224,15 +1276,6 @@ class CmuxBak {
 		$this->cli->msg("    '{$label}' | {$agent} {$short}… | cwd: {$cwd}", 'cyan');
 
 		if ($this->cli->isAutoconfirm()) {
-			$live = $this->agentRowsBySessionId()[$sessionId] ?? null;
-			if ($live) {
-				$parts = array_filter([$live['workspace_ref'] ?? '', $live['surface_ref'] ?? '']);
-				$where = $parts ? implode(' / ', $parts) : 'somewhere in cmux (surface unbound)';
-				$this->cli->msg("    Already running in {$where} — skipping (--yes).", 'cyan');
-
-				return ['choice' => 'skip', 'reason' => "already running in {$where}"];
-			}
-
 			$this->cli->msg('    Opening a new surface for it (--yes).', 'cyan');
 
 			return ['choice' => 'new', 'reason' => ''];
