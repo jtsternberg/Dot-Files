@@ -25,7 +25,7 @@ $helpyHelperton
 		'--categoryId=ID'      => 'Category term ID to assign (skips interactive selection; ignored for pages)',
 		'--postId=ID|SLUG'     => 'Post or page ID or slug to update (or use frontmatter id)',
 		'--page'               => 'Publish to pages endpoint instead of posts (no categories)',
-		'--disableMarkdown'    => 'Disable markdown processing, expect raw HTML in content file',
+		'--disableMarkdown'    => 'Push the file body verbatim (raw HTML or block markup); markdown otherwise publishes as Gutenberg blocks',
 		'--flushCache'         => 'Flush cached taxonomy terms and fetch fresh data',
 		'--url=DOMAIN'         => 'Target a different site (e.g. coaching.jtsternberg.com)',
 	] );

@@ -2,6 +2,7 @@
 
 namespace JT\CLI\Commands;
 
+use JT\CLI\Publishing\GutenbergBlockConverter;
 use Symfony\Component\Yaml\Yaml;
 
 class PublishToSiteCommand extends SiteCommand {
@@ -265,7 +266,7 @@ class PublishToSiteCommand extends SiteCommand {
 			throw new \Exception( "Error: Failed to convert markdown to HTML" );
 		}
 
-		return json_encode( $html, JSON_UNESCAPED_SLASHES );
+		return json_encode( ( new GutenbergBlockConverter() )->convert( $html ), JSON_UNESCAPED_SLASHES );
 	}
 
 	protected function prepareContent(): string {
@@ -340,7 +341,7 @@ class PublishToSiteCommand extends SiteCommand {
 		if ( $this->disableMarkdown ) {
 			$this->cli->msg( "Using raw HTML content...\n" );
 		} else {
-			$this->cli->msg( "Converting markdown to HTML...\n" );
+			$this->cli->msg( "Converting markdown to blocks...\n" );
 		}
 		$content = $this->prepareContent();
 
