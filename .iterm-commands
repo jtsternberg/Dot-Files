@@ -1,4 +1,4 @@
-alias itermScriptRun='~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin/python'
+alias itermScriptRun='~/.config/iterm2/AppSupport/uv/venvs/3.12/bin/python'
 alias itermScripRun='itermScriptRun'
 alias itermDirTab='itermScriptRun ~/.dotfiles/iterm-python/dirmaptab.py'
 alias itermDirNewTab='itermScriptRun ~/.dotfiles/iterm-python/dirmapnewtab.py'

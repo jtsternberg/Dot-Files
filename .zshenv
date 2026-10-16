@@ -33,7 +33,7 @@ PATH=$PATH:~/.cargo/bin
 PATH=$PATH:./node_modules/.bin
 PATH=$PATH:/usr/local/sbin
 PATH=$PATH:~/.dotfiles/git
-PATH=$PATH:~/Library/ApplicationSupport/iTerm2/iterm2env/versions/3.10.4/bin
+PATH=$PATH:~/.config/iterm2/AppSupport/uv/venvs/3.12/bin
 PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
 # GNU coreutils (Linux-flavored ls, cp, date, sort, etc.) — can cause subtle issues with macOS-native scripts
 # PATH=$PATH:/opt/homebrew/opt/coreutils/libexec/gnubin
