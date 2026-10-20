@@ -89,6 +89,11 @@ https://getcomposer.org/download/
 
 https://github.com/jesseduffield/lazygit?tab=readme-ov-file#installation
 
+### diff-so-fancy (lazygit pager, `cdiff`/`d`/`diffl`/`diffr` git aliases)
+
+**macOS:** `brew install diff-so-fancy`
+**Linux:** `npm install -g diff-so-fancy` (not in Ubuntu's apt repos)
+
 ### fzf
 
 https://github.com/junegunn/fzf?tab=readme-ov-file#installation
