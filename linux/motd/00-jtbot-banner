@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+# jtbot login banner: matrix-rain JTBOT plus live system stats.
+# Installed as /etc/update-motd.d/00-jtbot-banner (run as root by pam_motd on
+# each login). Standalone on purpose: no composer/autoload exists at that point.
+import os, random, subprocess
+
+FONT = {
+    "J": ["..###", "...#.", "...#.", "#..#.", ".##.."],
+    "T": ["#####", "..#..", "..#..", "..#..", "..#.."],
+    "B": ["####.", "#...#", "####.", "#...#", "####."],
+    "O": [".###.", "#...#", "#...#", "#...#", ".###."],
+}
+GLYPHS = "01ｱｲｳｴｵｶｷｸ"
+GRID = [".".join(FONT[c][r] for c in "JTBOT") for r in range(5)]
+COLS = len(GRID[0]) * 2
+ROWS = 11          # 3 rain rows above the letters, 3 below
+TOP = 3
+RESET = "\x1b[0m"
+
+
+def fg(c): return f"\x1b[38;2;{c[0]};{c[1]};{c[2]}m"
+def lerp(a, b, t): return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+def banner():
+    buf = [[(" ", None)] * COLS for _ in range(ROWS)]
+    # Streams run top to bottom, so the head (brightest) trails at the bottom of each.
+    for x in range(COLS):
+        if random.random() < 0.5:
+            start = random.randrange(-2, ROWS - 2)
+            n = random.randrange(3, 7)
+            for i in range(n):
+                y = start + i
+                if 0 <= y < ROWS:
+                    buf[y][x] = (random.choice(GLYPHS), lerp((0, 55, 20), (110, 255, 140), i / (n - 1)))
+    for r in range(5):
+        for p, ch in enumerate(GRID[r]):
+            if ch == "#":
+                c = (175, 255, 195) if r < 2 else (60, 230, 100)
+                buf[r + TOP][2 * p] = ("█", c)
+                buf[r + TOP][2 * p + 1] = ("█", c)
+    return "\n".join("".join(f"{fg(c)}{g}{RESET}" if c else g for g, c in row).rstrip() for row in buf)
+
+
+def sh(cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=3).stdout.strip()
+    except Exception:
+        return ""
+
+
+def os_pretty():
+    try:
+        for l in open("/etc/os-release"):
+            if l.startswith("PRETTY_NAME="):
+                return l.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return "Linux"
+
+
+def fmt_uptime():
+    s = int(float(open("/proc/uptime").read().split()[0]))
+    d, h, m = s // 86400, s % 86400 // 3600, s % 3600 // 60
+    return f"{d}d {h}h" if d else f"{h}h {m}m"
+
+
+def meminfo():
+    kb = {}
+    for l in open("/proc/meminfo"):
+        k, v = l.split(":")
+        kb[k] = int(v.split()[0])
+    g = lambda k: k / 1048576
+    used = kb["MemTotal"] - kb["MemAvailable"]
+    swap = kb["SwapTotal"] - kb["SwapFree"]
+    return (f"{g(used):.1f} / {g(kb['MemTotal']):.1f} GiB ({used * 100 // kb['MemTotal']}%)"
+            f" · swap {g(swap):.1f} / {g(kb['SwapTotal']):.1f} GiB")
+
+
+def disk():
+    st = os.statvfs("/")
+    total = st.f_blocks * st.f_frsize
+    used = total - st.f_bfree * st.f_frsize
+    return f"{used / 1e9:.0f}G / {total / 1e9:.0f}G used ({used * 100 // total}%)"
+
+
+def services():
+    out = []
+    for name, unit in (("ollama", "ollama"), ("docker", "docker"), ("tailscale", "tailscaled")):
+        ok = sh(["systemctl", "is-active", unit]) == "active"
+        out.append(f"{name} {'✓' if ok else '✗'}")
+    out.insert(0, f"herdr {'✓' if sh(['pgrep', '-x', 'herdr']) else '✗'}")
+    n = sh(["docker", "ps", "-q"]).split()
+    if n:
+        out[2] = f"docker {len(n)} up"
+    return " · ".join(out)
+
+
+def stats():
+    load = " ".join(open("/proc/loadavg").read().split()[:3])
+    rows = [("host", f"{os_pretty()} · kernel {os.uname().release}"),
+            ("uptime", f"{fmt_uptime()} · load {load}"),
+            ("memory", meminfo()),
+            ("disk", disk()),
+            ("services", services())]
+    return "\n".join(f"  {fg((60, 200, 110))}{k:<9}{RESET}{fg((190, 255, 200))}{v}{RESET}" for k, v in rows)
+
+
+print(banner())
+print()
+print(stats())
+print()
