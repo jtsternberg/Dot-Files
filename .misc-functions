@@ -310,3 +310,12 @@ kimi-aider() {
 		--model-metadata-file "$HOME/.dotfiles/aider/kimi.model.metadata.json" \
 		--yes-always "$@"
 }
+
+# Live-render a markdown file in the terminal, re-rendering on every save.
+watch-md() {
+	if [[ -z "$1" ]]; then
+		echo "Usage: watch-md <file.md>" >&2
+		return 1
+	fi
+	watchexec -w "$1" --clear -- glow "$1"
+}
