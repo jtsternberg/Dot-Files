@@ -24,6 +24,9 @@ final class LinuxCatchupCommand {
 	/** @var callable(string):bool */
 	private $commandExists;
 
+	/** No sudo, no prompts, stdin closed: the timer/cron mode. */
+	private bool $unattended = false;
+
 	public function __construct(
 		private readonly Helpers $cli,
 		private ?LinuxCatchup $catchup = null,
@@ -64,12 +67,36 @@ final class LinuxCatchupCommand {
 			description: 'Run only these comma-separated steps: codex, claude, ollama, repos, system (alias system-update).',
 			valueName: 'steps',
 		)]
-		?string $only = null
+		?string $only = null,
+		#[Option(description: 'For a timer/cron: never sudo or prompt, close stdin for child commands, and skip (and log) the steps that need sudo. Repos without godo commands run the default without seeding the map.')]
+		bool $unattended = false
 	): int {
 		if ( ! $this->validateOnly( $only ) ) {
 			return 1;
 		}
 
+		$this->unattended = $unattended;
+
+		// Overlapping runs would race on the same repos (two pulls in one
+		// checkout). A timer firing over a slow run is routine, so it's a quiet
+		// skip; a human colliding with one wants to hear about it.
+		$lockPath = $this->catchup()->configPath . '.lock';
+		$lock     = @fopen( $lockPath, 'c' );
+		if ( ! $lock || ! flock( $lock, LOCK_EX | LOCK_NB ) ) {
+			$this->cli->msg( sprintf( 'linux-catchup is already running (lock: %s) — skipping.', $lockPath ), 'yellow' );
+
+			return $unattended ? 0 : 1;
+		}
+
+		try {
+			return $this->runSteps( $apply, $yes, $only );
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+	}
+
+	private function runSteps( bool $apply, bool $yes, ?string $only ): int {
 		$catchup = $this->catchup();
 		$green   = $this->cli->color( 'green' );
 		$reset   = $this->cli->color( 'none' );
@@ -104,6 +131,16 @@ final class LinuxCatchupCommand {
 					continue;
 				}
 
+				$godo = escapeshellarg( dirname( __DIR__ ) . '/bin/godo' ) . ' ' . escapeshellarg( $key );
+
+				// The map-seed offer is a prompt, so an unattended run takes its
+				// answer without asking or writing the map: per-repo safety is
+				// whatever that account's own command map says.
+				if ( $this->unattended && empty( $this->godo()->getStoredCommands( $key ) ) ) {
+					$this->runCommand( $godo . ' --default=' . escapeshellarg( LinuxCatchup::DEFAULT_REPO_COMMAND ) );
+					continue;
+				}
+
 				if ( empty( $this->godo()->getStoredCommands( $key ) ) ) {
 					$this->cli->err( sprintf( "  No godo commands set for '%s'.", $key ) );
 					if ( $this->cli->confirm( sprintf(
@@ -127,9 +164,7 @@ final class LinuxCatchupCommand {
 					}
 				}
 
-				$this->runCommand(
-					escapeshellarg( dirname( __DIR__ ) . '/bin/godo' ) . ' ' . escapeshellarg( $key )
-				);
+				$this->runCommand( $godo );
 			}
 		} elseif ( null !== ( $reposHint = $catchup->reposEmptyHint( $only ) ) ) {
 			$this->section( 'repos (0)' );
@@ -267,6 +302,15 @@ final class LinuxCatchupCommand {
 			return;
 		}
 
+		if ( $this->unattended ) {
+			$this->cli->msg( sprintf(
+				'  skipped upgrade: the vendor installer needs sudo (unattended). Upgrade by hand: %s',
+				LinuxCatchup::OLLAMA_INSTALLER
+			), 'yellow' );
+
+			return;
+		}
+
 		$this->runCommand( LinuxCatchup::OLLAMA_INSTALLER );
 	}
 
@@ -282,8 +326,12 @@ final class LinuxCatchupCommand {
 			return 0;
 		}
 
-		$this->cli->msg( '  refreshing package lists (sudo apt-get update)…' );
-		( $this->runner )( 'sudo apt-get update -qq' );
+		if ( $this->unattended ) {
+			$this->cli->msg( '  skipped package-list refresh: apt-get update needs sudo (unattended) — report reflects the last refresh.', 'yellow' );
+		} else {
+			$this->cli->msg( '  refreshing package lists (sudo apt-get update)…' );
+			( $this->runner )( 'sudo apt-get update -qq' );
+		}
 
 		$raw = ( $this->shellOutput )( 'apt list --upgradable 2>/dev/null' );
 		$report = $catchup->parseUpgradable(
@@ -324,7 +372,9 @@ final class LinuxCatchupCommand {
 			);
 		}
 
-		if ( $apply && $report['count'] > 0 ) {
+		if ( $apply && $report['count'] > 0 && $this->unattended ) {
+			$this->cli->msg( "\n  skipped --apply: apt-get upgrade needs sudo (unattended).", 'yellow' );
+		} elseif ( $apply && $report['count'] > 0 ) {
 			$this->cli->msg( "\n  applying updates (sudo apt-get upgrade)…", 'cyan' );
 			$code = ( $this->runner )(
 				'sudo apt-get upgrade ' . ( $yes ? '-y ' : '' ) . '2>&1'
@@ -364,7 +414,7 @@ final class LinuxCatchupCommand {
 			$this->cli->color( 'none' )
 		) );
 
-		return ( $this->runner )( $command );
+		return ( $this->runner )( $command . ( $this->unattended ? ' </dev/null' : '' ) );
 	}
 
 	private function catchup(): LinuxCatchup {

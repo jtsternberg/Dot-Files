@@ -1,0 +1,21 @@
+# Linux systemd *user* service: run `linux-catchup --unattended` once.
+# Started by linux-catchup.timer; see that file for setup. Works for any user
+# account with its own ~/.dotfiles clone and ~/.linux-catchup.json — no sudo.
+#
+# PATH covers the usual user-level install prefixes (npm's ~/.npm-global,
+# ~/.local/bin for claude). If a tool lives elsewhere, add a drop-in:
+#        systemctl --user edit linux-catchup.service
+#        [Service]
+#        Environment=PATH=<your path>
+#
+# Logs:  journalctl --user -u linux-catchup.service
+
+[Unit]
+Description=linux-catchup unattended (no sudo, no prompts)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.dotfiles/bin/linux-catchup --unattended
+StandardInput=null
+Nice=10
+Environment=PATH=%h/.npm-global/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

@@ -220,7 +220,7 @@ final class LinuxCatchupCommandTest extends TestCase {
 		return [
 			'help' => [
 				[ '--help' ],
-				'usage: linux-catchup [--apply] [--yes|-y] [--only=<steps>]',
+				'usage: linux-catchup [--apply] [--yes|-y] [--only=<steps>] [--unattended]',
 			],
 			'completion' => [
 				[ 'completion', 'zsh' ],

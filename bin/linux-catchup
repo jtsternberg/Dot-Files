@@ -17,11 +17,18 @@ namespace JT;
 #   5. system: refresh apt and report upgradable + security + reboot-required.
 #              With --apply, runs the upgrade (apt-get upgrade).
 #
+# --unattended is the timer/cron mode (see linux-catchup/linux-catchup.timer):
+# no sudo, no prompts, stdin closed. Repos still run `godo <key>`; a key with
+# no godo commands runs the default without the map-seed prompt. The apt
+# refresh, --apply, and the ollama installer need sudo, so they are skipped
+# and say so. A lock next to the config keeps overlapping runs from colliding.
+#
 # The attributed LinuxCatchupCommand handler defines dispatch, help, and
 # completion while keeping operational dependencies lazy and testable.
 #
 # Usage:
-# linux-catchup [--apply] [--yes|-y] [--only=<steps>]
+# linux-catchup [--apply] [--yes|-y] [--only=<steps>] [--unattended]
+# linux-catchup --unattended </dev/null   What the systemd timer runs
 # linux-catchup --only=system --apply   Only apply system updates
 # linux-catchup config          Print the resolved config + its path
 # linux-catchup completion zsh

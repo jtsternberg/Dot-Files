@@ -1,0 +1,36 @@
+# Linux systemd *user* timer for linux-catchup.service (daily, unattended).
+#
+# Prerequisites: ~/.dotfiles cloned, and the repos to sync listed as godo keys
+# in ~/.linux-catchup.json ({ "repos": ["<key>"] }), each mapped to its
+# checkout with `dirmap add <key> <path>`. Each key runs its own commands from
+# ~/.godo-cmdmap.json (`godo addcmd <key> '<command>'`), else `git prb`.
+#
+# Setup (Linux only — run once, as the account that should catch up):
+#   1. Symlink both units:
+#        mkdir -p ~/.config/systemd/user
+#        ln -s ~/.dotfiles/linux-catchup/linux-catchup.service ~/.config/systemd/user/
+#        ln -s ~/.dotfiles/linux-catchup/linux-catchup.timer ~/.config/systemd/user/
+#   2. Let the user manager run without an active login (an admin may need to
+#      run this for an account that can't authenticate to polkit):
+#        loginctl enable-linger "$USER"
+#   3. Reload and enable the timer (not the service):
+#        systemctl --user daemon-reload
+#        systemctl --user enable --now linux-catchup.timer
+#   4. Verify / run once now:
+#        systemctl --user list-timers linux-catchup.timer
+#        systemctl --user start linux-catchup.service
+#        journalctl --user -u linux-catchup.service -n 50
+#
+# Driving `systemctl --user` over a non-interactive SSH needs the bus address:
+#        export XDG_RUNTIME_DIR=/run/user/$(id -u)
+
+[Unit]
+Description=Daily linux-catchup (unattended)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
