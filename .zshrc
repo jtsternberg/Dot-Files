@@ -308,8 +308,6 @@ export AGENT_BROWSER_IDLE_TIMEOUT_MS=600000
 # drplr CLI (https://github.com/jtsternberg/drplr) completions
 (( $+commands[drplr] )) && eval "$(drplr completions zsh)"
 
-[[ "$TERM_PROGRAM" == "kiro" ]] && (( $+commands[kiro] )) && . "$(kiro --locate-shell-integration-path zsh)"
-
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/Users/JT/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/JT/google-cloud-sdk/path.zsh.inc'; fi
 
