@@ -102,6 +102,53 @@ final class OllamaTest extends TestCase {
 		$this->assertFalse( $sent['stream'] );
 	}
 
+	public function testChatMessagesSendsTheWholeConversation(): void {
+		$sent   = null;
+		$ollama = new Ollama(
+			null,
+			static function ( string $url, string $payload, int $timeout ) use ( &$sent ): array {
+				$sent = json_decode( $payload, true );
+
+				return [ json_encode( [ 'message' => [ 'content' => 'second answer' ] ] ), '' ];
+			}
+		);
+		$messages = [
+			[ 'role' => 'user', 'content' => 'first' ],
+			[ 'role' => 'assistant', 'content' => 'first answer' ],
+			[ 'role' => 'user', 'content' => 'second' ],
+		];
+
+		$reply = $ollama->chatMessages( 'a-model', $messages, Ollama::DEFAULT_URL, 90, [ 'options' => [ 'num_ctx' => 8192 ] ] );
+
+		$this->assertSame( 'second answer', $reply['content'] );
+		$this->assertSame( $messages, $sent['messages'] );
+		$this->assertSame( [ 'num_ctx' => 8192 ], $sent['options'] );
+		$this->assertFalse( $sent['stream'] );
+	}
+
+	public function testUnloadAsksOllamaToEvictTheModelNow(): void {
+		$sent   = null;
+		$ollama = new Ollama(
+			null,
+			static function ( string $url, string $payload, int $timeout ) use ( &$sent ): array {
+				$sent = json_decode( $payload, true );
+
+				return [ json_encode( [ 'done_reason' => 'unload' ] ), '' ];
+			}
+		);
+
+		$this->assertNull( $ollama->unload( 'a-model' ) );
+		$this->assertSame( 'a-model', $sent['model'] );
+		$this->assertSame( [], $sent['messages'] );
+		$this->assertSame( 0, $sent['keep_alive'] );
+	}
+
+	public function testUnloadReportsATransportFailure(): void {
+		$ollama = new Ollama( null, static fn(): array => [ null, 'Connection refused' ] );
+
+		$this->assertSame( 'Connection refused', $ollama->unload( 'a-model' ) );
+	}
+
 	public function testChatOmitsAnEmptySystemPrompt(): void {
 		$sent   = null;
 		$ollama = new Ollama(

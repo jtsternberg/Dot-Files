@@ -297,6 +297,27 @@ _local_llm_summarize_lazy() {
 	_local_llm_summarize "$@"
 }
 
+_local_review_lazy() {
+	local generated
+
+	generated="$(command local-review completion zsh 2>/dev/null)" || {
+		_message 'unable to generate local-review completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load local-review completion'
+		return 1
+	}
+
+	if (( ! $+functions[_local_review] )); then
+		_message 'local-review completion did not define _local_review'
+		return 1
+	fi
+
+	_local_review "$@"
+}
+
 _aimodels_lazy() {
 	local generated
 
@@ -444,6 +465,7 @@ compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
 compdef _auto_commit_ollama_lazy auto-commit-ollama
 compdef _local_llm_summarize_lazy local-llm-summarize
+compdef _local_review_lazy local-review
 compdef _to_text_lazy to-text
 compdef _herdr_lazy herdr
 compdef _op_lazy op

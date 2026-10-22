@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# Review a diff with two local Ollama models, one after the other.
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# A fast primary reviews, then re-checks its own list in the same conversation
+# until it says it is confident; it is unloaded, then a reasoning advisor
+# reviews once. Both findings print under their own headings for the caller
+# (the pi local-review skill) to merge. Models resolve per store from
+# REVIEW_MODEL* / REVIEW_ADVISOR_MODEL* in ~/.config/ai-tooling/config.
+#
+# Usage:
+# local-review [<diff-file>] [--base=<ref>] [--stdin] [--primary=<model>] [--advisor=<model>|none] [--json]
+# local-review --help
+# local-review completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new LocalReviewCommand( $cli ) ) )->run() );

@@ -126,6 +126,25 @@ class Ollama {
 		}
 		$messages[] = $user;
 
+		return $this->chatMessages( $model, $messages, $url, $timeoutSeconds, $request );
+	}
+
+	/**
+	 * chat() for a whole conversation, so a caller can send follow-up turns
+	 * that see the model's earlier replies. Same return shape as chat().
+	 *
+	 * @param array<int,array{role:string, content:string, images?:string[]}> $messages
+	 * @param array<string,mixed>                                             $request
+	 *
+	 * @return array{content:?string, error:?string, errorType:?string, logprobs?:array}
+	 */
+	public function chatMessages(
+		string $model,
+		array $messages,
+		string $url = self::DEFAULT_URL,
+		int $timeoutSeconds = 300,
+		array $request = []
+	): array {
 		$payload = (string) json_encode( array_merge( $request, [
 			'model'    => $model,
 			'stream'   => false,
@@ -157,6 +176,28 @@ class Ollama {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Evict a model from memory now instead of after its keep-alive, so the next
+	 * model loads alone rather than beside it.
+	 *
+	 * @return ?string The transport or API error, or null once evicted.
+	 */
+	public function unload( string $model, string $url = self::DEFAULT_URL ): ?string {
+		[ $body, $error ] = ( $this->post )( $url, (string) json_encode( [
+			'model'      => $model,
+			'messages'   => [],
+			'keep_alive' => 0,
+		] ), 60 );
+
+		if ( '' !== $error ) {
+			return $error;
+		}
+
+		$data = json_decode( (string) $body, true );
+
+		return empty( $data['error'] ) ? null : (string) $data['error'];
 	}
 
 	/** @return array{0:?string, 1:string} [response body, curl error] */

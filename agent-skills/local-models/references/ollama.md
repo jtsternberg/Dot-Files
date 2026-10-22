@@ -156,7 +156,11 @@ These are the mistakes we keep re-making. Each has a one-line detector.
 
 3. **Thinking mode burns time.** A reasoning model can spend 80s of internal monologue on
    a 3-sentence answer. **Detect:** `capabilities` includes `thinking`. **Fix:**
-   `think:false` (API) / `--think=false` (CLI).
+   `think:false` (API) / `--think=false` (CLI). Some models reason regardless:
+   flint:40b only *hides* its reasoning under `think:false`, which still spends
+   `num_predict`, so a short cap returns an empty `response`. **Detect:** an
+   empty `response` with `eval_count` at the cap. **Fix:** leave thinking on
+   and raise `num_predict` to several thousand.
 
 4. **MLX/nvfp4 vs GGUF prompt-eval.** On M2 this swings prefill 100×+ (gemma nvfp4 fast;
    some qwen3.5 nvfp4 catastrophic — see graveyard). Param count is a poor speed proxy;
@@ -239,6 +243,15 @@ cap with `num_predict`; `think:false` on reasoning models. Working references:
   `vision` in `ollama show`. The model answers a fixed `NO_TEXT` token for a
   textless image (told "write nothing", qwen3.5:9b wrote a sentence instead),
   which the command turns into exit 1.
+- `local-review [<diff-file>] [--base=<ref>] [--stdin] [--json]` (`JT\LocalReview`) —
+  reviews a diff with a fast primary that re-checks itself in the same
+  conversation until it says `CONFIDENT`, unloads it, then runs a reasoning
+  advisor once. On a diff with 5 planted bugs, the loop took qwen3-coder from
+  2.5/5 with 2 false findings to 3.5/5 with none, and flint:40b caught a bug it
+  missed. Models resolve per store from `REVIEW_MODEL*` /
+  `REVIEW_ADVISOR_MODEL*`; an advisor of `none` skips the second pass. The
+  pi-only `local-review` skill (`pi/agent/skills/`) runs it and merges the two
+  lists against the code.
 - `~/.dotfiles/bin/llmsummarize` — a wrapper that runs `local-llm-summarize`
   locally and sends files past ~50K tokens to cloud claude (`--local` keeps them
   local), plus explicit claude/agy forks.

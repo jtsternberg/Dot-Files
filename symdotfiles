@@ -175,11 +175,13 @@ if ( ! $dirs_only ) {
 	}
 }
 
-// Symlink nested files that live inside app dirs in $HOME (too stateful to
+// Symlink nested files and dirs that live inside app dirs in $HOME (too stateful to
 // symlink the whole dir). Add 'repo/path' => 'home/path' entries as needed.
 if ( ! $dirs_only ) {
 	$nested_links = array(
-		'pi/agent/models.json' => '.pi/agent/models.json',
+		'pi/agent/models.json'              => '.pi/agent/models.json',
+		// Pi-only: it drives Ollama models from pi, so it stays out of agent-skills/.
+		'pi/agent/skills/local-review'      => '.pi/agent/skills/local-review',
 	);
 
 	foreach ( $nested_links as $repo_rel => $home_rel ) {
