@@ -255,27 +255,6 @@ _auto_commit_ollama_lazy() {
 	_auto_commit_ollama "$@"
 }
 
-_auto_commit_fm_lazy() {
-	local generated
-
-	generated="$(command auto-commit-fm completion zsh 2>/dev/null)" || {
-		_message 'unable to generate auto-commit-fm completion'
-		return 1
-	}
-
-	eval "$generated" || {
-		_message 'unable to load auto-commit-fm completion'
-		return 1
-	}
-
-	if (( ! $+functions[_auto_commit_fm] )); then
-		_message 'auto-commit-fm completion did not define _auto_commit_fm'
-		return 1
-	fi
-
-	_auto_commit_fm "$@"
-}
-
 _to_text_lazy() {
 	local generated
 
@@ -485,7 +464,6 @@ compdef _md_atx_lazy md-atx
 compdef _xname_lazy xname
 compdef _aimodels_lazy aimodels
 compdef _auto_commit_ollama_lazy auto-commit-ollama
-compdef _auto_commit_fm_lazy auto-commit-fm
 compdef _local_llm_summarize_lazy local-llm-summarize
 compdef _local_review_lazy local-review
 compdef _to_text_lazy to-text
