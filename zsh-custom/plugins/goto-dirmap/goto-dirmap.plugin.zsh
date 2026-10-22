@@ -69,7 +69,7 @@ talkagent() {
 _talkagent() {
 	_arguments \
 		"1: :($(dirmap list -k))" \
-		'--agent=[agent CLI to start]:agent:(claude codex)' \
+		'--agent=[agent CLI to start]:agent:(claude codex agy pi aider)' \
 		'*::agent args:_default'
 }
 
