@@ -47,3 +47,17 @@ _goto() {
 }
 
 compdef _goto goto
+
+# `talkclaude <key> [claude args...]` — goto the key, then start claude there.
+# A function (not a godo cmd) so the cd persists after claude exits.
+talkclaude() {
+	local dir
+	dir="$(dirmap get "$1")" || { echo "$dir"; return 1; }
+	cd "$dir" && claude "${@:2}"
+}
+
+_talkclaude() {
+	_arguments "1: :($(dirmap list -k))" '*::claude args:_default'
+}
+
+compdef _talkclaude talkclaude
