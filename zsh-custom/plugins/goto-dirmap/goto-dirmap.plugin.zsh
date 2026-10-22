@@ -48,10 +48,10 @@ _goto() {
 
 compdef _goto goto
 
-# `talkclaude <key> [--agent <bin>] [agent args...]` — goto the key, then start
+# `talkagent <key> [--agent <bin>] [agent args...]` — goto the key, then start
 # the agent (default claude) there with every other arg passed through.
 # A function (not a godo cmd) so the cd persists after the agent exits.
-talkclaude() {
+talkagent() {
 	local dir agent=claude
 	local -a args
 	dir="$(dirmap get "$1")" || { echo "$dir"; return 1; }
@@ -66,11 +66,11 @@ talkclaude() {
 	cd "$dir" && "$agent" "${args[@]}"
 }
 
-_talkclaude() {
+_talkagent() {
 	_arguments \
 		"1: :($(dirmap list -k))" \
 		'--agent=[agent CLI to start]:agent:(claude codex)' \
 		'*::agent args:_default'
 }
 
-compdef _talkclaude talkclaude
+compdef _talkagent talkagent
