@@ -46,8 +46,8 @@
           "reasoning": true
         },
         {
-          "_launch": true,
-          "id": "gemma4:12b-nvfp4",
+          "contextWindow": 262144,
+          "id": "flint:40b",
           "input": [
             "text"
           ],

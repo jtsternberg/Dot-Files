@@ -17,6 +17,12 @@
             ],
             "location": "both"
         },
+        "ollama:flint:40b": {
+            "when": "Reviewer/advisor alongside qwen3-coder (qwen drives, flint reviews): precise, no false positives, but ~5-12x slower end to end because reasoning can't be disabled (think:false only hides it). Give it num_predict >= 4000. Registered in pi as ollama/flint:40b.",
+            "speed": "2026-10-22 M2 Max, warm, num_ctx 32768: 400-480 tok/s prompt eval, 45-60 tok/s decode, 11s cold load",
+            "tested": "2026-10-22: code Q&A on 3.9K-tok PHP file: accurate and more specific than qwen3-coder (exact constants and formula), but 1645 tokens/42s vs qwen 14s. List-public-methods on 11K-tok file: spent the full 4000-token budget reasoning, no answer (117s); qwen3-coder answered correctly in 44s. think:false + num_predict 400 = empty response on both tasks. | 2026-10-22 pi -p agentic: review of a diff with 3 planted bugs = 3/3, 0 false positives, correct before/after reasoning, 219s (qwen3-coder 3/3 + 2 padded non-findings, 18s). Fix-3-failing-tests task = all pass, minimal diff, test file untouched, 431s (qwen3-coder same result, 95s). Fixture too easy to separate catch rates. | 2026-10-22 harder pi review (5 subtle bugs + 3 decoys, --no-skills --no-extensions; with skills on it tried to open a skill file under --no-tools and returned no review): 2.5/5 in 203s. Only model to catch dict-mutation-during-iteration; missed retry-returns-None (wrongly said exhaustion propagates) and release-of-unacquired-lock; 2 noise items; decoys cleared. Complements qwen3-coder self-check loop: union 4.5/5.",
+            "location": "external"
+        },
         "ollama:gemma4:26b-nvfp4": {
             "when": "Fast-context chat model (MLX works for gemma). Use when you want to paste big text and get quick answers. NOT a coding-agent replacement.",
             "speed": "~314 tok/s prompt-eval, ~27 tok/s decode (measured 2026-07-24, 35K-tok file, COLD, num_ctx unrecorded) (value lost to a CLI truncation bug; model max context is 262144 per ollama show, 2026-09-30)",
@@ -115,13 +121,14 @@
         },
         "ollama:qwen3-coder:latest": {
             "when": "Primary coding agent (aider/pi). Tool-calling strong; decode fast.",
-            "speed": "72 tok/s decode, 110 tok/s prompt eval (GGUF)",
+            "speed": "2026-10-22 clean warm bench, num_ctx 32768: 307-371 tok/s prompt eval, 30-42 tok/s decode (old note said 110 / 72, not reproduced)",
             "tags": [
                 "coding",
                 "agent",
                 "primary"
             ],
-            "location": "external"
+            "location": "external",
+            "tested": "2026-10-22: baseline against flint:40b: correct method list on 11K-tok file in 44s, correct but vaguer num_ctx answer on 3.9K-tok file in 14s. | 2026-10-22 pi -p agentic vs flint:40b: diff review 3/3 but padded with 2 duplicate/mislabeled findings and off line numbers, 18s; fix-3-failing-tests all pass, 95s, final output ended with a stray <tool_call> token. | 2026-10-22 harder pi review (5 subtle bugs + 3 decoys): single pass 2.5/5 + 2 noise, 14s; self-check loop (re-check turns in same session until CONFIDENT, stopped at round 2) 3.5/5, 0 noise, decoys cleared, 31s. Loop is worth it for review. Missed dict-mutation-during-iteration that flint caught."
         },
         "ollama:qwen3.5:9b": {
             "when": "General, thinking-capable summarizer (GGUF Q4). Mid-pack prefill. think:false REQUIRED for plain tasks (else ~80s internal monologue). Also the local Jev / TypeSafe System One stand-in for typed decisions (classify, route, yes/no, triage) with confidence: chat + think:false + temperature 0 + one-word labels with distinct first tokens, read top_logprobs. Tied the dedicated Jev-style decision model nimble:9b (removed), faster. Also the to-text OCR default (vision): 2026-10-13 transcribed a synthetic 4-line image and a real UI screenshot exactly in ~8-10s, think:false; gemma4:e4b and gemma4:26b-nvfp4 matched on the synthetic image (26b ~23s).",
