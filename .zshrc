@@ -79,6 +79,8 @@ alias claudecreatepr='claude "/create-pr"'
 alias claudecreateissue='claude "/create-github-issue"'
 alias claudecommitstaged='claude --model sonnet "/commit-staged"'
 alias weeklylog='goto monorepo && claude --dangerously-skip-permissions "/weeklylog"'
+# Cheapest possible headless ping to start the 5hr usage-window clock (see cron: crontab -l).
+alias claudeping='claude -p "hello" --model haiku --safe-mode --tools "" --no-session-persistence --dangerously-skip-permissions --max-budget-usd 0.01'
 alias agyolo='agy --dangerously-skip-permissions'
 alias claudecommitsig='sed -n '\''s/^AUTO_COMMIT_CLAUDE_SIGNATURE="\(.*\)"$/\1/p'\'' ~/.config/ai-tooling/config 2>/dev/null || true'
 # The board writes only to the log, never to this terminal: a pipe to `tee` here

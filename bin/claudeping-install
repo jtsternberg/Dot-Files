@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+namespace JT;
+# =============================================================================
+# claudeping-install — install a cron entry that cheaply pings `claude -p` on
+# a schedule (e.g. to start a usage-window clock before you're actually at
+# the keyboard).
+# By Justin Sternberg <me@jtsternberg.com>
+#
+# Version 0.1.0
+#
+# The schedule is free text or a raw cron expression; a cheap headless
+# Claude call turns it into a 5-field cron expression. Reinstalling replaces
+# the previous managed entry rather than piling up duplicates.
+#
+# Usage:
+# claudeping-install "<schedule>"
+# claudeping-install remove
+# claudeping-install list
+# claudeping-install completion zsh
+# =============================================================================
+
+use JT\CLI\Command\Dispatcher;
+
+$cli = require_once dirname( __DIR__ ) . '/src/bootstrap.php';
+
+exit( ( new Dispatcher( $cli, new ClaudePingInstallCommand( $cli ) ) )->run() );

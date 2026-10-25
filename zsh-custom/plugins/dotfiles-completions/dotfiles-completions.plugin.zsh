@@ -456,6 +456,27 @@ _open_obsidian_vault() {
 		'1: :_obsidian_vault_targets'
 }
 
+_claudeping_install_lazy() {
+	local generated
+
+	generated="$(command claudeping-install completion zsh 2>/dev/null)" || {
+		_message 'unable to generate claudeping-install completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load claudeping-install completion'
+		return 1
+	}
+
+	if (( ! $+functions[_claudeping_install] )); then
+		_message 'claudeping-install completion did not define _claudeping_install'
+		return 1
+	fi
+
+	_claudeping_install "$@"
+}
+
 compdef _graveyard graveyard
 compdef _cmux_bak_lazy cmux-bak
 compdef _linux_catchup_lazy linux-catchup
@@ -468,6 +489,7 @@ compdef _local_llm_summarize_lazy local-llm-summarize
 compdef _local_review_lazy local-review
 compdef _to_text_lazy to-text
 compdef _herdr_lazy herdr
+compdef _claudeping_install_lazy claudeping-install
 compdef _op_lazy op
 compdef _setup_obsidian_vault setup-obsidian-vault
 compdef _obsidian_vault_chat obsidian-vault-chat
