@@ -321,7 +321,10 @@ class HerdrTransport implements SessionTransport
 		}
 
 		foreach ($info['foreground_processes'] ?? [] as $p) {
-			if ((string) ($p['argv0'] ?? '') !== $agent) { continue; }
+			// herdr 0.9.5 dropped `argv0` for `name`; argv[0]'s basename covers a build with neither.
+			$argv = array_values((array) ($p['argv'] ?? []));
+			$exe  = (string) ($p['argv0'] ?? $p['name'] ?? basename((string) ($argv[0] ?? '')));
+			if ($exe !== $agent) { continue; }
 			$pid = isset($p['pid']) ? (int) $p['pid'] : null;
 			return [
 				'pid'  => $pid !== null && $pid > 0 ? $pid : null,

@@ -392,6 +392,36 @@ SH;
 		$this->assertTrue($row['skip_perms']);
 	}
 
+	/** herdr 0.9.5's shape, verbatim: no `argv0`, so the agent is identified by `name`. */
+	public function testPidResolvesFromHerdr095ProcessInfoWithoutArgv0(): void
+	{
+		$this->write('procinfo-wA:p1.json', (string) json_encode([
+			'result' => ['process_info' => ['foreground_processes' => [[
+				'argv'    => ['claude', '--resume', self::CLAUDE_A, '--model', 'opus'],
+				'cmdline' => 'claude --resume ' . self::CLAUDE_A . ' --model opus',
+				'cwd'     => '/Users/tester/Sites/alpha',
+				'name'    => 'claude',
+				'pid'     => 40645,
+			]]]],
+		]));
+
+		$row = $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A);
+		$this->assertSame(40645, $row['pid']);
+		$this->assertSame('opus', $row['model']);
+	}
+
+	/** Neither argv0 nor name: argv[0]'s basename still identifies the agent. */
+	public function testPidResolvesFromTheArgvBasenameAlone(): void
+	{
+		$this->write('procinfo-wA:p1.json', (string) json_encode([
+			'result' => ['process_info' => ['foreground_processes' => [
+				['pid' => 40646, 'argv' => ['/home/tester/.local/bin/claude', '--resume', self::CLAUDE_A]],
+			]]],
+		]));
+
+		$this->assertSame(40646, $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A)['pid']);
+	}
+
 	/** Only the AGENT's process counts — a wrapper shell in the same pane does not. */
 	public function testProcessLookupIgnoresNonAgentForegroundProcesses(): void
 	{
