@@ -929,6 +929,60 @@ class Cmux {
 		return false;
 	}
 
+	/**
+	 * Pin $title on a tab. This freezes it over the agent's own terminal title until
+	 * `tab-action --action clear-name`, so only a title the user had pinned belongs here.
+	 */
+	public function renameTab(string $wsRef, string $surfRef, string $title): bool {
+		if ($this->dryRun) { return false; }
+
+		$res = $this->cli->getCommandOutputAndExitCode(
+			escapeshellcmd($this->cmuxBin()) . ' rename-tab --workspace ' . escapeshellarg($wsRef)
+			. ' --surface ' . escapeshellarg($surfRef) . ' ' . escapeshellarg($title)
+		);
+		return ($res['exitCode'] ?? 1) === 0;
+	}
+
+	/**
+	 * cmux's autosaved session state. `tree` reports only a tab's DISPLAYED title, so a
+	 * hand-renamed tab is indistinguishable from one Claude titled itself; this file is
+	 * the one place that keeps them apart. CMUX_SESSION_STATE overrides the path (tests).
+	 */
+	public function sessionStatePath(): string {
+		if ($path = getenv('CMUX_SESSION_STATE')) { return $path; }
+		$bundle = getenv('CMUX_BUNDLE_ID') ?: 'com.cmuxterm.app';
+		return (getenv('HOME') ?: '') . "/Library/Application Support/cmux/session-{$bundle}.json";
+	}
+
+	/**
+	 * [ SURFACE-UUID => title ] for every tab the user renamed. Empty when the state
+	 * can't be read: cmux rewrites it every few seconds, and a torn read must cost a
+	 * restored name, never a bury.
+	 */
+	public function pinnedTitles(): array {
+		$raw   = @file_get_contents($this->sessionStatePath());
+		$state = $raw === false ? null : json_decode($raw, true);
+		return is_array($state) ? $this->parsePinnedTitles($state) : [];
+	}
+
+	/**
+	 * PURE. A panel's `id` is the surface UUID `tree` reports (not its stableSurfaceId),
+	 * and `customTitle` is set only while a rename is pinned on it.
+	 */
+	public function parsePinnedTitles(array $state): array {
+		$out = [];
+		foreach ($state['windows'] ?? [] as $window) {
+			foreach ($window['tabManager']['workspaces'] ?? [] as $ws) {
+				foreach ($ws['panels'] ?? [] as $panel) {
+					$id    = (string) ($panel['id'] ?? '');
+					$title = (string) ($panel['customTitle'] ?? '');
+					if ($id !== '' && $title !== '') { $out[strtoupper($id)] = $title; }
+				}
+			}
+		}
+		return $out;
+	}
+
 	public function createSurface(string $wsRef, ?string $paneRef, string $type, ?string $url): ?string {
 		if ($this->dryRun) { return null; }
 

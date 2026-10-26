@@ -121,6 +121,7 @@ class HerdrTransport implements SessionTransport
 			'window_ref'         => $bound['tab_id'],
 			'workspace_title'    => $this->workspaceTitle($snap, $wsId),
 			'tab_title'          => $bound['title'],
+			'pinned_title'       => $bound['label'],
 			'idle_seconds'       => $this->idleSeconds($bound, $now),
 			'targetable'         => $bound['targetable'],
 			'reason'             => $bound['reason'],
@@ -183,6 +184,7 @@ class HerdrTransport implements SessionTransport
 					// supportsNonTerminalSurfaces() reports.
 					'type'             => 'terminal',
 					'title'            => $this->paneTitle($snap, $paneId, $pane),
+					'pinned_title'     => $this->paneLabel($snap, $paneId),
 					'url'              => null,
 					// See the row builder: never a tty.
 					'tty'              => null,
@@ -290,6 +292,7 @@ class HerdrTransport implements SessionTransport
 				'workspace_id' => (string) ($agent['workspace_id'] ?? ''),
 				'tab_id'       => $agent['tab_id'] ?? null,
 				'title'        => $this->paneTitle($snap, $paneId, $agent),
+				'label'        => $this->paneLabel($snap, $paneId),
 				'pid'          => $proc['pid'],
 				'model'        => $this->resolveModel($kind, $sid, $cwd, $proc),
 				'skip_perms'   => $this->resolveSkipPerms($kind, $sid, $cwd, $proc),
@@ -432,14 +435,17 @@ class HerdrTransport implements SessionTransport
 	 * so an agents[] entry has to look its pane up.
 	 */
 	protected function paneTitle(array $snap, string $paneId, array $node): string {
+		return $this->paneLabel($snap, $paneId) ?? (string) ($node['terminal_title_stripped'] ?? '');
+	}
+
+	protected function paneLabel(array $snap, string $paneId): ?string {
 		foreach ($snap['panes'] ?? [] as $pane) {
 			if ((string) ($pane['pane_id'] ?? '') === $paneId) {
 				$label = (string) ($pane['label'] ?? '');
-				if ($label !== '') { return $label; }
-				break;
+				return $label !== '' ? $label : null;
 			}
 		}
-		return (string) ($node['terminal_title_stripped'] ?? '');
+		return null;
 	}
 
 	/** A workspace's herdr label, falling back to its id (which is what the UI shows). */
@@ -686,6 +692,10 @@ class HerdrTransport implements SessionTransport
 	}
 
 	/** A herdr pane IS its surface, so this confirms the pane is in the workspace. */
+	public function renameSurface(string $workspaceRef, string $surfaceRef, string $title): bool {
+		return $this->herdr->paneRename($surfaceRef, $title);
+	}
+
 	public function paneRefForSurface(string $workspaceRef, string $surfaceRef): ?string {
 		foreach ($this->panesByWorkspace($this->snapshot())[$workspaceRef] ?? [] as $pane) {
 			if ((string) ($pane['pane_id'] ?? '') === $surfaceRef) { return $surfaceRef; }

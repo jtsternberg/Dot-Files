@@ -69,6 +69,11 @@ abstract class TestCase extends BaseTestCase
 		putenv('CLAUDE_SESSIONS_DIR=' . $this->graveyardRoot . '/no-live-claude-sessions');
 		putenv('PROC_PS_BIN=' . self::sharedStub('ps', "#!/bin/sh\necho '  PID  PPID COMMAND'\n"));
 
+		// cmux's session-state file is where a hand-renamed tab's pinned title lives
+		// (Cmux::pinnedTitles). Point it nowhere, so no bury test records a title off
+		// whatever tabs happen to be open on the machine running the suite.
+		putenv('CMUX_SESSION_STATE=' . $this->graveyardRoot . '/no-cmux-session-state.json');
+
 		// Same reasoning for launchctl (dotfiles LocalModels): OllamaEngine's
 		// post-flip hook runs `launchctl setenv OLLAMA_MODELS <path>`. Any test
 		// that flips a store with a temp $home and no stub sets the REAL launchd
@@ -108,6 +113,7 @@ abstract class TestCase extends BaseTestCase
 		putenv('CMUX_BIN');
 		putenv('CLAUDE_SESSIONS_DIR');
 		putenv('PROC_PS_BIN');
+		putenv('CMUX_SESSION_STATE');
 		putenv('AIMODELS_LAUNCHCTL_BIN');
 		putenv('AIMODELS_DEFAULTS_BIN');
 		putenv('AIMODELS_MW_BIN');

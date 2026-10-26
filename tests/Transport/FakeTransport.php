@@ -105,6 +105,13 @@ final class FakeTransport implements SessionTransport
 		$this->calls[] = ['selectSurface', [$workspaceRef, $surfaceRef]];
 		return true;
 	}
+	/** What renameSurface() answers. */
+	public bool $renameOk = true;
+
+	public function renameSurface(string $workspaceRef, string $surfaceRef, string $title): bool {
+		$this->calls[] = ['renameSurface', [$workspaceRef, $surfaceRef, $title]];
+		return $this->renameOk;
+	}
 	public function paneRefForSurface(string $workspaceRef, string $surfaceRef): ?string { return $surfaceRef; }
 
 	public function closeWorkspace(string $workspaceRef): array {

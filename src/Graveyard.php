@@ -624,6 +624,9 @@ class Graveyard {
 			$tomb['home_index_in_pane'] = $session['home_index_in_pane'] ?? null;
 		}
 		if (!empty($session['window_ref'])) { $tomb['window_ref'] = $session['window_ref']; }
+		// Only a name the user pinned (dotfiles-76xl). tab_title above is whatever the tab
+		// showed, usually the agent's own title, which comes back by itself on resume.
+		if (!empty($session['pinned_title'])) { $tomb['pinned_title'] = (string) $session['pinned_title']; }
 
 		// ADDITIVE schema (dotfiles-51b): only non-claude tombstones gain keys, so every
 		// archive written before codex support — and every claude archive written after —
@@ -1713,6 +1716,7 @@ class Graveyard {
 			'workspace_ref'   => $wsRef,
 			'workspace_title' => $surface['workspace_title'] ?? '',
 			'tab_title'       => $surface['title'] ?? '',
+			'pinned_title'    => $surface['pinned_title'] ?? null,
 			'idle_seconds'    => $idleSeconds ?? (int) ($meta['idle_seconds'] ?? PHP_INT_MAX),
 			'targetable'      => true,
 			'reason'          => 'bound via /status probe',
@@ -4455,6 +4459,13 @@ class Graveyard {
 		// single, in-place and workspace-member resurrects cannot drift apart — this is
 		// the one path all three take.
 		if ($warn = $this->agentOptsUnknownWarning($t)) { $this->cli->msg($warn, 'yellow'); }
+
+		// Here, not at each create site, so single, in-place and workspace-member
+		// resurrects all restore the name the same way.
+		$pinned = (string) ($t['pinned_title'] ?? '');
+		if ($pinned !== '' && !$this->transport->renameSurface($wsRef, $surfRef, $pinned)) {
+			$this->cli->msg("  Could not restore the tab name \"{$pinned}\".", 'yellow');
+		}
 
 		if ($useResume) {
 			$launch = $this->buildTombstoneLaunch($t, false);

@@ -242,6 +242,39 @@ SH;
 		$this->assertSame('review pane', $this->transport()->surfaces('wB')[1]['title']);
 	}
 
+	/**
+	 * tab_title flattens label and terminal title, so it cannot tell resurrect whether
+	 * there is a name to put back. pinned_title is the label alone, and an unlabelled
+	 * pane reports null: renaming it would freeze the agent's live title (dotfiles-76xl).
+	 */
+	public function testPinnedTitleIsThePaneLabelAloneInBothRowShapes(): void
+	{
+		$this->withSnapshot(function (array &$snap) {
+			$this->paneById($snap, 'wA:p1')['label'] = 'testing wake up cron';
+		});
+
+		$live = $this->transport()->liveSessions();
+		$this->assertSame('testing wake up cron', $this->rowFor($live, self::CLAUDE_A)['pinned_title']);
+		$this->assertNull($this->rowFor($live, self::CLAUDE_B)['pinned_title'], 'unlabelled pane: nothing pinned');
+
+		$surfaces = $this->transport()->surfaces('wA');
+		$this->assertSame('testing wake up cron', $surfaces[0]['pinned_title']);
+		$this->assertNull($this->transport()->surfaces('wB')[1]['pinned_title']);
+	}
+
+	public function testRenameSurfaceSetsThePaneLabel(): void
+	{
+		$this->assertTrue($this->transport()->renameSurface('wA', 'wA:p1', 'testing wake up cron'));
+		$this->assertSame('pane rename wA:p1 testing wake up cron', $this->loggedArgv());
+	}
+
+	public function testRenameSurfaceReportsAFailedRename(): void
+	{
+		file_put_contents($this->stubDir . '/herdr-stub', "#!/bin/sh\nexit 1\n");
+
+		$this->assertFalse($this->transport()->renameSurface('wA', 'wA:p1', 'x'));
+	}
+
 	/** No label on the workspace: the id is what herdr's own UI falls back to. */
 	public function testWorkspaceTitleFallsBackToTheWorkspaceId(): void
 	{

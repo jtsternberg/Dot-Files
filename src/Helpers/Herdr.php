@@ -123,6 +123,15 @@ class Herdr {
 		return $id === '' ? null : (string) $id;
 	}
 
+	public function paneRename(string $paneId, string $label): bool {
+		try {
+			$this->callOk(['pane', 'rename', $paneId, $label]);
+		} catch (RuntimeException $e) {
+			return false;
+		}
+		return true;
+	}
+
 	public function paneClose(string $paneId): void {
 		$this->callOk(['pane', 'close', $paneId]);
 	}

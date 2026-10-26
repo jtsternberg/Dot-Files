@@ -130,7 +130,9 @@ ambiguous the CLI lists the candidates — pick with him (or narrow the phrase),
 never guess. `graveyard resurrect --workspace <group>` for a whole buried
 workspace; `graveyard ls` prints each group's exact `resurrect --workspace`
 line. Resurrecting rebuilds a workspace in the target multiplexer and resumes
-the recorded agent, so confirm before running it — and if the target is herdr,
+the recorded agent, so confirm before running it. A tab JT renamed by hand (a
+cmux tab rename, a herdr pane label) gets that name back; any other tab is left
+to the agent's own live title, so its activity glyph keeps working. And if the target is herdr,
 read out the losses it prints before accepting them. When the native session
 file is gone (or `--from-transcript` is given), resurrect starts a fresh agent
 whose first prompt invokes the `graveyard-pickup` skill on the archived

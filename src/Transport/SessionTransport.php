@@ -43,9 +43,13 @@ interface SessionTransport
 	 *   surface_ref:string, surface_id:string, workspace_ref:string,
 	 *   window_ref:?string, pane_ref:?string, home_workspace_id:?string,
 	 *   home_pane_id:?string, home_index_in_pane:?int, workspace_title:string,
-	 *   tab_title:string, idle_seconds:int, targetable:bool, reason:?string,
-	 *   no_bridge:bool
+	 *   tab_title:string, pinned_title:?string, idle_seconds:int, targetable:bool,
+	 *   reason:?string, no_bridge:bool
 	 * }>
+	 *
+	 * `tab_title` is what the tab shows; `pinned_title` is a name the user gave it
+	 * (cmux tab rename, herdr pane label), else null. Only the latter is restored on
+	 * resurrect — see renameSurface().
 	 */
 	public function liveSessions(): array;
 
@@ -82,7 +86,8 @@ interface SessionTransport
 	 *   pane_id:?string, selected_in_pane:bool, surface_ref:string,
 	 *   surface_id:string, workspace_ref:string, workspace_id:?string,
 	 *   workspace_title:string,
-	 *   window_ref:?string, type:string, title:string, url:?string, tty:?string,
+	 *   window_ref:?string, type:string, title:string, pinned_title:?string,
+	 *   url:?string, tty:?string,
 	 *   cwd:?string, script:?string, session_id:?string, agent:?string, pid:?int,
 	 *   targetable:bool, reason:?string}>
 	 */
@@ -133,6 +138,14 @@ interface SessionTransport
 	public function newSplit(string $workspaceRef, string $fromSurfaceRef, string $direction): ?string;
 	public function selectSurface(string $workspaceRef, string $surfaceRef): bool;
 	public function paneRefForSurface(string $workspaceRef, string $surfaceRef): ?string;
+
+	/**
+	 * Give a surface the name the user had pinned on it before bury. False when the
+	 * rename failed. Callers pass only a `pinned_title`, never a displayed title: a
+	 * cmux rename freezes the agent's live terminal title (and its activity glyph)
+	 * until cleared, so naming every resurrected tab would kill that indicator.
+	 */
+	public function renameSurface(string $workspaceRef, string $surfaceRef, string $title): bool;
 
 	// --- teardown. Both return the ['output','error','exitCode'] command result. ---
 

@@ -68,6 +68,7 @@ final class NullTransport implements SessionTransport
 	public function sendText(string $surfaceRef, string $workspaceRef, string $text): void { $this->unavailable(__FUNCTION__); }
 	public function sendKey(string $surfaceRef, string $workspaceRef, string $key): void { $this->unavailable(__FUNCTION__); }
 	public function selectSurface(string $workspaceRef, string $surfaceRef): bool { $this->unavailable(__FUNCTION__); }
+	public function renameSurface(string $workspaceRef, string $surfaceRef, string $title): bool { $this->unavailable(__FUNCTION__); }
 	public function newSurface(string $workspaceRef, ?string $paneRef, string $type, ?string $command): ?string { $this->unavailable(__FUNCTION__); }
 	public function newSplit(string $workspaceRef, string $fromSurfaceRef, string $direction): ?string { $this->unavailable(__FUNCTION__); }
 	public function newWorkspace(string $title, ?string $cwd, ?string $windowRef = null): ?array { $this->unavailable(__FUNCTION__); }

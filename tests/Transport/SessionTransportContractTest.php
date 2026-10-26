@@ -25,8 +25,8 @@ final class SessionTransportContractTest extends TestCase
 		'transport', 'session_id', 'agent', 'cwd', 'model', 'skip_perms', 'opts',
 		'pid', 'tty', 'surface_ref', 'surface_id', 'home_workspace_id', 'home_pane_id',
 		'pane_ref', 'home_index_in_pane', 'workspace_ref', 'window_ref',
-		'workspace_title', 'tab_title', 'idle_seconds', 'targetable', 'reason',
-		'no_bridge',
+		'workspace_title', 'tab_title', 'pinned_title', 'idle_seconds', 'targetable',
+		'reason', 'no_bridge',
 	];
 
 	/** surfaces()' row keys, in order. Same reasoning. */
@@ -34,7 +34,7 @@ final class SessionTransportContractTest extends TestCase
 		'position', 'pane_index', 'pane_ref', 'pane_id', 'selected_in_pane',
 		'surface_ref', 'surface_id', 'workspace_ref', 'workspace_id', 'workspace_title',
 		'window_ref',
-		'type', 'title', 'url', 'tty', 'cwd', 'script',
+		'type', 'title', 'pinned_title', 'url', 'tty', 'cwd', 'script',
 		'session_id', 'agent', 'pid', 'targetable', 'reason',
 	];
 
@@ -253,6 +253,7 @@ final class SessionTransportContractTest extends TestCase
 		$calls = [
 			fn() => $t->sendKey('s1', 'w1', 'Return'),
 			fn() => $t->selectSurface('w1', 's1'),
+			fn() => $t->renameSurface('w1', 's1', 'name'),
 			fn() => $t->newSurface('w1', null, 'terminal', null),
 			fn() => $t->newSplit('w1', 's1', 'right'),
 			fn() => $t->newWorkspace('t', null),

@@ -64,7 +64,7 @@ class CmuxTransport implements SessionTransport
 		);
 
 		// Tree supplies stable surface UUID + workspace/surface titles, keyed by ref.
-		$treeIx = $this->treeIndex($tree);
+		$treeIx = $this->treeIndex($tree, $this->cmux->pinnedTitles());
 		$now    = time();
 		$out    = [];
 
@@ -125,6 +125,7 @@ class CmuxTransport implements SessionTransport
 			'window_ref'      => $treeIx['workspace_window'][$j['workspace_ref']] ?? null,
 			'workspace_title' => $treeIx['workspace'][$j['workspace_ref']] ?? '',
 			'tab_title'       => $treeIx['surface'][$ref]['title'] ?? $j['title'],
+			'pinned_title'    => $treeIx['surface'][$ref]['pinned_title'] ?? null,
 			'idle_seconds'    => $idle,
 			'targetable'      => $j['targetable'],
 			'reason'          => $j['reason'],
@@ -143,6 +144,7 @@ class CmuxTransport implements SessionTransport
 		$debug = $this->cmux->parseDebugTerminals($this->cmux->debugTerminals());
 		$uuids = $this->cmux->mapSurfaceUuids($tree);
 		$bound = $this->surfaceBindings($debug, $uuids);
+		$pinned = $this->cmux->pinnedTitles();
 
 		$out = [];
 		foreach ($tree['windows'] ?? [] as $window) {
@@ -168,6 +170,7 @@ class CmuxTransport implements SessionTransport
 							'window_ref'       => $windowRef,
 							'type'             => (string) ($surf['type'] ?? 'terminal'),
 							'title'            => (string) ($surf['title'] ?? ''),
+							'pinned_title'     => $pinned[strtoupper((string) ($surf['id'] ?? ''))] ?? null,
 							'url'              => $surf['url'] ?? null,
 							// debug-terminals is the tty bury's cwd probe has always used;
 							// the tree's own tty is the fallback for a surface it omits.
@@ -245,8 +248,9 @@ class CmuxTransport implements SessionTransport
 	/**
 	 * PURE. Index a cmux tree for ref-keyed lookups:
 	 *   ['surface' => [surface_ref => ['id','title']], 'workspace' => [workspace_ref => title]].
+	 * $pinnedTitles is Cmux::pinnedTitles(), joined onto each surface by UUID.
 	 */
-	public function treeIndex(array $tree): array {
+	public function treeIndex(array $tree, array $pinnedTitles = []): array {
 		$ix = ['surface' => [], 'workspace' => [], 'workspace_window' => []];
 		foreach ($tree['windows'] ?? [] as $window) {
 			$windowRef = $window['ref'] ?? null;
@@ -261,6 +265,7 @@ class CmuxTransport implements SessionTransport
 						$ix['surface'][$ref] = [
 							'id'    => $surf['id'] ?? $ref,
 							'title' => $surf['title'] ?? '',
+							'pinned_title' => $pinnedTitles[strtoupper((string) ($surf['id'] ?? ''))] ?? null,
 							// Where this tab lives, by UUID, so a tombstone can be resurrected
 							// back into it. Refs are positional and get reassigned, so they are
 							// useless for something read back minutes or days later.
@@ -323,6 +328,7 @@ class CmuxTransport implements SessionTransport
 			$rows[$i]['workspace_ref']   = $wref;
 			$rows[$i]['workspace_title'] = $treeIx['workspace'][$wref] ?? '';
 			$rows[$i]['tab_title']       = $treeIx['surface'][$ref]['title'] ?? '';
+			$rows[$i]['pinned_title']    = $treeIx['surface'][$ref]['pinned_title'] ?? null;
 			$rows[$i]['tty']             = $unbound[$ref]['tty'] ?? '';
 			$rows[$i]['targetable']      = true;
 			$rows[$i]['reason']          = 'bound via content-probe (fresh session)';
@@ -399,6 +405,10 @@ class CmuxTransport implements SessionTransport
 
 	public function selectSurface(string $workspaceRef, string $surfaceRef): bool {
 		return $this->cmux->selectSurface($workspaceRef, $surfaceRef);
+	}
+
+	public function renameSurface(string $workspaceRef, string $surfaceRef, string $title): bool {
+		return $this->cmux->renameTab($workspaceRef, $surfaceRef, $title);
 	}
 
 	public function paneRefForSurface(string $workspaceRef, string $surfaceRef): ?string {
