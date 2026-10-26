@@ -182,7 +182,7 @@ class HerdrTransport implements SessionTransport
 					// herdr panes are terminals only — this is the F5 gap that
 					// supportsNonTerminalSurfaces() reports.
 					'type'             => 'terminal',
-					'title'            => (string) ($pane['terminal_title_stripped'] ?? ''),
+					'title'            => $this->paneTitle($snap, $paneId, $pane),
 					'url'              => null,
 					// See the row builder: never a tty.
 					'tty'              => null,
@@ -289,7 +289,7 @@ class HerdrTransport implements SessionTransport
 				'pane_id'      => $paneId,
 				'workspace_id' => (string) ($agent['workspace_id'] ?? ''),
 				'tab_id'       => $agent['tab_id'] ?? null,
-				'title'        => (string) ($agent['terminal_title_stripped'] ?? ''),
+				'title'        => $this->paneTitle($snap, $paneId, $agent),
 				'pid'          => $proc['pid'],
 				'model'        => $this->resolveModel($kind, $sid, $cwd, $proc),
 				'skip_perms'   => $this->resolveSkipPerms($kind, $sid, $cwd, $proc),
@@ -422,6 +422,22 @@ class HerdrTransport implements SessionTransport
 	# =========================================================================
 	# Describe / resolve.
 	# =========================================================================
+
+	/**
+	 * A pane's herdr label, else the agent's stripped terminal title. The label is JT's
+	 * own name for the pane (cmux's renamed tab title), and it lives on panes[] only,
+	 * so an agents[] entry has to look its pane up.
+	 */
+	protected function paneTitle(array $snap, string $paneId, array $node): string {
+		foreach ($snap['panes'] ?? [] as $pane) {
+			if ((string) ($pane['pane_id'] ?? '') === $paneId) {
+				$label = (string) ($pane['label'] ?? '');
+				if ($label !== '') { return $label; }
+				break;
+			}
+		}
+		return (string) ($node['terminal_title_stripped'] ?? '');
+	}
 
 	/** A workspace's herdr label, falling back to its id (which is what the UI shows). */
 	protected function workspaceTitle(array $snap, string $wsId): string {

@@ -92,6 +92,14 @@ SH;
 		file_put_contents($this->stubDir . '/snapshot.json', (string) json_encode($data));
 	}
 
+	private function &paneById(array &$snap, string $paneId): array
+	{
+		foreach ($snap['panes'] as &$pane) {
+			if ($pane['pane_id'] === $paneId) { return $pane; }
+		}
+		throw new \LogicException("fixture has no pane {$paneId}");
+	}
+
 	private function write(string $name, string $body): void
 	{
 		file_put_contents($this->stubDir . '/' . $name, $body);
@@ -209,6 +217,29 @@ SH;
 
 		$this->assertSame('alpha', $row['workspace_title']);
 		$this->assertSame('Alpha refactor', $row['tab_title']);
+	}
+
+	/**
+	 * A herdr pane label is JT's own name for the pane, the counterpart of a renamed cmux
+	 * tab, so it beats the agent's auto terminal title. It lives on panes[] only; the
+	 * agents[] entry never carries it.
+	 */
+	public function testLiveSessionsTabTitlePrefersThePaneLabel(): void
+	{
+		$this->withSnapshot(function (array &$snap) {
+			$this->paneById($snap, 'wA:p1')['label'] = 'testing wake up cron';
+		});
+
+		$this->assertSame('testing wake up cron', $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A)['tab_title']);
+	}
+
+	public function testSurfacesTitlePrefersThePaneLabel(): void
+	{
+		$this->withSnapshot(function (array &$snap) {
+			$this->paneById($snap, 'wB:p2')['label'] = 'review pane';
+		});
+
+		$this->assertSame('review pane', $this->transport()->surfaces('wB')[1]['title']);
 	}
 
 	/** No label on the workspace: the id is what herdr's own UI falls back to. */
