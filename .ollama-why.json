@@ -98,6 +98,16 @@
             ],
             "location": "external"
         },
+        "ollama:phonon": {
+            "when": "Local text-to-speech (TTS), English, 37 named voices + default. Ollama >=0.40.9. CLI plays via afplay or writes WAV when redirected; API: /v1/audio/speech. Not ASR \u2014 use MacWhisper for transcription.",
+            "speed": "~0.2s for 7.8s of 24kHz mono audio via API (warm, M2 Max)",
+            "tested": "2026-10-25: CLI + API + voice Zoey OK; :en tag only has 'default' voice, so use :latest",
+            "tags": [
+                "tts",
+                "speech",
+                "audio"
+            ]
+        },
         "ollama:qwen2.5-coder:1.5b": {
             "when": "Cron: rename-claude-sessions title generator. Tiny, 152 tok/s.",
             "speed": "152 tok/s GGUF (best prompt-eval: 276 tok/s)",
