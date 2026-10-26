@@ -136,6 +136,24 @@ final class HerdrTest extends TestCase
 		$this->assertFalse($this->herdr()->available());
 	}
 
+	public function testAvailableIsTrueForHerdr093SplitCompatibilityMarkers(): void
+	{
+		$this->stubHerdr("printf '%s\\n' 'server:' '  status: running' '  endpoint_compatible: yes' '  private_protocol: 22' '  private_protocol_compatible: yes'");
+		$this->assertTrue($this->herdr()->available());
+	}
+
+	public function testAvailableIsFalseWhenAnySplitCompatibilityMarkerIsNo(): void
+	{
+		$this->stubHerdr("printf '%s\\n' 'server:' '  status: running' '  endpoint_compatible: yes' '  private_protocol_compatible: no'");
+		$this->assertFalse($this->herdr()->available());
+	}
+
+	public function testAvailableIsFalseWithNoCompatibilityMarker(): void
+	{
+		$this->stubHerdr("printf '%s\\n' 'server:' '  status: running'");
+		$this->assertFalse($this->herdr()->available());
+	}
+
 	public function testAvailableIsFalseAndDoesNotThrowWhenHerdrIsAbsent(): void
 	{
 		putenv('HERDR_BIN=' . $this->graveyardRoot . '/no-such-herdr');

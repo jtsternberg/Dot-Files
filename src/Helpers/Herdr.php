@@ -61,8 +61,15 @@ class Herdr {
 			return false;
 		}
 		$out = $res['output'];
-		return (bool) preg_match('/^\s*status:\s*running\b/m', $out)
-			&& (bool) preg_match('/^\s*compatible:\s*yes\b/m', $out);
+		if (!preg_match('/^\s*status:\s*running\b/m', $out)) {
+			return false;
+		}
+		// Pre-0.9.3 prints one `compatible:` line; 0.9.3+ splits it into
+		// `endpoint_compatible:` and `private_protocol_compatible:`. Every one present must say yes.
+		if (!preg_match_all('/^\s*(?:\w+_)?compatible:\s*(\S+)/m', $out, $m)) {
+			return false;
+		}
+		return $m[1] === array_fill(0, count($m[1]), 'yes');
 	}
 
 	/** Whole-session state: agents, panes, tabs, workspaces, layouts. */
