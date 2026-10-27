@@ -283,8 +283,20 @@ fpath=(~/.buddy-cli/completions $fpath)
 
 source $ZSH/oh-my-zsh.sh
 
-# Override composer plugin's 'c' alias
-alias c='claude --dangerously-skip-permissions'
+# Override composer plugin's 'c' alias. A function, not an alias, so it can refuse
+# to launch from ~ or ~/Downloads, where a planted CLAUDE.md/AGENTS.md, hook, or
+# .mcp.json would be auto-loaded. Checked here because it must run before claude
+# reads anything. CLAUDE_ALLOW_UNSAFE_DIR=1 overrides.
+unalias c 2>/dev/null
+c() {
+	local here=$(pwd -P) home=${HOME:A} downloads=$HOME/Downloads
+	downloads=${downloads:A}
+	if [[ $CLAUDE_ALLOW_UNSAFE_DIR != 1 ]] && [[ $here == $home || $here == $downloads || $here == $downloads/* ]]; then
+		print -u2 "c: refusing to launch claude in $here (home/Downloads may hold planted agent config); cd elsewhere or set CLAUDE_ALLOW_UNSAFE_DIR=1"
+		return 1
+	fi
+	claude --dangerously-skip-permissions "$@"
+}
 
 # https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
