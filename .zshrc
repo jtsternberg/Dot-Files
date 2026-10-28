@@ -66,6 +66,22 @@ alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'
 alias vinedaily="cd ~/Code/vine-daily-log && npm run daily && say 'vine daily opened'"
 
 # Claude Code...
+# Refuse to launch from ~ or ~/Downloads, where a planted CLAUDE.md/AGENTS.md, hook,
+# or .mcp.json would be auto-loaded. Checked in the shell because it must run before
+# claude reads anything. Every launcher alias below expands to `claude`, so this one
+# wrapper guards them all; exemptions call `command claude`. CLAUDE_ALLOW_UNSAFE_DIR=1 overrides.
+_claude_dir_guard() {
+	local here=$(pwd -P) home=${HOME:A} downloads=$HOME/Downloads
+	downloads=${downloads:A}
+	if [[ $CLAUDE_ALLOW_UNSAFE_DIR != 1 ]] && [[ $here == $home || $here == $downloads || $here == $downloads/* ]]; then
+		print -u2 "claude: refusing to launch in $here (home/Downloads may hold planted agent config); cd elsewhere or set CLAUDE_ALLOW_UNSAFE_DIR=1"
+		return 1
+	fi
+}
+claude() {
+	_claude_dir_guard || return
+	command claude "$@"
+}
 alias ch='claude --chrome'
 alias yolo='claude --dangerously-skip-permissions'
 alias fable='claude --dangerously-skip-permissions --model fable'
@@ -78,9 +94,9 @@ alias claudecatchup='claude "/catchup"'
 alias claudecreatepr='claude "/create-pr"'
 alias claudecreateissue='claude "/create-github-issue"'
 alias claudecommitstaged='claude --model sonnet "/commit-staged"'
-alias weeklylog='goto monorepo && claude --dangerously-skip-permissions "/weeklylog"'
+alias weeklylog='goto monorepo && command claude --dangerously-skip-permissions "/weeklylog"'
 # Cheapest possible headless ping to start the 5hr usage-window clock (see cron: crontab -l).
-alias claudeping='claude -p "hello" --model haiku --safe-mode --tools "" --no-session-persistence --dangerously-skip-permissions --max-budget-usd 0.01'
+alias claudeping='command claude -p "hello" --model haiku --safe-mode --tools "" --no-session-persistence --dangerously-skip-permissions --max-budget-usd 0.01'
 alias agyolo='agy --dangerously-skip-permissions'
 alias claudecommitsig='sed -n '\''s/^AUTO_COMMIT_CLAUDE_SIGNATURE="\(.*\)"$/\1/p'\'' ~/.config/ai-tooling/config 2>/dev/null || true'
 # The board writes only to the log, never to this terminal: a pipe to `tee` here
@@ -283,20 +299,8 @@ fpath=(~/.buddy-cli/completions $fpath)
 
 source $ZSH/oh-my-zsh.sh
 
-# Override composer plugin's 'c' alias. A function, not an alias, so it can refuse
-# to launch from ~ or ~/Downloads, where a planted CLAUDE.md/AGENTS.md, hook, or
-# .mcp.json would be auto-loaded. Checked here because it must run before claude
-# reads anything. CLAUDE_ALLOW_UNSAFE_DIR=1 overrides.
-unalias c 2>/dev/null
-c() {
-	local here=$(pwd -P) home=${HOME:A} downloads=$HOME/Downloads
-	downloads=${downloads:A}
-	if [[ $CLAUDE_ALLOW_UNSAFE_DIR != 1 ]] && [[ $here == $home || $here == $downloads || $here == $downloads/* ]]; then
-		print -u2 "c: refusing to launch claude in $here (home/Downloads may hold planted agent config); cd elsewhere or set CLAUDE_ALLOW_UNSAFE_DIR=1"
-		return 1
-	fi
-	claude --dangerously-skip-permissions "$@"
-}
+# Override composer plugin's 'c' alias
+alias c='claude --dangerously-skip-permissions'
 
 # https://github.com/zsh-users/zsh-autosuggestions#disabling-suggestion-for-large-buffers
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
