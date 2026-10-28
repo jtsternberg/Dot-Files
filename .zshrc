@@ -70,16 +70,15 @@ alias vinedaily="cd ~/Code/vine-daily-log && npm run daily && say 'vine daily op
 # or .mcp.json would be auto-loaded. Checked in the shell because it must run before
 # claude reads anything. Every launcher alias below expands to `claude`, so this one
 # wrapper guards them all; exemptions call `command claude`. CLAUDE_ALLOW_UNSAFE_DIR=1 overrides.
-_claude_dir_guard() {
+# The check lives inside claude() rather than a helper: Claude Code's shell snapshot
+# drops _-prefixed functions, so a helper call fails "command not found" in agent shells.
+claude() {
 	local here=$(pwd -P) home=${HOME:A} downloads=$HOME/Downloads
 	downloads=${downloads:A}
 	if [[ $CLAUDE_ALLOW_UNSAFE_DIR != 1 ]] && [[ $here == $home || $here == $downloads || $here == $downloads/* ]]; then
 		print -u2 "claude: refusing to launch in $here (home/Downloads may hold planted agent config); cd elsewhere or set CLAUDE_ALLOW_UNSAFE_DIR=1"
 		return 1
 	fi
-}
-claude() {
-	_claude_dir_guard || return
 	command claude "$@"
 }
 alias ch='claude --chrome'
