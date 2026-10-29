@@ -32,7 +32,9 @@ final class FromQrCommand {
 		#[Option( description: 'Require a TOTP authenticator setup QR and print its current 2FA code.' )]
 		bool $totp = false,
 		#[Option( description: 'Print the original QR payload, including otpauth URIs, without conversion.' )]
-		bool $raw = false
+		bool $raw = false,
+		#[Option( description: 'Copy the result to the system clipboard.' )]
+		bool $copy = false
 	): int {
 		$field = 'text';
 		if ( $totp && $raw ) {
@@ -53,6 +55,25 @@ final class FromQrCommand {
 			}
 		}
 		$failed = null !== $result['error'];
+
+		if ( ! $failed && $copy ) {
+			$clipboard = PHP_OS_FAMILY === 'Darwin' ? 'pbcopy' : ( getenv( 'WAYLAND_DISPLAY' ) ? 'wl-copy' : 'xclip' );
+			$process = @proc_open( [ $clipboard, ...( 'xclip' === $clipboard ? [ '-selection', 'clipboard' ] : [] ) ], [ 0 => [ 'pipe', 'r' ], 1 => [ 'pipe', 'w' ], 2 => [ 'pipe', 'w' ] ], $pipes );
+			if ( ! is_resource( $process ) ) {
+				$result = [ 'text' => null, 'error' => "Clipboard tool unavailable: {$clipboard}", 'error_type' => 'clipboard' ];
+				$failed = true;
+			} else {
+				fwrite( $pipes[0], $result['text'] );
+				fclose( $pipes[0] );
+				fclose( $pipes[1] );
+				$error = stream_get_contents( $pipes[2] );
+				fclose( $pipes[2] );
+				if ( 0 !== proc_close( $process ) ) {
+					$result = [ 'text' => null, 'error' => 'Could not copy to clipboard.' . ( $error ? ' ' . trim( $error ) : '' ), 'error_type' => 'clipboard' ];
+					$failed = true;
+				}
+			}
+		}
 
 		if ( $json ) {
 			$this->cli->output( json_encode(

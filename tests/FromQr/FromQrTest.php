@@ -111,6 +111,32 @@ final class FromQrTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->dir . '/args' );
 	}
 
+	public function testCopyWorksBeforeOrAfterImagePath(): void {
+		$stub = $this->dir . '/pbcopy';
+		file_put_contents( $stub, "#!/bin/sh\ncat > " . escapeshellarg( $this->dir . '/clipboard' ) . "\n" );
+		chmod( $stub, 0755 );
+		putenv( 'PATH=' . $this->dir . ':' . getenv( 'PATH' ) );
+		foreach ( [ [ '--copy', $this->dir . '/image with spaces.png' ], [ $this->dir . '/image with spaces.png', '--copy' ] ] as $args ) {
+			[ $code, $output ] = $this->dispatch( $args, $this->decoder( "copied value\n" ) );
+			$this->assertSame( 0, $code );
+			$this->assertSame( 'copied value', file_get_contents( $this->dir . '/clipboard' ) );
+		}
+		putenv( 'PATH=' . getenv( 'PATH' ) );
+	}
+
+	public function testCopyWorksWithJsonOutputAndCopiesOnlyTheResult(): void {
+		$stub = $this->dir . '/pbcopy';
+		file_put_contents( $stub, "#!/bin/sh\ncat > " . escapeshellarg( $this->dir . '/clipboard' ) . "\n" );
+		chmod( $stub, 0755 );
+		$oldPath = getenv( 'PATH' );
+		putenv( 'PATH=' . $this->dir . ':' . $oldPath );
+		[ $code, $output ] = $this->dispatch( [ '--copy', $this->dir . '/image with spaces.png', '--json' ], $this->decoder( "copy me\n" ) );
+		putenv( 'PATH=' . $oldPath );
+		$this->assertSame( 0, $code );
+		$this->assertSame( [ 'text' => 'copy me' ], json_decode( $output, true ) );
+		$this->assertSame( 'copy me', file_get_contents( $this->dir . '/clipboard' ) );
+	}
+
 	public function testMissingImageDoesNotRunDecoder(): void {
 		$result = $this->decoder()->decode( $this->dir . '/missing.png' );
 		$this->assertSame( 'input', $result['error_type'] );
