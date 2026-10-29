@@ -255,6 +255,27 @@ _auto_commit_ollama_lazy() {
 	_auto_commit_ollama "$@"
 }
 
+_from_qr_lazy() {
+	local generated
+
+	generated="$(command from-qr completion zsh 2>/dev/null)" || {
+		_message 'unable to generate from-qr completion'
+		return 1
+	}
+
+	eval "$generated" || {
+		_message 'unable to load from-qr completion'
+		return 1
+	}
+
+	if (( ! $+functions[_from_qr] )); then
+		_message 'from-qr completion did not define _from_qr'
+		return 1
+	fi
+
+	_from_qr "$@"
+}
+
 _to_text_lazy() {
 	local generated
 
@@ -488,6 +509,7 @@ compdef _auto_commit_ollama_lazy auto-commit-ollama
 compdef _local_llm_summarize_lazy local-llm-summarize
 compdef _local_review_lazy local-review
 compdef _to_text_lazy to-text
+compdef _from_qr_lazy from-qr
 compdef _herdr_lazy herdr
 compdef _claudeping_install_lazy claudeping-install
 compdef _op_lazy op
