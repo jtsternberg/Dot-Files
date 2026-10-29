@@ -5,14 +5,16 @@ namespace JT;
 # Print the value encoded in a QR code image.
 # By Justin Sternberg <me@jtsternberg.com>
 #
-# Version 0.1.0
+# Version 0.2.0
 #
 # Decodes locally with ZBar; prints payloads without labels for piping.
 # Multiple QR values are separated by newlines. Exits 1 on failure or no QR.
+# Authenticator setup QR codes automatically print the current TOTP code.
+# Use --raw for the original payload, or --totp to require a TOTP setup QR.
 # Install: brew install zbar (macOS) / sudo apt install zbar-tools (Ubuntu).
 #
 # Usage:
-# from-qr <image> [--json]
+# from-qr <image> [--json] [--totp | --raw]
 # from-qr shot.png | pbcopy
 # from-qr --help
 # from-qr completion zsh

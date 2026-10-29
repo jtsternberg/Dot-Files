@@ -4,6 +4,7 @@ namespace JT\Tests\FromQr;
 use JT\CLI\Command\Dispatcher;
 use JT\FromQrCommand;
 use JT\QrDecoder;
+use JT\Totp;
 use JT\Tests\TestCase;
 
 final class FromQrTest extends TestCase {
@@ -39,7 +40,7 @@ final class FromQrTest extends TestCase {
 	private function dispatch( array $args, QrDecoder $decoder ): array {
 		$this->cli->setArgs( array_merge( [ 'from-qr' ], $args ) );
 		ob_start();
-		$code = ( new Dispatcher( $this->cli, new FromQrCommand( $this->cli, $decoder ) ) )->run();
+		$code = ( new Dispatcher( $this->cli, new FromQrCommand( $this->cli, $decoder, new Totp( static fn() => 59 ) ) ) )->run();
 
 		return [ $code, (string) ob_get_clean() ];
 	}
@@ -63,6 +64,51 @@ final class FromQrTest extends TestCase {
 		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--json' ], $this->decoder( "WIFI:T:WPA;S:test;P:sample;;\n" ) );
 		$this->assertSame( 0, $code );
 		$this->assertSame( [ 'text' => 'WIFI:T:WPA;S:test;P:sample;;' ], json_decode( $output, true ) );
+	}
+
+	public function testAuthenticatorQrAutomaticallyPrintsCurrentCode(): void {
+		$uri = 'otpauth://totp/Example:test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png' ], $this->decoder( $uri . "\n" ) );
+		$this->assertSame( 0, $code );
+		$this->assertSame( "287082\n", $output );
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--totp', '--json' ], $this->decoder( $uri . "\n" ) );
+		$this->assertSame( 0, $code );
+		$this->assertSame( [ 'code' => '287082' ], json_decode( $output, true ) );
+	}
+
+	public function testRawKeepsOriginalAuthenticatorPayload(): void {
+		$uri = 'otpauth://totp/Example:test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--raw', '--json' ], $this->decoder( $uri . "\n" ) );
+		$this->assertSame( 0, $code );
+		$this->assertSame( [ 'text' => $uri ], json_decode( $output, true ) );
+	}
+
+	public function testForcedTotpRejectsOrdinaryQr(): void {
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--totp', '--json' ], $this->decoder() );
+		$this->assertSame( 1, $code );
+		$this->assertSame( 'totp', json_decode( $output, true )['error_type'] );
+	}
+
+	public function testMalformedAuthenticatorIsNotPrinted(): void {
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--json' ], $this->decoder( "otpauth://totp/test?secret=INVALID!\n" ) );
+		$this->assertSame( 1, $code );
+		$this->assertSame( 'totp', json_decode( $output, true )['error_type'] );
+		$this->assertStringNotContainsString( 'INVALID!', $output );
+	}
+
+	public function testMixedQrResultsRequireRawMode(): void {
+		$payload = "https://example.com/\notpauth://totp/test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n";
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--json' ], $this->decoder( $payload ) );
+		$this->assertSame( 1, $code );
+		$this->assertSame( 'totp', json_decode( $output, true )['error_type'] );
+		$this->assertStringNotContainsString( 'secret=', $output );
+	}
+
+	public function testRawAndTotpCannotBeCombined(): void {
+		[ $code, $output ] = $this->dispatch( [ $this->dir . '/image with spaces.png', '--totp', '--raw', '--json' ], $this->decoder() );
+		$this->assertSame( 1, $code );
+		$this->assertSame( 'usage', json_decode( $output, true )['error_type'] );
+		$this->assertFileDoesNotExist( $this->dir . '/args' );
 	}
 
 	public function testMissingImageDoesNotRunDecoder(): void {
@@ -97,10 +143,14 @@ final class FromQrTest extends TestCase {
 		$this->assertSame( 0, $code );
 		$this->assertStringContainsString( 'from-qr', $help );
 		$this->assertStringContainsString( '--json', $help );
+		$this->assertStringContainsString( '--totp', $help );
+		$this->assertStringContainsString( '--raw', $help );
 		[ $code, $completion ] = $this->dispatch( [ 'completion', 'zsh' ], $decoder );
 		$this->assertSame( 0, $code );
 		$this->assertStringContainsString( 'compdef _from_qr from-qr', $completion );
 		$this->assertStringContainsString( '_files', $completion );
+		$this->assertStringContainsString( '--totp', $completion );
+		$this->assertStringContainsString( '--raw', $completion );
 		$this->assertFileDoesNotExist( $this->dir . '/args' );
 	}
 
