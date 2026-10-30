@@ -319,3 +319,11 @@ watch-md() {
 	fi
 	watchexec -w "$1" --clear -- glow "$1"
 }
+
+watch-bd() {
+	if [[ -z "$1" ]]; then
+		echo "Usage: watch-bd <issue-id>" >&2
+		return 1
+	fi
+	bd show --watch "$@"
+}
