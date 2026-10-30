@@ -1110,10 +1110,15 @@ class Graveyard {
 		$dir  = dirname($dest);
 		if (!is_dir($dir)) { mkdir($dir, 0755, true); }
 
-		// Copy to a temp name then rename, so a partially-copied rollout can never be
+		// The live file of a resumed session is only its newest segment; the archive is
+		// the whole history, or nothing.
+		$history = $this->artifacts->codexRolloutHistory($live);
+		if ($history === null || $history === '') { return false; }
+
+		// Write to a temp name then rename, so a partially-written rollout can never be
 		// mistaken for a complete archive by the gate that follows.
 		$tmp = $dest . '.tmp';
-		if (!@copy($live, $tmp) || filesize($tmp) === 0) {
+		if (@file_put_contents($tmp, $history) !== strlen($history)) {
 			@unlink($tmp);
 			return false;
 		}
@@ -1584,7 +1589,17 @@ class Graveyard {
 		// ones; the transport seam split them, and the null reader is what puts that
 		// guarantee back on a class instead of on a coincidence.
 		$live = $this->artifacts->codexRolloutPathFor($sessionId);
-		if ($live !== null && is_file($live)) { return $live; }
+		if ($live !== null && is_file($live)) {
+			if (!$this->artifacts->codexRolloutIsPaginated($live)) { return $live; }
+			// A resumed session's live file starts mid-conversation, so readers that want
+			// the opening prompt or every turn get the joined history instead.
+			$history = $this->artifacts->codexRolloutHistory($live);
+			if ($history !== null) {
+				$joined = sys_get_temp_dir() . "/graveyard-codex-history-{$sessionId}.jsonl";
+				if (@file_put_contents($joined, $history) === strlen($history)) { return $joined; }
+			}
+			return $live;
+		}
 		$archived = $this->codexRolloutArchivePath($sessionId);
 		return is_file($archived) ? $archived : '';
 	}

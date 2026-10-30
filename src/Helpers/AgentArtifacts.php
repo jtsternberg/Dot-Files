@@ -20,7 +20,7 @@ class AgentArtifacts {
 
 	const SESSIONS_DIR = '~/.claude/sessions';
 
-	/** Codex rollout transcripts live under <root>/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl. */
+	/** Codex rollout transcripts live under <root>/YYYY/MM/DD/rollout-<ts>-<uuid>[_<segment-uuid>].jsonl. */
 	const CODEX_SESSIONS_DIR = '~/.codex/sessions';
 
 	/**
@@ -182,9 +182,69 @@ class AgentArtifacts {
 	 * a bare uuid, and this is what audit's "resumable" check rests on.
 	 */
 	public function codexRolloutPathFor(string $sessionId): ?string {
-		if (!preg_match('/^[0-9a-fA-F-]{36}$/', $sessionId)) { return null; }
-		$hits = glob($this->codexSessionsDir() . "/*/*/*/rollout-*-{$sessionId}.jsonl") ?: [];
-		return $hits ? $hits[0] : null;
+		$segments = $this->codexRolloutSegmentsFor($sessionId);
+		return $segments ? $segments[count($segments) - 1] : null;
+	}
+
+	/**
+	 * Every rollout file of a codex session, oldest first. Codex 0.157+ resumes into a
+	 * new `<sessionId>_<segmentId>` file instead of appending, so one session can span
+	 * several; the newest holds the live tail (last activity, last turn_context). The
+	 * basename leads with the start timestamp, so it sorts chronologically.
+	 */
+	public function codexRolloutSegmentsFor(string $sessionId): array {
+		if (!preg_match('/^[0-9a-fA-F-]{36}$/', $sessionId)) { return []; }
+		$base = $this->codexSessionsDir() . "/*/*/*/rollout-*-{$sessionId}";
+		$hits = array_merge(glob("{$base}.jsonl") ?: [], glob("{$base}_*.jsonl") ?: []);
+		usort($hits, fn($a, $b) => strcmp(basename($a), basename($b)));
+		return $hits;
+	}
+
+	/** Does this rollout carry only the tail of its history (a resumed segment)? */
+	public function codexRolloutIsPaginated(string $path): bool {
+		return $this->codexHistoryBase($this->firstLine($path)) !== null;
+	}
+
+	/**
+	 * The session's whole history up to and including $path, as rollout bytes; null when
+	 * a base segment it depends on is missing or shorter than it claims.
+	 *
+	 * A paginated segment's history is the first `history_base.end_byte_offset` bytes of
+	 * the PREVIOUS segment, not all of it: turns rewound before the resume stay in that
+	 * file past the offset and are not part of the conversation. Recursive, because the
+	 * previous segment can itself be paginated.
+	 */
+	public function codexRolloutHistory(string $path, ?int $limit = null): ?string {
+		$content = @file_get_contents($path, false, null, 0, $limit);
+		if ($content === false || ($limit !== null && strlen($content) < $limit)) { return null; }
+
+		$hb = $this->codexHistoryBase(strtok($content, "\n") ?: '');
+		if ($hb === null) { return $content; }
+
+		$segments = $this->codexRolloutSegmentsFor($hb['thread_id']);
+		$at       = array_search($path, $segments, true);
+		if ($at === false || $at === 0) { return null; }
+
+		$prefix = $this->codexRolloutHistory($segments[$at - 1], $hb['end_byte_offset']);
+		return $prefix === null ? null : $prefix . $content;
+	}
+
+	/** @return ?array{thread_id: string, end_byte_offset: int} from a session_meta line. */
+	protected function codexHistoryBase(string $line): ?array {
+		$rec = json_decode($line, true);
+		$p   = is_array($rec) && ($rec['type'] ?? '') === 'session_meta' ? ($rec['payload'] ?? []) : [];
+		if (($p['history_mode'] ?? null) !== 'paginated') { return null; }
+		$tid = $p['history_base']['thread_id'] ?? null;
+		$off = $p['history_base']['end_byte_offset'] ?? null;
+		return is_string($tid) && is_int($off) ? ['thread_id' => $tid, 'end_byte_offset' => $off] : null;
+	}
+
+	protected function firstLine(string $path): string {
+		$fh = @fopen($path, 'rb');
+		if (!$fh) { return ''; }
+		$line = fgets($fh);
+		fclose($fh);
+		return $line === false ? '' : $line;
 	}
 
 	/**
@@ -257,7 +317,7 @@ class AgentArtifacts {
 
 	/** PURE. The session uuid embedded in a rollout filename, or null. */
 	public function rolloutUuidFromPath(string $path): ?string {
-		return preg_match('/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$/', $path, $m)
+		return preg_match('/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?\.jsonl$/', $path, $m)
 			? $m[1]
 			: null;
 	}
@@ -517,7 +577,7 @@ class AgentArtifacts {
 	 * SUBAGENT as the session. See ownRolloutPathFromLsof().
 	 */
 	public function parseLsofRolloutPaths(string $raw): array {
-		return preg_match_all('#(\S*/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-fA-F-]{36}\.jsonl)#', $raw, $m)
+		return preg_match_all('#(\S*/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-fA-F-]{36}(?:_[0-9a-fA-F-]{36})?\.jsonl)#', $raw, $m)
 			? array_values(array_unique($m[1]))
 			: [];
 	}

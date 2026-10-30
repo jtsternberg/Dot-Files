@@ -101,6 +101,24 @@ final class GraveyardCodexBuryTest extends TestCase
 		$this->assertSame(self::SID, $first['payload']['session_id']);
 	}
 
+	public function testArchiveCodexRolloutJoinsAResumedSessionsSegments(): void
+	{
+		// Codex 0.157+ resumes into a `<sid>_<segment>` file holding only the tail; the
+		// live TUI has only that one open. Archiving it alone would drop the first part.
+		$base = $this->liveRollout(self::SID);
+		$kept = file_get_contents($base);
+		file_put_contents($base, $kept . json_encode(['type' => 'response_item', 'payload' => ['n' => 'rewound']]) . "\n");
+		$seg = dirname($base) . '/rollout-2026-07-29T10-00-00-' . self::SID . '_01a0e0c5-108f-7111-9623-35d903f54ceb.jsonl';
+		file_put_contents($seg, json_encode(['type' => 'session_meta', 'payload' => [
+			'id' => self::SID, 'session_id' => self::SID, 'history_mode' => 'paginated',
+			'history_base' => ['thread_id' => self::SID, 'end_byte_offset' => strlen($kept)],
+		]]) . "\n");
+
+		$this->assertTrue($this->gy->archiveCodexRollout($this->codexSess()));
+		$this->assertSame($kept . file_get_contents($seg), file_get_contents($this->gy->codexRolloutArchivePath(self::SID)));
+		$this->assertTrue($this->gy->codexArchiveBelongsToSession($this->gy->codexRolloutArchivePath(self::SID), self::SID));
+	}
+
 	public function testArchiveCodexRolloutFailsWhenTheRolloutIsGone(): void
 	{
 		putenv('CODEX_SESSIONS_DIR=' . $this->root . '/nope');
