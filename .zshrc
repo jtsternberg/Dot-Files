@@ -323,7 +323,7 @@ export AGENT_BROWSER_IDLE_TIMEOUT_MS=600000
 (( $+commands[try] )) && eval "$(try init ~/src/tries)"
 
 # drplr CLI (https://github.com/jtsternberg/drplr) completions
-(( $+commands[drplr] )) && eval "$(drplr completions zsh)"
+(( $+commands[drplr] )) && [[ -z $DOTFILES_SKIP_DRPLR ]] && eval "$(drplr completions zsh)"
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/Users/JT/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/JT/google-cloud-sdk/path.zsh.inc'; fi
