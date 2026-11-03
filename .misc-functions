@@ -311,6 +311,12 @@ kimi-aider() {
 		--yes-always "$@"
 }
 
+# Codex under a specific ChatGPT account. `codex --profile` only layers config
+# and can't switch accounts, so each account gets its own CODEX_HOME (auth,
+# config, and session history stay separate).
+codex-personal() { CODEX_HOME="$HOME/.codex" command codex "$@"; }
+codex-work() { CODEX_HOME="$HOME/.codex-work" command codex "$@"; }
+
 # Live-render a markdown file in the terminal, re-rendering on every save.
 watch-md() {
 	if [[ -z "$1" ]]; then

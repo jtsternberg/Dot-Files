@@ -513,6 +513,7 @@ compdef _from_qr_lazy from-qr
 compdef _herdr_lazy herdr
 compdef _claudeping_install_lazy claudeping-install
 compdef _op_lazy op
+compdef codex-personal=codex codex-work=codex
 compdef _setup_obsidian_vault setup-obsidian-vault
 compdef _obsidian_vault_chat obsidian-vault-chat
 compdef _init_obsidian_vault init-obsidian-vault
