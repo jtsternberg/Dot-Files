@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Regenerates index.md from entry frontmatter. A script, not inline skill text, because skill loading substitutes $0/$1 when the skill gets arguments, which corrupts the awk.
+set -euo pipefail
+cd ~/.dotfiles/private/system-journal && { printf '# System Journal — index (%s)\n\n<!-- GENERATED from entry frontmatter — do not hand-edit. Regenerate with scripts/regen-index.sh in the system-journal skill. -->\n\n' "$(hostname -s | tr '[:upper:]' '[:lower:]')"; for f in entries/*.md; do awk -v F="$f" '/^---[[:space:]]*$/{if(++n==2)exit;next} n==1{k=$1;sub(/:$/,"",k);a[k]=substr($0,index($0,": ")+2)} END{printf "- %s · %s%s · %s · [%s] · [%s] · → %s\n", a["date"], a["kind"], (a["status"]=="active"?"":" ("toupper(a["status"])")"), a["symptom"], a["component"], a["pattern"], F}' "$f"; done | sort -r; } > index.md

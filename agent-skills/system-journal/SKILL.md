@@ -190,7 +190,7 @@ The index is a **cache of entry frontmatter**. Never hand-edit it — regenerate
 after any entry write, so it cannot drift out of sync with the entries:
 
 ```bash
-cd ~/.dotfiles/private/system-journal && { printf '# System Journal — index (%s)\n\n<!-- GENERATED from entry frontmatter — do not hand-edit. Regen one-liner lives in the system-journal skill. -->\n\n' "$(hostname -s | tr '[:upper:]' '[:lower:]')"; for f in entries/*.md; do awk -v F="$f" '/^---[[:space:]]*$/{if(++n==2)exit;next} n==1{k=$1;sub(/:$/,"",k);a[k]=substr($0,index($0,": ")+2)} END{printf "- %s · %s%s · %s · [%s] · [%s] · → %s\n", a["date"], a["kind"], (a["status"]=="active"?"":" ("toupper(a["status"])")"), a["symptom"], a["component"], a["pattern"], F}' "$f"; done | sort -r; } > index.md
+bash ~/.claude/skills/system-journal/scripts/regen-index.sh
 ```
 
 Then commit — **scoped to this journal only**, never `-A` and never `commit -a`.
