@@ -315,7 +315,32 @@ kimi-aider() {
 # and can't switch accounts, so each account gets its own CODEX_HOME (auth,
 # config, and session history stay separate).
 codex-personal() { CODEX_HOME="$HOME/.codex" command codex "$@"; }
-codex-work() { CODEX_HOME="$HOME/.codex-work" command codex "$@"; }
+codex-work() {
+	_codex_home_share "$HOME/.codex" "$HOME/.codex-work" || return
+	CODEX_HOME="$HOME/.codex-work" command codex "$@"
+}
+
+# Share config/plugins from <src> into <dst> by symlink: Codex has no config
+# include, and CODEX_HOME holds the login AND the config, so a second account
+# needs its own home that links back to the shared parts. Everything not listed
+# (auth.json, sessions, history, sqlite state) stays per-account. Codex never
+# creates its home, so <dst> is made here. Existing entries are never replaced.
+_codex_home_share() {
+	local src="$1" dst="$2" name
+	if [[ ! -d "$dst" ]]; then
+		mkdir -p "$dst" && chmod 700 "$dst" || return
+	fi
+	for name in config.toml plugins skills hooks hooks.json AGENTS.md rules prompts .hook-trust; do
+		[[ -e "$src/$name" || -L "$src/$name" ]] || continue
+		[[ -e "$dst/$name" || -L "$dst/$name" ]] && continue
+		ln -s "$src/$name" "$dst/$name"
+	done
+	# An atomic save (write temp + rename) by Codex would swap the link for a copy.
+	if [[ -e "$dst/config.toml" && ! -L "$dst/config.toml" ]]; then
+		echo "codex: $dst/config.toml is a real file, not a link to $src/config.toml — config no longer shared" >&2
+	fi
+	return 0
+}
 
 # Live-render a markdown file in the terminal, re-rendering on every save.
 watch-md() {
