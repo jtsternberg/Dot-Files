@@ -636,6 +636,10 @@ class Graveyard {
 		if ($agent !== 'claude') {
 			$tomb['kind']       = $agent;
 			$tomb['agent_opts'] = is_array($session['opts'] ?? null) ? $session['opts'] : [];
+			if ($agent === 'codex' && $src !== null) {
+				$home = $this->artifacts->codexHomeForRollout($src);
+				if ($home !== null) { $tomb['codex_home'] = $home; }
+			}
 
 			// AN HONEST ARCHIVE (dotfiles-f1n). sandbox/approval only exist in the
 			// rollout's turn_context records, and ~45% of real rollouts have none — every
@@ -900,7 +904,13 @@ class Graveyard {
 	 * this method — never at a call site.
 	 */
 	public function liveSessions(): array {
-		return $this->registry ? $this->registry->liveSessions() : $this->transport->liveSessions();
+		$rows = $this->registry ? $this->registry->liveSessions() : $this->transport->liveSessions();
+		foreach ($rows as $row) {
+			if (($row['agent'] ?? '') === 'codex' && !empty($row['rollout_path'])) {
+				$this->artifacts->registerCodexRollout($row['session_id'], $row['rollout_path']);
+			}
+		}
+		return $rows;
 	}
 
 	/**
@@ -4316,9 +4326,11 @@ class Graveyard {
 		$arg = ($fresh && $prompt !== null && $prompt !== '') ? ' ' . escapeshellarg($prompt) : '';
 		if ($this->tombstoneAgent($t) === 'codex') {
 			$opts = is_array($t['agent_opts'] ?? null) ? $t['agent_opts'] : [];
-			return $fresh
+			$home = $t['codex_home'] ?? $this->artifacts->codexHomeForRollout($this->tombstoneSessionFile($t) ?? '');
+			$prefix = $home ? 'CODEX_HOME=' . escapeshellarg($home) . ' ' : '';
+			return $prefix . ($fresh
 				? 'codex' . $arg
-				: $this->artifacts->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts);
+				: $this->artifacts->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts));
 		}
 
 		if (!$fresh) {
@@ -4333,6 +4345,9 @@ class Graveyard {
 	/** The still-resumable native session file for a tombstone, or null. */
 	public function tombstoneSessionFile(array $t): ?string {
 		if ($this->tombstoneAgent($t) === 'codex') {
+			if (!empty($t['codex_home'])) {
+				return $this->artifacts->codexRolloutPathInHome((string) $t['session_id'], $t['codex_home']);
+			}
 			return $this->artifacts->codexRolloutPathFor((string) $t['session_id']);
 		}
 		return $this->artifacts->jsonlPathFor($t['session_id'], $t['cwd'] ?? '');

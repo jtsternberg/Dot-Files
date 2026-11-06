@@ -420,6 +420,7 @@ class Cmux {
 			$ctx = $this->codexRolloutContext($path);
 			$out[$pid] = [
 				'session_id' => $sid,
+				'rollout_path' => $path,
 				'cwd'        => $this->codexSessionCwd($path) ?? $this->parseLsofCwd($lsof) ?? '',
 				'surface_id' => $this->parseSurfaceIdFromEnv($this->pidEnv($pid)),
 				'model'      => $ctx['model'],
@@ -497,6 +498,7 @@ class Cmux {
 				// same idea through sandbox/approval, which ride in opts.
 				'skip_perms'    => false,
 				'opts'          => $s['opts'] ?? [],
+				'rollout_path'  => $s['rollout_path'] ?? null,
 				'surface_ref'   => '',
 				'workspace_ref' => '',
 				'tty'           => '',

@@ -54,6 +54,15 @@ row's `tab_ref` is null.
 
 `bury` needs no flag: it drives whichever transport reported the session.
 
+Codex sessions keep their account home as well: discovery uses the live process's
+rollout location for activity and archival, and burial records `codex_home` in the
+tombstone. Resurrection looks for the native session in that home and sets
+`CODEX_HOME` on the launched Codex, including transcript fallback. No per-command
+home override is needed. Older tombstones without this field resolve native files
+using the current `CODEX_HOME` (default `~/.codex`) or `CODEX_SESSIONS_DIR`; when
+found, the native file's home is also used for relaunch. `CODEX_SESSIONS_DIR`
+alone cannot recover the account home when no native file survives.
+
 Only `resurrect` takes `--transport=<cmux|herdr>`, because a restore creates a
 workspace that does not exist yet. Default: the only reachable transport, or
 cmux when both are up. **herdr hosts terminals only**, so a grouped restore into

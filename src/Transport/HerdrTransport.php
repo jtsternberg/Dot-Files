@@ -129,6 +129,7 @@ class HerdrTransport implements SessionTransport
 			// script — there is no bridge to be missing, and the content-probe fallback
 			// this flag gates does not exist here.
 			'no_bridge'          => false,
+			'rollout_path'       => $bound['rollout_path'] ?? null,
 		];
 	}
 
@@ -276,6 +277,11 @@ class HerdrTransport implements SessionTransport
 			$paneId = (string) ($agent['pane_id'] ?? '');
 			$cwd    = (string) ($agent['cwd'] ?? '');
 			$proc   = $this->agentProcess($paneId, $kind);
+			$rollout = null;
+			if ($kind === 'codex' && $proc['pid'] !== null) {
+				$path = $this->artifacts->ownRolloutPathFromLsof($this->artifacts->proc()->lsofForPid($proc['pid']));
+				if ($path !== null && $this->artifacts->registerCodexRollout($sid, $path)) { $rollout = $path; }
+			}
 
 			// Everything bury needs to reach a session: who it is, where it runs, and
 			// which pane to type into. Named individually so the abort report can tell
@@ -286,6 +292,7 @@ class HerdrTransport implements SessionTransport
 
 			$out[] = [
 				'session_id'   => $sid,
+				'rollout_path' => $rollout,
 				'agent'        => $kind,
 				'cwd'          => $cwd,
 				'pane_id'      => $paneId,

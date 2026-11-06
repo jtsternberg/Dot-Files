@@ -44,7 +44,7 @@ interface SessionTransport
 	 *   window_ref:?string, pane_ref:?string, home_workspace_id:?string,
 	 *   home_pane_id:?string, home_index_in_pane:?int, workspace_title:string,
 	 *   tab_title:string, pinned_title:?string, idle_seconds:int, targetable:bool,
-	 *   reason:?string, no_bridge:bool
+	 *   reason:?string, no_bridge:bool, rollout_path:?string
 	 * }>
 	 *
 	 * `tab_title` is what the tab shows; `pinned_title` is a name the user gave it

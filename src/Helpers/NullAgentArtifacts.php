@@ -35,6 +35,8 @@ class NullAgentArtifacts extends AgentArtifacts
 	/** No live rollout, so codexRolloutReadPath() falls through to the archived copy. */
 	public function codexRolloutPathFor(string $sessionId): ?string { return null; }
 
+	public function codexRolloutPathInHome(string $sessionId, string $home): ?string { return null; }
+
 	/** Empty rather than a path under $HOME: a path that exists is a path that gets read. */
 	public function jsonlPathFor(string $sessionId, string $cwd): string { return ''; }
 

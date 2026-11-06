@@ -26,7 +26,7 @@ final class SessionTransportContractTest extends TestCase
 		'pid', 'tty', 'surface_ref', 'surface_id', 'home_workspace_id', 'home_pane_id',
 		'pane_ref', 'home_index_in_pane', 'workspace_ref', 'window_ref',
 		'workspace_title', 'tab_title', 'pinned_title', 'idle_seconds', 'targetable',
-		'reason', 'no_bridge',
+		'reason', 'no_bridge', 'rollout_path',
 	];
 
 	/** surfaces()' row keys, in order. Same reasoning. */

@@ -2,6 +2,8 @@
 namespace JT\Tests\Transport;
 
 use JT\Helpers\Herdr;
+use JT\Helpers\AgentArtifacts;
+use JT\Helpers\Proc;
 use JT\Tests\TestCase;
 use JT\Transport\HerdrTransport;
 
@@ -13,7 +15,7 @@ use JT\Transport\HerdrTransport;
  * `send-text`/`send-keys`/`close` take a positional, and getting that backwards
  * makes herdr answer `unknown option: <pane id>`.
  *
- * There are no PHP class doubles in this file on purpose. A double that overrides
+ * Herdr itself has no PHP class doubles here. A double that overrides
  * a method whose body has since moved doubles nothing and the test then exercises
  * the real implementation while still passing green — the trap this effort has hit
  * four times. Stubbing the BINARY instead cannot go quietly dead: unset HERDR_BIN
@@ -29,6 +31,7 @@ final class HerdrTransportTest extends TestCase
 	private string $fixture;
 	private string $argvLog;
 	private string $stubDir;
+	private string $lsofRaw = '';
 
 	protected function setUp(): void
 	{
@@ -141,7 +144,30 @@ SH;
 
 	private function transport(): HerdrTransport
 	{
-		return new HerdrTransport($this->cli, new Herdr($this->cli));
+		// Process-info fixtures must never cause reads of the real pid's open files.
+		$proc = new class($this->cli) extends Proc {
+			public string $raw = '';
+			public function lsofForPid(int $pid): string { return $this->raw; }
+		};
+		$proc->raw = $this->lsofRaw;
+		return new HerdrTransport($this->cli, new Herdr($this->cli), new AgentArtifacts($this->cli, $proc));
+	}
+
+	public function testCodexRolloutFromAnotherHomeFeedsActivityAndBurial(): void
+	{
+		$home = $this->stubDir . '/account';
+		$dir = $home . '/sessions/2026/11/05';
+		mkdir($dir, 0777, true);
+		$path = $dir . '/rollout-2026-11-05T16-01-00-' . self::CODEX . '.jsonl';
+		file_put_contents($path, json_encode(['timestamp' => '2026-11-05T16:01:00Z', 'type' => 'session_meta', 'payload' => ['id' => self::CODEX]]) . "\n");
+		$this->lsofRaw = "codex 42 user 5u REG 1,1 100 1 {$path}\n";
+		$this->procInfo('wB:p3', 'codex', ['codex']);
+		$gy = new \JT\Graveyard($this->cli, $this->transport());
+		$row = $this->rowFor($gy->liveSessions(), self::CODEX);
+		$this->assertSame($path, $row['rollout_path']);
+		$this->assertLessThan(PHP_INT_MAX, $row['idle_seconds']);
+		$this->assertTrue($gy->archiveCodexRollout($row));
+		$this->assertSame($home, $gy->buildTombstone($row, [], '', '')['codex_home']);
 	}
 
 	private function rowFor(array $rows, string $sid): array

@@ -92,6 +92,9 @@ class CmuxTransport implements SessionTransport
 	protected function liveSessionRow(array $j, array $treeIx, int $now): array {
 		$agent = $j['agent'] ?? 'claude';
 		if ($agent === 'codex') {
+			if (!empty($j['rollout_path'])) {
+				$this->artifacts->registerCodexRollout($j['session_id'], $j['rollout_path']);
+			}
 			$rollout = $this->artifacts->codexRolloutPathFor($j['session_id']);
 			$ts      = $rollout !== null ? $this->artifacts->codexLastActivity($rollout) : null;
 		} else {
@@ -130,6 +133,7 @@ class CmuxTransport implements SessionTransport
 			'targetable'      => $j['targetable'],
 			'reason'          => $j['reason'],
 			'no_bridge'       => $j['no_bridge'] ?? false,
+			'rollout_path'    => $j['rollout_path'] ?? null,
 		];
 	}
 

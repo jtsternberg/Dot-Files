@@ -40,6 +40,9 @@ class AgentArtifacts {
 	/** Memoised resolveJsonlPath() answers, keyed "<session id>\0<reported cwd>". */
 	private array $jsonlPathCache = [];
 
+	/** Session-specific roots carried from live discovery; never mix account homes. */
+	private array $codexSessionRoots = [];
+
 	public function __construct($cli, ?Proc $proc = null) {
 		$this->cli  = $cli;
 		$this->proc = $proc ?: new Proc($cli);
@@ -173,7 +176,34 @@ class AgentArtifacts {
 	/** Absolute path of the codex sessions root (CODEX_SESSIONS_DIR overrides, for tests). */
 	public function codexSessionsDir(): string {
 		$override = getenv('CODEX_SESSIONS_DIR');
-		return $this->cli->convertPathToAbsolute($override !== false && $override !== '' ? $override : self::CODEX_SESSIONS_DIR);
+		$home = getenv('CODEX_HOME');
+		$default = $home !== false && $home !== '' ? rtrim($home, '/') . '/sessions' : self::CODEX_SESSIONS_DIR;
+		return $this->cli->convertPathToAbsolute($override !== false && $override !== '' ? $override : $default);
+	}
+
+	/** Bind a proven live rollout to its session, rather than re-globbing another home. */
+	public function registerCodexRollout(string $sessionId, string $path): bool {
+		$root = $this->codexSessionsRootForRollout($path);
+		if ($root === null || $this->rolloutUuidFromPath($path) !== $sessionId
+			|| (new CodexRollout())->selfMeta($path)['id'] !== $sessionId) { return false; }
+		$this->codexSessionRoots[$sessionId] = $root;
+		return true;
+	}
+
+	/** The root is derived from the dated rollout layout, not from the caller's home. */
+	private function codexSessionsRootForRollout(string $path): ?string {
+		return preg_match('#^(/.*)/[0-9]{4}/[0-9]{2}/[0-9]{2}/rollout-[^/]+\.jsonl$#', $path, $m) ? $m[1] : null;
+	}
+
+	public function codexHomeForRollout(string $path): ?string {
+		$root = $this->codexSessionsRootForRollout($path);
+		return $root !== null && basename($root) === 'sessions' ? dirname($root) : null;
+	}
+
+	/** Recorded homes take precedence over the current shell, even if their session is gone. */
+	public function codexRolloutPathInHome(string $sessionId, string $home): ?string {
+		$segments = $this->codexSegmentsInRoot($sessionId, rtrim($home, '/') . '/sessions');
+		return $segments ? $segments[count($segments) - 1] : null;
 	}
 
 	/**
@@ -193,8 +223,12 @@ class AgentArtifacts {
 	 * basename leads with the start timestamp, so it sorts chronologically.
 	 */
 	public function codexRolloutSegmentsFor(string $sessionId): array {
+		return $this->codexSegmentsInRoot($sessionId, $this->codexSessionRoots[$sessionId] ?? $this->codexSessionsDir());
+	}
+
+	private function codexSegmentsInRoot(string $sessionId, string $root): array {
 		if (!preg_match('/^[0-9a-fA-F-]{36}$/', $sessionId)) { return []; }
-		$base = $this->codexSessionsDir() . "/*/*/*/rollout-*-{$sessionId}";
+		$base = $root . "/*/*/*/rollout-*-{$sessionId}";
 		$hits = array_merge(glob("{$base}.jsonl") ?: [], glob("{$base}_*.jsonl") ?: []);
 		usort($hits, fn($a, $b) => strcmp(basename($a), basename($b)));
 		return $hits;
@@ -221,7 +255,9 @@ class AgentArtifacts {
 		$hb = $this->codexHistoryBase(strtok($content, "\n") ?: '');
 		if ($hb === null) { return $content; }
 
-		$segments = $this->codexRolloutSegmentsFor($hb['thread_id']);
+		$root = $this->codexSessionsRootForRollout($path);
+		if ($root === null) { return null; }
+		$segments = $this->codexSegmentsInRoot($hb['thread_id'], $root);
 		$at       = array_search($path, $segments, true);
 		if ($at === false || $at === 0) { return null; }
 
