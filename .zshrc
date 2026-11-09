@@ -83,6 +83,8 @@ claude() {
 }
 alias ch='claude --chrome'
 alias yolo='claude --dangerously-skip-permissions'
+alias sonnet='claude --dangerously-skip-permissions --model sonnet'
+alias opus='claude --dangerously-skip-permissions --model opus'
 alias fable='claude --dangerously-skip-permissions --model fable'
 alias opus5='claude --dangerously-skip-permissions --model claude-opus-5 --append-system-prompt-file ~/.dotfiles/ai/senior-opus-5-system-prompt.md'
 alias opus48='claude --dangerously-skip-permissions --model "claude-opus-4-8[1m]"'
