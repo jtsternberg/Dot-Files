@@ -9,5 +9,6 @@
     "callouts",
     "readable-v2"
   ],
-  "accentColor": "#5cf591"
+  "accentColor": "#5cf591",
+  "showRibbon": true
 }
