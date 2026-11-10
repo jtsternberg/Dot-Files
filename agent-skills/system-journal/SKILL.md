@@ -3,11 +3,14 @@ name: system-journal
 description: |
   Machine-specific journal of past infrastructure and config incidents on THIS
   machine: NAS/QNAP, SSH, network, DNS, tailnet/VPN, auth, firmware, mounts,
-  shares, printers, and service managers (launchd/systemd). READ IT FIRST when
+  shares, printers, disk space/storage, and service managers (launchd/systemd).
+  READ IT FIRST when
   something infrastructural is broken, and RECORD an entry after resolving one.
   Triggers on symptoms as first stated, including "can't ssh", "Permission
   denied (publickey)", "too many authentication failures", "git push to the NAS
   fails", "can't mount", "can't reach the NAS", "share isn't showing up",
+  "disk is full", "where did my free space go", "System Data is huge", an app
+  failing with "I/O error" or "No space left on device",
   DNS/tailnet weirdness, or auth failing for no reason, especially with temporal
   tells such as "this worked yesterday", "broke after a reboot", "stopped
   working after an update", or "it just suddenly stopped". Also fires when a
