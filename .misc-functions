@@ -348,7 +348,8 @@ watch-md() {
 		echo "Usage: watch-md <file.md>" >&2
 		return 1
 	fi
-	watchexec -w "$1" --clear -- glow "$1"
+	# Execute directly: a shell would split spaces and interpret filename characters.
+	watchexec --shell=none -w "$1" --clear -- glow "$1"
 }
 
 watch-bd() {
