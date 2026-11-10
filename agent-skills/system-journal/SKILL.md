@@ -77,7 +77,21 @@ reverted — the transferable lesson is usually the pattern, not the box.
 
 If an entry fits, say so up front and lead with its prevention/early-warning
 line — that's the part that collapses the investigation. If nothing fits, say
-that too, in one line, and move on.
+that too, in one line, and keep going.
+
+**Re-search on every new lead, not just at the start.** The first symptom is
+often too vague to match ("disk is full"), while the leads an investigation
+turns up are specific: a path, a process name, an error string, a component.
+Each time one appears, whether from your own digging or pasted by JT, grep the
+entries for it before chasing it:
+
+```bash
+grep -ril '<lead>' ~/.dotfiles/private/system-journal/entries/
+```
+
+A path like `code_sign_clone`, a daemon like `chronod`, or a tool like
+`OrbStack` can sit in an entry whose symptom line never matched the opening
+complaint. Search on the lead's most specific token, not a paraphrase of it.
 
 **Journal vs mempalace:** this journal is the *settled verdict* plus verbatim
 reusable commands, and it's **push** — the skill surfaces it when you didn't know
