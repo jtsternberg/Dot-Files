@@ -64,6 +64,9 @@ final class FakeTransport implements SessionTransport
 	public function selfSurfaceRef(): ?string { return $this->selfSurfaceRef; }
 	public function supportsNonTerminalSurfaces(): bool { return $this->nonTerminal; }
 	public function liveSessions(): array { return $this->liveSessions; }
+	public function completionNames(bool $workspaces): array {
+		return array_column($workspaces ? $this->surfaces : $this->liveSessions, $workspaces ? 'workspace_title' : 'tab_title');
+	}
 	public function surfaces(?string $workspaceRef = null): array { return $this->surfaces; }
 	public function windowExists(string $windowRef): bool { return false; }
 

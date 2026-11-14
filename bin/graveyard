@@ -85,8 +85,8 @@ if ($helpyHelperton->batSignal) {
 
 $sub = $cli->getArg(1);
 
-// Store-only verbs never touch a live cmux session — don't gate them on it.
-$storeOnlyVerbs = ['page', 'serve', 'note', 'show', 'rename'];
+// Store-only verbs and completion can return useful results with no transport.
+$transportOptionalVerbs = ['page', 'serve', 'note', 'show', 'rename', 'completion-targets'];
 
 // Discovery reads the UNION of whatever is reachable, so a session is found wherever
 // it lives and each row carries its own transport — which is why bury needs no flag.
@@ -103,7 +103,7 @@ try {
 	$cli->exitErr($e->getMessage());
 }
 
-if (!in_array($sub, $storeOnlyVerbs, true) && !$primary) {
+if (!in_array($sub, $transportOptionalVerbs, true) && !$primary) {
 	$cli->exitErr('No session transport is reachable. Is cmux or herdr running?');
 }
 
@@ -128,6 +128,12 @@ function openNoteInEditor($cli, string $path): void {
 // plumbing belongs here at the entry seam, not inside the shelling seam (dotfiles-3qa).
 try {
 switch ($sub) {
+	case 'completion-targets':
+		// Internal read-only provider used by Zsh; no reachable transport means no names.
+		foreach ($gy->completionTargets($cli->hasFlag('workspace')) as $name) {
+			$cli->output($name);
+		}
+		break;
 	case 'bury':
 		// What was buried, for the post-bury note offer below: one session, one plot, or
 		// nothing nameable. The two paths that never produce a note target (--idle's bulk

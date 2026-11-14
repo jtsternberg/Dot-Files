@@ -913,6 +913,21 @@ class Graveyard {
 		return $rows;
 	}
 
+	/** Read-only, newline-safe names for shell completion; no candidate verdicts. */
+	public function completionTargets(bool $workspaces = false): array {
+		$rawNames = [];
+		foreach ($this->searchTransports() as $transport) {
+			$rawNames = array_merge($rawNames, $transport->completionNames($workspaces));
+		}
+		$names = [];
+		foreach ($rawNames as $name) {
+			if (trim($name) !== '' && !str_contains($name, "\n") && !str_contains($name, "\r")) {
+				$names[] = $name;
+			}
+		}
+		return array_values(array_unique($names));
+	}
+
 	/**
 	 * The transport that HOSTS a live row, which is not always the primary one.
 	 *

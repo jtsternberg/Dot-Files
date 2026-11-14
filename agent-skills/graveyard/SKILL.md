@@ -54,6 +54,13 @@ row's `tab_ref` is null.
 
 `bury` needs no flag: it drives whichever transport reported the session.
 
+Zsh completes live tab names after `graveyard bury ` and live workspace names
+after `graveyard bury -ws ` or `graveyard bury --workspace ` (also
+`--workspace=`). Names containing spaces are quoted by completion. Duplicate
+names remain subject to the normal ambiguity checks; use a ref/id to narrow them.
+The internal read-only `graveyard completion-targets [--workspace]` provider
+emits one name per line from reachable transports without candidate verdicts.
+
 Codex sessions keep their account home as well: discovery uses the live process's
 rollout location for activity and archival, and burial records `codex_home` in the
 tombstone. Resurrection looks for the native session in that home and sets

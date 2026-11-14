@@ -21,6 +21,19 @@ _linux_catchup_lazy() {
 	_linux_catchup "$@"
 }
 
+_graveyard_bury_targets() {
+	local output name
+	local -a targets options
+	[[ $1 == workspaces ]] && options=(--workspace)
+	output="$(command graveyard completion-targets "${options[@]}" 2>/dev/null)" || return 1
+	[[ -n $output ]] || return 1
+	for name in "${(@f)output}"; do
+		# _describe uses a colon to separate a value from its description.
+		targets+=("${name//:/\\:}")
+	done
+	_describe -t "graveyard-$1" "live $1" targets
+}
+
 _graveyard() {
 	local context state state_descr line
 	local -a commands
@@ -51,21 +64,21 @@ _graveyard() {
 			_describe -t commands 'graveyard command' commands
 			;;
 		arguments)
-			local subcommand=$words[2]
-			words=($words[2,-1])
-			(( CURRENT-- ))
+			# *:: above already makes the subcommand words[1] and adjusts CURRENT.
+			local subcommand=$words[1]
 
 			case $subcommand in
 				bury)
 					_arguments \
 						'(-h --help)'{-h,--help}'[display help]' \
 						'--idle[bury sessions idle longer than a duration]:duration (e.g. 2d, 48h, 90m):' \
-						'(-ws --workspace)'{-ws,--workspace}'[bury every session in a workspace]:workspace name, ref, or group id:' \
+						'(-ws --workspace)-ws[bury every session in a workspace]:workspace name, ref, or group id:{_graveyard_bury_targets workspaces}' \
+						'(-ws --workspace)--workspace=[bury every session in a workspace]:workspace name, ref, or group id:{_graveyard_bury_targets workspaces}' \
 						'--group[add one session to an existing buried group]:group id:' \
 						'--force[bury even when a session looks busy or is untargetable]' \
 						'-y[skip confirmations]' \
 						'--no-verdict[picker: skip the done/waiting/working classification]' \
-						'*:session id, surface ref, or title:'
+						'*:session id, surface ref, or title:{_graveyard_bury_targets tabs}'
 					;;
 				candidates)
 					_arguments \

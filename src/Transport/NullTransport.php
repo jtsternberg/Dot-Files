@@ -32,6 +32,8 @@ final class NullTransport implements SessionTransport
 
 	public function liveSessions(): array { return []; }
 
+	public function completionNames(bool $workspaces): array { return []; }
+
 	public function surfaces(?string $workspaceRef = null): array { return []; }
 
 	/** Nothing is hosted here, so no handle can still exist. */

@@ -77,6 +77,14 @@ class HerdrTransport implements SessionTransport
 		return $this->artifacts->dedupBySessionId($out);
 	}
 
+	public function completionNames(bool $workspaces): array {
+		$snap = $this->snapshot();
+		if ($workspaces) {
+			return array_map(fn($ws) => $this->workspaceTitle($snap, (string) $ws['workspace_id']), $snap['workspaces'] ?? []);
+		}
+		return array_map(fn($pane) => $this->paneTitle($snap, (string) $pane['pane_id'], $pane), $snap['panes'] ?? []);
+	}
+
 	/**
 	 * One snapshot agent, normalized to the SessionTransport row shape.
 	 *

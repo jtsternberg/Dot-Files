@@ -37,6 +37,24 @@ class CmuxTransport implements SessionTransport
 
 	public function supportsNonTerminalSurfaces(): bool { return true; }
 
+	public function completionNames(bool $workspaces): array {
+		$names = [];
+		foreach ($this->cmux->tree()['windows'] ?? [] as $window) {
+			foreach ($window['workspaces'] ?? [] as $workspace) {
+				if ($workspaces) {
+					$names[] = (string) ($workspace['title'] ?? '');
+					continue;
+				}
+				foreach ($workspace['panes'] ?? [] as $pane) {
+					foreach ($pane['surfaces'] ?? [] as $surface) {
+						$names[] = (string) ($surface['title'] ?? '');
+					}
+				}
+			}
+		}
+		return $names;
+	}
+
 	# =========================================================================
 	# liveSessions() — the contract, and the cmux join that produces it.
 	# Moved verbatim out of Graveyard; the only change is the added `transport`

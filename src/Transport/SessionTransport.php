@@ -53,6 +53,9 @@ interface SessionTransport
 	 */
 	public function liveSessions(): array;
 
+	/** Raw workspace/tab titles for completion, without process/artifact discovery. @return list<string> */
+	public function completionNames(bool $workspaces): array;
+
 	/**
 	 * Every surface the transport hosts, annotated with whatever agent session is
 	 * bound to it. Pass a workspace ref to scope it; null spans all workspaces
