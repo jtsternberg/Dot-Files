@@ -375,13 +375,23 @@ check_patch() {
     verdict="$("$PY" - "$searcher" <<'PYEOF'
 import re, sys
 src = open(sys.argv[1], errors="replace").read().split("\n")
-start = next((i for i, l in enumerate(src) if re.match(r"^def search\(", l)), None)
-if start is None:
+
+def body_of(name):
+    start = next((i for i, l in enumerate(src) if re.match(rf"^def {name}\(", l)), None)
+    if start is None:
+        return None
+    end = next((j for j in range(start + 1, len(src))
+                if re.match(r"^(def |class |@)", src[j])), len(src))
+    return "\n".join(src[start:end])
+
+body = body_of("search")
+if body is None:
     print("NOSEARCH"); raise SystemExit(0)
-end = next((j for j in range(start + 1, len(src))
-            if re.match(r"^(def |class |@)", src[j])), len(src))
-body = "\n".join(src[start:end])
-if "_query_drawers_with_filter_fallback(" in body:
+# 3.12 moved the query into _cli_ranked_hits(), which search() calls; follow
+# that one hop so the shipped fallback isn't reported as unverifiable.
+ranked = body_of("_cli_ranked_hits") if "_cli_ranked_hits(" in body else None
+if "_query_drawers_with_filter_fallback(" in body or (
+        ranked and "_query_drawers_with_filter_fallback(" in ranked):
     print("PATCHED")
 elif re.search(r"=\s*col\.query\(", body):
     print("REVERTED")
