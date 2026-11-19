@@ -388,7 +388,9 @@ body = body_of("search")
 if body is None:
     print("NOSEARCH"); raise SystemExit(0)
 # 3.12 moved the query into _cli_ranked_hits(), which search() calls; follow
-# that one hop so the shipped fallback isn't reported as unverifiable.
+# that one hop so the shipped fallback is not reported as unverifiable.
+# No apostrophes in this heredoc: launchd runs /bin/bash 3.2, which misparses
+# a quote inside a heredoc nested in $(...) and fails the whole script.
 ranked = body_of("_cli_ranked_hits") if "_cli_ranked_hits(" in body else None
 if "_query_drawers_with_filter_fallback(" in body or (
         ranked and "_query_drawers_with_filter_fallback(" in ranked):
