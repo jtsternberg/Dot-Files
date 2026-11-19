@@ -94,7 +94,7 @@ readonly DIVERGENCE_THRESHOLD=2000
 # recoverable from an earlier one.
 readonly BACKUP_MAX_AGE_DAYS=2
 readonly BACKUP_KEEP=7
-readonly MINE_WAIT_SECONDS=300
+readonly MINE_WAIT_SECONDS=1200
 readonly PY=/usr/bin/python3          # stdlib only -- no third-party imports below
 
 mkdir -p "$STATE_DIR" 2>/dev/null
@@ -414,6 +414,63 @@ PYEOF
 # ===========================================================================
 mine_running() { pgrep -f "mempalace (mine|repair)" >/dev/null 2>&1; }
 
+# Agent hooks start a mine on most turns, so with several agents running there
+# is rarely a quiet moment: waiting alone deferred every run, and a mine that
+# starts after the wait tears the HNSW copy and makes .backup fail with
+# "database is locked" (chroma.sqlite3 is in rollback-journal mode). So the
+# backup pauses hook auto-save through MemPalace config (hooks.auto_save),
+# waits only for mines already in flight, and resumes as soon as the copy is
+# taken. The marker records that the watchdog paused it, so a run killed
+# mid-backup is resumed by the next run, and a pause JT set himself is left alone.
+HOOKS_PAUSED_MARKER="$STATE_DIR/hooks-paused"
+MP_CONFIG="$MP_ROOT/config.json"
+
+set_auto_save() {
+    "$PY" - "$MP_CONFIG" "$1" <<'PYEOF'
+import json, os, sys
+path, mode = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    cfg = json.load(f)
+hooks = cfg.setdefault("hooks", {})
+if mode == "pause":
+    if hooks.get("auto_save", True) is False:
+        print("already-paused")
+        raise SystemExit(0)
+    hooks["auto_save"] = False
+else:
+    hooks.pop("auto_save", None)
+    if not hooks:
+        cfg.pop("hooks")
+tmp = path + ".watchdog-tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.replace(tmp, path)
+print("ok")
+PYEOF
+}
+
+pause_hooks() {
+    local r
+    r="$(set_auto_save pause 2>&1)"
+    case "$r" in
+        ok) : >"$HOOKS_PAUSED_MARKER"; log "[4/6] backup: paused hook auto-save for the copy" ;;
+        already-paused) log "[4/6] backup: hook auto-save already off (not set by the watchdog); leaving it" ;;
+        *) log "[4/6] backup: could not pause hook auto-save ($r); copying without the pause" ;;
+    esac
+}
+
+resume_hooks() {
+    [[ -f "$HOOKS_PAUSED_MARKER" ]] || return 0
+    local r
+    r="$(set_auto_save resume 2>&1)"
+    if [[ "$r" == "ok" ]]; then
+        rm -f "$HOOKS_PAUSED_MARKER"
+        log "${1:-[4/6] backup}: resumed hook auto-save"
+    else
+        notify "MEMPALACE HOOK AUTO-SAVE STILL PAUSED: resume failed ($r) -- remove hooks.auto_save from $MP_CONFIG"
+    fi
+}
+
 check_backup() {
     if [[ -n "${WATCHDOG_SKIP_BACKUP:-}" ]]; then log "[4/6] backup: skipped"; return; fi
     if ! volume_mounted "$SECONDARY"; then
@@ -438,11 +495,14 @@ check_backup() {
     fi
 
     # A mine writes to the palace; copying underneath it yields a torn backup.
-    # Mines take 60-90s, so wait a few minutes rather than losing the cycle.
+    # With hooks paused no new mine starts, so this only drains the ones in
+    # flight. A long transcript mine has run 15 minutes.
+    pause_hooks
     local waited=0
     while mine_running; do
         if (( waited >= MINE_WAIT_SECONDS )); then
             log "[4/6] backup: DEFERRED -- a mempalace mine/repair is still running after ${waited}s; will retry tomorrow"
+            resume_hooks
             return
         fi
         sleep 15; waited=$((waited + 15))
@@ -460,6 +520,7 @@ check_backup() {
     fi
     if ! mkdir -p "$partial"; then
         notify "BACKUP FAILED: cannot create $partial"
+        resume_hooks
         return
     fi
     # chroma.sqlite3 is a LIVE database: editor hooks write to it continuously, so
@@ -468,21 +529,27 @@ check_backup() {
     # "unexpected end of file" when the source grows underneath it, and on
     # 2026-09-15 that silently produced a 2.7G backup containing all five HNSW
     # segments and no database at all. The DB goes through SQLite's online-backup
-    # API instead, which yields a consistent snapshot without blocking writers.
+    # API instead, which yields a consistent snapshot. The DB is in rollback-journal
+    # mode, so a writer holding its lock makes .backup fail at once unless a busy
+    # timeout lets it wait; the hook pause above keeps such writers rare.
     log "[4/6] backup: rsync $PALACE/ -> $partial/ (HNSW segments; started $(date '+%H:%M:%S'))"
     if ! rsync -a --delete --exclude 'chroma.sqlite3' --exclude 'chroma.sqlite3-*' \
             "$PALACE/" "$partial/" >>"$LOG" 2>&1; then
         notify "BACKUP FAILED: rsync of palace segments to $SECONDARY errored -- see watchdog.log"
         log "[4/6] backup: leaving $partial for inspection"
+        resume_hooks
         return
     fi
 
     log "[4/6] backup: sqlite3 .backup chroma.sqlite3 -> $partial/ (started $(date '+%H:%M:%S'))"
-    if ! sqlite3 "$PALACE/chroma.sqlite3" ".backup '$partial/chroma.sqlite3'" >>"$LOG" 2>&1; then
+    if ! sqlite3 -cmd '.timeout 120000' "$PALACE/chroma.sqlite3" ".backup '$partial/chroma.sqlite3'" >>"$LOG" 2>&1; then
         notify "BACKUP FAILED: sqlite3 .backup of chroma.sqlite3 errored -- see watchdog.log"
         log "[4/6] backup: leaving $partial for inspection"
+        resume_hooks
         return
     fi
+    # The copy is taken; quick_check reads only the copy, so mining can resume.
+    resume_hooks
 
     # An unreadable DB copy is worse than none: it would look like a good backup.
     local qc
@@ -703,9 +770,11 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     fi
 fi
 printf '%s\n' "$$" >"$LOCK_DIR/pid"
-trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+trap 'resume_hooks "exit"; rm -rf "$LOCK_DIR"' EXIT INT TERM
 
 log "=== run start (root=$MP_ROOT) ==="
+# A run killed by SIGKILL mid-backup skips the trap and leaves hooks paused.
+resume_hooks "startup"
 
 INSTALLED_VER="$(mempalace --version 2>/dev/null | awk '{print $NF}')"
 [[ -z "$INSTALLED_VER" ]] && INSTALLED_VER="unknown"
