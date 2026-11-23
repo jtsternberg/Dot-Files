@@ -342,6 +342,34 @@ _codex_home_share() {
 	return 0
 }
 
+# Claude Code under a second (work) account. CLAUDE_CONFIG_DIR gives it its own
+# login — the macOS keychain entry gets a hash-of-dir suffix — and its own
+# .claude.json (user-scope MCP servers, onboarding), so those stay separate.
+claude-alt() {
+	_claude_home_share "$HOME/.claude" "$HOME/.claude-alt" || return
+	CLAUDE_CONFIG_DIR="$HOME/.claude-alt" claude "$@"
+}
+
+# Same contract as _codex_home_share. projects/ is shared deliberately: both
+# accounts are work accounts, and graveyard/mempalace/hotline only read
+# ~/.claude/projects. runway stays per-account (quota is per account).
+_claude_home_share() {
+	local src="$1" dst="$2" name
+	if [[ ! -d "$dst" ]]; then
+		mkdir -p "$dst" && chmod 700 "$dst" || return
+	fi
+	for name in settings.json CLAUDE.md CLAUDE-HUMAN.md AGENTS.md .mcp.json \
+		skills commands agents hooks plugins output-styles docs plans scripts projects; do
+		[[ -e "$src/$name" || -L "$src/$name" ]] || continue
+		[[ -e "$dst/$name" || -L "$dst/$name" ]] && continue
+		ln -s "$src/$name" "$dst/$name"
+	done
+	if [[ -e "$dst/settings.json" && ! -L "$dst/settings.json" ]]; then
+		echo "claude: $dst/settings.json is a real file, not a link to $src/settings.json — settings no longer shared" >&2
+	fi
+	return 0
+}
+
 # Live-render a markdown file in the terminal, re-rendering on every save.
 watch-md() {
 	if [[ -z "$1" ]]; then
