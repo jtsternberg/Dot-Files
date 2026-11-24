@@ -89,6 +89,9 @@ alias fable='claude --dangerously-skip-permissions --model fable'
 alias opus5='claude --dangerously-skip-permissions --model claude-opus-5 --append-system-prompt-file ~/.dotfiles/ai/senior-opus-5-system-prompt.md'
 alias opus48='claude --dangerously-skip-permissions --model "claude-opus-4-8[1m]"'
 alias fablemode='claude --dangerously-skip-permissions --model "claude-opus" "/fable:fable-mode"'
+# Experimental; bypass mode lets long code run in the background. Resume these
+# sessions with `codemode --continue/--resume` — `yc`/`yr` can't reopen them.
+alias codemode='CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --dangerously-skip-permissions'
 alias yr='claude --dangerously-skip-permissions --resume'
 alias yc='claude --dangerously-skip-permissions --continue'
 alias claudecatchup='claude "/catchup"'
