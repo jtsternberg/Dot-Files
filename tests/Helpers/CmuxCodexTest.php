@@ -728,4 +728,32 @@ final class CmuxCodexTest extends TestCase
 
 		$this->assertSame([4242 => '11111111-2222-3333-4444-555555555555'], $cmux->codexSurfaceIdsByPid());
 	}
+	public function testLoadCodexSessionsByPidTagsANonDefaultCodexHomeOnly(): void
+	{
+		$work = '/Users/someone/.codex-work';
+		$main = getenv('HOME') . '/.codex';
+		$cmux = new class($this->cli) extends \JT\Helpers\Cmux {
+			public array $rollouts = [];
+			public function psProcTable(): string { return "PID PPID COMMAND\n4242 1 /usr/local/bin/codex\n4343 1 /usr/local/bin/codex\n"; }
+			public function lsofForPid(int $pid): string { return (string) $pid; }
+			public function ownRolloutPathFromLsof(string $raw): ?string { return $this->rollouts[(int) $raw] ?? null; }
+			public function pidEnv(int $pid): string { return ''; }
+			public function codexRolloutContext(string $rolloutPath): array { return ['model' => null, 'sandbox' => null, 'approval' => null, 'effort' => null]; }
+			public function codexSessionCwd(string $rolloutPath): ?string { return '/x'; }
+		};
+		$cmux->rollouts = [
+			4242 => "{$work}/sessions/2026/11/24/rollout-2026-11-24T09-53-41-01a20e0c-6080-7ed0-af9e-e7e378679e85.jsonl",
+			4343 => "{$main}/sessions/2026/11/24/rollout-2026-11-24T09-53-41-11111111-2222-4333-8444-555555555555.jsonl",
+		];
+
+		$sessions = $cmux->loadCodexSessionsByPid();
+
+		$this->assertSame($work, $sessions[4242]['codex_home']);
+		$this->assertNull($sessions[4343]['codex_home']);
+		// The home rides beside opts, never in them: opts become `codex resume` flags.
+		$this->assertArrayNotHasKey('codex_home', $sessions[4242]['opts']);
+
+		$rows = $cmux->joinCodexToSurfaces($sessions, []);
+		$this->assertSame([$work, null], array_column($rows, 'codex_home'));
+	}
 }

@@ -4349,7 +4349,7 @@ class Graveyard {
 		if ($this->tombstoneAgent($t) === 'codex') {
 			$opts = is_array($t['agent_opts'] ?? null) ? $t['agent_opts'] : [];
 			$home = $t['codex_home'] ?? $this->artifacts->codexHomeForRollout($this->tombstoneSessionFile($t) ?? '');
-			$prefix = $home ? 'CODEX_HOME=' . escapeshellarg($home) . ' ' : '';
+			$prefix = $this->artifacts->codexHomePrefix($home ?: null);
 			return $prefix . ($fresh
 				? 'codex' . $arg
 				: $this->artifacts->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts));

@@ -394,6 +394,16 @@ class Cmux {
 	}
 
 
+	public function codexRolloutPathInHome(string $sessionId, string $home): ?string {
+		return $this->artifacts->codexRolloutPathInHome($sessionId, $home);
+	}
+
+
+	public function codexHomePrefix(?string $home): string {
+		return $this->artifacts->codexHomePrefix($home);
+	}
+
+
 	public function codexRolloutContext(string $rolloutPath): array {
 		return $this->artifacts->codexRolloutContext($rolloutPath);
 	}
@@ -402,7 +412,9 @@ class Cmux {
 	/**
 	 * Live codex sessions keyed by pid — the codex counterpart of
 	 * loadClaudeSessionsByPid().
-	 * [ pid => [session_id, cwd, surface_id, model, opts] ].
+	 * [ pid => [session_id, cwd, surface_id, model, opts, codex_home] ].
+	 * codex_home is set only for a non-default home (CODEX_HOME, e.g. ~/.codex-work),
+	 * and stays out of opts because opts become `codex resume` flags.
 	 * A codex with no open rollout (starting up, or a subcommand that slipped the
 	 * pre-filter) is skipped: there's nothing to resume.
 	 *
@@ -431,6 +443,7 @@ class Cmux {
 					'approval' => $ctx['approval'],
 					'effort'   => $ctx['effort'],
 				],
+				'codex_home' => $this->artifacts->nonDefaultCodexHomeForRollout($path),
 			];
 		}
 		return $out;
@@ -501,6 +514,7 @@ class Cmux {
 				'skip_perms'    => false,
 				'opts'          => $s['opts'] ?? [],
 				'rollout_path'  => $s['rollout_path'] ?? null,
+				'codex_home'    => $s['codex_home'] ?? null,
 				'surface_ref'   => '',
 				'workspace_ref' => '',
 				'tty'           => '',

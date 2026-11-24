@@ -285,6 +285,137 @@ final class CmuxBakOperationsTest extends TestCase {
 		);
 	}
 
+	/** @return array{0:int,1:int,2:array,3:array} backup code, restore code, backed-up surface, last send */
+	private function codexRoundTrip( string $name, array $codexRow ): array {
+		$file = $this->temporaryFile( $name );
+		$cmux = new CmuxBakOperationalCmux( $this->cli );
+		$cmux->realResume = true;
+		$cmux->treeData   = $this->singleSurfaceTree( 'Codex' );
+		$cmux->codexRows  = [ $codexRow + [
+			'agent'       => 'codex',
+			'session_id'  => '01a20e0c-6080-7ed0-af9e-e7e378679e85',
+			'surface_ref' => 'surface:1',
+			'cwd'         => $this->graveyardRoot,
+			'model'       => 'gpt-5.6-terra',
+			'skip_perms'  => false,
+			'opts'        => [ 'sandbox' => 'read-only' ],
+		] ];
+
+		ob_start();
+		$backupCode = ( new CmuxBak( $this->cli, $file, false, false, $cmux ) )->backup();
+		$cmux->codexRows = [];
+		$restoreCode = ( new CmuxBak( $this->cli, $file, true, false, $cmux ) )->restore();
+		ob_end_clean();
+
+		$data = json_decode( (string) file_get_contents( $file ), true );
+
+		return [ $backupCode, $restoreCode, $data['workspaces'][0]['panes'][0]['surfaces'][0], end( $cmux->sent ) ];
+	}
+
+	public function testNonDefaultCodexHomeRoundTripsToAResumeUnderThatHome(): void {
+		$home = '/Users/someone/.codex-work';
+		[ $backupCode, $restoreCode, $surface, $sent ] = $this->codexRoundTrip( 'codex-work', [ 'codex_home' => $home ] );
+
+		$this->assertSame( 0, $backupCode );
+		$this->assertSame( 0, $restoreCode );
+		$this->assertSame( $home, $surface['agent_codex_home'] );
+		$this->assertSame( [ 'sandbox' => 'read-only' ], $surface['agent_opts'] );
+		$this->assertSame(
+			[
+				'surface:1',
+				'workspace:1',
+				'CODEX_HOME=' . escapeshellarg( $home ) . " codex resume --model=gpt-5.6-terra --sandbox=read-only 01a20e0c-6080-7ed0-af9e-e7e378679e85\n",
+			],
+			$sent
+		);
+	}
+
+	public function testDefaultHomeCodexBackupAndResumeKeepTheirShape(): void {
+		[ , , $surface, $sent ] = $this->codexRoundTrip( 'codex-default', [ 'codex_home' => null ] );
+
+		$this->assertArrayNotHasKey( 'agent_codex_home', $surface );
+		$this->assertSame(
+			"codex resume --model=gpt-5.6-terra --sandbox=read-only 01a20e0c-6080-7ed0-af9e-e7e378679e85\n",
+			$sent[2]
+		);
+	}
+
+	public function testAuditFindsACodexTranscriptInTheRecordedHome(): void {
+		$sid  = '01a20e0c-6080-7ed0-af9e-e7e378679e85';
+		$home = $this->graveyardRoot . '/.codex-work';
+		$dir  = $home . '/sessions/2026/11/24';
+		mkdir( $dir, 0777, true );
+		file_put_contents( "{$dir}/rollout-2026-11-24T09-53-41-{$sid}.jsonl", "{}\n" );
+		// The current shell's home is empty, so only the recorded home can find it.
+		mkdir( $this->graveyardRoot . '/empty-codex-sessions' );
+		putenv( 'CODEX_SESSIONS_DIR=' . $this->graveyardRoot . '/empty-codex-sessions' );
+
+		$file = $this->temporaryFile( 'codex-audit' );
+		$cmux = new CmuxBakOperationalCmux( $this->cli );
+		$cmux->treeData = $this->singleSurfaceTree( 'Codex' );
+		$surface = [
+			'ref'              => 'surface:1',
+			'title'            => 'Codex',
+			'type'             => 'terminal',
+			'cwd'              => $this->graveyardRoot,
+			'agent'            => 'codex',
+			'agent_session_id' => $sid,
+			'agent_opts'       => [],
+		];
+		$backup = fn( array $extra ) => file_put_contents( $file, json_encode( [
+			'version'    => 3,
+			'workspaces' => [ [ 'title' => 'dotfiles', 'panes' => [ [ 'surfaces' => [ $surface + $extra ] ] ] ] ],
+		] ) );
+
+		try {
+			$backup( [ 'agent_codex_home' => $home ] );
+			ob_start();
+			( new CmuxBak( $this->cli, $file, true, false, $cmux ) )->audit();
+			$withHome = (string) ob_get_clean();
+
+			$backup( [] );
+			ob_start();
+			( new CmuxBak( $this->cli, $file, true, false, $cmux ) )->audit();
+			$withoutHome = (string) ob_get_clean();
+		} finally {
+			putenv( 'CODEX_SESSIONS_DIR' );
+		}
+
+		$this->assertStringContainsString( 'resumable', $withHome );
+		$this->assertStringContainsString( 'transcript NOT found', $withoutHome );
+	}
+
+	private function singleSurfaceTree( string $title ): array {
+		return [
+			'windows' => [
+				[
+					'workspaces' => [
+						[
+							'title' => 'dotfiles',
+							'ref'   => 'workspace:1',
+							'panes' => [
+								[
+									'ref'      => 'pane:1',
+									'index'    => 0,
+									'surfaces' => [
+										[
+											'ref'           => 'surface:1',
+											'id'            => 'surface-id-1',
+											'title'         => $title,
+											'type'          => 'terminal',
+											'tty'           => 'ttys001',
+											'index_in_pane' => 0,
+										],
+									],
+								],
+							],
+						],
+					],
+				],
+			],
+		];
+	}
+
 	#[DataProvider('backupSchemaProvider')]
 	public function testDryRunRestoreBuildsTheRightResumeCommandForV1AndV2(
 		array $agentFields,

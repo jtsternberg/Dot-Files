@@ -234,6 +234,21 @@ class AgentArtifacts {
 		return $root !== null && basename($root) === 'sessions' ? dirname($root) : null;
 	}
 
+	/**
+	 * The rollout's home, or null when it is ~/.codex. Compared against the fixed
+	 * default, not the current CODEX_HOME: the shell that later resumes it is not
+	 * this one, and bare `codex` in it means ~/.codex.
+	 */
+	public function nonDefaultCodexHomeForRollout(string $path): ?string {
+		$home = $this->codexHomeForRollout($path);
+		return $home !== null && $home !== dirname($this->cli->convertPathToAbsolute(self::CODEX_SESSIONS_DIR)) ? $home : null;
+	}
+
+	/** `CODEX_HOME=<home> ` for a recorded home, '' otherwise. */
+	public function codexHomePrefix(?string $home): string {
+		return $home !== null && $home !== '' ? 'CODEX_HOME=' . escapeshellarg($home) . ' ' : '';
+	}
+
 	/** Recorded homes take precedence over the current shell, even if their session is gone. */
 	public function codexRolloutPathInHome(string $sessionId, string $home): ?string {
 		$segments = $this->codexSegmentsInRoot($sessionId, rtrim($home, '/') . '/sessions');

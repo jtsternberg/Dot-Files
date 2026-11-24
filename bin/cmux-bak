@@ -43,6 +43,9 @@ namespace JT;
 # re-reads ~/.codex/config.toml instead of rehydrating turn_context, so a session
 # that ran --sandbox=read-only comes back danger-full-access if resumed bare.
 # Passing the recorded values back keeps a restore from widening a sandbox.
+# A codex rollout under a home other than ~/.codex (CODEX_HOME, e.g.
+# ~/.codex-work) records that home as `agent_codex_home`; restore runs
+# `CODEX_HOME=<home> codex resume …` and audit looks for the rollout there.
 #
 # `audit` is a read-only diff: it compares the backup's sessions against what's
 # actually running now (matched by session id via those joins) and reports which

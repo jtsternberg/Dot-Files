@@ -276,9 +276,6 @@ class CmuxBak {
 						$norm       = $this->normalizeBakSurface($bakSurf);
 						$agent      = $norm['agent'];
 						$sessionId  = $norm['session_id'];
-						$skipPerms  = $norm['skip_perms'];
-						$model      = $norm['model'];
-						$opts       = $norm['opts'];
 
 						if ($surfType !== 'terminal' || !$sessionId) {
 							continue;
@@ -344,7 +341,7 @@ class CmuxBak {
 							$short = substr($sessionId, 0, 8);
 							$this->cli->msg("    ✗ {$agent} not running — resuming {$short}…", 'yellow');
 							$this->cdToRecordedCwd($surfRef, $currentWsRef, $bakCwd);
-							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
+							$resumeCmd = $this->agentResumeCommand($norm);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($surfRef, $currentWsRef, "{$resumeCmd}\n");
 							$this->warnIfCodexTrustPrompt($agent, $surfRef, $currentWsRef);
@@ -421,9 +418,6 @@ class CmuxBak {
 						$norm      = $this->normalizeBakSurface($bakSurf);
 						$agent     = $norm['agent'];
 						$sessionId = $norm['session_id'];
-						$skipPerms = $norm['skip_perms'];
-						$model     = $norm['model'];
-						$opts      = $norm['opts'];
 
 						// Surfaces the created workspace already owns are reused in place: a
 						// geometry replay rebuilds the whole tab stack at once, and a
@@ -447,7 +441,7 @@ class CmuxBak {
 							$where = $this->liveLocation($liveById[$sessionId]);
 							$this->cli->msg("    ✓ {$agent} {$sessionId} already running in {$where} — not resuming", 'green');
 						} elseif ($sessionId) {
-							$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sessionId, $skipPerms, $model, $opts);
+							$resumeCmd = $this->agentResumeCommand($norm);
 							$this->cli->msg("    → {$resumeCmd}");
 							$this->cmux->sendToSurface($targetRef, $targetWsRef, "{$resumeCmd}\n");
 							$this->warnIfCodexTrustPrompt($agent, $targetRef, $targetWsRef);
@@ -490,17 +484,27 @@ class CmuxBak {
 	 * handed over as a command that dies on its first half.
 	 */
 	protected function pasteableResumeCommand(array $norm, ?string $cwd): string {
-		$resume = $this->cmux()->buildAgentResumeCommand(
-			$norm['agent'] ?? 'claude',
-			(string) $norm['session_id'],
-			(bool) ($norm['skip_perms'] ?? false),
-			$norm['model'] ?? null,
-			$norm['opts'] ?? []
-		);
+		$resume = $this->agentResumeCommand($norm);
 
 		return !empty($cwd) && is_dir($cwd)
 			? "cd {$cwd} && {$resume}"
 			: $resume;
+	}
+
+	/**
+	 * The one resume command builder every restore/audit path sends. CODEX_HOME is
+	 * prefixed here rather than carried in opts: opts are `codex resume` flags, and
+	 * graveyard tombstones copy opts verbatim and prefix the home themselves.
+	 */
+	protected function agentResumeCommand(array $norm): string {
+		return $this->cmux()->codexHomePrefix($norm['codex_home'] ?? null)
+			. $this->cmux()->buildAgentResumeCommand(
+				$norm['agent'] ?? 'claude',
+				(string) $norm['session_id'],
+				(bool) ($norm['skip_perms'] ?? false),
+				$norm['model'] ?? null,
+				$norm['opts'] ?? []
+			);
 	}
 
 	/**
@@ -587,7 +591,9 @@ class CmuxBak {
 					} else {
 						$short   = substr($sid, 0, 8);
 						$bakCwd  = $bakSurf['cwd'] ?? '';
-						$txPath  = $this->cmux->transcriptPathFor($agent, $sid, $bakCwd);
+						$txPath  = $norm['codex_home'] !== null
+							? $this->cmux->codexRolloutPathInHome($sid, $norm['codex_home'])
+							: $this->cmux->transcriptPathFor($agent, $sid, $bakCwd);
 						$hasTx   = $txPath !== null && file_exists($txPath);
 						$note    = $hasTx ? 'resumable' : 'transcript NOT found';
 						$this->cli->msg("  ✗ [{$agent}] {$label} — NOT running ({$short}…, {$note})", 'yellow');
@@ -691,12 +697,9 @@ class CmuxBak {
 
 		$norm      = $this->normalizeBakSurface($surf);
 		$bakCwd    = $surf['cwd'] ?? '';
-		$skipPerms = $norm['skip_perms'];
-		$model     = $norm['model'];
-		$opts      = $norm['opts'];
 
 		$this->cdToRecordedCwd($surfRef, $wsRef, $bakCwd);
-		$resumeCmd = $this->cmux->buildAgentResumeCommand($agent, $sid, $skipPerms, $model, $opts);
+		$resumeCmd = $this->agentResumeCommand($norm);
 		$this->cli->msg("    → {$resumeCmd}");
 		$this->cmux->sendToSurface($surfRef, $wsRef, "{$resumeCmd}\n");
 		$this->warnIfCodexTrustPrompt($agent, $surfRef, $wsRef);
@@ -788,7 +791,7 @@ class CmuxBak {
 
 	/**
 	 * PURE. Read one backed-up surface's agent fields, tolerating v1 files.
-	 * Returns [agent, session_id, model, skip_perms].
+	 * Returns [agent, session_id, model, skip_perms, opts, codex_home].
 	 *
 	 * v2 stores a single generic agent per surface; v1 stored claude_* keys with no
 	 * agent at all. bak.json is a cache every run rewrites wholesale, so this shim
@@ -805,6 +808,10 @@ class CmuxBak {
 			'model'      => $bakSurf['agent_model'] ?? $bakSurf['claude_model'] ?? null,
 			'skip_perms' => (bool) ($bakSurf['agent_skip_permissions'] ?? $bakSurf['claude_skip_permissions'] ?? false),
 			'opts'       => is_array($bakSurf['agent_opts'] ?? null) ? $bakSurf['agent_opts'] : [],
+			// Absent from default-home and pre-codex-home backups, which resume as before.
+			'codex_home' => $sessionId && ($bakSurf['agent'] ?? null) === 'codex'
+				&& is_string($bakSurf['agent_codex_home'] ?? null) && $bakSurf['agent_codex_home'] !== ''
+				? $bakSurf['agent_codex_home'] : null,
 		];
 	}
 
@@ -884,6 +891,7 @@ class CmuxBak {
 						$skipPerms = false;
 						$model     = null;
 						$opts      = [];
+						$codexHome = null;
 
 						if ($type === 'terminal') {
 							$row = $bySurf[$surfRef] ?? null;
@@ -894,6 +902,7 @@ class CmuxBak {
 								$skipPerms = (bool) ($row['skip_perms'] ?? false);
 								$model     = $row['model'] ?? null;
 								$opts      = $row['opts'] ?? [];
+								$codexHome = $row['codex_home'] ?? null;
 							} else {
 								$cwd = $cwdBySurf[$surfRef] ?? null;
 							}
@@ -916,6 +925,10 @@ class CmuxBak {
 							'agent_opts'             => $opts,
 							'index_in_pane'          => $surf['index_in_pane'] ?? 0,
 						];
+						// Only a non-default home is written, so default backups keep their shape.
+						if ($codexHome !== null && $codexHome !== '') {
+							$paneData['surfaces'][count($paneData['surfaces']) - 1]['agent_codex_home'] = $codexHome;
+						}
 					}
 
 					$wsData['panes'][] = $paneData;
