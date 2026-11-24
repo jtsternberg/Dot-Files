@@ -55,6 +55,9 @@ export SVN_EDITOR='/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/su
 
 export WP_TESTS_DIR=/tmp/wordpress/tests
 export CLAUDE_CATCHUP_YOLO=1
+# hotline send searches these Claude config dirs too, so sessions on either
+# account (claude-alt sets CLAUDE_CONFIG_DIR=~/.claude-alt) can reach the other.
+export HOTLINE_CLAUDE_CONFIG_DIRS="$HOME/.claude:$HOME/.claude-alt"
 
 export NVM_DIR="$HOME/.nvm"
 # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # This loads nvm
