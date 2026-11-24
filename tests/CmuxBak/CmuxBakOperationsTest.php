@@ -408,6 +408,24 @@ final class CmuxBakOperationsTest extends TestCase {
 		];
 	}
 
+	public function testDryRunBackupLeavesTheExistingBackupUntouched(): void {
+		// The backup file is often the only record of what was open before a restart,
+		// so a --dry-run that rewrote it would destroy exactly what a restore needs.
+		$file = $this->temporaryFile( 'dry-run' );
+		file_put_contents( $file, '{"previous":"backup"}' );
+		$cmux = new CmuxBakOperationalCmux( $this->cli );
+		$cmux->treeData = [ 'windows' => [] ];
+		$bak = new CmuxBak( $this->cli, $file, true, false, $cmux );
+
+		ob_start();
+		$code   = $bak->backup();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 0, $code );
+		$this->assertSame( '{"previous":"backup"}', file_get_contents( $file ) );
+		$this->assertStringContainsString( 'Would save', $output );
+	}
+
 	public function testUnreachableCmuxReturnsFailureWithoutTouchingTheBackup(): void {
 		$file = $this->temporaryFile( 'unreachable' );
 		$cmux = new CmuxBakOperationalCmux( $this->cli );

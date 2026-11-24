@@ -92,12 +92,13 @@ class CmuxBak {
 			'workspaces' => $workspacesData,
 		];
 
-		$dir = dirname($this->bakFile);
-		if (!is_dir($dir)) {
-			mkdir($dir, 0755, true);
+		if (!$this->dryRun) {
+			$dir = dirname($this->bakFile);
+			if (!is_dir($dir)) {
+				mkdir($dir, 0755, true);
+			}
+			file_put_contents($this->bakFile, json_encode($backup, JSON_PRETTY_PRINT));
 		}
-
-		file_put_contents($this->bakFile, json_encode($backup, JSON_PRETTY_PRINT));
 
 		$wsCount   = count($workspacesData);
 		$surfCount = array_sum(array_map(function($ws) {
@@ -112,7 +113,7 @@ class CmuxBak {
 		$geoCount = count($layoutByWsRef);
 
 		$this->cli->successMsg(
-			"Saved {$wsCount} workspaces ({$geoCount} with split geometry), {$surfCount} surfaces, "
+			($this->dryRun ? 'Would save' : 'Saved') . " {$wsCount} workspaces ({$geoCount} with split geometry), {$surfCount} surfaces, "
 			. "{$sessCount} agent sessions{$breakdown} → {$this->bakFile}"
 		);
 
