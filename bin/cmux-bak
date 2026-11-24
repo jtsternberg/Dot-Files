@@ -11,8 +11,10 @@ namespace JT;
 # capturing each terminal's CWD and any active Claude Code OR codex session.
 #
 # Neither agent is screen-scraped. Claude session IDs come from
-# ~/.claude/sessions/<pid>.json; codex session IDs from the rollout jsonl each
-# live codex holds open (lsof). Both bind to a surface via CMUX_SURFACE_ID, which
+# <home>/sessions/<pid>.json in ~/.claude and every second-account home
+# (~/.claude-* with a .claude.json, or CLAUDE_CONFIG_DIR) — a non-default home is
+# recorded and the restore runs `CLAUDE_CONFIG_DIR=<home> claude --resume`; codex
+# session IDs from the rollout jsonl each live codex holds open (lsof). Both bind to a surface via CMUX_SURFACE_ID, which
 # cmux puts in every surface process's environment and reports per surface as the
 # tree's `id`; a Claude resurrected behind a cmux resume script also binds by
 # walking process ancestry to that script. Both joins are exact and tty-free —

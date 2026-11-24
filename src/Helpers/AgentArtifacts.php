@@ -66,6 +66,42 @@ class AgentArtifacts {
 		return $this->cli->convertPathToAbsolute($override !== false && $override !== '' ? $override : self::SESSIONS_DIR);
 	}
 
+	/**
+	 * Every live-session dir with the config home that owns it: [ sessionsDir => configDir|null ],
+	 * null meaning the default ~/.claude. A session started under CLAUDE_CONFIG_DIR (a second
+	 * account) writes its <pid>.json into THAT home, so reading only ~/.claude/sessions
+	 * misses it. A `.claude-*` dir counts as a home only with a .claude.json in it:
+	 * ~/.claude-graveyard also has a sessions/ dir, and its files are not live sessions.
+	 *
+	 * Under CLAUDE_SESSIONS_DIR (the test seam) extra homes come only from
+	 * CLAUDE_HOMES_ROOT, so a test never picks up the real machine's second account.
+	 */
+	public function claudeSessionDirs(): array {
+		$override = getenv('CLAUDE_SESSIONS_DIR');
+		$testing  = $override !== false && $override !== '';
+		$dirs     = [$this->claudeSessionsDir() => null];
+
+		$root = getenv('CLAUDE_HOMES_ROOT');
+		if ($root === false || $root === '') { $root = $testing ? null : getenv('HOME'); }
+		$homes = [];
+		if (is_string($root) && $root !== '') {
+			foreach (glob(rtrim($root, '/') . '/.claude-*', GLOB_ONLYDIR) ?: [] as $home) {
+				if (is_file($home . '/.claude.json')) { $homes[] = $home; }
+			}
+		}
+
+		$configDir = getenv('CLAUDE_CONFIG_DIR');
+		if (!$testing && $configDir !== false && $configDir !== '') {
+			$configDir = rtrim($this->cli->convertPathToAbsolute($configDir), '/');
+			if ($configDir !== $this->cli->convertPathToAbsolute('~/.claude')) { $homes[] = $configDir; }
+		}
+
+		foreach ($homes as $home) {
+			$dirs[$home . '/sessions'] ??= $home;
+		}
+		return $dirs;
+	}
+
 	public function jsonlPathFor(string $sessionId, string $cwd): string {
 		$claudeDir = $this->cli->convertPathToAbsolute('~/.claude');
 		return "{$claudeDir}/projects/{$this->encodeProjectKey($cwd)}/{$sessionId}.jsonl";
@@ -126,47 +162,45 @@ class AgentArtifacts {
 	}
 
 	/**
-	 * Load all active Claude sessions from ~/.claude/sessions/<pid>.json.
-	 * Returns array keyed by tty: [ tty => [session_id, cwd, status, pid, skip_perms, model] ]
+	 * Load all active Claude sessions from every home's sessions/<pid>.json (claudeSessionDirs()).
+	 * Returns array keyed by tty: [ tty => [session_id, cwd, status, pid, skip_perms, model, config_dir] ]
 	 */
 	public function loadClaudeSessions(): array {
-		$sessionsDir = $this->cli->convertPathToAbsolute(self::SESSIONS_DIR);
-		$sessions    = [];
+		$sessions = [];
 
-		if (!is_dir($sessionsDir)) {
-			return $sessions;
-		}
+		foreach ($this->claudeSessionDirs() as $sessionsDir => $configDir) {
+			foreach (glob($sessionsDir . '/*.json') ?: [] as $file) {
+				$pid = pathinfo($file, PATHINFO_FILENAME);
+				if (!ctype_digit($pid)) {
+					continue;
+				}
+				if (!$this->proc->pidIsAlive((int) $pid)) {
+					continue;
+				}
+				$raw = @file_get_contents($file);
+				if ($raw === false) {
+					continue;
+				}
+				$data = json_decode($raw, true);
+				if (!$data) {
+					continue;
+				}
+				$tty = $this->proc->getTtyForPid((int) $pid);
+				if ($tty) {
+					$sessionId = $data['sessionId'] ?? null;
+					$cwd       = $data['cwd'] ?? null;
+					$jsonl     = $this->readSessionJsonl($sessionId, $cwd);
 
-		foreach (glob($sessionsDir . '/*.json') ?: [] as $file) {
-			$pid = pathinfo($file, PATHINFO_FILENAME);
-			if (!ctype_digit($pid)) {
-				continue;
-			}
-			if (!$this->proc->pidIsAlive((int) $pid)) {
-				continue;
-			}
-			$raw = @file_get_contents($file);
-			if ($raw === false) {
-				continue;
-			}
-			$data = json_decode($raw, true);
-			if (!$data) {
-				continue;
-			}
-			$tty = $this->proc->getTtyForPid((int) $pid);
-			if ($tty) {
-				$sessionId = $data['sessionId'] ?? null;
-				$cwd       = $data['cwd'] ?? null;
-				$jsonl     = $this->readSessionJsonl($sessionId, $cwd);
-
-				$sessions[$tty] = [
-					'session_id'   => $sessionId,
-					'cwd'          => $cwd,
-					'status'       => $data['status'] ?? null,
-					'pid'          => (int) $pid,
-					'skip_perms'   => $this->resolveSkipPerms($jsonl['permission_mode'], (int) $pid),
-					'model'        => $this->resolveModel($jsonl['model'], (int) $pid),
-				];
+					$sessions[$tty] = [
+						'session_id'   => $sessionId,
+						'cwd'          => $cwd,
+						'status'       => $data['status'] ?? null,
+						'pid'          => (int) $pid,
+						'skip_perms'   => $this->resolveSkipPerms($jsonl['permission_mode'], (int) $pid),
+						'model'        => $this->resolveModel($jsonl['model'], (int) $pid),
+						'config_dir'   => $configDir,
+					];
+				}
 			}
 		}
 
@@ -828,16 +862,19 @@ class AgentArtifacts {
 	}
 
 	/**
-	 * The Claude session a live pid is running, from ~/.claude/sessions/<pid>.json.
-	 * Null for a dead pid even when the file survives it: bury's GATE 3 kills on this
-	 * answer, and pids are reused, so a stale file must never vouch for one.
+	 * The Claude session a live pid is running, from <home>/sessions/<pid>.json in any
+	 * Claude home. Null for a dead pid even when the file survives it: bury's GATE 3
+	 * kills on this answer, and pids are reused, so a stale file must never vouch for one.
 	 */
 	public function claudeSessionIdForPid(int $pid): ?string {
 		if ($pid <= 0 || !$this->proc->pidIsAlive($pid)) { return null; }
-		$file = $this->claudeSessionsDir() . "/{$pid}.json";
-		if (!is_file($file)) { return null; }
-		$data = json_decode((string) @file_get_contents($file), true);
-		return $data['sessionId'] ?? null;
+		foreach (array_keys($this->claudeSessionDirs()) as $dir) {
+			$file = "{$dir}/{$pid}.json";
+			if (!is_file($file)) { continue; }
+			$data = json_decode((string) @file_get_contents($file), true);
+			return $data['sessionId'] ?? null;
+		}
+		return null;
 	}
 
 	/**
@@ -849,8 +886,9 @@ class AgentArtifacts {
 		return $this->ownSessionIdFromLsof($this->proc->lsofForPid($pid));
 	}
 
-	public function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model): string {
-		$cmd = 'claude';
+	/** $configDir: a non-default Claude home, so the session resumes under the account that owns it. */
+	public function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model, ?string $configDir = null): string {
+		$cmd = $this->claudeConfigDirPrefix($configDir) . 'claude';
 		if ($skipPerms) {
 			$cmd .= ' --dangerously-skip-permissions';
 		}
@@ -859,6 +897,11 @@ class AgentArtifacts {
 			$cmd .= " --model={$model}";
 		}
 		return $cmd;
+	}
+
+	/** `CLAUDE_CONFIG_DIR=<dir> ` for a non-default home, '' otherwise. */
+	public function claudeConfigDirPrefix(?string $configDir): string {
+		return $configDir !== null && $configDir !== '' ? 'CLAUDE_CONFIG_DIR=' . escapeshellarg($configDir) . ' ' : '';
 	}
 
 	/**
@@ -900,14 +943,16 @@ class AgentArtifacts {
 	 * The relaunch command for a session, dispatched on agent. Wraps rather than
 	 * replaces buildResumeCommand() so graveyard's callers stay put.
 	 *
-	 * $opts carries agent-specific knobs with no Claude equivalent — for codex,
-	 * sandbox/approval/effort. skip_perms is Claude-only and never reaches codex.
+	 * $opts carries agent-specific knobs — for codex, sandbox/approval/effort; for
+	 * claude, config_dir (a second account's home). skip_perms is Claude-only and
+	 * never reaches codex.
 	 */
 	public function buildAgentResumeCommand(string $agent, string $sessionId, bool $skipPerms = false, ?string $model = null, array $opts = []): string {
 		if ($agent === 'codex') {
 			return $this->buildCodexResumeCommand($sessionId, $model, $opts);
 		}
-		return $this->buildResumeCommand($sessionId, $skipPerms, $model);
+		$configDir = $opts['config_dir'] ?? null;
+		return $this->buildResumeCommand($sessionId, $skipPerms, $model, is_string($configDir) ? $configDir : null);
 	}
 
 	/** Generate a v4 UUID (for graveyard group ids). */

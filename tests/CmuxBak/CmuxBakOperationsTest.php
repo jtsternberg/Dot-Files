@@ -30,6 +30,9 @@ final class CmuxBakOperationalCmux extends Cmux {
 	public array $resumeArguments = [];
 	public string $screen = '';
 
+	/** Build the real resume command instead of the "resume <agent> <id>" marker. */
+	public bool $realResume = false;
+
 	public function __construct( Helpers $cli ) {
 		parent::__construct( $cli, true );
 	}
@@ -88,6 +91,10 @@ final class CmuxBakOperationalCmux extends Cmux {
 		array $opts = []
 	): string {
 		$this->resumeArguments[] = [ $agent, $sessionId, $skipPerms, $model, $opts ];
+
+		if ( $this->realResume ) {
+			return parent::buildAgentResumeCommand( $agent, $sessionId, $skipPerms, $model, $opts );
+		}
 
 		return "resume {$agent} {$sessionId}";
 	}
@@ -211,6 +218,71 @@ final class CmuxBakOperationsTest extends TestCase {
 		$this->assertSame( 'codex', $surface['agent'] );
 		$this->assertSame( '019fa599-6b5f-7de1-9822-52643135bb95', $surface['agent_session_id'] );
 		$this->assertSame( [ 'sandbox' => 'read-only' ], $surface['agent_opts'] );
+	}
+
+	public function testSecondAccountClaudeSessionRoundTripsToAResumeUnderItsConfigDir(): void {
+		$file = $this->temporaryFile( 'alt-account' );
+		$cwd  = $this->graveyardRoot;
+		$alt  = '/Users/someone/.claude-alt';
+		$cmux = new CmuxBakOperationalCmux( $this->cli );
+		$cmux->realResume = true;
+		$cmux->treeData   = [
+			'windows' => [
+				[
+					'workspaces' => [
+						[
+							'title' => 'dotfiles',
+							'ref'   => 'workspace:1',
+							'panes' => [
+								[
+									'ref'      => 'pane:1',
+									'index'    => 0,
+									'surfaces' => [
+										[
+											'ref'           => 'surface:1',
+											'id'            => 'surface-id-1',
+											'title'         => 'Agent',
+											'type'          => 'terminal',
+											'tty'           => 'ttys001',
+											'index_in_pane' => 0,
+										],
+									],
+								],
+							],
+						],
+					],
+				],
+			],
+		];
+		$cmux->claudeRows = [
+			[
+				'agent'       => 'claude',
+				'session_id'  => 'deba7795-bcde-416e-9d57-e38b31509eb3',
+				'surface_ref' => 'surface:1',
+				'cwd'         => $cwd,
+				'model'       => null,
+				'skip_perms'  => true,
+				'opts'        => [ 'config_dir' => $alt ],
+			],
+		];
+
+		ob_start();
+		$backupCode = ( new CmuxBak( $this->cli, $file, false, false, $cmux ) )->backup();
+		// The session is gone by restore time; only the backup knows about it.
+		$cmux->claudeRows = [];
+		$restoreCode = ( new CmuxBak( $this->cli, $file, true, false, $cmux ) )->restore();
+		ob_end_clean();
+
+		$this->assertSame( 0, $backupCode );
+		$this->assertSame( 0, $restoreCode );
+		$this->assertSame(
+			[
+				'surface:1',
+				'workspace:1',
+				'CLAUDE_CONFIG_DIR=' . escapeshellarg( $alt ) . " claude --dangerously-skip-permissions --resume deba7795-bcde-416e-9d57-e38b31509eb3\n",
+			],
+			end( $cmux->sent )
+		);
 	}
 
 	#[DataProvider('backupSchemaProvider')]

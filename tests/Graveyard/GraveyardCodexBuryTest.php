@@ -330,6 +330,33 @@ final class GraveyardCodexBuryTest extends TestCase
 
 		$this->assertArrayNotHasKey('kind', $tomb);
 		$this->assertArrayNotHasKey('agent_opts', $tomb);
+		$this->assertArrayNotHasKey('claude_config_dir', $tomb);
+	}
+
+	public function testSecondAccountClaudeTombstoneRecordsAndRelaunchesUnderItsConfigDir(): void
+	{
+		$sess = $this->codexSess();
+		$sess['agent'] = 'claude';
+		$sess['session_id'] = 'aaaaaaaa-1111-2222-3333-444444444444';
+		$sess['skip_perms'] = true;
+		$sess['model'] = null;
+		$sess['opts'] = ['config_dir' => '/Users/JT/.claude-alt'];
+
+		$tomb = $this->gy->buildTombstone($sess, ['workspace_title' => 'ws', 'tab_title' => 't'], 'sum', '2026-07-29T00:00:00Z');
+
+		$this->assertSame('/Users/JT/.claude-alt', $tomb['claude_config_dir'] ?? null);
+		$this->assertArrayNotHasKey('kind', $tomb);
+		$this->assertArrayNotHasKey('agent_opts', $tomb);
+
+		$prefix = 'CLAUDE_CONFIG_DIR=' . escapeshellarg('/Users/JT/.claude-alt') . ' ';
+		$this->assertSame(
+			$prefix . 'claude --dangerously-skip-permissions --resume aaaaaaaa-1111-2222-3333-444444444444',
+			$this->gy->buildTombstoneLaunch($tomb, false)
+		);
+		$this->assertSame(
+			$prefix . "claude --dangerously-skip-permissions '/graveyard-pickup /t.md'",
+			$this->gy->buildTombstoneLaunch($tomb, true, '/graveyard-pickup /t.md')
+		);
 	}
 
 	public function testTombstoneAgentReadsKindAndDefaultsToClaude(): void

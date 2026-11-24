@@ -221,31 +221,33 @@ class Cmux {
 
 	/**
 	 * Load active Claude sessions keyed by pid (companion to loadClaudeSessions,
-	 * which keys by tty). [ pid => [session_id, cwd, skip_perms, model, status] ].
+	 * which keys by tty), from every Claude home (AgentArtifacts::claudeSessionDirs()).
+	 * [ pid => [session_id, cwd, skip_perms, model, status, surface_id, config_dir] ].
 	 */
 	public function loadClaudeSessionsByPid(): array {
-		$dir = $this->claudeSessionsDir();
 		$out = [];
-		if (!is_dir($dir)) { return $out; }
-		foreach (glob($dir . '/*.json') ?: [] as $file) {
-			$pid = pathinfo($file, PATHINFO_FILENAME);
-			if (!ctype_digit($pid) || !$this->pidIsAlive((int) $pid)) { continue; }
-			$data = json_decode((string) @file_get_contents($file), true);
-			if (!$data) { continue; }
-			$sid  = $data['sessionId'] ?? null;
-			$cwd  = $data['cwd'] ?? null;
-			$meta = $this->readSessionJsonl($sid, $cwd);
-			$out[(int) $pid] = [
-				'session_id' => $sid,
-				'cwd'        => $cwd,
-				'status'     => $data['status'] ?? null,
-				'skip_perms' => $this->resolveSkipPerms($meta['permission_mode'] ?? null, (int) $pid),
-				'model'      => $this->resolveModel($meta['model'] ?? null, (int) $pid),
-				// The surface this session sits in, straight from cmux's own
-				// per-process env — what joinSessionsToSurfaces() binds on when
-				// there is no resume script to bridge through.
-				'surface_id' => $this->surfaceIdForPid((int) $pid),
-			];
+		foreach ($this->artifacts->claudeSessionDirs() as $dir => $configDir) {
+			foreach (glob($dir . '/*.json') ?: [] as $file) {
+				$pid = pathinfo($file, PATHINFO_FILENAME);
+				if (!ctype_digit($pid) || !$this->pidIsAlive((int) $pid)) { continue; }
+				$data = json_decode((string) @file_get_contents($file), true);
+				if (!$data) { continue; }
+				$sid  = $data['sessionId'] ?? null;
+				$cwd  = $data['cwd'] ?? null;
+				$meta = $this->readSessionJsonl($sid, $cwd);
+				$out[(int) $pid] = [
+					'session_id' => $sid,
+					'cwd'        => $cwd,
+					'status'     => $data['status'] ?? null,
+					'skip_perms' => $this->resolveSkipPerms($meta['permission_mode'] ?? null, (int) $pid),
+					'model'      => $this->resolveModel($meta['model'] ?? null, (int) $pid),
+					// The surface this session sits in, straight from cmux's own
+					// per-process env — what joinSessionsToSurfaces() binds on when
+					// there is no resume script to bridge through.
+					'surface_id' => $this->surfaceIdForPid((int) $pid),
+					'config_dir' => $configDir,
+				];
+			}
 		}
 		return $out;
 	}
@@ -706,10 +708,11 @@ class Cmux {
 				'reason'        => '',
 				// Tagged so CmuxBak can merge these rows with joinCodexToSurfaces()
 				// output and read both through one code path. 'opts' holds
-				// agent-specific knobs; Claude expresses everything it needs through
-				// model + skip_perms, so it stays empty here.
+				// agent-specific knobs; for Claude that is only config_dir, the
+				// non-default home (second account) a resume must run under. Empty for
+				// the default home, so those rows and backups keep their old shape.
 				'agent'         => 'claude',
-				'opts'          => [],
+				'opts'          => !empty($s['config_dir']) ? ['config_dir' => (string) $s['config_dir']] : [],
 				// True only when NEITHER bridge had anything to say: no resume-script
 				// ancestor and no CMUX_SURFACE_ID. That is the one state where a
 				// screen-scraping fallback (Graveyard's content probe) may still guess a
@@ -1258,8 +1261,8 @@ class Cmux {
 		return $n;
 	}
 
-	public function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model): string {
-		return $this->artifacts->buildResumeCommand($sessionId, $skipPerms, $model);
+	public function buildResumeCommand(string $sessionId, bool $skipPerms, ?string $model, ?string $configDir = null): string {
+		return $this->artifacts->buildResumeCommand($sessionId, $skipPerms, $model, $configDir);
 	}
 
 

@@ -658,6 +658,13 @@ class Graveyard {
 			}
 		}
 
+		// A second account's session (CLAUDE_CONFIG_DIR) must come back under that
+		// account. Top-level and only when set, mirroring codex_home, so a default-home
+		// claude tombstone keeps its shape.
+		if ($agent === 'claude' && !empty($session['opts']['config_dir'])) {
+			$tomb['claude_config_dir'] = (string) $session['opts']['config_dir'];
+		}
+
 		// Grouped (workspace) bury: stamp the shared group id + layout position so
 		// ls/resurrect can operate on the workspace as a unit, while the member
 		// tombstone stays self-sufficient for single-member resurrect.
@@ -4348,10 +4355,11 @@ class Graveyard {
 				: $this->artifacts->buildAgentResumeCommand('codex', (string) $t['session_id'], false, $t['model'] ?? null, $opts));
 		}
 
+		$configDir = !empty($t['claude_config_dir']) ? (string) $t['claude_config_dir'] : null;
 		if (!$fresh) {
-			return $this->artifacts->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null);
+			return $this->artifacts->buildResumeCommand($t['session_id'], !empty($t['skip_perms']), $t['model'] ?? null, $configDir);
 		}
-		$launch = 'claude';
+		$launch = $this->artifacts->claudeConfigDirPrefix($configDir) . 'claude';
 		if (!empty($t['skip_perms'])) { $launch .= ' --dangerously-skip-permissions'; }
 		if (!empty($t['model']))      { $launch .= ' --model=' . $t['model']; }
 		return $launch . $arg;

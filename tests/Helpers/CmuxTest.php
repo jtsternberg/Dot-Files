@@ -562,6 +562,48 @@ final class CmuxTest extends TestCase
 		$this->assertSame('17F50BA2-D5AC-4B23-B3CD-B1554F56B253', $sessions[4242]['surface_id']);
 	}
 
+	public function testLoadClaudeSessionsByPidReadsSecondAccountHomesAndTagsTheirConfigDir(): void
+	{
+		$root = sys_get_temp_dir() . '/cmux-homes-' . getmypid() . '-' . bin2hex(random_bytes(4));
+		$this->tmpDirs[] = $root;
+		mkdir($root . '/.claude/sessions', 0777, true);
+		mkdir($root . '/.claude-alt/sessions', 0777, true);
+		touch($root . '/.claude-alt/.claude.json');
+		file_put_contents($root . '/.claude/sessions/4242.json', json_encode(['sessionId' => 'main-sid', 'cwd' => '/x']));
+		file_put_contents($root . '/.claude-alt/sessions/4343.json', json_encode(['sessionId' => 'alt-sid', 'cwd' => '/y']));
+		putenv('CLAUDE_SESSIONS_DIR=' . $root . '/.claude/sessions');
+		putenv('CLAUDE_HOMES_ROOT=' . $root);
+
+		$cmux = new class ($this->cli) extends \JT\Helpers\Cmux {
+			public function pidIsAlive(int $pid): bool { return true; }
+			public function pidEnv(int $pid): string { return ''; }
+			public function pidCommand(int $pid): string { return ''; }
+			public function readSessionJsonl(?string $sid, ?string $cwd): array { return []; }
+		};
+
+		try {
+			$sessions = $cmux->loadClaudeSessionsByPid();
+		} finally {
+			putenv('CLAUDE_SESSIONS_DIR');
+			putenv('CLAUDE_HOMES_ROOT');
+		}
+
+		$this->assertNull($sessions[4242]['config_dir']);
+		$this->assertSame('alt-sid', $sessions[4343]['session_id']);
+		$this->assertSame($root . '/.claude-alt', $sessions[4343]['config_dir']);
+	}
+
+	public function testJoinSessionsToSurfacesCarriesTheConfigDirAsOpts(): void
+	{
+		$rows = $this->envJoinRows([
+			300 => ['session_id' => '11111111-1111-1111-1111-111111111111', 'cwd' => '/Users/JT', 'surface_id' => '17F50BA2-D5AC-4B23-B3CD-B1554F56B253', 'config_dir' => '/Users/JT/.claude-alt'],
+			500 => ['session_id' => '22222222-2222-2222-2222-222222222222', 'cwd' => '/Users/JT', 'surface_id' => 'FDD57310-4984-47C8-9279-02296D09C575', 'config_dir' => null],
+		]);
+
+		$this->assertSame(['config_dir' => '/Users/JT/.claude-alt'], $rows['11111111-1111-1111-1111-111111111111']['opts']);
+		$this->assertSame([], $rows['22222222-2222-2222-2222-222222222222']['opts']);
+	}
+
 	public function testUuidv4(): void
 	{
 		$uu = $this->cmux->uuidv4();

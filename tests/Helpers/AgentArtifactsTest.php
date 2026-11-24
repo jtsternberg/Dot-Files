@@ -163,6 +163,128 @@ final class AgentArtifactsTest extends TestCase {
 		}
 	}
 
+	# --- Claude config homes other than ~/.claude ----------------------------
+
+	/**
+	 * A fixture machine: the default sessions dir, a second account home with its
+	 * .claude.json marker, and graveyard's own store, which has a sessions/ dir but
+	 * is not a Claude home. Returns [defaultDir, altHome, homesRoot].
+	 */
+	private function claudeHomesFixture(): array {
+		$root    = $this->graveyardRoot . '/homes';
+		$default = $root . '/.claude/sessions';
+		$alt     = $root . '/.claude-alt';
+		mkdir($default, 0777, true);
+		mkdir($alt . '/sessions', 0777, true);
+		touch($alt . '/.claude.json');
+		mkdir($root . '/.claude-graveyard/sessions', 0777, true);
+		file_put_contents($root . '/.claude-graveyard/sessions/5151.json', json_encode(['sessionId' => 'not-a-claude-session']));
+		return [$default, $alt, $root];
+	}
+
+	private function withClaudeHomes(string $default, ?string $root, callable $fn) {
+		putenv('CLAUDE_SESSIONS_DIR=' . $default);
+		putenv($root === null ? 'CLAUDE_HOMES_ROOT' : 'CLAUDE_HOMES_ROOT=' . $root);
+		try {
+			return $fn();
+		} finally {
+			putenv('CLAUDE_SESSIONS_DIR');
+			putenv('CLAUDE_HOMES_ROOT');
+		}
+	}
+
+	public function test_claudeSessionDirs_adds_marked_homes_and_skips_unmarked_ones(): void {
+		[$default, $alt, $root] = $this->claudeHomesFixture();
+
+		$dirs = $this->withClaudeHomes($default, $root, fn() => $this->art()->claudeSessionDirs());
+
+		$this->assertSame([$default => null, $alt . '/sessions' => $alt], $dirs);
+	}
+
+	public function test_claudeSessionDirs_under_the_test_override_never_reads_the_real_home(): void {
+		[$default] = $this->claudeHomesFixture();
+
+		$dirs = $this->withClaudeHomes($default, null, fn() => $this->art()->claudeSessionDirs());
+
+		$this->assertSame([$default => null], $dirs);
+	}
+
+	public function test_claudeSessionDirs_without_overrides_globs_HOME_and_honours_CLAUDE_CONFIG_DIR(): void {
+		[, $alt, $root] = $this->claudeHomesFixture();
+		$other   = $this->graveyardRoot . '/elsewhere';
+		$oldHome = getenv('HOME');
+		$oldCfg  = getenv('CLAUDE_CONFIG_DIR');
+		putenv('CLAUDE_SESSIONS_DIR');
+		putenv('HOME=' . $root);
+		putenv('CLAUDE_CONFIG_DIR=' . $other);
+		try {
+			$dirs = $this->art()->claudeSessionDirs();
+		} finally {
+			putenv('HOME=' . $oldHome);
+			putenv($oldCfg === false ? 'CLAUDE_CONFIG_DIR' : 'CLAUDE_CONFIG_DIR=' . $oldCfg);
+		}
+
+		$this->assertSame([
+			$root . '/.claude/sessions' => null,
+			$alt . '/sessions'          => $alt,
+			$other . '/sessions'        => $other,
+		], $dirs);
+	}
+
+	public function test_loadClaudeSessions_reads_every_home_and_tags_its_config_dir(): void {
+		[$default, $alt, $root] = $this->claudeHomesFixture();
+		file_put_contents($default . '/4242.json', json_encode(['sessionId' => 'main-sid', 'cwd' => '/x']));
+		file_put_contents($alt . '/sessions/4343.json', json_encode(['sessionId' => 'alt-sid', 'cwd' => '/y']));
+
+		$proc = new class($this->cli) extends Proc {
+			public function pidIsAlive(int $pid): bool { return true; }
+			public function getTtyForPid(int $pid) { return "ttys{$pid}"; }
+			public function pidCommand(int $pid): string { return ''; }
+		};
+		$art = new class($this->cli, $proc) extends AgentArtifacts {
+			public function readSessionJsonl(?string $sessionId, ?string $cwd): array {
+				return ['permission_mode' => null, 'model' => null];
+			}
+		};
+
+		$sessions = $this->withClaudeHomes($default, $root, fn() => $art->loadClaudeSessions());
+
+		$this->assertSame(['ttys4242', 'ttys4343'], array_keys($sessions));
+		$this->assertNull($sessions['ttys4242']['config_dir']);
+		$this->assertSame('alt-sid', $sessions['ttys4343']['session_id']);
+		$this->assertSame($alt, $sessions['ttys4343']['config_dir']);
+	}
+
+	public function test_claudeSessionIdForPid_finds_a_pid_in_an_extra_home(): void {
+		[$default, $alt, $root] = $this->claudeHomesFixture();
+		file_put_contents($alt . '/sessions/4343.json', json_encode(['sessionId' => 'alt-sid']));
+
+		$proc = new class($this->cli) extends Proc {
+			public function pidIsAlive(int $pid): bool { return true; }
+		};
+
+		$this->withClaudeHomes($default, $root, function () use ($proc) {
+			$art = $this->art($proc);
+			$this->assertSame('alt-sid', $art->claudeSessionIdForPid(4343));
+			$this->assertNull($art->claudeSessionIdForPid(5151), 'graveyard store is not a Claude home');
+		});
+	}
+
+	public function test_buildResumeCommand_prefixes_the_config_dir_only_when_given(): void {
+		$art = $this->art();
+		$this->assertSame('claude --dangerously-skip-permissions --resume abc --model=opus', $art->buildResumeCommand('abc', true, 'opus'));
+		$this->assertSame('claude --dangerously-skip-permissions --resume abc --model=opus', $art->buildResumeCommand('abc', true, 'opus', null));
+		$this->assertSame(
+			"CLAUDE_CONFIG_DIR='/h/.claude alt' claude --resume abc",
+			$art->buildResumeCommand('abc', false, null, '/h/.claude alt')
+		);
+		$this->assertSame(
+			"CLAUDE_CONFIG_DIR='/h/.claude-alt' claude --resume abc",
+			$art->buildAgentResumeCommand('claude', 'abc', false, null, ['config_dir' => '/h/.claude-alt'])
+		);
+		$this->assertSame('claude --resume abc', $art->buildAgentResumeCommand('claude', 'abc'));
+	}
+
 	# --- Cmux still answers for cmux-bak -------------------------------------
 
 	public function test_cmux_forwards_moved_methods_so_cmux_bak_is_unaffected(): void {
