@@ -877,6 +877,32 @@ class AgentArtifacts {
 	}
 
 	/**
+	 * The non-default Claude home a live session runs under, null for ~/.claude or when
+	 * no home claims it. For a transport (herdr) that reports the session id rather than
+	 * reading the <pid>.json itself. A file only counts when its pid is alive AND it names
+	 * this session: pids are reused, and a stale second-account file vouching for a
+	 * default session would resume it under the wrong account. $pid is tried first;
+	 * failing that (or without one), any live file naming the session places it.
+	 */
+	public function claudeConfigDirForSession(string $sessionId, ?int $pid = null): ?string {
+		if ($sessionId === '') { return null; }
+		$dirs = $this->claudeSessionDirs();
+		$sets = $pid !== null ? [fn($dir) => ["{$dir}/{$pid}.json"]] : [];
+		$sets[] = fn($dir) => glob($dir . '/*.json') ?: [];
+		foreach ($sets as $filesIn) {
+			foreach ($dirs as $dir => $configDir) {
+				foreach ($filesIn($dir) as $file) {
+					$filePid = pathinfo($file, PATHINFO_FILENAME);
+					if (!ctype_digit($filePid) || !is_file($file) || !$this->proc->pidIsAlive((int) $filePid)) { continue; }
+					$data = json_decode((string) @file_get_contents($file), true);
+					if (($data['sessionId'] ?? null) === $sessionId) { return $configDir; }
+				}
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * The Claude session a live pid is running, from <home>/sessions/<pid>.json in any
 	 * Claude home. Null for a dead pid even when the file survives it: bury's GATE 3
 	 * kills on this answer, and pids are reused, so a stale file must never vouch for one.

@@ -508,10 +508,102 @@ SH;
 		foreach ($rows as $row) { $this->assertNull($row['pid']); }
 	}
 
-	/** Claude expresses everything it needs through model + skip_perms. */
+	/** A default-home Claude session expresses everything through model + skip_perms. */
 	public function testOptsIsEmptyForClaude(): void
 	{
 		$this->assertSame([], $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A)['opts']);
+	}
+
+	/**
+	 * A second account's homes, under CLAUDE_HOMES_ROOT so the real machine's never
+	 * leak in. Returns the extra home; $altPids/$defaultPids name which <pid>.json each
+	 * home's sessions/ dir holds for CLAUDE_A.
+	 */
+	private function claudeHomes(array $altPids, array $defaultPids = []): string
+	{
+		$root = $this->stubDir . '/homes';
+		$alt  = $root . '/.claude-alt';
+		mkdir($alt . '/sessions', 0777, true);
+		touch($alt . '/.claude.json');
+		putenv('CLAUDE_HOMES_ROOT=' . $root);
+		$default = (string) getenv('CLAUDE_SESSIONS_DIR');
+		foreach ($altPids as $pid)     { file_put_contents("{$alt}/sessions/{$pid}.json", json_encode(['sessionId' => self::CLAUDE_A])); }
+		foreach ($defaultPids as $pid) { file_put_contents("{$default}/{$pid}.json", json_encode(['sessionId' => self::CLAUDE_A])); }
+		return $alt;
+	}
+
+	/** Same carry as the cmux join row, so Graveyard stores claude_config_dir unchanged. */
+	public function testAClaudeSessionInAnotherHomeCarriesItsConfigDir(): void
+	{
+		$alt = $this->claudeHomes([getmypid()]);
+		$this->procInfo('wA:p1', 'claude', ['claude'], getmypid());
+
+		try {
+			$row = $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A);
+			$this->assertSame(['config_dir' => $alt], $row['opts']);
+			$this->assertSame($alt, $this->gy->buildTombstone($row, [], '', '')['claude_config_dir']);
+		} finally {
+			putenv('CLAUDE_HOMES_ROOT');
+		}
+	}
+
+	public function testADefaultHomeClaudeSessionKeepsEmptyOpts(): void
+	{
+		$this->claudeHomes([], [getmypid()]);
+		$this->procInfo('wA:p1', 'claude', ['claude'], getmypid());
+
+		try {
+			$row = $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A);
+			$this->assertSame([], $row['opts']);
+			$this->assertArrayNotHasKey('claude_config_dir', $this->gy->buildTombstone($row, [], '', ''));
+		} finally {
+			putenv('CLAUDE_HOMES_ROOT');
+		}
+	}
+
+	/** No pid from herdr: the session id alone still places it, via a LIVE pid's file. */
+	public function testAClaudeSessionWithNoPidIsPlacedBySessionId(): void
+	{
+		$alt = $this->claudeHomes([getmypid(), 999999999]);
+
+		try {
+			$this->assertSame(['config_dir' => $alt], $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A)['opts']);
+		} finally {
+			putenv('CLAUDE_HOMES_ROOT');
+		}
+	}
+
+	/**
+	 * pids are reused: a file naming another session must not vouch for this one, or a
+	 * stale second-account file would resume a default session under the wrong account.
+	 */
+	public function testAPidFileForAnotherSessionDoesNotPlaceIt(): void
+	{
+		$alt = $this->claudeHomes([]);
+		file_put_contents("{$alt}/sessions/" . getmypid() . ".json", json_encode(['sessionId' => self::CLAUDE_B]));
+		$this->procInfo('wA:p1', 'claude', ['claude'], getmypid());
+
+		try {
+			$this->assertSame([], $this->rowFor($this->transport()->liveSessions(), self::CLAUDE_A)['opts']);
+		} finally {
+			putenv('CLAUDE_HOMES_ROOT');
+		}
+	}
+
+	/** Every resurrect path ends in launchSessionIntoSurface(); this one types into herdr. */
+	public function testResurrectIntoHerdrLaunchesUnderTheRecordedHome(): void
+	{
+		$gy = new class ($this->cli, $this->transport()) extends \JT\Graveyard {
+			public function launch(array $t, string $surf, string $ws): string {
+				return $this->launchSessionIntoSurface($t, $surf, $ws, false);
+			}
+		};
+		$alt = '/Users/tester/.claude-alt';
+
+		$gy->launch(['session_id' => self::CLAUDE_A, 'cwd' => '/x', 'claude_config_dir' => $alt], 'wJ:p1', 'wJ');
+
+		$sent = implode("\n", $this->allArgv());
+		$this->assertStringContainsString("CLAUDE_CONFIG_DIR='{$alt}' claude", $sent);
 	}
 
 	/**

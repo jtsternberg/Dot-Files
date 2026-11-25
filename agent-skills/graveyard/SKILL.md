@@ -73,10 +73,11 @@ alone cannot recover the account home when no native file survives.
 Claude sessions run under a second account (`CLAUDE_CONFIG_DIR`, e.g.
 `claude-alt`) are discovered from that home's `sessions/` dir: every
 `~/.claude-*` dir holding a `.claude.json`, plus the current `CLAUDE_CONFIG_DIR`.
-Burying one out of cmux records `claude_config_dir` in the tombstone, and
-resurrection prefixes `CLAUDE_CONFIG_DIR=<dir>` to both `claude --resume` and
-the fresh transcript launch. Default-home tombstones carry no such field. herdr
-discovery does not record the home yet.
+Burying one out of cmux or herdr records `claude_config_dir` in the tombstone
+(herdr's session is placed by the live `<pid>.json` naming its session id), and
+resurrection into either transport prefixes `CLAUDE_CONFIG_DIR=<dir>` to both
+`claude --resume` and the fresh transcript launch. Default-home tombstones carry
+no such field.
 
 Only `resurrect` takes `--transport=<cmux|herdr>`, because a restore creates a
 workspace that does not exist yet. Default: the only reachable transport, or

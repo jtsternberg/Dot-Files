@@ -400,7 +400,12 @@ class HerdrTransport implements SessionTransport
 	 * fall back to.
 	 */
 	protected function resolveOpts(string $agent, string $sid, array $proc): array {
-		if ($agent !== 'codex') { return []; }
+		if ($agent !== 'codex') {
+			// Same shape as the cmux join row: config_dir only for a non-default home, so
+			// Graveyard records claude_config_dir and a default row keeps empty opts.
+			$configDir = $this->artifacts->claudeConfigDirForSession($sid, $proc['pid']);
+			return $configDir !== null ? ['config_dir' => $configDir] : [];
+		}
 
 		$ctx = $this->codexContext($sid);
 		return [
