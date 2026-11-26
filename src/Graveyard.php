@@ -1783,6 +1783,8 @@ class Graveyard {
 	 */
 	public function passesPreExportGate(array $sess, string $screen): bool {
 		if (!empty($sess['_probed'])) { return true; }
+		$identity = $this->statuslineIdentity($screen, (string) ($sess['session_id'] ?? ''));
+		if ($identity !== null) { return $identity; }
 		return $this->statuslineMatchesSession($screen, (string) ($sess['cwd'] ?? ''));
 	}
 
@@ -1948,10 +1950,12 @@ class Graveyard {
 		// which is what already made it refuse. The busy check below keeps the null so
 		// it can tell an unreadable surface from a quiet one.
 		if (!$this->passesPreExportGate($sess, $screen ?? '')) {
-			$onscreen = $this->extractStatuslineCwd($screen ?? '');
+			$onscreenIds = $this->statuslineSessionIds($screen ?? '');
+			$onscreen    = $this->extractStatuslineCwd($screen ?? '');
 			$this->cli->err("  Refusing to bury {$id} (gate 1): resolved surface shows "
-				. ($onscreen !== null ? "cwd '{$onscreen}'" : 'no Claude REPL statusline')
-				. ", not session cwd '{$sess['cwd']}' — leaving it ALIVE.");
+				. ($onscreenIds ? "session " . implode(', ', array_map(fn($i) => substr($i, 0, 8), $onscreenIds))
+					: ($onscreen !== null ? "cwd '{$onscreen}'" : 'neither its session id nor a Claude REPL statusline cwd'))
+				. ", not session {$id} / cwd '{$sess['cwd']}' — leaving it ALIVE.");
 			return false;
 		}
 
@@ -2591,6 +2595,12 @@ class Graveyard {
 				$unboundByRef[$ref] = $r;
 			}
 		}
+		// A surface showing a LIVE Claude session's id on its statusline is a Claude REPL
+		// even when the statusline has no 📁 cwd token to find.
+		$liveClaudeIds = array_values(array_filter(array_map(
+			fn($r) => (($r['agent'] ?? 'claude') === 'claude') ? (string) ($r['session_id'] ?? '') : '',
+			$liveSessions
+		)));
 		$isClaudeByRef = [];
 		$surfaceByRef  = [];
 		foreach ($surfaces as $surf) {
@@ -2601,7 +2611,8 @@ class Graveyard {
 			// concerned — same answer a blank screen gives, and both are safe: a
 			// misclassified Claude tab is refused by bury's gates, not torn down.
 			$screen = $this->readLastScreen($ref, $wsRef, 8) ?? '';
-			$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null;
+			$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null
+				|| array_intersect($this->statuslineSessionIds($screen), $liveClaudeIds) !== [];
 		}
 		// Every live codex bound to a surface (targetable or not), so classify can tell a
 		// codex terminal from a shell — codex shows no Claude statusline, so the probe above

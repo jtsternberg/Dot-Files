@@ -60,6 +60,37 @@ trait StatuslineProbeTrait
 	}
 
 	/**
+	 * PURE. Claude session ids shown on the REPL statusline — the lines BELOW the input
+	 * box's last horizontal rule. Only that region counts: an id typed into the input
+	 * box or quoted in the transcript above it (a catch-up prompt, a pasted log) says
+	 * nothing about which session owns the surface. No rule = not a recognisable REPL
+	 * tail = []. Lowercase only: cmux surface ids are uppercase UUIDs and appear in
+	 * typed text often.
+	 */
+	public function statuslineSessionIds(string $screen): array {
+		$lines = preg_split('/\R/u', $screen);
+		$rule = null;
+		foreach ($lines as $i => $line) {
+			if (preg_match('/^\s*─{10,}\s*$/u', $line)) { $rule = $i; }
+		}
+		if ($rule === null) { return []; }
+		$region = implode("\n", array_slice($lines, $rule + 1));
+		preg_match_all('/(?<![0-9a-f-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f-])/', $region, $m);
+		return array_values(array_unique($m[0]));
+	}
+
+	/**
+	 * PURE. Statusline identity verdict for $sessionId: true = its id is on the
+	 * statusline, false = a DIFFERENT session's id is (proof of the wrong surface, which
+	 * must override any cwd match), null = no id shown (fall back to the cwd heuristic).
+	 */
+	public function statuslineIdentity(string $screen, string $sessionId): ?bool {
+		$ids = $this->statuslineSessionIds($screen);
+		if (!$ids) { return null; }
+		return in_array($sessionId, $ids, true);
+	}
+
+	/**
 	 * PURE. Content-probe fallback binding (dotfiles-c15). For Claude sessions the
 	 * ancestry join could not bind (fresh / non-cmux-resumed), match each to a still-
 	 * unbound terminal surface by reading its on-screen statusline cwd. A session binds
@@ -75,13 +106,21 @@ trait StatuslineProbeTrait
 		$binds = [];
 		$claimed = [];
 		foreach ($freshRows as $r) {
+			$sid = (string) ($r['session_id'] ?? '');
+			$byId = [];
 			$cands = [];
 			foreach (array_keys($unboundSurfaces) as $ref) {
 				if (isset($claimed[$ref])) { continue; }
-				if ($this->statuslineMatchesSession($screenByRef[$ref] ?? '', (string) ($r['cwd'] ?? ''))) {
+				$screen = $screenByRef[$ref] ?? '';
+				$identity = $this->statuslineIdentity($screen, $sid);
+				if ($identity === true) { $byId[] = $ref; }
+				if ($identity === null && $this->statuslineMatchesSession($screen, (string) ($r['cwd'] ?? ''))) {
 					$cands[] = $ref;
 				}
 			}
+			// An id on the statusline is exact; the cwd heuristic only decides when no
+			// surface shows this session's id.
+			if ($byId) { $cands = $byId; }
 			if (count($cands) > 1 && !empty($r['tty'])) {
 				$tied = array_values(array_filter($cands, fn($ref) => ($unboundSurfaces[$ref]['tty'] ?? '') === $r['tty']));
 				if (count($tied) === 1) { $cands = $tied; }

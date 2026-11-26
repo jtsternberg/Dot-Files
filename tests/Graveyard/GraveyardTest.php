@@ -1009,6 +1009,65 @@ final class GraveyardTest extends TestCase
 		$this->assertTrue($this->gy->passesPreExportGate($probed, $screenShell));
 	}
 
+	/** A Claude REPL tail: input box between two rules, then the statusline (session id at the end). */
+	private function replTail(string $statusline, string $typed = ''): string
+	{
+		$rule = str_repeat('─', 40);
+		return "earlier transcript text\n{$rule}\n❯ {$typed}\n{$rule}\n{$statusline}\n  ⏵⏵ bypass permissions on\n";
+	}
+
+	public function testStatuslineSessionIds(): void
+	{
+		$a = '4b811d82-1111-4222-8333-944445555666';
+		$b = 'da897232-eca2-4552-877a-f16326de77f7';
+		$this->assertSame([$a], $this->gy->statuslineSessionIds($this->replTail(" Opus 5.5  dotfiles  main\n 11% | {$a}")));
+		$this->assertSame([$a], $this->gy->statuslineSessionIds($this->replTail(" Opus 5.5  dotfiles\n 11%\n {$a}")));
+		// An id typed into the input box (or in the transcript above it) is not the statusline.
+		$this->assertSame([], $this->gy->statuslineSessionIds($this->replTail(' Opus 5.5  dotfiles', "catch up on {$b}")));
+		$this->assertSame([], $this->gy->statuslineSessionIds("{$b}\nplain shell \$"));
+		// No input-box rule = not a recognisable REPL tail; never guess.
+		$this->assertSame([], $this->gy->statuslineSessionIds("{$a}\n"));
+		// cmux surface ids are uppercase UUIDs; Claude session ids are lowercase.
+		$this->assertSame([], $this->gy->statuslineSessionIds($this->replTail(' x | C8279577-6C00-43B1-A6B7-5CCD5D5381DE')));
+	}
+
+	public function testPassesPreExportGateBySessionId(): void
+	{
+		$sid   = '4b811d82-1111-4222-8333-944445555666';
+		$other = 'da897232-eca2-4552-877a-f16326de77f7';
+		$row   = ['session_id' => $sid, 'cwd' => '/Users/JT/Sites/lindris-next-monorepo'];
+
+		// Powerline statusline: no 📁 cwd token, but this session's id is on it.
+		$this->assertTrue($this->gy->passesPreExportGate($row, $this->replTail(" Opus 5.5  lindris  main\n 3% | {$sid}")));
+		// Another session's id on the statusline is proof of the WRONG tab, even when the cwd matches.
+		$this->assertFalse($this->gy->passesPreExportGate($row, $this->replTail("📁 /lindris-next-monorepo | 🌿 main | {$other}")));
+		// The id only typed in the input box proves nothing.
+		$this->assertFalse($this->gy->passesPreExportGate($row, $this->replTail(' Opus 5.5  lindris', $sid)));
+	}
+
+	public function testContentProbeBindBySessionId(): void
+	{
+		$s1 = '11111111-1111-4111-8111-111111111111';
+		$s2 = '22222222-2222-4222-8222-222222222222';
+		// Same cwd on both surfaces (the cwd heuristic alone can't separate them), no 📁 token.
+		$fresh = [
+			['session_id' => $s1, 'cwd' => '/x', 'tty' => 'ttysZZ'],
+			['session_id' => $s2, 'cwd' => '/x', 'tty' => 'ttysZZ'],
+		];
+		$unbound = ['surface:1' => ['tty' => 'ttysAA'], 'surface:2' => ['tty' => 'ttysBB']];
+		$screens = [
+			'surface:1' => $this->replTail(" Opus  x\n {$s2}"),
+			'surface:2' => $this->replTail(" Opus  x\n {$s1}"),
+		];
+		$this->assertSame(['' . $s1 => 'surface:2', $s2 => 'surface:1'], $this->gy->contentProbeBind($fresh, $unbound, $screens));
+
+		// A surface whose statusline names a different session never binds by cwd.
+		$fresh2   = [['session_id' => $s1, 'cwd' => '/x', 'tty' => 't']];
+		$unbound2 = ['surface:1' => ['tty' => 'ttysAA']];
+		$screens2 = ['surface:1' => $this->replTail("📁 /x | {$s2}")];
+		$this->assertSame([], $this->gy->contentProbeBind($fresh2, $unbound2, $screens2));
+	}
+
 	public function testMemberRowToBury(): void
 	{
 		// A _probed member MUST use its synthesized (targetable) row. Re-resolving via
