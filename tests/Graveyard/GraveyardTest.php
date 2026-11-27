@@ -1031,6 +1031,18 @@ final class GraveyardTest extends TestCase
 		$this->assertSame([], $this->gy->statuslineSessionIds($this->replTail(' x | C8279577-6C00-43B1-A6B7-5CCD5D5381DE')));
 	}
 
+	public function testStatuslineCwdIgnoresACwdTokenAboveTheInputBox(): void
+	{
+		// The gates read a tail deep enough to hold the whole statusline, which also
+		// pulls in transcript: a 📁 quoted there must not stand in for the statusline's.
+		$this->assertSame('/new', $this->gy->extractStatuslineCwd($this->replTail(' 📁 /new | 🌿 main')));
+		$rule = str_repeat('─', 40);
+		$this->assertSame('/new', $this->gy->extractStatuslineCwd("📁 /old | x\n{$rule}\n❯ \n{$rule}\n 📁 /new | 🌿 main\n"));
+		$this->assertNull($this->gy->extractStatuslineCwd("📁 /old | x\n{$rule}\n❯ \n{$rule}\n Opus 5.5  dotfiles\n"));
+		// No input-box rule: a bare statusline string still reads (older captures, tests).
+		$this->assertSame('/foo', $this->gy->extractStatuslineCwd('[Opus] | 📁 /foo | 🌿 main'));
+	}
+
 	public function testPassesPreExportGateBySessionId(): void
 	{
 		$sid   = '4b811d82-1111-4222-8333-944445555666';

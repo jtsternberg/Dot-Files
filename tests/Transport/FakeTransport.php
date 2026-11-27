@@ -20,6 +20,9 @@ final class FakeTransport implements SessionTransport
 	/** @var list<array{0:string,1:array}> */
 	public array $calls = [];
 
+	/** Answer a $lines read with only the screen's last $lines lines, as cmux does. */
+	public bool $tailLines = false;
+
 	public function __construct(
 		private string $name,
 		private array $liveSessions = [],
@@ -83,6 +86,9 @@ final class FakeTransport implements SessionTransport
 	 */
 	public function readScreen(string $surfaceRef, string $workspaceRef, int $lines = 0): ?string {
 		$this->calls[] = ['readScreen', [$surfaceRef, $workspaceRef, $lines]];
+		if ($this->tailLines && $lines > 0 && $this->screen !== null) {
+			return implode("\n", array_slice(explode("\n", $this->screen), -$lines));
+		}
 		return $this->screen;
 	}
 

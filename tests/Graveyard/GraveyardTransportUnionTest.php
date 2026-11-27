@@ -147,8 +147,8 @@ final class GraveyardTransportUnionTest extends TestCase
 		$rows = $gy->candidates();
 
 		$this->assertSame(['a', 'b'], array_column($rows, 'session_id'));
-		$this->assertSame([['readScreen', ['surface:1', 'workspace:1', 6]]], $cmux->calls);
-		$this->assertSame([['readScreen', ['wF:p3', 'wF', 6]]], $herdr->calls);
+		$this->assertSame([['readScreen', ['surface:1', 'workspace:1', Graveyard::STATUSLINE_TAIL_LINES]]], $cmux->calls);
+		$this->assertSame([['readScreen', ['wF:p3', 'wF', Graveyard::STATUSLINE_TAIL_LINES]]], $herdr->calls);
 	}
 
 	// ── Job 3: the degraded restore names what it drops ───────────────────────

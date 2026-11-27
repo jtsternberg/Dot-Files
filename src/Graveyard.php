@@ -1939,7 +1939,7 @@ class Graveyard {
 			return $this->buryCodexOne($sess, $force, $autoConfirm, $group, $deferClose);
 		}
 
-		$screen = $this->readLastScreen($sess['surface_ref'], $sess['workspace_ref']);
+		$screen = $this->readLastScreen($sess['surface_ref'], $sess['workspace_ref'], self::STATUSLINE_TAIL_LINES);
 
 		// GATE 1 (pre-export): the resolved surface must actually be showing THIS
 		// session's idle Claude REPL. A statusline cwd mismatch means the join pointed
@@ -2347,7 +2347,7 @@ class Graveyard {
 		// sessions that statusline cwd matches; >1 is the ambiguity that blocks the bind.
 		// Diagnostic only (it names WHY a row is untargetable); an unreadable surface
 		// simply yields no on-screen cwd, which is already one of the cases below.
-		$screen    = $this->readLastScreen($ref, (string) ($surfaceByRef[$ref]['workspace_ref'] ?? ''), 30) ?? '';
+		$screen    = $this->readLastScreen($ref, (string) ($surfaceByRef[$ref]['workspace_ref'] ?? ''), self::STATUSLINE_TAIL_LINES) ?? '';
 		$cwd       = (string) ($this->extractStatuslineCwd($screen) ?? '');
 		$cwdSessionCount = 0;
 		if ($cwd !== '') {
@@ -2610,7 +2610,7 @@ class Graveyard {
 			// An unreadable surface is not a Claude surface as far as classify is
 			// concerned — same answer a blank screen gives, and both are safe: a
 			// misclassified Claude tab is refused by bury's gates, not torn down.
-			$screen = $this->readLastScreen($ref, $wsRef, 8) ?? '';
+			$screen = $this->readLastScreen($ref, $wsRef, self::STATUSLINE_TAIL_LINES) ?? '';
 			$isClaudeByRef[$ref] = $this->extractStatuslineCwd($screen) !== null
 				|| array_intersect($this->statuslineSessionIds($screen), $liveClaudeIds) !== [];
 		}
@@ -4983,7 +4983,7 @@ class Graveyard {
 			$reason = $this->busyReason(
 				(int) $r['idle_seconds'],
 				self::IDLE_FLOOR_DEFAULT,
-				$this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref']))
+				$this->driveRow($r, fn() => $this->readLastScreen($r['surface_ref'], $r['workspace_ref'], self::STATUSLINE_TAIL_LINES))
 			);
 			$busyReasons[] = $reason;
 			$out[] = $this->candidateRowFor($r, $reason !== null);

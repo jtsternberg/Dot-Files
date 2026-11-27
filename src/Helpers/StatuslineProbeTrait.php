@@ -14,14 +14,38 @@ namespace JT\Helpers;
 trait StatuslineProbeTrait
 {
 	/**
+	 * How many tail lines a statusline read takes. The statusline under the input box
+	 * runs four lines before Claude Code appends notices ("✔ Update installed", "/rc"),
+	 * and the readers below need the input box's bottom rule above it, so a shallow
+	 * tail silently loses the rule and every identity check reads "not a REPL".
+	 */
+	public const STATUSLINE_TAIL_LINES = 30;
+
+	/**
+	 * PURE. The screen below the input box's last horizontal rule, or null when there is
+	 * no rule (not a recognisable REPL tail).
+	 */
+	protected function belowInputBox(string $screen): ?string {
+		$lines = preg_split('/\R/u', $screen);
+		$rule = null;
+		foreach ($lines as $i => $line) {
+			if (preg_match('/^\s*─{10,}\s*$/u', $line)) { $rule = $i; }
+		}
+		return $rule === null ? null : implode("\n", array_slice($lines, $rule + 1));
+	}
+
+	/**
 	 * PURE. The cwd token from a Claude REPL statusline ("📁 /foo"), or null if none.
 	 * The cwd MAY CONTAIN SPACES ("/Southport UDO"), so capture the whole field after
 	 * the 📁 glyph up to the next status separator (| or │) or end of line — never
 	 * stop at the first space (that was the phase-1-family bug: '/Southport UDO' →
 	 * '/Southport', making every spaced-path session fail gate 1).
+	 * Read from below the input box when there is one: a 📁 quoted in the transcript
+	 * above it is not this surface's cwd. A bare statusline with no rule still reads.
 	 */
 	public function extractStatuslineCwd(string $screen): ?string {
-		if (!preg_match('/📁\s*([^|│\x{2502}\n]+)/u', $screen, $m)) { return null; }
+		$region = $this->belowInputBox($screen) ?? $screen;
+		if (!preg_match('/📁\s*([^|│\x{2502}\n]+)/u', $region, $m)) { return null; }
 		$tok = trim($m[1]);
 		return $tok === '' ? null : $tok;
 	}
@@ -68,13 +92,8 @@ trait StatuslineProbeTrait
 	 * typed text often.
 	 */
 	public function statuslineSessionIds(string $screen): array {
-		$lines = preg_split('/\R/u', $screen);
-		$rule = null;
-		foreach ($lines as $i => $line) {
-			if (preg_match('/^\s*─{10,}\s*$/u', $line)) { $rule = $i; }
-		}
-		if ($rule === null) { return []; }
-		$region = implode("\n", array_slice($lines, $rule + 1));
+		$region = $this->belowInputBox($screen);
+		if ($region === null) { return []; }
 		preg_match_all('/(?<![0-9a-f-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f-])/', $region, $m);
 		return array_values(array_unique($m[0]));
 	}

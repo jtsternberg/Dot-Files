@@ -336,7 +336,7 @@ class CmuxTransport implements SessionTransport
 			if (isset($bound[$ref])) { continue; }
 			$unbound[$ref] = ['tty' => $d['tty'] ?? '', 'workspace_ref' => $d['workspace_ref'] ?? ''];
 			// A poller-shaped bulk read: an unreadable surface simply matches no probe.
-			$screenByRef[$ref] = $this->readScreen($ref, $d['workspace_ref'] ?? '', 8) ?? '';
+			$screenByRef[$ref] = $this->readScreen($ref, $d['workspace_ref'] ?? '', self::STATUSLINE_TAIL_LINES) ?? '';
 		}
 
 		$binds = $this->contentProbeBind($fresh, $unbound, $screenByRef);
